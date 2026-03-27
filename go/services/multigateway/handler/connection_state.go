@@ -25,6 +25,18 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// pendingListenAction records a single LISTEN/UNLISTEN operation within a transaction.
+type pendingListenAction struct {
+	actionType int    // pendingListen, pendingUnlisten, or pendingUnlistenAll
+	channel    string // empty for pendingUnlistenAll
+}
+
+const (
+	pendingListen      = iota // LISTEN channel
+	pendingUnlisten           // UNLISTEN channel
+	pendingUnlistenAll        // UNLISTEN *
+)
+
 // MultiGatewayConnectionState keeps track of the information specific
 // to each connection.
 type MultiGatewayConnectionState struct {
@@ -68,10 +80,9 @@ type MultiGatewayConnectionState struct {
 	// ListenChannels tracks active LISTEN channels for this connection.
 	ListenChannels map[string]bool
 
-	// PendingListens/PendingUnlistens track LISTEN/UNLISTEN inside transactions.
-	PendingListens     []string
-	PendingUnlistens   []string
-	PendingUnlistenAll bool
+	// pendingActions tracks LISTEN/UNLISTEN operations inside transactions,
+	// preserving the order they were issued. Processed at COMMIT by CommitPendingListens.
+	pendingActions []pendingListenAction
 
 	// NotifCh receives notifications from the PubSubListener.
 	NotifCh chan *sqltypes.Notification
@@ -341,62 +352,76 @@ func (m *MultiGatewayConnectionState) GetListenChannels() map[string]bool {
 	return channels
 }
 
-// AddPendingListen adds a channel to the pending listen list (for commit).
+// AddPendingListen adds a LISTEN to the pending actions list (applied at COMMIT).
 func (m *MultiGatewayConnectionState) AddPendingListen(channel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.PendingListens = append(m.PendingListens, channel)
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingListen, channel: channel})
 }
 
-// AddPendingUnlisten adds a channel to the pending unlisten list.
+// AddPendingUnlisten adds an UNLISTEN to the pending actions list.
 func (m *MultiGatewayConnectionState) AddPendingUnlisten(channel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.PendingUnlistens = append(m.PendingUnlistens, channel)
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingUnlisten, channel: channel})
 }
 
-// AddPendingUnlistenAll marks that UNLISTEN * should happen on commit.
+// AddPendingUnlistenAll adds an UNLISTEN * to the pending actions list.
 func (m *MultiGatewayConnectionState) AddPendingUnlistenAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.PendingUnlistenAll = true
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingUnlistenAll})
 }
 
-// CommitPendingListens applies pending listen/unlisten state on transaction commit.
-// Returns lists of channels to subscribe and unsubscribe from.
+// CommitPendingListens applies pending listen/unlisten actions on transaction commit.
+// Actions are processed in the order they were issued (matching PostgreSQL's
+// AtCommit_Notify behavior), then a net diff is computed against the pre-transaction
+// state to produce the subscribe/unsubscribe lists for the notification manager.
 func (m *MultiGatewayConnectionState) CommitPendingListens() (subscribes []string, unsubscribes []string, unsubscribeAll bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.PendingUnlistenAll {
-		unsubscribeAll = true
-		// UnsubscribeAll handles all channels — no need to populate individual unsubscribes.
-		m.ListenChannels = nil
-	}
+	// Snapshot starting state for net diff computation.
+	startChannels := make(map[string]bool, len(m.ListenChannels))
+	maps.Copy(startChannels, m.ListenChannels)
 
-	// Process individual unlistens only when UNLISTEN * wasn't issued.
-	for _, ch := range m.PendingUnlistens {
-		if !unsubscribeAll {
-			if m.ListenChannels != nil && m.ListenChannels[ch] {
+	// Process actions in order, updating ListenChannels to the final state.
+	for _, action := range m.pendingActions {
+		switch action.actionType {
+		case pendingListen:
+			if m.ListenChannels == nil {
+				m.ListenChannels = make(map[string]bool)
+			}
+			m.ListenChannels[action.channel] = true
+		case pendingUnlisten:
+			delete(m.ListenChannels, action.channel)
+		case pendingUnlistenAll:
+			unsubscribeAll = true
+			m.ListenChannels = nil
+		}
+	}
+	m.pendingActions = nil
+
+	// Compute net diff between starting and final state.
+	if unsubscribeAll {
+		// UNLISTEN * clears everything — only report channels in the final state
+		// as new subscribes (they were added after UNLISTEN *).
+		for ch := range m.ListenChannels {
+			subscribes = append(subscribes, ch)
+		}
+	} else {
+		for ch := range m.ListenChannels {
+			if !startChannels[ch] {
+				subscribes = append(subscribes, ch)
+			}
+		}
+		for ch := range startChannels {
+			if !m.ListenChannels[ch] {
 				unsubscribes = append(unsubscribes, ch)
 			}
 		}
-		delete(m.ListenChannels, ch)
 	}
 
-	for _, ch := range m.PendingListens {
-		if m.ListenChannels == nil {
-			m.ListenChannels = make(map[string]bool)
-		}
-		if !m.ListenChannels[ch] {
-			subscribes = append(subscribes, ch)
-			m.ListenChannels[ch] = true
-		}
-	}
-
-	m.PendingListens = nil
-	m.PendingUnlistens = nil
-	m.PendingUnlistenAll = false
 	return subscribes, unsubscribes, unsubscribeAll
 }
 
@@ -404,14 +429,12 @@ func (m *MultiGatewayConnectionState) CommitPendingListens() (subscribes []strin
 func (m *MultiGatewayConnectionState) DiscardPendingListens() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.PendingListens = nil
-	m.PendingUnlistens = nil
-	m.PendingUnlistenAll = false
+	m.pendingActions = nil
 }
 
 // HasPendingListens returns true if there are pending listen/unlisten changes.
 func (m *MultiGatewayConnectionState) HasPendingListens() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.PendingListens) > 0 || len(m.PendingUnlistens) > 0 || m.PendingUnlistenAll
+	return len(m.pendingActions) > 0
 }

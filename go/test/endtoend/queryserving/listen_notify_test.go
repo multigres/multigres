@@ -237,6 +237,107 @@ func TestListenNotify(t *testing.T) {
 		assert.Error(t, err, "should not receive notification after ROLLBACK")
 	})
 
+	t.Run("listen_then_unlisten_in_transaction", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		listener, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer listener.Close(ctx)
+
+		notifier, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer notifier.Close(ctx)
+
+		// LISTEN then UNLISTEN same channel in one transaction — net: not subscribed.
+		_, err = listener.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "LISTEN cancel_ch")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "UNLISTEN cancel_ch")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "COMMIT")
+		require.NoError(t, err)
+
+		_, err = notifier.Exec(ctx, "NOTIFY cancel_ch, 'should_not_arrive'")
+		require.NoError(t, err)
+
+		timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer timeoutCancel()
+		_, err = listener.WaitForNotification(timeoutCtx)
+		assert.Error(t, err, "should not receive notification when LISTEN is cancelled by UNLISTEN in same transaction")
+	})
+
+	t.Run("listen_then_unlisten_all_in_transaction", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		listener, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer listener.Close(ctx)
+
+		notifier, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer notifier.Close(ctx)
+
+		// LISTEN then UNLISTEN * in one transaction — net: not subscribed.
+		_, err = listener.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "LISTEN cancel_all_ch")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "UNLISTEN *")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "COMMIT")
+		require.NoError(t, err)
+
+		_, err = notifier.Exec(ctx, "NOTIFY cancel_all_ch, 'should_not_arrive'")
+		require.NoError(t, err)
+
+		timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer timeoutCancel()
+		_, err = listener.WaitForNotification(timeoutCtx)
+		assert.Error(t, err, "should not receive notification when LISTEN is cancelled by UNLISTEN * in same transaction")
+	})
+
+	t.Run("unlisten_all_then_listen_in_transaction", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		listener, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer listener.Close(ctx)
+
+		notifier, err := pgx.Connect(ctx, connStr)
+		require.NoError(t, err)
+		defer notifier.Close(ctx)
+
+		// Pre-listen on a channel, then in a transaction: UNLISTEN * + LISTEN new channel.
+		_, err = listener.Exec(ctx, "LISTEN old_ch")
+		require.NoError(t, err)
+
+		_, err = listener.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "UNLISTEN *")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "LISTEN new_ch")
+		require.NoError(t, err)
+		_, err = listener.Exec(ctx, "COMMIT")
+		require.NoError(t, err)
+
+		// old_ch should no longer deliver.
+		_, err = notifier.Exec(ctx, "NOTIFY old_ch, 'should_not_arrive'")
+		require.NoError(t, err)
+
+		// new_ch should deliver.
+		_, err = notifier.Exec(ctx, "NOTIFY new_ch, 'hello_new'")
+		require.NoError(t, err)
+
+		notification, err := listener.WaitForNotification(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "new_ch", notification.Channel)
+		assert.Equal(t, "hello_new", notification.Payload)
+	})
+
 	t.Run("multiple_listeners_same_channel", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
