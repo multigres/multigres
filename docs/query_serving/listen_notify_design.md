@@ -145,15 +145,13 @@ implicit transaction commits at the end of the batch.
 
 Per-connection state tracked in `MultiGatewayConnectionState`:
 
-| Field                | Type                 | Purpose                                  |
-| -------------------- | -------------------- | ---------------------------------------- |
-| `ListenChannels`     | `map[string]bool`    | Active subscriptions                     |
-| `PendingListens`     | `[]string`           | Channels to subscribe on COMMIT          |
-| `PendingUnlistens`   | `[]string`           | Channels to unsubscribe on COMMIT        |
-| `PendingUnlistenAll` | `bool`               | UNLISTEN \* pending on COMMIT            |
-| `NotifCh`            | `chan *Notification` | Receives notifications from NotifManager |
-| `AsyncNotifCh`       | `chan<- *...`        | Sends to async pusher goroutine          |
-| `SubSync`            | `SubscriptionSync`   | Syncs subscriptions from engine primitives|
+| Field            | Type                    | Purpose                                    |
+| ---------------- | ----------------------- | ------------------------------------------ |
+| `ListenChannels` | `map[string]bool`       | Active subscriptions                       |
+| `pendingActions` | `[]pendingListenAction` | Ordered LISTEN/UNLISTEN ops for COMMIT     |
+| `NotifCh`        | `chan *Notification`    | Receives notifications from NotifManager   |
+| `AsyncNotifCh`   | `chan<- *Notification`  | Sends to async pusher goroutine            |
+| `SubSync`        | `SubscriptionSync`      | Syncs subscriptions from engine primitives |
 
 ## PubSubListener
 
