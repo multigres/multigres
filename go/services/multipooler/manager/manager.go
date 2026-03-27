@@ -63,12 +63,14 @@ const (
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger       *slog.Logger
-	config       *Config
-	topoClient   topoclient.Store
-	serviceID    *clustermetadatapb.ID
-	replTracker  *heartbeat.ReplTracker
-	pgctldClient pgctldpb.PgCtldClient
+	logger     *slog.Logger
+	config     *Config
+	topoClient topoclient.Store
+	// Deprecated: use servicePoolerID instead.
+	serviceID       *clustermetadatapb.ID
+	servicePoolerID poolerID
+	replTracker     *heartbeat.ReplTracker
+	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
@@ -188,7 +190,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
-	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+	svcPoolerID, err := newPoolerID(multiPooler.Id)
+	if err != nil {
 		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
 	}
 
@@ -227,6 +230,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		config:                 config,
 		topoClient:             config.TopoClient,
 		serviceID:              multiPooler.Id,
+		servicePoolerID:        svcPoolerID,
 		multipooler:            multiPooler,
 		actionLock:             NewActionLock(),
 		state:                  ManagerStateStarting,

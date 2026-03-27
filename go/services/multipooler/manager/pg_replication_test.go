@@ -33,12 +33,26 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestGenerateApplicationName(t *testing.T) {
+// mustPoolerIDFromAppName constructs a poolerID from a "cell_name" application name string.
+// Panics if parsing or construction fails; for use in tests only.
+func mustPoolerIDFromAppName(appName string) poolerID {
+	id, err := parseApplicationName(appName)
+	if err != nil {
+		panic(err)
+	}
+	pid, err := newPoolerID(id)
+	if err != nil {
+		panic(err)
+	}
+	return pid
+}
+
+func TestNewPoolerID(t *testing.T) {
 	tests := []struct {
-		name        string
-		id          *clustermetadatapb.ID
-		expected    applicationName
-		expectError bool
+		name            string
+		id              *clustermetadatapb.ID
+		expectedAppName string
+		expectError     bool
 	}{
 		{
 			name: "standard ID",
@@ -46,7 +60,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "us-west",
 				Name: "replica-1",
 			},
-			expected: applicationName("us-west_replica-1"),
+			expectedAppName: "us-west_replica-1",
 		},
 		{
 			name: "single character values",
@@ -54,7 +68,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "a",
 				Name: "b",
 			},
-			expected: applicationName("a_b"),
+			expectedAppName: "a_b",
 		},
 		{
 			name: "hyphenated names",
@@ -62,7 +76,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "us-east-1a",
 				Name: "primary-db-001",
 			},
-			expected: applicationName("us-east-1a_primary-db-001"),
+			expectedAppName: "us-east-1a_primary-db-001",
 		},
 		{
 			name: "numeric values",
@@ -70,7 +84,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "zone1",
 				Name: "pooler-001",
 			},
-			expected: applicationName("zone1_pooler-001"),
+			expectedAppName: "zone1_pooler-001",
 		},
 		{
 			name: "exactly 63 characters",
@@ -78,7 +92,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "us-east-1a",
 				Name: strings.Repeat("x", 52), // "us-east-1a_" (11) + 52 = 63
 			},
-			expected: applicationName("us-east-1a_" + strings.Repeat("x", 52)),
+			expectedAppName: "us-east-1a_" + strings.Repeat("x", 52),
 		},
 		{
 			name: "exceeds 63 characters",
@@ -92,13 +106,14 @@ func TestGenerateApplicationName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := generateApplicationName(tt.id)
+			result, err := newPoolerID(tt.id)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				assert.Equal(t, tt.expectedAppName, result.appName)
+				assert.Equal(t, tt.id, result.id)
 			}
 		})
 	}
@@ -107,27 +122,27 @@ func TestGenerateApplicationName(t *testing.T) {
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
 		name     string
-		names    []applicationName
+		names    []poolerID
 		expected string
 	}{
 		{
 			name:     "empty list",
-			names:    []applicationName{},
+			names:    []poolerID{},
 			expected: "",
 		},
 		{
 			name:     "single standby",
-			names:    []applicationName{"zone1_replica-1"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected: `"zone1_replica-1"`,
 		},
 		{
 			name:     "multiple standbys",
-			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected: `"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"`,
 		},
 		{
 			name:     "two standbys",
-			names:    []applicationName{"east_standby-a", "west_standby-b"},
+			names:    []poolerID{mustPoolerIDFromAppName("east_standby-a"), mustPoolerIDFromAppName("west_standby-b")},
 			expected: `"east_standby-a", "west_standby-b"`,
 		},
 	}
@@ -144,7 +159,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 		name        string
 		method      multipoolermanagerdatapb.SynchronousMethod
 		numSync     int32
-		names       []applicationName
+		names       []poolerID
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -153,7 +168,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "empty standby list returns empty string",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []applicationName{},
+			names:       []poolerID{},
 			expected:    "",
 			expectError: false,
 		},
@@ -161,7 +176,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with single standby",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    `FIRST 1 ("zone1_replica-1")`,
 			expectError: false,
 		},
@@ -169,7 +184,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     2,
-			names:       []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected:    `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
 			expectError: false,
 		},
@@ -177,7 +192,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1", "zone2_replica-2"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2")},
 			expected:    `ANY 1 ("zone1_replica-1", "zone2_replica-2")`,
 			expectError: false,
 		},
@@ -185,7 +200,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with three standbys and numSync=2",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     2,
-			names:       []applicationName{"a_1", "b_2", "c_3"},
+			names:       []poolerID{mustPoolerIDFromAppName("a_1"), mustPoolerIDFromAppName("b_2"), mustPoolerIDFromAppName("c_3")},
 			expected:    `ANY 2 ("a_1", "b_2", "c_3")`,
 			expectError: false,
 		},
@@ -193,7 +208,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "invalid method returns error",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    "",
 			expectError: true,
 			errorMsg:    "invalid synchronous method",
@@ -512,51 +527,51 @@ func TestSyncReplicationConfigMatches(t *testing.T) {
 }
 
 func TestApplyAddOperation(t *testing.T) {
-	s1 := applicationName("zone1_replica-1")
-	s2 := applicationName("zone2_replica-2")
-	s3 := applicationName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []applicationName
-		incoming []applicationName
-		expected []applicationName
+		current  []poolerID
+		incoming []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "add to empty list",
-			current:  []applicationName{},
-			incoming: []applicationName{s1},
-			expected: []applicationName{s1},
+			current:  []poolerID{},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "add new standby to existing list",
-			current:  []applicationName{s1},
-			incoming: []applicationName{s2},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "add multiple new standbys",
-			current:  []applicationName{s1},
-			incoming: []applicationName{s2, s3},
-			expected: []applicationName{s1, s2, s3},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "idempotent - add existing standby",
-			current:  []applicationName{s1, s2},
-			incoming: []applicationName{s1},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - add mix of existing and new",
-			current:  []applicationName{s1, s2},
-			incoming: []applicationName{s2, s3},
-			expected: []applicationName{s1, s2, s3},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "add empty list does nothing",
-			current:  []applicationName{s1},
-			incoming: []applicationName{},
-			expected: []applicationName{s1},
+			current:  []poolerID{s1},
+			incoming: []poolerID{},
+			expected: []poolerID{s1},
 		},
 	}
 
@@ -569,57 +584,57 @@ func TestApplyAddOperation(t *testing.T) {
 }
 
 func TestApplyRemoveOperation(t *testing.T) {
-	s1 := applicationName("zone1_replica-1")
-	s2 := applicationName("zone2_replica-2")
-	s3 := applicationName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []applicationName
-		remove   []applicationName
-		expected []applicationName
+		current  []poolerID
+		remove   []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "remove from single item list",
-			current:  []applicationName{s1},
-			remove:   []applicationName{s1},
-			expected: []applicationName{},
+			current:  []poolerID{s1},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 		{
 			name:     "remove one from multiple",
-			current:  []applicationName{s1, s2, s3},
-			remove:   []applicationName{s2},
-			expected: []applicationName{s1, s3},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s2},
+			expected: []poolerID{s1, s3},
 		},
 		{
 			name:     "remove multiple standbys",
-			current:  []applicationName{s1, s2, s3},
-			remove:   []applicationName{s1, s3},
-			expected: []applicationName{s2},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s1, s3},
+			expected: []poolerID{s2},
 		},
 		{
 			name:     "idempotent - remove non-existent standby",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{s3},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s3},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - remove mix of existing and non-existent",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{s2, s3},
-			expected: []applicationName{s1},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s2, s3},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "remove empty list does nothing",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "remove from empty list",
-			current:  []applicationName{},
-			remove:   []applicationName{s1},
-			expected: []applicationName{},
+			current:  []poolerID{},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 	}
 
@@ -634,23 +649,23 @@ func TestApplyRemoveOperation(t *testing.T) {
 func TestApplyReplaceOperation(t *testing.T) {
 	tests := []struct {
 		name     string
-		names    []applicationName
-		expected []applicationName
+		names    []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "replace with single standby",
-			names:    []applicationName{"zone1_replica-1"},
-			expected: []applicationName{"zone1_replica-1"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
+			expected: []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 		},
 		{
 			name:     "replace with multiple standbys",
-			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
-			expected: []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
+			expected: []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 		},
 		{
 			name:     "replace with empty list",
-			names:    []applicationName{},
-			expected: []applicationName{},
+			names:    []poolerID{},
+			expected: []poolerID{},
 		},
 	}
 
@@ -948,7 +963,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		name              string
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
-		names             []applicationName
+		names             []poolerID
 		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
@@ -956,7 +971,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "FIRST method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []applicationName{"cell1_pooler1", "cell1_pooler2"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell1_pooler2")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -966,7 +981,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "ANY method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:           2,
-			names:             []applicationName{"cell1_pooler1", "cell2_pooler2", "cell2_pooler3"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell2_pooler2"), mustPoolerIDFromAppName("cell2_pooler3")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -976,7 +991,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "db exec error",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []applicationName{"cell1_pooler1"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("exec error"))
 			},
