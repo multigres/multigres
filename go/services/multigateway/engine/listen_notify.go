@@ -31,8 +31,12 @@ const (
 	ListenActionUnlistenAll
 )
 
-// ListenNotifyPrimitive handles LISTEN/UNLISTEN commands by updating connection state.
-// The actual subscription to the pooler's PubSubListener is managed by the handler.
+// ListenNotifyPrimitive handles LISTEN/UNLISTEN commands.
+//
+// In autocommit mode (outside a transaction), it updates connection state and
+// syncs subscriptions via SubSync before returning success to the client.
+// Inside a transaction, changes are buffered as pending and applied at COMMIT
+// time by the TransactionPrimitive.
 type ListenNotifyPrimitive struct {
 	Action  ListenAction
 	Channel string
@@ -65,24 +69,31 @@ func (l *ListenNotifyPrimitive) StreamExecute(
 		channel = channel[:63]
 	}
 
+	// Update connection state and, for autocommit, sync subscriptions immediately
+	// via SubSync so they are active before the client is told LISTEN/UNLISTEN
+	// succeeded. Inside a transaction, changes are buffered as pending and
+	// applied at COMMIT by the TransactionPrimitive.
 	switch l.Action {
 	case ListenActionListen:
 		if conn.IsInTransaction() {
 			state.AddPendingListen(channel)
 		} else {
 			state.AddListenChannel(channel)
+			state.SubSync.SyncSubscriptions(conn.Context(), conn, state, []string{channel}, nil, false)
 		}
 	case ListenActionUnlisten:
 		if conn.IsInTransaction() {
 			state.AddPendingUnlisten(channel)
 		} else {
 			state.RemoveListenChannel(channel)
+			state.SubSync.SyncSubscriptions(conn.Context(), conn, state, nil, []string{channel}, false)
 		}
 	case ListenActionUnlistenAll:
 		if conn.IsInTransaction() {
 			state.AddPendingUnlistenAll()
 		} else {
 			state.ClearListenChannels()
+			state.SubSync.SyncSubscriptions(conn.Context(), conn, state, nil, nil, true)
 		}
 	}
 

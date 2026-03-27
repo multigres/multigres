@@ -14,7 +14,12 @@
 
 package handler
 
-import "github.com/multigres/multigres/go/common/sqltypes"
+import (
+	"context"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/sqltypes"
+)
 
 // NotificationManager abstracts LISTEN/NOTIFY subscription management.
 type NotificationManager interface {
@@ -43,4 +48,18 @@ func (n *noopNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notifica
 // DefaultNotificationManager returns a no-op manager.
 func DefaultNotificationManager() NotificationManager {
 	return &noopNotificationManager{}
+}
+
+// SubscriptionSync coordinates LISTEN/NOTIFY subscriptions for a connection.
+// Implemented by the handler and stored on connection state so that engine
+// primitives can apply subscription changes before reporting success to the
+// client. This ensures subscriptions are active before the client learns
+// that LISTEN (or a COMMIT containing LISTEN) succeeded, preserving
+// PostgreSQL's atomicity guarantees.
+type SubscriptionSync interface {
+	// SyncSubscriptions applies subscription changes to the notification manager.
+	// subscribes/unsubscribes list individual channels; unsubscribeAll removes all.
+	// ctx must be the connection-scoped context (not query-scoped) since it may
+	// start long-lived goroutines.
+	SyncSubscriptions(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, subscribes, unsubscribes []string, unsubscribeAll bool)
 }

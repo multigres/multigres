@@ -34,8 +34,11 @@ import (
 //   - BEGIN: Deferred execution - sets TxState to InTransaction and returns a synthetic
 //     result without making a backend call. The actual BEGIN is sent with the first
 //     real query via ReserveStreamExecute.
-//   - COMMIT: Releases all reserved connections with COMMIT action, resets transaction state.
-//   - ROLLBACK: Releases all reserved connections with ROLLBACK action, resets transaction state.
+//   - COMMIT: Concludes the transaction on all shards (removes the transaction
+//     reservation reason; connections are fully released only if no other reasons
+//     remain), syncs pending LISTEN/UNLISTEN subscriptions.
+//   - ROLLBACK: Concludes the transaction on all shards (same reservation semantics
+//     as COMMIT), discards pending LISTEN/UNLISTEN subscriptions.
 type TransactionPrimitive struct {
 	// Kind is the type of transaction statement (BEGIN, COMMIT, ROLLBACK, etc.)
 	Kind ast.TransactionStmtKind
@@ -113,6 +116,9 @@ func (t *TransactionPrimitive) executeBegin(
 }
 
 // executeCommit handles COMMIT by concluding the transaction on all reserved connections.
+// Pending LISTEN/UNLISTEN subscriptions are synced before the COMMIT result is sent
+// to the client, ensuring subscriptions are active before the client is told the
+// transaction committed.
 func (t *TransactionPrimitive) executeCommit(
 	ctx context.Context,
 	exec IExecute,
@@ -130,9 +136,22 @@ func (t *TransactionPrimitive) executeCommit(
 	// (empty transaction or deferred BEGIN that was never used)
 	if len(state.ShardStates) == 0 {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		syncPendingSubscriptions(conn, state)
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: "COMMIT",
 		})
+	}
+
+	// Wrap the callback to sync subscriptions after the backend confirms COMMIT
+	// but before the CommandComplete is sent to the client.
+	commitCallback := callback
+	if state.HasPendingListens() {
+		commitCallback = func(cbCtx context.Context, result *sqltypes.Result) error {
+			if result != nil && result.CommandTag != "" {
+				syncPendingSubscriptions(conn, state)
+			}
+			return callback(cbCtx, result)
+		}
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
@@ -140,12 +159,23 @@ func (t *TransactionPrimitive) executeCommit(
 	// fully released (remainingReasons == 0) and keeps entries where the
 	// connection is still reserved for other reasons (e.g., temp tables).
 	err := exec.ConcludeTransaction(ctx, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, callback)
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, commitCallback)
 
 	// Reset transaction state regardless of error.
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
+}
+
+// syncPendingSubscriptions applies buffered LISTEN/UNLISTEN changes via the
+// connection's SubscriptionSync. Called during COMMIT to ensure subscriptions
+// are active before the client is told the transaction committed.
+func syncPendingSubscriptions(conn *server.Conn, state *handler.MultiGatewayConnectionState) {
+	if !state.HasPendingListens() {
+		return
+	}
+	subs, unsubs, unsubAll := state.CommitPendingListens()
+	state.SubSync.SyncSubscriptions(conn.Context(), conn, state, subs, unsubs, unsubAll)
 }
 
 // executeRollback handles ROLLBACK by concluding the transaction on all reserved connections.
@@ -158,6 +188,8 @@ func (t *TransactionPrimitive) executeRollback(
 ) error {
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
+	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
+	state.DiscardPendingListens()
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)

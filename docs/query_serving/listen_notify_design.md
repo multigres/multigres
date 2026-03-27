@@ -49,8 +49,6 @@ Client
   ▼
 MultiGateway Handler (handler.go)
   │  - Parses LISTEN/UNLISTEN/NOTIFY
-  │  - Tracks per-connection listen channels
-  │  - Manages transaction-buffered LISTEN/UNLISTEN
   │  - Delivers notifications to client socket
   │  - Supports simple and extended query protocols
   │
@@ -59,15 +57,15 @@ MultiGateway Handler (handler.go)
   └─── [LISTEN/UNLISTEN] ──► Planner / PlanPortal → ListenNotifyPrimitive
                                 │
                                 ▼
-                    Engine (listen_notify.go)
+                    Engine (listen_notify.go, transaction_primitive.go)
                       │  - Updates connection state
-                      │  - Buffers changes in transactions
+                      │  - Autocommit: syncs subscriptions via SubSync
+                      │  - In transaction: buffers as pending
+                      │  - COMMIT: syncs pending subscriptions via SubSync
+                      │  - ROLLBACK: discards pending subscriptions
                       │
                       ▼
-                    Handler.handleListenStateChanges()
-                      │
-                      ▼
-                    NotificationManager (GRPCNotificationManager)
+                    SubscriptionSync → NotificationManager (GRPCNotificationManager)
                       │  - Per-channel gRPC streams to multipooler
                       │  - Automatic reconnect on stream failure
                       │  - Local refcounting and fan-out
@@ -155,6 +153,7 @@ Per-connection state tracked in `MultiGatewayConnectionState`:
 | `PendingUnlistenAll` | `bool`               | UNLISTEN \* pending on COMMIT            |
 | `NotifCh`            | `chan *Notification` | Receives notifications from NotifManager |
 | `AsyncNotifCh`       | `chan<- *...`        | Sends to async pusher goroutine          |
+| `SubSync`            | `SubscriptionSync`   | Syncs subscriptions from engine primitives|
 
 ## PubSubListener
 

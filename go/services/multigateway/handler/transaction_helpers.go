@@ -149,13 +149,11 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			continue
 		}
 
-		// User's COMMIT/ROLLBACK - execute and prepare for next segment
+		// User's COMMIT/ROLLBACK - execute and prepare for next segment.
 		if ast.IsCommitStatement(stmt) || ast.IsRollbackStatement(stmt) {
 			if err := execute(stmt); err != nil {
 				return err
 			}
-			// Sync LISTEN/NOTIFY subscriptions after COMMIT/ROLLBACK.
-			h.handleListenStateChanges(ctx, conn, state, stmt)
 			needsBegin = true
 			isImplicitTx = false
 			continue
@@ -207,9 +205,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		}
 		if execErr != nil {
 			if isImplicitTx {
-				// Auto-rollback implicit transaction on failure
+				// Auto-rollback implicit transaction on failure.
 				_ = silentExecute(ast.NewRollbackStmt())
-				state.DiscardPendingListens()
 			} else {
 				// Explicit transaction: enter aborted state.
 				// The client must issue ROLLBACK to recover.
@@ -234,14 +231,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			// Commit failed — rollback to clean up. The held CommandComplete is
 			// discarded; the caller will send an ErrorResponse instead.
 			_ = silentExecute(ast.NewRollbackStmt())
-			state.DiscardPendingListens()
 			return err
-		}
-		// Implicit commit succeeded — sync any pending LISTEN/NOTIFY subscriptions.
-		if state.HasPendingListens() {
-			connCtx := conn.Context()
-			subs, unsubs, unsubAll := state.CommitPendingListens()
-			h.syncListenSubscriptions(connCtx, conn, state, subs, unsubs, unsubAll)
 		}
 		// Commit succeeded — now send the deferred CommandComplete for the last
 		// statement. The client sees the full expected response sequence:

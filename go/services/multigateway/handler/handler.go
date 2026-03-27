@@ -201,11 +201,6 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 		}
-
-		// Post-execution: sync LISTEN/NOTIFY subscriptions.
-		if err == nil {
-			h.handleListenStateChanges(ctx, conn, st, asts[0])
-		}
 	}
 
 	execDuration := time.Since(execStart)
@@ -250,6 +245,11 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+
+		newState.SubSync = &handlerSubSync{
+			notifMgr: h.notifMgr,
+			logger:   h.logger,
+		}
 
 		conn.SetConnectionState(newState)
 		return newState
@@ -347,11 +347,6 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
-	}
-
-	// Post-execution: sync LISTEN/NOTIFY subscriptions for extended protocol.
-	if err == nil && astStmt != nil {
-		h.handleListenStateChanges(ctx, conn, state, astStmt)
 	}
 
 	execDuration := time.Since(execStart)
@@ -547,80 +542,6 @@ func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
 	h.notifMgr = mgr
 }
 
-// ensureNotifCh creates the notification channel for a connection if needed.
-func (h *MultiGatewayHandler) ensureNotifCh(state *MultiGatewayConnectionState) chan *sqltypes.Notification {
-	if state.NotifCh == nil {
-		state.NotifCh = make(chan *sqltypes.Notification, 256)
-	}
-	return state.NotifCh
-}
-
-// syncListenSubscriptions subscribes/unsubscribes based on state changes.
-// It also enables async notification delivery on the server.Conn when the
-// first LISTEN is registered, and manages the notification forwarding goroutine.
-func (h *MultiGatewayHandler) syncListenSubscriptions(
-	ctx context.Context,
-	conn *server.Conn,
-	state *MultiGatewayConnectionState,
-	subscribes []string,
-	unsubscribes []string,
-	unsubscribeAll bool,
-) {
-	notifCh := h.ensureNotifCh(state)
-
-	if unsubscribeAll {
-		h.notifMgr.UnsubscribeAll(notifCh)
-	}
-
-	for _, ch := range unsubscribes {
-		h.notifMgr.Unsubscribe(ch, notifCh)
-	}
-
-	for _, ch := range subscribes {
-		h.notifMgr.Subscribe(ch, notifCh)
-	}
-
-	// Start async notification pusher if we have listen channels and no pusher yet.
-	listenCount := len(state.GetListenChannels())
-	if listenCount > 0 && state.AsyncNotifCh == nil {
-		asyncCh := conn.EnableAsyncNotifications(ctx)
-		state.AsyncNotifCh = asyncCh
-		// Start forwarding goroutine: notifCh -> asyncCh
-		go h.forwardNotifications(ctx, notifCh, asyncCh)
-	}
-
-	// Stop async pusher if no more listen channels.
-	if listenCount == 0 && state.AsyncNotifCh != nil {
-		conn.StopAsyncNotifications()
-		state.AsyncNotifCh = nil
-	}
-}
-
-// forwardNotifications reads from the handler notifCh and forwards to the
-// server.Conn async pusher channel.
-func (h *MultiGatewayHandler) forwardNotifications(
-	ctx context.Context,
-	notifCh chan *sqltypes.Notification,
-	asyncCh chan<- *sqltypes.Notification,
-) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case notif, ok := <-notifCh:
-			if !ok {
-				return
-			}
-			select {
-			case asyncCh <- notif:
-			default:
-				h.logger.WarnContext(ctx, "async notification channel full, dropping notification",
-					"channel", notif.Channel)
-			}
-		}
-	}
-}
-
 // flushNotifications delivers any pending notifications to the client.
 // Called after each query completes (after ReadyForQuery would be sent).
 func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *MultiGatewayConnectionState) {
@@ -640,59 +561,6 @@ func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *Multi
 		default:
 			// No more pending notifications
 			return
-		}
-	}
-}
-
-// handleListenStateChanges syncs PubSubListener subscriptions after statement execution.
-func (h *MultiGatewayHandler) handleListenStateChanges(
-	ctx context.Context,
-	conn *server.Conn,
-	state *MultiGatewayConnectionState,
-	stmt ast.Stmt,
-) {
-	// Use the connection-scoped context for subscription management.
-	// The caller's ctx may be query-scoped (with statement timeout) and would
-	// cancel the long-lived forwardNotifications goroutine after the query completes.
-	connCtx := conn.Context()
-
-	switch stmt.NodeTag() {
-	case ast.T_ListenStmt:
-		listenStmt := stmt.(*ast.ListenStmt)
-		if !conn.IsInTransaction() {
-			// Autocommit LISTEN — subscribe immediately.
-			// Truncate to NAMEDATALEN-1 (63 chars) to match PG behavior.
-			ch := listenStmt.Conditionname
-			if len(ch) > 63 {
-				ch = ch[:63]
-			}
-			h.syncListenSubscriptions(connCtx, conn, state, []string{ch}, nil, false)
-		}
-
-	case ast.T_UnlistenStmt:
-		unlistenStmt := stmt.(*ast.UnlistenStmt)
-		if !conn.IsInTransaction() {
-			if unlistenStmt.Conditionname == "*" || unlistenStmt.Conditionname == "" {
-				h.syncListenSubscriptions(connCtx, conn, state, nil, nil, true)
-			} else {
-				ch := unlistenStmt.Conditionname
-				if len(ch) > 63 {
-					ch = ch[:63]
-				}
-				h.syncListenSubscriptions(connCtx, conn, state, nil, []string{ch}, false)
-			}
-		}
-
-	case ast.T_TransactionStmt:
-		txnStmt := stmt.(*ast.TransactionStmt)
-		switch txnStmt.Kind {
-		case ast.TRANS_STMT_COMMIT:
-			if state.HasPendingListens() {
-				subs, unsubs, unsubAll := state.CommitPendingListens()
-				h.syncListenSubscriptions(connCtx, conn, state, subs, unsubs, unsubAll)
-			}
-		case ast.TRANS_STMT_ROLLBACK:
-			state.DiscardPendingListens()
 		}
 	}
 }

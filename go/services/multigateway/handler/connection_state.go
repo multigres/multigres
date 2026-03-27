@@ -79,6 +79,11 @@ type MultiGatewayConnectionState struct {
 	// AsyncNotifCh is the channel for the server.Conn async notification pusher.
 	AsyncNotifCh chan<- *sqltypes.Notification
 
+	// SubSync coordinates LISTEN/NOTIFY subscriptions with the notification manager.
+	// Set by the handler at connection initialization; called by engine primitives
+	// to apply subscription changes before reporting success to the client.
+	SubSync SubscriptionSync
+
 	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
 	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
 	// The default is initialized from startup params (if present) or the --statement-timeout flag.
