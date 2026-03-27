@@ -176,23 +176,19 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execStart := time.Now()
 
-	// Check all statements for temp table creation.
-	for _, a := range asts {
-		checkAndPinForTempTable(a, st)
-	}
-
 	// For multi-statement batches, use implicit transaction handling.
-	// Exception: pinned sessions iterate and plan each statement individually
-	// so that DISCARD TEMP and other special statements get proper primitives.
-	// The PG backend handles auto-commit natively on the reserved connection.
+	// Exception: sessions with temp table reservations iterate and plan each
+	// statement individually so that DISCARD TEMP and other special statements
+	// get proper primitives. The PG backend handles auto-commit natively on
+	// the reserved connection.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
 	// For multi-statement batches, per-table metrics, span attributes, and query log
 	// enrichment are handled per-statement inside executeWithImplicitTransaction.
 	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
 	var result *ExecuteResult
 	if len(asts) > 1 {
-		if st.SessionPinned {
-			h.logger.DebugContext(ctx, "executing multi-statement batch on pinned session",
+		if st.HasTempTableReservation() {
+			h.logger.DebugContext(ctx, "executing multi-statement batch on temp-table-reserved session",
 				"statement_count", len(asts))
 			var allTablesUsed []string
 			for _, stmt := range asts {
@@ -369,9 +365,6 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
 	ctx, cancel := h.statementTimeoutCtx(ctx, state, astStmt)
 	defer cancel()
-
-	// Check for temp table creation before execution (extended query protocol).
-	checkAndPinForTempTable(astStmt, state)
 
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)

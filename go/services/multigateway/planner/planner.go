@@ -112,9 +112,30 @@ func (p *Planner) Plan(
 
 	case ast.T_DiscardStmt:
 		return p.planDiscardStmt(sql, stmt.(*ast.DiscardStmt), conn)
-	// Future: Add more statement types here
-	// case ast.T_SelectStmt:
-	//     plan, err = p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)
+
+	case ast.T_CreateStmt:
+		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, conn)
+
+	case ast.T_CreateTableAsStmt:
+		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, conn)
+
+	case ast.T_SelectStmt:
+		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, conn)
+
+	case ast.T_ViewStmt:
+		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, conn)
 
 	default:
 		// Default: simple route to PostgreSQL
@@ -128,6 +149,15 @@ func (p *Planner) Plan(
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
 	return plan, nil
+}
+
+// planTempTableCreation creates a plan that routes through a reserved
+// connection with ReasonTempTable. The reservation ensures the temp table
+// persists across queries on the same session.
+func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.Plan, error) {
+	p.logger.Debug("planning temp table creation", "sql", sql)
+	route := engine.NewTempTableRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+	return engine.NewPlan(sql, route), nil
 }
 
 // planDefault creates a simple route plan for queries without special handling.
@@ -189,6 +219,30 @@ func (p *Planner) PlanPortal(
 		// DISCARD TEMP needs the DiscardTempPrimitive for reservation cleanup.
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
+	case ast.T_CreateStmt:
+		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	case ast.T_CreateTableAsStmt:
+		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	case ast.T_SelectStmt:
+		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	case ast.T_ViewStmt:
+		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
 	default:
 		return nil, nil
 	}
@@ -212,6 +266,8 @@ func primitiveName(p engine.Primitive) string {
 	switch p.(type) {
 	case *engine.Route:
 		return engine.PlanTypeRoute
+	case *engine.TempTableRoute:
+		return engine.PlanTypeTempTableRoute
 	case *engine.TransactionPrimitive:
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:

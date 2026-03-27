@@ -26,11 +26,11 @@ import (
 
 // DiscardTempPrimitive handles DISCARD TEMP statements.
 //
-// When the session is pinned (has temp tables), it uses the dedicated
+// When the session has a temp table reservation, it uses the dedicated
 // DiscardTempTables RPC to remove the temp table reservation reason on
 // the multipooler side and sends the original SQL to PostgreSQL.
-// When the session is not pinned, it falls through to a regular
-// StreamExecute since DISCARD TEMP on an unpinned session is harmless.
+// When no temp table reservation exists, it falls through to a regular
+// StreamExecute since DISCARD TEMP on an unreserved session is harmless.
 type DiscardTempPrimitive struct {
 	// Query is the original SQL string (e.g., "DISCARD TEMP").
 	Query string
@@ -55,11 +55,12 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// If the session is pinned (has temp tables), use the dedicated RPC
+	// If the session has a temp table reservation, use the dedicated RPC
 	// to remove the temp table reason on the multipooler side.
-	if state.SessionPinned {
-		// Clear any deferred BEGIN — the session is being unpinned, so
-		// a pending transaction start should not carry over.
+	if state.HasTempTableReservation() {
+		// Clear any deferred BEGIN — DISCARD TEMP cannot run inside a
+		// transaction (PG rejects it), so a pending BEGIN that was never
+		// sent to PG should be discarded.
 		state.PendingBeginQuery = ""
 
 		err := exec.DiscardTempTables(ctx, conn, state, callback)
@@ -67,16 +68,11 @@ func (d *DiscardTempPrimitive) StreamExecute(
 			return err
 		}
 
-		// Unpin the session now that the RPC succeeded. This ensures
-		// correct behavior even if a later statement in a multi-statement
-		// batch fails (the handler's post-execution check is skipped on error).
-		state.SessionPinned = false
-
 		return nil
 	}
 
-	// Session is not pinned — just execute via regular path.
-	// DISCARD TEMP on an unpinned session is harmless.
+	// No temp table reservation — just execute via regular path.
+	// DISCARD TEMP on an unreserved session is harmless.
 	return exec.StreamExecute(ctx, conn, d.TableGroup, constants.DefaultShard, d.Query, state, callback)
 }
 
