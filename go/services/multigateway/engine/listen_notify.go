@@ -77,7 +77,7 @@ func (l *ListenNotifyPrimitive) StreamExecute(
 	case ListenActionListen:
 		if conn.IsInTransaction() {
 			state.AddPendingListen(channel)
-		} else {
+		} else if !state.IsListening(channel) {
 			state.AddListenChannel(channel)
 			state.SubSync.SyncSubscriptions(conn.Context(), conn, state, []string{channel}, nil, false)
 		}

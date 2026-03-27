@@ -298,6 +298,13 @@ func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
 
 // --- LISTEN/NOTIFY state tracking ---
 
+// IsListening returns true if the channel is actively listened.
+func (m *MultiGatewayConnectionState) IsListening(channel string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ListenChannels[channel]
+}
+
 // AddListenChannel registers a channel as actively listened.
 func (m *MultiGatewayConnectionState) AddListenChannel(channel string) {
 	m.mu.Lock()
