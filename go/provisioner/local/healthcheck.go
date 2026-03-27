@@ -111,13 +111,14 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 	return nil
 }
 
-// checkEtcdHealth checks if etcd is ready by querying its /readyz endpoint.
-// This matches the Kubernetes readiness probe behavior.
+// checkEtcdHealth checks if etcd is ready by querying its /health endpoint.
+// Note: /readyz is only available when etcd is started with --listen-metrics-urls,
+// but /health is always served on the client listener.
 func (p *localProvisioner) checkEtcdHealth(ctx context.Context, address string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("http://%s/readyz", address)
+	url := fmt.Sprintf("http://%s/health", address)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -125,12 +126,12 @@ func (p *localProvisioner) checkEtcdHealth(ctx context.Context, address string) 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to reach etcd readyz endpoint: %w", err)
+		return fmt.Errorf("failed to reach etcd health endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("etcd readyz endpoint returned status %d", resp.StatusCode)
+		return fmt.Errorf("etcd health endpoint returned status %d", resp.StatusCode)
 	}
 	return nil
 }

@@ -43,7 +43,7 @@ func checkPortAvailable(port int) error {
 	return nil
 }
 
-// WaitForReady waits for etcd to be ready by querying its /readyz endpoint in a loop.
+// WaitForReady waits for etcd to be ready by querying its /health endpoint in a loop.
 // The loop will retry until the endpoint returns 200 OK or the context is cancelled.
 // Callers should pass a context with an appropriate timeout.
 func WaitForReady(ctx context.Context, clientAddr string) error {
@@ -71,7 +71,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 			return fmt.Errorf("etcd failed to become ready: %w", err)
 		}
 
-		url := clientAddr + "/readyz"
+		url := clientAddr + "/health"
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
