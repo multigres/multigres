@@ -1025,18 +1025,21 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
-	// Get ports for etcd (client and peer)
+	// Get ports for etcd (client, peer, and metrics)
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
+	metricsPort := utils.GetFreePort(t)
 
 	span.SetAttributes(
 		attribute.Int("etcd.client_port", clientPort),
 		attribute.Int("etcd.peer_port", peerPort),
+		attribute.Int("etcd.metrics_port", metricsPort),
 	)
 
 	name := "shardsetup_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
+	metricsAddr := fmt.Sprintf("http://localhost:%v", metricsPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
@@ -1047,6 +1050,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		"-initial-advertise-peer-urls", peerAddr,
 		"-listen-client-urls", clientAddr,
 		"-listen-peer-urls", peerAddr,
+		"-listen-metrics-urls", metricsAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
 
@@ -1061,7 +1065,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := etcdtopo.WaitForReady(waitCtx, clientAddr); err != nil {
+	if err := etcdtopo.WaitForReady(waitCtx, metricsAddr); err != nil {
 		// Stop the etcd process if it's not ready
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		_, _ = cmd.Stop(stopCtx)
