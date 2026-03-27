@@ -385,7 +385,7 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 	h.logger.DebugContext(ctx, "close", "type", string(typ), "name", name)
 
 	switch typ {
-	case 'S': // Close prepared statement
+	case 'S': // Close prepared statement (extended protocol — silent on nonexistent)
 		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
 		return nil
 
@@ -394,17 +394,20 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 		state.DeletePortalInfo(name)
 		return nil
 
-	default:
-		return fmt.Errorf("invalid close type: %c (expected 'S' or 'P')", typ)
-	}
-}
+	case 'D': // Deallocate prepared statement (simple protocol — errors on nonexistent)
+		if h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name) == nil {
+			return fmt.Errorf("prepared statement \"%s\" does not exist", name)
+		}
+		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
+		return nil
 
-// HandleCloseAll closes all prepared statements for a connection.
-// Used by DEALLOCATE ALL in the simple query protocol.
-func (h *MultiGatewayHandler) HandleCloseAll(ctx context.Context, conn *server.Conn) error {
-	h.logger.DebugContext(ctx, "close all prepared statements", "connection_id", conn.ConnectionID())
-	h.psc.RemoveConnection(conn.ConnectionID())
-	return nil
+	case 'A': // Deallocate all prepared statements (simple protocol)
+		h.psc.RemoveConnection(conn.ConnectionID())
+		return nil
+
+	default:
+		return fmt.Errorf("invalid close type: %c (expected 'S', 'P', 'D', or 'A')", typ)
+	}
 }
 
 // HandleSync processes a Sync message ('S').

@@ -184,6 +184,12 @@ func TestMultigatewaySimpleProtocolPreparedStatements(t *testing.T) {
 		assert.Contains(t, err.Error(), "does not exist")
 	})
 
+	t.Run("deallocate_nonexistent_fails", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "DEALLOCATE nonexistent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+
 	t.Run("deallocate_all", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE plan1 AS SELECT 1 FROM %s", tableName)) //nolint:perfsprint // gosec G202 flags string concatenation
 		require.NoError(t, err)

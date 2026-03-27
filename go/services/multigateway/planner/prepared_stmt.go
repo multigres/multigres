@@ -29,7 +29,8 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 		return nil, errors.New("PREPARE: inner query is empty")
 	}
 
-	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery)
+	paramTypes := engine.ExtractParamTypeOids(stmt)
+	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery, paramTypes)
 	plan := engine.NewPlan(sql, prim)
 
 	p.logger.Debug("created prepare plan", "name", stmt.Name, "inner_query", innerQuery)

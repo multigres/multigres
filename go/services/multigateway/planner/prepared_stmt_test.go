@@ -114,14 +114,13 @@ func newTestSetup(t *testing.T) *testSetup {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger)
-	tc := server.NewTestConn(&bytes.Buffer{})
 	exec := &mockIExecute{}
 
 	// The primitive calls conn.Handler().HandleParse/HandleBind/HandleClose,
 	// so we wire up a real MultiGatewayHandler. The handler owns the consolidator;
 	// the test accesses it via h.Consolidator().
 	h := handler.NewMultiGatewayHandler(&mockHandlerExecutor{}, logger, 0)
-	tc.Conn.SetHandler(h)
+	tc := server.NewTestConn(&bytes.Buffer{}, server.WithTestHandler(h))
 
 	return &testSetup{psc: h.Consolidator(), p: p, conn: tc, exec: exec}
 }
@@ -219,6 +218,14 @@ func TestPlanDeallocateStmt(t *testing.T) {
 	assert.Equal(t, "DEALLOCATE", result.CommandTag)
 
 	assert.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan"))
+}
+
+func TestPlanDeallocateStmtNonExistent(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "DEALLOCATE nonexistent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
 }
 
 func TestPlanDeallocateAll(t *testing.T) {

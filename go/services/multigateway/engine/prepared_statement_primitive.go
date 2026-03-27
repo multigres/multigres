@@ -55,17 +55,21 @@ type PreparedStatementPrimitive struct {
 	// innerQuery is the SQL body of the PREPARE statement.
 	innerQuery string
 
+	// paramTypes holds the parameter type OIDs for PREPARE (from SQL type names).
+	paramTypes []uint32
+
 	// params holds the converted EXECUTE parameters (text-format byte arrays).
 	params [][]byte
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
-func NewPreparePrimitive(tableGroup, stmtName, innerQuery string) *PreparedStatementPrimitive {
+func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []uint32) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
 		kind:       preparedStmtPrepare,
 		tableGroup: tableGroup,
 		stmtName:   stmtName,
 		innerQuery: innerQuery,
+		paramTypes: paramTypes,
 	}
 }
 
@@ -123,7 +127,7 @@ func (p *PreparedStatementPrimitive) executePrepare(
 	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, nil); err != nil {
+	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, p.paramTypes); err != nil {
 		return err
 	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
@@ -177,15 +181,14 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, wrappedCallback)
 }
 
-// executeDeallocate delegates to HandleClose for named statements.
-// DEALLOCATE ALL uses the consolidator directly since there is no
-// single-statement extended protocol equivalent.
+// executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
+// statements, matching PostgreSQL's DEALLOCATE behavior.
 func (p *PreparedStatementPrimitive) executeDeallocate(
 	ctx context.Context,
 	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := conn.Handler().HandleClose(ctx, conn, 'S', p.stmtName); err != nil {
+	if err := conn.Handler().HandleClose(ctx, conn, 'D', p.stmtName); err != nil {
 		return err
 	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "DEALLOCATE"})
@@ -196,7 +199,7 @@ func (p *PreparedStatementPrimitive) executeDeallocateAll(
 	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := conn.Handler().HandleCloseAll(ctx, conn); err != nil {
+	if err := conn.Handler().HandleClose(ctx, conn, 'A', ""); err != nil {
 		return err
 	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "DEALLOCATE ALL"})
@@ -249,6 +252,31 @@ func ExtractExecuteParams(stmt *ast.ExecuteStmt) ([][]byte, error) {
 	}
 
 	return params, nil
+}
+
+// ExtractParamTypeOids resolves the Argtypes from a PREPARE statement to OIDs.
+// Returns nil if there are no argument types. Unrecognized type names are passed
+// as 0 (unspecified), letting the backend infer them.
+func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
+	if stmt.Argtypes == nil || stmt.Argtypes.Len() == 0 {
+		return nil
+	}
+	oids := make([]uint32, 0, stmt.Argtypes.Len())
+	for _, item := range stmt.Argtypes.Items {
+		tn, ok := item.(*ast.TypeName)
+		if !ok || tn.Names == nil || tn.Names.Len() == 0 {
+			oids = append(oids, 0)
+			continue
+		}
+		// Use the last name component (e.g., "pg_catalog"."int4" → "int4").
+		lastItem := tn.Names.Items[tn.Names.Len()-1]
+		name := ""
+		if s, ok := lastItem.(*ast.String); ok {
+			name = s.SVal
+		}
+		oids = append(oids, uint32(ast.TypeNameToOid(name)))
+	}
+	return oids
 }
 
 // ExtractInnerQuery extracts the SQL string of the inner query from a PrepareStmt.
