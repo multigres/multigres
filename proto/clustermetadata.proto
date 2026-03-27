@@ -337,3 +337,99 @@ enum AsyncReplicationFallbackMode {
   // if synchronous replication cannot be established to meet quorum requirements
   ASYNC_REPLICATION_FALLBACK_MODE_REJECT = 2;
 }
+
+// =============================================================================
+// Rule Numbers and Cluster State
+// =============================================================================
+
+// RuleNumber uniquely identifies a shard rule — the outcome of a coordinator
+// writing a cluster state change to rule_history. Every change (promotion,
+// cohort membership, durability policy) produces a new RuleNumber.
+//
+// Compared lexicographically: higher coordinator_term takes precedence; within
+// the same coordinator_term, higher rule_subterm takes precedence. rule_subterm
+// resets to 0 when coordinator_term increases, so subterms alone are not
+// globally unique.
+message RuleNumber {
+  int64 coordinator_term = 1;
+  int64 rule_subterm = 2;
+}
+
+// ShardRule is the complete, authoritative description of shard state at a
+// specific rule number. Primary identity, cohort membership, and durability
+// policy are only meaningful together and relative to the rule that established
+// them.
+message ShardRule {
+  RuleNumber rule_number = 1;
+  ID primary_id = 2;
+  repeated ID cohort_members = 3;
+  DurabilityPolicy durability_policy = 4;
+}
+
+// NodePosition describes a node's committed position in logical and physical
+// time. It captures the highest ShardRule this node has replicated (or written,
+// for a primary) and the latest WAL position.
+//
+// Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
+// coordinator can determine which node is most advanced when selecting a
+// promotion candidate.
+//
+// Comparison: prefer the node with the higher rule (coordinator_term first,
+// then rule_subterm). Break ties by LSN.
+message NodePosition {
+  // The highest shard rule this node has committed to local WAL.
+  ShardRule rule = 1;
+
+  // The latest WAL position.
+  string lsn = 2;
+}
+
+// HighestKnownRule is the most recent ShardRule this node is aware of,
+// regardless of whether it has been committed to local WAL yet. It may be
+// ahead of the node's current NodePosition.
+//
+// When highest_known_rule.rule.rule_number > current_position.rule.rule_number,
+// the node has forward knowledge of an upcoming rule:
+//
+//   - If this node is listed as primary_id: this node is actively trying to
+//     establish itself as primary — updating its GUCs and writing this rule
+//     to rule_history.
+//
+//   - If this node is not listed as primary_id: this node knows
+//     which primary to replicate from. If this node currently believes it is
+//     primary under an older rule, it knows it must self-demote.
+//
+// HighestKnownRule does not need to be persisted. It is used to help nodes make
+// progress and can be re-issued by a coordinator if lost. No guarantees are
+// made that it always moves forward or is preserved across restarts.
+message HighestKnownRule {
+  ShardRule rule = 1;
+}
+
+// CoordinatorPromise is a promise to a coordinator.
+message CoordinatorPromise {
+  // The coordinator term this node has promised to honor.
+  int64 term_number = 1;
+
+  // The coordinator (multiorch instance) that this promise was made to.
+  ID accepted_coordinator_id = 2;
+
+  // When this promise was last recorded.
+  google.protobuf.Timestamp last_acceptance_time = 3;
+}
+
+// ConsensusStatus is a node's complete view of its position in the distributed
+// system: its promise, what it has committed, and what it knows is coming.
+message ConsensusStatus {
+  // promise is the coordinator term this node has accepted.
+  CoordinatorPromise promise = 1;
+
+  // current_position is the highest rule this node has committed to local WAL
+  // and the latest WAL position.
+  NodePosition current_position = 2;
+
+  // highest_known_rule is the most recent rule this node is aware of. May be
+  // ahead of current_position when the node has forward knowledge of an
+  // upcoming rule that has not yet been replicated or written.
+  HighestKnownRule highest_known_rule = 3;
+}
