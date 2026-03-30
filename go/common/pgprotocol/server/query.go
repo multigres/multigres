@@ -584,12 +584,3 @@ func writeString(w io.Writer, s string) error {
 	}
 	return nil
 }
-
-// WriteNotice sends a NoticeResponse with the given severity and message to the client.
-func (c *Conn) WriteNotice(severity, message string) error {
-	diag := &mterrors.PgDiagnostic{
-		Severity: severity,
-		Message:  message,
-	}
-	return c.writeNoticeResponse(diag)
-}
