@@ -25,6 +25,8 @@
 // PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 package ast
 
+import "strings"
+
 // PostgreSQL Type OIDs
 // Ported from postgres/src/include/catalog/pg_type_d.h
 // These constants represent the built-in PostgreSQL data types.
@@ -187,6 +189,104 @@ const (
 
 // InvalidOid represents an invalid object identifier.
 const InvalidOid = Oid(0)
+
+// TypeNameToOid resolves a simple (unqualified) PostgreSQL type name to its OID.
+// Handles common aliases like "int" → INT4OID, "boolean" → BOOLOID, etc.
+// Returns InvalidOid for unrecognized type names.
+func TypeNameToOid(name string) Oid {
+	switch strings.ToLower(name) {
+	// Boolean
+	case "bool", "boolean":
+		return BOOLOID
+
+	// Character types
+	case "char", "bpchar":
+		return BPCHAROID
+	case "varchar", "character varying":
+		return VARCHAROID
+	case "text":
+		return TEXTOID
+	case "name":
+		return NAMEOID
+
+	// Integer types
+	case "int2", "smallint":
+		return INT2OID
+	case "int", "int4", "integer":
+		return INT4OID
+	case "int8", "bigint":
+		return INT8OID
+
+	// Floating point
+	case "float4", "real":
+		return FLOAT4OID
+	case "float", "float8", "double precision":
+		return FLOAT8OID
+
+	// Numeric
+	case "numeric", "decimal":
+		return NUMERICOID
+
+	// Date/time
+	case "date":
+		return DATEOID
+	case "time", "time without time zone":
+		return TIMEOID
+	case "timetz", "time with time zone":
+		return TIMETZOID
+	case "timestamp", "timestamp without time zone":
+		return TIMESTAMPOID
+	case "timestamptz", "timestamp with time zone":
+		return TIMESTAMPTZOID
+	case "interval":
+		return INTERVALOID
+
+	// Binary
+	case "bytea":
+		return BYTEAOID
+
+	// JSON
+	case "json":
+		return JSONOID
+	case "jsonb":
+		return JSONBOID
+
+	// XML
+	case "xml":
+		return XMLOID
+
+	// UUID
+	case "uuid":
+		return UUIDOID
+
+	// Network
+	case "inet":
+		return INETOID
+	case "cidr":
+		return CIDROID
+	case "macaddr":
+		return MACADDROID
+	case "macaddr8":
+		return MACADDR8OID
+
+	// Bit string
+	case "bit":
+		return BITOID
+	case "varbit", "bit varying":
+		return VARBITOID
+
+	// Money
+	case "money":
+		return MONEYOID
+
+	// System
+	case "oid":
+		return OIDOID
+
+	default:
+		return InvalidOid
+	}
+}
 
 // String returns the canonical PostgreSQL type name for this OID.
 // Returns an empty string if the OID is not recognized.

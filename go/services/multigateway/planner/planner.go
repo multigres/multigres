@@ -87,6 +87,15 @@ func (p *Planner) Plan(
 	case ast.T_VariableShowStmt:
 		plan, err = p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
 
+	case ast.T_PrepareStmt:
+		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
+
+	case ast.T_ExecuteStmt:
+		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt))
+
+	case ast.T_DeallocateStmt:
+		plan, err = p.planDeallocateStmt(sql, stmt.(*ast.DeallocateStmt))
+
 	// Future: Add more statement types here
 	// case ast.T_SelectStmt:
 	//     plan, err = p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)

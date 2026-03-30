@@ -215,6 +215,11 @@ func (c *Conn) ConnectionID() uint32 {
 	return c.connectionID
 }
 
+// Handler returns the protocol handler for this connection.
+func (c *Conn) Handler() Handler {
+	return c.handler
+}
+
 // User returns the authenticated user.
 func (c *Conn) User() string {
 	return c.user
