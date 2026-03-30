@@ -89,6 +89,11 @@ service MultiPoolerService {
   //
   // Each response contains the full health state (not incremental updates).
   rpc StreamPoolerHealth(StreamPoolerHealthRequest) returns (stream StreamPoolerHealthResponse);
+
+  // StreamNotifications opens a server-streaming RPC for async PG notifications.
+  // The gateway subscribes to notification channels on behalf of a client session.
+  // The pooler fans out notifications from its shared listener connection.
+  rpc StreamNotifications(StreamNotificationsRequest) returns (stream StreamNotificationsResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -302,6 +307,8 @@ enum ReservationReason {
   RESERVATION_REASON_PORTAL = 4;       // 0b0100
   // Connection is reserved for an active COPY operation
   RESERVATION_REASON_COPY = 8;         // 0b1000
+  // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
+  RESERVATION_REASON_LISTEN = 16;      // 0b10000
 }
 
 // ReservationOptions specifies options when creating a reserved connection.
@@ -438,4 +445,19 @@ message PrimaryObservation {
   // The primary never changes within a primary_term. Higher values indicate
   // more recent primary appointments.
   int64 primary_term = 2;
+}
+
+// StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
+message StreamNotificationsRequest {
+  // target identifies the shard to listen on.
+  query.Target target = 1;
+
+  // channels is the list of channels to subscribe to initially.
+  repeated string channels = 2;
+}
+
+// StreamNotificationsResponse delivers a notification from the shared listener.
+message StreamNotificationsResponse {
+  // notification contains the PG notification data.
+  query.PgNotification notification = 1;
 }

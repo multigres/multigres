@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,9 @@ func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { r
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
 	return m.queryService
 }
-func (m *mockPoolerController) RegisterGRPCServices() {}
+func (m *mockPoolerController) RegisterGRPCServices()                {}
+func (m *mockPoolerController) SetPubSubListener(_ *pubsub.Listener) {}
+func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return nil }
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
@@ -68,13 +71,20 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		Shard:      shard,
 	}
 
+	svcID := &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"}
+	svcPoolerID, err := newPoolerID(svcID)
+	if err != nil {
+		panic(err)
+	}
+
 	pm := &MultiPoolerManager{
-		logger:      logger,
-		qsc:         &mockPoolerController{queryService: mockQueryService},
-		topoClient:  topoStore,
-		config:      &Config{},
-		multipooler: multiPooler,
-		serviceID:   &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"},
+		logger:          logger,
+		qsc:             &mockPoolerController{queryService: mockQueryService},
+		topoClient:      topoStore,
+		config:          &Config{},
+		multipooler:     multiPooler,
+		serviceID:       svcID,
+		servicePoolerID: svcPoolerID,
 	}
 
 	return pm, mockQueryService
@@ -377,17 +387,25 @@ func TestInitializeMultischemaData(t *testing.T) {
 	}
 }
 
+func mustPoolerID(cell, name string) poolerID {
+	pid, err := newPoolerID(&clustermetadatapb.ID{Cell: cell, Name: name})
+	if err != nil {
+		panic(err)
+	}
+	return pid
+}
+
 func TestInsertLeadershipHistory(t *testing.T) {
 	tests := []struct {
 		name            string
 		termNumber      int64
-		leaderID        applicationName
+		leaderID        poolerID
 		coordinatorID   *clustermetadatapb.ID
 		walPosition     string
 		operation       string
 		reason          string
-		cohortMembers   []applicationName
-		acceptedMembers []applicationName
+		cohortMembers   []poolerID
+		acceptedMembers []poolerID
 		force           bool
 		setupMock       func(m *mock.QueryService)
 		expectError     bool
@@ -396,13 +414,13 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		{
 			name:            "successful insert",
 			termNumber:      1,
-			leaderID:        "zone1_leader-1",
+			leaderID:        mustPoolerID("zone1", "leader-1"),
 			coordinatorID:   &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"},
 			walPosition:     "0/1234567",
 			operation:       "promotion",
 			reason:          "Leadership changed due to manual promotion",
-			cohortMembers:   []applicationName{"zone1_member-1", "zone1_member-2", "zone1_member-3"},
-			acceptedMembers: []applicationName{"zone1_member-1", "zone1_member-2"},
+			cohortMembers:   []poolerID{mustPoolerID("zone1", "member-1"), mustPoolerID("zone1", "member-2"), mustPoolerID("zone1", "member-3")},
+			acceptedMembers: []poolerID{mustPoolerID("zone1", "member-1"), mustPoolerID("zone1", "member-2")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
 			},
@@ -411,13 +429,13 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		{
 			name:            "insert fails with database error",
 			termNumber:      2,
-			leaderID:        "zone1_leader-2",
+			leaderID:        mustPoolerID("zone1", "leader-2"),
 			coordinatorID:   &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-2"},
 			walPosition:     "0/2345678",
 			operation:       "failover",
 			reason:          "Leadership changed due to failover",
-			cohortMembers:   []applicationName{"zone1_member-1", "zone1_member-2"},
-			acceptedMembers: []applicationName{"zone1_member-1"},
+			cohortMembers:   []poolerID{mustPoolerID("zone1", "member-1"), mustPoolerID("zone1", "member-2")},
+			acceptedMembers: []poolerID{mustPoolerID("zone1", "member-1")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("connection refused"))
 			},
@@ -427,13 +445,13 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		{
 			name:            "force mode skips insert entirely",
 			termNumber:      2,
-			leaderID:        "zone1_leader-2",
+			leaderID:        mustPoolerID("zone1", "leader-2"),
 			coordinatorID:   &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-2"},
 			walPosition:     "0/2345678",
 			operation:       "configure",
 			reason:          "Emergency replication GUC change",
-			cohortMembers:   []applicationName{"zone1_member-1", "zone1_member-2"},
-			acceptedMembers: []applicationName{"zone1_member-1"},
+			cohortMembers:   []poolerID{mustPoolerID("zone1", "member-1"), mustPoolerID("zone1", "member-2")},
+			acceptedMembers: []poolerID{mustPoolerID("zone1", "member-1")},
 			force:           true,
 			setupMock: func(m *mock.QueryService) {
 				// No mock needed - force mode skips the insert entirely
@@ -443,13 +461,13 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		{
 			name:            "insert with empty cohort and accepted members arrays",
 			termNumber:      3,
-			leaderID:        "zone1_leader-3",
+			leaderID:        mustPoolerID("zone1", "leader-3"),
 			coordinatorID:   &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-3"},
 			walPosition:     "0/3456789",
 			operation:       "bootstrap",
 			reason:          "Initial cluster bootstrap",
-			cohortMembers:   []applicationName{},
-			acceptedMembers: []applicationName{},
+			cohortMembers:   []poolerID{},
+			acceptedMembers: []poolerID{},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
 			},
@@ -552,13 +570,11 @@ func TestInsertReplicationConfigHistory(t *testing.T) {
 
 			ctx := context.Background()
 
-			// Convert standby IDs to application names
-			standbyAppNames, err := standbyIDsToAppNames(tt.standbyIDs)
+			// Convert standby IDs to pooler IDs
+			standbyPoolerIDs, err := toPoolerIDs(tt.standbyIDs)
 			require.NoError(t, err)
 
-			leaderID, err := generateApplicationName(pm.serviceID)
-			require.NoError(t, err)
-			err = pm.insertHistoryRecord(ctx, tt.termNumber, "replication_config", leaderID, nil, "", tt.operation, tt.reason, standbyAppNames, nil, false /* force */)
+			err = pm.insertHistoryRecord(ctx, tt.termNumber, "replication_config", pm.servicePoolerID, nil, "", tt.operation, tt.reason, standbyPoolerIDs, nil, false /* force */)
 
 			if tt.expectError {
 				assert.Error(t, err)

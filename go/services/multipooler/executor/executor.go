@@ -388,29 +388,46 @@ func (e *Executor) Describe(
 		"shard", target.Shard,
 		"user", user,
 		"has_statement", preparedStatement != nil,
-		"has_portal", portal != nil)
+		"has_portal", portal != nil,
+		"reserved_connection_id", options.GetReservedConnectionId())
 
-	// Get a connection from the pool
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+	// Acquire the connection: reserved (transactional) or regular (pooled).
+	var conn *regular.Conn
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+
+		if options.SessionSettings != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+				return nil, fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+			}
+		}
+
+		conn = reservedConn.Conn()
+	} else {
+		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		}
+		defer pooled.Recycle()
+
+		conn = pooled.Conn
 	}
-	defer conn.Recycle()
 
-	// Describe prepared statement
 	// Ensure the statement is prepared on this connection
-	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
+	canonicalName, err := e.ensurePrepared(ctx, conn, preparedStatement)
 	if err != nil {
 		return nil, err
 	}
 
 	// If portal is provided, we need to bind first, then describe
 	if portal != nil {
-		// Bind and describe using canonical name
 		paramFormats := int32ToInt16Slice(portal.ParamFormats)
 		resultFormats := int32ToInt16Slice(portal.ResultFormats)
 		params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-		desc, err := conn.Conn.BindAndDescribe(ctx, canonicalName, params, paramFormats, resultFormats)
+		desc, err := conn.BindAndDescribe(ctx, canonicalName, params, paramFormats, resultFormats)
 		if err != nil {
 			return nil, fmt.Errorf("failed to describe portal: %w", err)
 		}
@@ -418,7 +435,7 @@ func (e *Executor) Describe(
 	}
 
 	// Describe prepared using canonical name
-	desc, err := conn.Conn.DescribePrepared(ctx, canonicalName)
+	desc, err := conn.DescribePrepared(ctx, canonicalName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
 	}

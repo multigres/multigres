@@ -31,6 +31,7 @@ message QueryResultPayload {
   oneof payload {
     QueryResult result = 1;      // Row data with fields/rows/command_tag
     PgDiagnostic diagnostic = 2; // Individual error or notice
+    PgNotification notification = 3; // Async notification from LISTEN
   }
 }
 
@@ -151,6 +152,19 @@ message PgDiagnostic {
 
   // constraint_name is the name of the constraint associated with the diagnostic (optional)
   string constraint_name = 14;
+}
+
+// PgNotification represents a PostgreSQL asynchronous notification.
+// Sent via NotificationResponse ('A') messages to clients that have issued LISTEN.
+message PgNotification {
+  // pid is the process ID of the notifying backend.
+  int32 pid = 1;
+
+  // channel is the notification channel name.
+  string channel = 2;
+
+  // payload is the notification payload string (may be empty).
+  string payload = 3;
 }
 
 // StatementDescription describes a prepared statement or portal.

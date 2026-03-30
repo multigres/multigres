@@ -337,7 +337,7 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 // This is used for both promotion events and replication config changes.
 // This operation uses the remote-operation-timeout and will fail if it cannot complete within
 // that time. A timeout typically indicates that synchronous replication is not functioning.
-func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType string, leaderID applicationName, coordinatorID *clustermetadatapb.ID, walPosition, operation, reason string, cohortMembers, acceptedMembers []applicationName, force bool) error {
+func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType string, leaderID poolerID, coordinatorID *clustermetadatapb.ID, walPosition, operation, reason string, cohortMembers, acceptedMembers []poolerID, force bool) error {
 	if force {
 		// Force mode skips history recording entirely. Force operations are emergency
 		// operations that must configure replication GUCs regardless. The INSERT would
@@ -350,12 +350,12 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		return nil
 	}
 
-	cohortJSON, err := json.Marshal(applicationNamesToStrings(cohortMembers))
+	cohortJSON, err := json.Marshal(poolerIDsToAppNames(cohortMembers))
 	if err != nil {
 		return mterrors.Wrap(err, "failed to marshal cohort_members")
 	}
 
-	acceptedJSON, err := json.Marshal(applicationNamesToStrings(acceptedMembers))
+	acceptedJSON, err := json.Marshal(poolerIDsToAppNames(acceptedMembers))
 	if err != nil {
 		return mterrors.Wrap(err, "failed to marshal accepted_members")
 	}
@@ -370,7 +370,7 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 	VALUES (%d, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), %s, %s::jsonb, %s::jsonb)`,
 		termNumber,
 		ast.QuoteStringLiteral(eventType),
-		ast.QuoteStringLiteral(string(leaderID)),
+		ast.QuoteStringLiteral(leaderID.appName),
 		ast.QuoteStringLiteral(topoclient.ClusterIDString(coordinatorID)),
 		ast.QuoteStringLiteral(walPosition),
 		ast.QuoteStringLiteral(operation),

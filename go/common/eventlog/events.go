@@ -74,6 +74,24 @@ func (e NodeDrain) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("node_name", e.NodeName), slog.String("reason", e.Reason)}
 }
 
+type BackupLeaseStolen struct {
+	Stealer string
+}
+
+func (BackupLeaseStolen) EventType() string { return "backup.lease.stolen" }
+func (e BackupLeaseStolen) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("stealer", e.Stealer)}
+}
+
+type BackupLeaseLost struct {
+	Holder string
+}
+
+func (BackupLeaseLost) EventType() string { return "backup.lease.lost" }
+func (e BackupLeaseLost) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("holder", e.Holder)}
+}
+
 type TermBegin struct {
 	NewTerm      int64
 	PreviousTerm int64

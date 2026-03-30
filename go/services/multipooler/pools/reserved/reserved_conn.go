@@ -366,3 +366,22 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	return c.pooled.Conn.Execute(ctx, portalName, maxRows, callback)
 }
+
+// --- LISTEN/NOTIFY operations ---
+
+// SendQuery writes a simple query message without reading the response.
+// Used for LISTEN/UNLISTEN commands in the split read/write pattern.
+func (c *Conn) SendQuery(sql string) error {
+	return c.pooled.Conn.RawConn().SendQuery(sql)
+}
+
+// ReadRawMessage reads the next raw PostgreSQL protocol message.
+// Returns the message type byte and body.
+func (c *Conn) ReadRawMessage() (byte, []byte, error) {
+	return c.pooled.Conn.RawConn().ReadRawMessage()
+}
+
+// ParseNotification parses a NotificationResponse message body.
+func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
+	return c.pooled.Conn.RawConn().ParseNotification(body)
+}

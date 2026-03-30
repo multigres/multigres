@@ -23,6 +23,19 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
+// Plan type constants identify the root primitive for observability.
+const (
+	PlanTypeRoute               = "Route"
+	PlanTypeTransaction         = "Transaction"
+	PlanTypeCopyStatement       = "CopyStatement"
+	PlanTypeApplySessionState   = "ApplySessionState"
+	PlanTypeGatewaySessionState = "GatewaySessionState"
+	PlanTypeGatewayShowVariable = "GatewayShowVariable"
+	PlanTypeListenNotify        = "ListenNotify"
+	PlanTypeSequence            = "Sequence"
+	PlanTypeUnknown             = "Unknown"
+)
+
 // Plan represents a query execution plan.
 // It contains the root primitive and metadata about the query.
 type Plan struct {
@@ -37,6 +50,10 @@ type Plan struct {
 	// referenced by this query. Nil for statements that don't reference
 	// tables (SET, SHOW, BEGIN, etc.).
 	TablesUsed []string
+
+	// Type is the name of the root primitive (e.g. "Route", "Transaction").
+	// Used for observability: span attributes and structured query logs.
+	Type string
 }
 
 // NewPlan creates a new query plan.

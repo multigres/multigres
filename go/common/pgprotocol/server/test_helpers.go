@@ -52,10 +52,18 @@ func (m *exportedTestNetConn) SetDeadline(t time.Time) error      { return nil }
 func (m *exportedTestNetConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *exportedTestNetConn) SetWriteDeadline(t time.Time) error { return nil }
 
+// TestConnOption configures a TestConn.
+type TestConnOption func(*Conn)
+
+// WithTestHandler sets the handler on a test connection.
+func WithTestHandler(h Handler) TestConnOption {
+	return func(c *Conn) { c.handler = h }
+}
+
 // NewTestConn creates a Conn suitable for testing.
 // readBuf contains data that will be read by the Conn (simulating client input).
 // The returned TestConn includes WriteBuf to inspect what was written.
-func NewTestConn(readBuf *bytes.Buffer) *TestConn {
+func NewTestConn(readBuf *bytes.Buffer, opts ...TestConnOption) *TestConn {
 	writeBuf := &bytes.Buffer{}
 	netConn := &exportedTestNetConn{readBuf: readBuf, writeBuf: writeBuf}
 
@@ -69,6 +77,9 @@ func NewTestConn(readBuf *bytes.Buffer) *TestConn {
 		txnStatus:      protocol.TxnStatusIdle,
 		ctx:            ctx,
 		cancel:         cancel,
+	}
+	for _, opt := range opts {
+		opt(conn)
 	}
 
 	return &TestConn{

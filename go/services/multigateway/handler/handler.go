@@ -39,6 +39,12 @@ type ExecuteResult struct {
 	// TablesUsed contains deduplicated, schema-qualified table names
 	// referenced by the executed query.
 	TablesUsed []string
+
+	// PlanType is the name of the root primitive (e.g. "Route", "Transaction").
+	PlanType string
+
+	// PlanTime is how long query planning took.
+	PlanTime time.Duration
 }
 
 // Executor defines the interface for query execution.
@@ -70,6 +76,7 @@ type MultiGatewayHandler struct {
 	statementTimeout time.Duration
 	metrics          *HandlerMetrics
 	slowThreshold    time.Duration
+	notifMgr         NotificationManager
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -85,6 +92,7 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		statementTimeout: statementTimeout,
 		metrics:          metrics,
 		slowThreshold:    constants.DefaultSlowQueryThreshold,
+		notifMgr:         DefaultNotificationManager(),
 	}
 }
 
@@ -171,7 +179,10 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// This handles cases where transactions start/end mid-batch and ensures
 	// proper auto-rollback for implicit transaction segments on failure.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
-	var tablesUsed []string
+	// For multi-statement batches, per-table metrics, span attributes, and query log
+	// enrichment are handled per-statement inside executeWithImplicitTransaction.
+	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
+	var result *ExecuteResult
 	if len(asts) > 1 {
 		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 			"statement_count", len(asts),
@@ -182,11 +193,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
 		defer cancel()
 
-		var result *ExecuteResult
 		result, err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
-		if result != nil {
-			tablesUsed = result.TablesUsed
-		}
 		if err != nil {
 			// If we're in an active transaction and the query failed,
 			// transition to aborted state. The client must ROLLBACK to recover.
@@ -198,10 +205,14 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, tablesUsed, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, result, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
+
+	// Flush pending notifications to client after query completes.
+	h.flushNotifications(conn, st)
+
 	return err
 }
 
@@ -235,6 +246,11 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		}
 		newState.InitStatementTimeout(stDefault)
 
+		newState.SubSync = &handlerSubSync{
+			notifMgr: h.notifMgr,
+			logger:   h.logger,
+		}
+
 		conn.SetConnectionState(newState)
 		return newState
 	}
@@ -263,7 +279,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 	// Get the prepared statement to verify it exists.
 	psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), stmtName)
 	if psi == nil {
-		return fmt.Errorf("prepared statement \"%s\" does not exist", stmtName)
+		return mterrors.NewInvalidPreparedStatementError(stmtName)
 	}
 
 	// Get the connection state.
@@ -288,8 +304,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
-		portalErr := mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
-			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
+		portalErr := mterrors.NewInvalidPortalError(portalName)
 		// Record before span creation since we don't have an operation name yet.
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, nil, portalErr)
 		return portalErr
@@ -328,10 +343,6 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
-	var tablesUsed []string
-	if result != nil {
-		tablesUsed = result.TablesUsed
-	}
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
@@ -340,10 +351,14 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, tablesUsed, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, result, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
+
+	// Deliver any pending notifications after query completes.
+	h.flushNotifications(conn, state)
+
 	return err
 }
 
@@ -359,7 +374,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	case 'S': // Describe prepared statement
 		stmt := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name)
 		if stmt == nil {
-			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
+			return nil, mterrors.NewInvalidPreparedStatementError(name)
 		}
 
 		// Call executor to get description from multipooler
@@ -368,7 +383,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	case 'P': // Describe portal
 		portalInfo := state.GetPortalInfo(name)
 		if portalInfo == nil {
-			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
+			return nil, mterrors.NewInvalidPortalError(name)
 		}
 
 		// Call executor to get description from multipooler
@@ -385,7 +400,7 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 	h.logger.DebugContext(ctx, "close", "type", string(typ), "name", name)
 
 	switch typ {
-	case 'S': // Close prepared statement
+	case 'S': // Close prepared statement (extended protocol — silent on nonexistent)
 		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
 		return nil
 
@@ -394,8 +409,19 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 		state.DeletePortalInfo(name)
 		return nil
 
+	case 'D': // Deallocate prepared statement (simple protocol — errors on nonexistent)
+		if h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name) == nil {
+			return mterrors.NewInvalidPreparedStatementError(name)
+		}
+		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
+		return nil
+
+	case 'A': // Deallocate all prepared statements (simple protocol)
+		h.psc.RemoveConnection(conn.ConnectionID())
+		return nil
+
 	default:
-		return fmt.Errorf("invalid close type: %c (expected 'S' or 'P')", typ)
+		return fmt.Errorf("invalid close type: %c (expected 'S', 'P', 'D', or 'A')", typ)
 	}
 }
 
@@ -413,6 +439,18 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 	connState := conn.GetConnectionState()
 	if connState != nil {
 		state, ok := connState.(*MultiGatewayConnectionState)
+		if ok && state != nil {
+			// Unsubscribe from all LISTEN channels on disconnect.
+			if state.NotifCh != nil {
+				h.notifMgr.UnsubscribeAll(state.NotifCh)
+				state.NotifCh = nil
+				state.ClearListenChannels()
+			}
+			if state.AsyncNotifCh != nil {
+				conn.StopAsyncNotifications()
+				state.AsyncNotifCh = nil
+			}
+		}
 		if ok && state != nil && len(state.ShardStates) > 0 {
 			// Release all reserved connections regardless of reason (transaction, COPY, portal).
 			// Add a timeout to bound cleanup duration — conn.Context() is still valid here
@@ -446,7 +484,7 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	execDuration time.Duration,
 	totalDuration time.Duration,
 	rowCount int64,
-	tablesUsed []string,
+	result *ExecuteResult,
 	err error,
 ) {
 	dbNamespace := conn.Database()
@@ -462,9 +500,21 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
 	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName)
 
+	var tablesUsed []string
+	var planType string
+	var planTime time.Duration
+	if result != nil {
+		tablesUsed = result.TablesUsed
+		planType = result.PlanType
+		planTime = result.PlanTime
+	}
+
 	for _, table := range tablesUsed {
 		h.metrics.tableQueries.Add(ctx, dbNamespace, table, operationName)
 	}
+
+	// Enrich the active span with plan metadata.
+	setSpanPlanAttributes(ctx, planType, tablesUsed)
 
 	emitQueryLog(ctx, h.logger, queryLogEntry{
 		User:          conn.User(),
@@ -473,8 +523,11 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		Protocol:      queryProtocol,
 		TotalDuration: totalDuration,
 		ParseDuration: parseDuration,
+		PlanDuration:  planTime,
 		ExecDuration:  execDuration,
 		RowCount:      rowCount,
+		PlanType:      planType,
+		TablesUsed:    tablesUsed,
 		Error:         err,
 		SQLSTATE:      errorType,
 		ErrorSource:   mterrors.ClassifyErrorSource(err),
@@ -483,3 +536,23 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 // Ensure MultiGatewayHandler implements server.Handler interface.
 var _ server.Handler = (*MultiGatewayHandler)(nil)
+
+// SetNotificationManager sets the notification manager for LISTEN/NOTIFY support.
+func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
+	h.notifMgr = mgr
+}
+
+// flushNotifications delivers any pending notifications to the client.
+// Called after each query completes (before ReadyForQuery is sent).
+//
+// Notifications flow through a pipeline: NotifCh → forwardNotifications → asyncCh.
+// This method drains the asyncCh (the server.Conn's internal notification channel)
+// with proper bufMu locking, avoiding races with the async pusher goroutine.
+func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *MultiGatewayConnectionState) {
+	if state.AsyncNotifCh == nil {
+		return
+	}
+	if err := conn.FlushPendingNotifications(); err != nil {
+		h.logger.Error("failed to flush notifications", "error", err)
+	}
+}

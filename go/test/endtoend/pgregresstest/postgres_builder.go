@@ -19,13 +19,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -236,18 +236,9 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 
 	t.Logf("%s test results will be saved to: %s", cfg.suiteName, cfg.outputDir)
 
-	// Start the process in its own process group so we can kill the entire tree
-	// (make → pg_regress → psql) when the context expires. Without this,
-	// exec.CommandContext only kills the direct child (make), leaving grandchildren
-	// like pg_regress and psql alive, which prevents cmd.Run() from returning.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	// WaitDelay caps how long cmd.Run() waits for I/O after Cancel.
-	// Without this, if a child process (e.g. psql stuck on a metacommand)
-	// survives SIGKILL in an uninterruptible state, cmd.Run() blocks forever.
-	cmd.WaitDelay = 10 * time.Second
+	// Cap how long Run() waits for I/O after the process exits. Without this,
+	// grandchildren (e.g. psql) holding pipes open would cause a hang.
+	cmd.SetWaitDelay(10 * time.Second)
 
 	// Set environment variables for connection
 	cmd.AddEnv(
@@ -259,12 +250,14 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		"PGCONNECT_TIMEOUT=10",
 	)
 
-	cmd.Stdout = os.Stdout
+	// Capture stdout for result parsing while still printing to the terminal.
+	// pg_regress deletes regression.out when all tests pass, so stdout is our
+	// reliable source for TAP output. We still try the on-disk file first
+	// because it contains partial results if the process is killed mid-run.
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	cmd.Stderr = os.Stderr
 
-	// The regression.out file is written incrementally by pg_regress to the build
-	// directory as tests complete. We use it as the primary source for parsing results
-	// because it contains partial results even if the process hangs or is killed.
 	srcOut := filepath.Join(cfg.srcOutDir, "regression.out")
 
 	startTime := time.Now()
@@ -273,10 +266,14 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 
 	t.Logf("%s test execution completed in %v (err=%v)", cfg.suiteName, duration, err)
 
-	// Parse results from the on-disk regression.out file.
+	// Prefer regression.out (has partial results on kill), fall back to stdout
+	// (pg_regress deletes the file when all tests pass).
 	outData, readErr := os.ReadFile(srcOut)
 	if readErr != nil {
-		return nil, fmt.Errorf("failed to read %s regression.out: %w", cfg.suiteName, readErr)
+		outData = stdoutBuf.Bytes()
+	}
+	if len(outData) == 0 {
+		return nil, fmt.Errorf("no %s TAP output: regression.out missing and stdout empty", cfg.suiteName)
 	}
 	results, parseErr := pb.ParseTestResults(string(outData))
 	if parseErr != nil {
@@ -365,7 +362,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
 	}
 
-	cmd := executil.Command(ctx, "make", makeArgs...)
+	cmd := executil.Command(ctx, "make", makeArgs...).WithProcessGroup()
 
 	return pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 		suiteName: "Regression",
@@ -613,8 +610,9 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 
 	t.Logf("Running PostgreSQL isolation tests against multigateway on port %d...", multigatewayPort)
 
-	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
-	outputIsoDir := filepath.Join(isolationDir, "output_iso")
+	isolationBuildDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
+	isolationSourceDir := filepath.Join(pb.SourceDir, "src", "test", "isolation")
+	outputIsoDir := filepath.Join(isolationBuildDir, "output_iso")
 
 	// Ensure the output_iso directory exists. make installcheck creates it, but
 	// pg_isolation_regress (used for selective tests) may not.
@@ -622,24 +620,33 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		return nil, fmt.Errorf("failed to create output_iso directory: %w", err)
 	}
 
+	// Build the isolation test binary if it doesn't exist.
+	pgIsoRegress := filepath.Join(isolationBuildDir, "pg_isolation_regress")
+	if _, err := os.Stat(pgIsoRegress); os.IsNotExist(err) {
+		t.Logf("Building pg_isolation_regress...")
+		buildCmd := executil.Command(ctx, "make", "-C", isolationBuildDir, "all")
+		if out, err := buildCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("failed to build pg_isolation_regress: %w\n%s", err, out)
+		}
+	}
+
 	var cmd *executil.Cmd
 	if testsEnv := os.Getenv("PGISOLATION_TESTS"); testsEnv != "" {
-		pgIsoRegress := filepath.Join(isolationDir, "pg_isolation_regress")
 		args := []string{
-			"--inputdir=" + isolationDir,
+			"--inputdir=" + isolationSourceDir,
 			"--outputdir=" + outputIsoDir,
 			"--host=localhost",
 			fmt.Sprintf("--port=%d", multigatewayPort),
 			"--user=postgres",
 			"--dbname=postgres",
 			"--use-existing",
-			"--dlpath=" + isolationDir,
+			"--dlpath=" + isolationBuildDir,
 		}
 		args = append(args, strings.Fields(testsEnv)...)
-		cmd = executil.Command(ctx, pgIsoRegress, args...)
+		cmd = executil.Command(ctx, pgIsoRegress, args...).WithProcessGroup()
 		t.Logf("Running selective isolation tests: %s", testsEnv)
 	} else {
-		cmd = executil.Command(ctx, "make", "-C", isolationDir, "installcheck")
+		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck").WithProcessGroup()
 		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
 	}
 

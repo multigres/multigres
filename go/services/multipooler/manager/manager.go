@@ -29,10 +29,12 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -62,12 +64,15 @@ const (
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger       *slog.Logger
-	config       *Config
-	topoClient   topoclient.Store
-	serviceID    *clustermetadatapb.ID
-	replTracker  *heartbeat.ReplTracker
-	pgctldClient pgctldpb.PgCtldClient
+	logger     *slog.Logger
+	config     *Config
+	topoClient topoclient.Store
+	// Deprecated: use servicePoolerID instead.
+	serviceID       *clustermetadatapb.ID
+	servicePoolerID poolerID
+	replTracker     *heartbeat.ReplTracker
+	pubsubListener  *pubsub.Listener
+	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
@@ -187,7 +192,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
-	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+	svcPoolerID, err := newPoolerID(multiPooler.Id)
+	if err != nil {
 		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
 	}
 
@@ -226,6 +232,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		config:                 config,
 		topoClient:             config.TopoClient,
 		serviceID:              multiPooler.Id,
+		servicePoolerID:        svcPoolerID,
 		multipooler:            multiPooler,
 		actionLock:             NewActionLock(),
 		state:                  ManagerStateStarting,
@@ -411,6 +418,17 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	return pm.servingState.RegisterAndSync(ctx, pm.replTracker)
 }
 
+// startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
+// it with the state manager. The listener runs only when PRIMARY+SERVING.
+func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
+	if pm.connPoolMgr == nil {
+		return nil
+	}
+	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger)
+	pm.qsc.SetPubSubListener(pm.pubsubListener)
+	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
+}
+
 // QueryServiceControl returns the query service controller.
 // This follows the TabletManager pattern of exposing the controller.
 func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
@@ -455,6 +473,13 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			// Don't fail the connection if heartbeat fails
 		}
 	}
+
+	// Start PubSub listener for LISTEN/NOTIFY support.
+	if pm.pubsubListener == nil {
+		if err := pm.startPubSubListener(context.TODO()); err != nil {
+			pm.logger.Error("Failed to start PubSub listener", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -466,6 +491,11 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() {
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
 		pm.replTracker = nil
+	}
+
+	if pm.pubsubListener != nil {
+		pm.pubsubListener.Stop()
+		pm.pubsubListener = nil
 	}
 
 	// Close connection pool manager
@@ -515,6 +545,15 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler.Type
+}
+
+// shardKey returns a ShardKey identifying this pooler's shard.
+func (pm *MultiPoolerManager) shardKey() commontypes.ShardKey {
+	return commontypes.ShardKey{
+		Database:   pm.multipooler.Database,
+		TableGroup: pm.multipooler.TableGroup,
+		Shard:      pm.multipooler.Shard,
+	}
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -763,14 +802,6 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 	currentTerm, err := pm.getCurrentTermNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// Check if consensus term has been initialized (term 0 means uninitialized)
-	if currentTerm == 0 {
-		pm.logger.ErrorContext(ctx, "Consensus term not initialized",
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
 	}
 
 	// If request term == current term: ACCEPT (same term, execute)

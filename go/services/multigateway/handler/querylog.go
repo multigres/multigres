@@ -28,8 +28,11 @@ type queryLogEntry struct {
 	Protocol      string // "simple" or "extended"
 	TotalDuration time.Duration
 	ParseDuration time.Duration
+	PlanDuration  time.Duration
 	ExecDuration  time.Duration
 	RowCount      int64
+	PlanType      string
+	TablesUsed    []string
 	Error         error
 	SQLSTATE      string
 	ErrorSource   string
@@ -57,8 +60,16 @@ func emitQueryLog(ctx context.Context, logger *slog.Logger, entry queryLogEntry,
 		slog.String("db.user", entry.User),
 		slog.Float64("duration.total", entry.TotalDuration.Seconds()),
 		slog.Float64("duration.parse", entry.ParseDuration.Seconds()),
+		slog.Float64("duration.plan", entry.PlanDuration.Seconds()),
 		slog.Float64("duration.execute", entry.ExecDuration.Seconds()),
 		slog.Int64("rows_returned", entry.RowCount),
+	}
+
+	if entry.PlanType != "" {
+		attrs = append(attrs, slog.String("db.plan.type", entry.PlanType))
+	}
+	if len(entry.TablesUsed) > 0 {
+		attrs = append(attrs, slog.Any("db.tables_used", entry.TablesUsed))
 	}
 
 	if entry.Error != nil {

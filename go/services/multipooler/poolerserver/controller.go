@@ -20,6 +20,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 )
 
 // PoolerController defines the control interface for query serving.
@@ -78,6 +79,12 @@ type PoolerController interface {
 	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.
 	RegisterGRPCServices()
+
+	// SetPubSubListener sets the shared LISTEN/NOTIFY listener.
+	SetPubSubListener(l *pubsub.Listener)
+
+	// PubSubListener returns the shared LISTEN/NOTIFY listener (may be nil).
+	PubSubListener() *pubsub.Listener
 }
 
 // Ensure MultiPooler implements PoolerController at compile time

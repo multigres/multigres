@@ -32,12 +32,14 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
 type poolerService struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
 	pooler *poolerserver.QueryPoolerServer
+	pubsub *pubsub.Listener
 }
 
 func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
@@ -46,6 +48,7 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 		if grpc.CheckServiceMap("pooler", senv) {
 			srv := &poolerService{
 				pooler: p,
+				pubsub: p.PubSubListener(),
 			}
 			multipoolerpb.RegisterMultiPoolerServiceServer(grpc.Server, srv)
 		}
@@ -614,4 +617,54 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	}
 
 	return resp
+}
+
+// StreamNotifications streams async notifications for a subscribed channel.
+func (s *poolerService) StreamNotifications(
+	req *multipoolerpb.StreamNotificationsRequest,
+	stream multipoolerpb.MultiPoolerService_StreamNotificationsServer,
+) error {
+	if s.pubsub == nil {
+		return errors.New("PubSubListener not initialized")
+	}
+
+	channels := req.GetChannels()
+	if len(channels) == 0 {
+		return errors.New("no channels specified")
+	}
+	notifCh := make(chan *sqltypes.Notification, 256)
+	for _, ch := range channels {
+		s.pubsub.SubscribeCh(ch, notifCh)
+	}
+	defer func() {
+		for _, ch := range channels {
+			s.pubsub.Unsubscribe(ch, notifCh)
+		}
+	}()
+
+	// Send an empty response as a "ready" signal — all channels are now LISTENed.
+	if err := stream.Send(&multipoolerpb.StreamNotificationsResponse{}); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case notif := <-notifCh:
+			if notif == nil {
+				return nil
+			}
+			resp := &multipoolerpb.StreamNotificationsResponse{
+				Notification: &query.PgNotification{
+					Pid:     notif.PID,
+					Channel: notif.Channel,
+					Payload: notif.Payload,
+				},
+			}
+			if err := stream.Send(resp); err != nil {
+				return err
+			}
+		}
+	}
 }

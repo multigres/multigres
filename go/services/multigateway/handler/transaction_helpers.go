@@ -149,7 +149,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			continue
 		}
 
-		// User's COMMIT/ROLLBACK - execute and prepare for next segment
+		// User's COMMIT/ROLLBACK - execute and prepare for next segment.
 		if ast.IsCommitStatement(stmt) || ast.IsRollbackStatement(stmt) {
 			if err := execute(stmt); err != nil {
 				return err
@@ -205,7 +205,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		}
 		if execErr != nil {
 			if isImplicitTx {
-				// Auto-rollback implicit transaction on failure
+				// Auto-rollback implicit transaction on failure.
 				_ = silentExecute(ast.NewRollbackStmt())
 			} else {
 				// Explicit transaction: enter aborted state.

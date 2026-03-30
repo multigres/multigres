@@ -324,6 +324,28 @@ func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (Lo
 	return result, err
 }
 
+// TryLockWithLease atomically creates a lease-backed key.
+func (c *WrapperConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	result, err := conn.TryLockWithLease(ctx, key, contents, ttl)
+	c.handleConnectionError(conn, err)
+	return result, err
+}
+
+// RevokeLockWithLease forcefully removes the ephemeral lock at the given key.
+func (c *WrapperConn) RevokeLockWithLease(ctx context.Context, key string) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	err = conn.RevokeLockWithLease(ctx, key)
+	c.handleConnectionError(conn, err)
+	return err
+}
+
 // Watch monitors a file for changes and returns the current state and a channel for updates.
 func (c *WrapperConn) Watch(ctx context.Context, filePath string) (current *WatchData, changes <-chan *WatchData, err error) {
 	conn, err := c.getConnection()

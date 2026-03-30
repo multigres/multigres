@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,8 @@ type mockExecutor struct {
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	if m.streamExecuteErr != nil {
-		return nil, m.streamExecuteErr
+		// Return partial result with PlanTime, matching real executor behavior.
+		return &ExecuteResult{PlanTime: time.Microsecond}, m.streamExecuteErr
 	}
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
@@ -219,7 +221,7 @@ func TestPreparedStatementHandling(t *testing.T) {
 	// 6. Describe fails after close
 	_, err = handler.HandleDescribe(ctx, conn, 'S', "stmt1")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
 	// 7. Empty query fails
 	err = handler.HandleParse(ctx, conn, "empty", "", nil)
@@ -252,7 +254,7 @@ func TestPortalHandling(t *testing.T) {
 	// 1. Bind fails for non-existent statement
 	err = handler.HandleBind(ctx, conn, "portal1", "nonexistent", nil, nil, nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
 	// 2. Bind stores portal in connection state
 	params := [][]byte{[]byte("42")}
@@ -278,7 +280,7 @@ func TestPortalHandling(t *testing.T) {
 		return nil
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidCursorName))
 
 	// 6. Close removes portal from connection state
 	err = handler.HandleClose(ctx, conn, 'P', "portal1")
@@ -287,7 +289,7 @@ func TestPortalHandling(t *testing.T) {
 	// 7. Describe fails after close
 	_, err = handler.HandleDescribe(ctx, conn, 'P', "portal1")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidCursorName))
 }
 
 // TestPreparedStatementConsolidation tests that same queries share the same

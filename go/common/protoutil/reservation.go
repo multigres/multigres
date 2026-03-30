@@ -22,7 +22,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -31,6 +31,7 @@ const (
 	ReasonTempTable   = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_TEMP_TABLE)  // 2
 	ReasonPortal      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL)      // 4
 	ReasonCopy        = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_COPY)        // 8
+	ReasonListen      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_LISTEN)      // 16
 )
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
@@ -64,6 +65,11 @@ func HasPortalReason(reasons uint32) bool {
 // HasCopyReason returns true if the reasons bitmask includes an active COPY operation.
 func HasCopyReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonCopy)
+}
+
+// HasListenReason returns true if the reasons bitmask includes LISTEN/NOTIFY.
+func HasListenReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonListen)
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -140,6 +146,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasCopyReason(reasons) {
 		parts = append(parts, "copy")
+	}
+	if HasListenReason(reasons) {
+		parts = append(parts, "listen")
 	}
 	if len(parts) == 0 {
 		return "unknown"

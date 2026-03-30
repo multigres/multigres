@@ -132,6 +132,13 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		peerPort = pp
 	}
 
+	// Get metrics port from config, or default to port + 2.
+	// The metrics listener is required for /readyz health checks.
+	metricsPort := port + 2
+	if mp, ok := etcdConfig["metrics-port"].(int); ok && mp > 0 {
+		metricsPort = mp
+	}
+
 	// Find etcd binary (PATH or configured path)
 	etcdBinary, err := p.findBinary("etcd", etcdConfig)
 	if err != nil {
@@ -171,11 +178,12 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		"--name", "default",
 		"--data-dir", dataDir,
 		"--listen-client-urls", fmt.Sprintf("http://0.0.0.0:%d", port),
-		"--advertise-client-urls", fmt.Sprintf("http://localhost:%d", port),
+		"--advertise-client-urls", fmt.Sprintf("http://127.0.0.1:%d", port),
 		"--listen-peer-urls", fmt.Sprintf("http://0.0.0.0:%d", peerPort),
-		"--initial-advertise-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
-		"--initial-cluster", fmt.Sprintf("default=http://localhost:%d", peerPort),
+		"--initial-advertise-peer-urls", fmt.Sprintf("http://127.0.0.1:%d", peerPort),
+		"--initial-cluster", fmt.Sprintf("default=http://127.0.0.1:%d", peerPort),
 		"--initial-cluster-state", "new",
+		"--listen-metrics-urls", fmt.Sprintf("http://0.0.0.0:%d", metricsPort),
 		"--log-outputs", logFile,
 	}
 
@@ -194,7 +202,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	}
 
 	// Wait for etcd to be ready
-	servicePorts := map[string]int{"etcd_port": port}
+	servicePorts := map[string]int{"etcd_port": port, "etcd_metrics_port": metricsPort}
 	if err := p.waitForServiceReady(ctx, "etcd", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)

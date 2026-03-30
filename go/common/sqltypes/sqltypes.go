@@ -106,6 +106,16 @@ type Row struct {
 	Values []Value
 }
 
+// Notification represents a PostgreSQL asynchronous notification (NotificationResponse).
+type Notification struct {
+	// PID is the process ID of the notifying backend.
+	PID int32
+	// Channel is the notification channel name.
+	Channel string
+	// Payload is the notification payload string.
+	Payload string
+}
+
 // Result represents a query result with nullable values.
 type Result struct {
 	// Fields describes the columns in the result set.
@@ -124,6 +134,10 @@ type Result struct {
 	// Notices contains any PostgreSQL diagnostic messages received during query execution.
 	// These are typically non-fatal messages like warnings or informational notices.
 	Notices []*mterrors.PgDiagnostic
+
+	// Notifications contains asynchronous notifications received during query execution.
+	// These are delivered via NotificationResponse ('A') messages from PostgreSQL.
+	Notifications []*Notification
 }
 
 // ToProto converts Result to proto format for gRPC serialization.

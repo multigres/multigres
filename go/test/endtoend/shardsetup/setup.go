@@ -68,6 +68,7 @@ type SetupConfig struct {
 	S3BackupRegion                      string   // S3 region
 	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
+	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -174,6 +175,16 @@ func WithMultigatewayBuffering() SetupOption {
 			"--buffer-min-time-between-failovers", "0s",
 			"--buffer-drain-concurrency", "5",
 		)
+	}
+}
+
+// WithOTelExport configures the multigateway to export traces to the given
+// OTLP HTTP endpoint. Use with NewTestOTLPCollector to capture spans in tests.
+// Implies WithMultigateway().
+func WithOTelExport(endpoint string) SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.OTelCollectorEndpoint = endpoint
 	}
 }
 
@@ -443,6 +454,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		// Create multigateway instance (doesn't start it)
 		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
 		mgw.ExtraArgs = config.MultigatewayExtraArgs
+
+		// Configure OTel trace export if an endpoint was provided.
+		if config.OTelCollectorEndpoint != "" {
+			mgw.Environment = append(mgw.Environment,
+				"OTEL_TRACES_EXPORTER=otlp",
+				"OTEL_EXPORTER_OTLP_ENDPOINT="+config.OTelCollectorEndpoint,
+				"OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
+				"OTEL_TRACES_SAMPLER=always_on",
+			)
+		}
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)
@@ -1034,18 +1055,21 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
-	// Get ports for etcd (client and peer)
+	// Get ports for etcd (client, peer, and metrics)
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
+	metricsPort := utils.GetFreePort(t)
 
 	span.SetAttributes(
 		attribute.Int("etcd.client_port", clientPort),
 		attribute.Int("etcd.peer_port", peerPort),
+		attribute.Int("etcd.metrics_port", metricsPort),
 	)
 
 	name := "shardsetup_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
+	metricsAddr := fmt.Sprintf("http://localhost:%v", metricsPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
@@ -1056,6 +1080,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		"-initial-advertise-peer-urls", peerAddr,
 		"-listen-client-urls", clientAddr,
 		"-listen-peer-urls", peerAddr,
+		"-listen-metrics-urls", metricsAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
 
@@ -1070,7 +1095,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := etcdtopo.WaitForReady(waitCtx, clientAddr); err != nil {
+	if err := etcdtopo.WaitForReady(waitCtx, metricsAddr); err != nil {
 		// Stop the etcd process if it's not ready
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		_, _ = cmd.Stop(stopCtx)
