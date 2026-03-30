@@ -220,8 +220,13 @@ demo/local/multigres-with-otel.sh cluster start --config-path <config-path>
 
 **Generate traffic with pgbench**:
 
+Run pgbench init synchronously first, then start the workload in a **background Agent** so the user sees the output when it completes (do NOT use `run_in_background` on Bash — that hides output).
+
 ```bash
+# Step 1: Init (synchronous)
 PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -i postgres
+
+# Step 2: Workload (run in a background Agent)
 PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -c 4 -j 2 -T 300 -P 5 postgres
 ```
 
@@ -406,7 +411,7 @@ User: "restart everything" or "full restart"
 
 User: "push traffic" or "generate load"
 
-- Run pgbench init + pgbench with `-P 5` for progress
+- Run pgbench init synchronously, then start pgbench workload in a **background Agent** with `-P 5` for progress
 
 **Individual components:**
 

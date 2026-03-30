@@ -33,13 +33,18 @@ type Planner struct {
 	defaultTableGroup string
 
 	logger *slog.Logger
+
+	// txnMetrics is injected into TransactionPrimitive at creation time
+	// for recording transaction duration and count.
+	txnMetrics *engine.TransactionMetrics
 }
 
 // NewPlanner creates a new query planner.
-func NewPlanner(defaultTableGroup string, logger *slog.Logger) *Planner {
+func NewPlanner(defaultTableGroup string, logger *slog.Logger, txnMetrics *engine.TransactionMetrics) *Planner {
 	return &Planner{
 		defaultTableGroup: defaultTableGroup,
 		logger:            logger,
+		txnMetrics:        txnMetrics,
 	}
 }
 

@@ -59,6 +59,11 @@ type MultiGatewayConnectionState struct {
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
 
+	// TxnStartTime records when the current transaction began (set at BEGIN,
+	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
+	// means no active transaction is being timed.
+	TxnStartTime time.Time
+
 	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
 	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
 	// The default is initialized from startup params (if present) or the --statement-timeout flag.
