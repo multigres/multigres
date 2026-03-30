@@ -268,7 +268,7 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 
 	// Trigger recovery and wait for it to complete
 	t.Log("Triggering recovery to detect and repair stale primary...")
-	setup.TriggerRecoveryNow(t, "multiorch", timeout)
+	setup.RequireRecovery(t, "multiorch", timeout)
 
 	// Verify old primary is now a replica with replication configured
 	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
@@ -39,6 +40,23 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
+}
+
+// waitForReplicationBroken polls until the instance's primary_conninfo host is empty,
+// indicating replication is no longer configured or streaming.
+func waitForReplicationBroken(t *testing.T, inst *shardsetup.MultipoolerInstance, timeout time.Duration) {
+	t.Helper()
+	shardsetup.EventuallyPoolerCondition(t,
+		[]*shardsetup.MultipoolerInstance{inst},
+		timeout, 500*time.Millisecond,
+		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
+			if s.GetReplicationStatus().GetPrimaryConnInfo().GetHost() != "" {
+				return false, "primary_conninfo host still set: " + s.GetReplicationStatus().GetPrimaryConnInfo().GetHost()
+			}
+			return true, ""
+		},
+		"replication should be broken (primary_conninfo cleared) within %v", timeout,
+	)
 }
 
 // waitForShardReady polls until one node is an initialized primary, expectedStandbyCount nodes

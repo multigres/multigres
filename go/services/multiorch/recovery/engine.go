@@ -16,6 +16,7 @@ package recovery
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -573,10 +574,15 @@ func (re *Engine) IsRecoveryEnabled() bool {
 //
 // This method:
 // 1. Force health checks all poolers to get fresh state
-// 2. Runs recovery cycles repeatedly until no problems are detected
-// 3. Returns when either: (a) no problems remain, or (b) timeout
-func (re *Engine) TriggerRecoveryNow(ctx context.Context) ([]DetectedProblemData, error) {
-	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution")
+// 2. Runs recovery cycles until no problems are detected (or maxCycles is reached)
+// 3. Returns when either: (a) no problems remain, (b) maxCycles exceeded, or (c) timeout
+//
+// If maxCycles is 0, cycles run until all problems are resolved or the deadline expires.
+// If maxCycles is 1, exactly one cycle runs before returning with any remaining problems.
+// Values greater than 1 should be rejected by the gRPC server before reaching this method.
+func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]DetectedProblemData, error) {
+	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution",
+		"max_cycles", maxCycles)
 
 	// Force health check all poolers to get fresh state
 	re.logger.DebugContext(ctx, "TriggerRecoveryNow: forcing health checks on all poolers")
@@ -604,9 +610,19 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context) ([]DetectedProblemData
 	// Wait for first cycle to complete before polling
 	select {
 	case <-cycleDone:
-		// First cycle done, proceed to polling
+		// First cycle done, proceed below
 	case <-ctx.Done():
 		// Timeout before first cycle completed
+		return re.collectDetectedProblemsData(), ctx.Err()
+	}
+
+	// If max_cycles is positive and we've run that many cycles, return without further polling.
+	// A max_cycles of 0 means unlimited (poll until all resolved or timeout).
+	if maxCycles == 1 {
+		return re.collectDetectedProblemsData(), nil
+	}
+	if maxCycles > 1 {
+		return nil, fmt.Errorf("max_cycles must be 0 (unlimited) or 1 (single cycle), got %d", maxCycles)
 	}
 
 	// Poll until all problems are resolved or timeout

@@ -597,24 +597,36 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Logf("Enabled recovery on multiorch '%s' (port %d)", orchName, mo.GrpcPort)
 }
 
-// TriggerRecoveryNow triggers immediate recovery and blocks until all problems are resolved or timeout.
-// Automatically fails the test if any problems remain after timeout.
-//
-// Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a final
-// cluster state snapshot if recovery times out, to aid flake investigation.
-func (s *ShardSetup) TriggerRecoveryNow(t *testing.T, orchName string, timeout time.Duration) {
+// TriggerRecoveryOnce runs a single immediate recovery cycle and returns any problem codes
+// that remain unresolved. Unlike RequireRecovery, it does not keep retrying and does not
+// fail the test on problems — the caller decides what to do with the result.
+func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout time.Duration) []string {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("TriggerRecoveryNow: multiorch '%s' not found", orchName)
-	}
+	conn := s.connectToMultiOrch(t, orchName)
+	defer conn.Close()
 
-	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+
+	t.Logf("Triggering one recovery cycle on multiorch '%s' (timeout=%s)", orchName, timeout)
+	resp, err := client.TriggerRecoveryNow(ctx, &multiorchpb.TriggerRecoveryNowRequest{MaxCycles: 1})
 	if err != nil {
-		t.Fatalf("TriggerRecoveryNow: failed to create gRPC client: %v", err)
+		t.Fatalf("TriggerRecoveryOnce: gRPC call failed: %v", err)
 	}
+	return resp.RemainingProblemCodes
+}
+
+// RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
+// timeout. Automatically fails the test if any problems remain after timeout.
+//
+// Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a
+// final cluster state snapshot if recovery times out, to aid flake investigation.
+func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration) {
+	t.Helper()
+
+	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
 	var poolers []*MultipoolerInstance
@@ -625,12 +637,12 @@ func (s *ShardSetup) TriggerRecoveryNow(t *testing.T, orchName string, timeout t
 	logClusterState := func() {
 		for _, r := range fetchPoolerStatuses(t, poolers) {
 			if r.Err != nil {
-				t.Logf("TriggerRecoveryNow: %s: fetch error: %v", r.Name, r.Err)
+				t.Logf("RequireRecovery: %s: fetch error: %v", r.Name, r.Err)
 			} else {
-				t.Logf("TriggerRecoveryNow: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status))
+				t.Logf("RequireRecovery: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status))
 			}
 		}
-		logMultiOrchStatus(utils.WithShortDeadline(t), t, s, "TriggerRecoveryNow")
+		logMultiOrchStatus(utils.WithShortDeadline(t), t, s, "RequireRecovery")
 	}
 
 	// Log cluster state every 5 seconds while the RPC is in flight.
@@ -654,21 +666,39 @@ func (s *ShardSetup) TriggerRecoveryNow(t *testing.T, orchName string, timeout t
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
-	t.Logf("Triggering recovery on multiorch '%s' (timeout=%s)", orchName, timeout)
+	t.Logf("Requiring recovery on multiorch '%s' (timeout=%s)", orchName, timeout)
 	resp, err := client.TriggerRecoveryNow(ctx, &multiorchpb.TriggerRecoveryNowRequest{})
 	close(stopLogging)
 	if err != nil {
-		t.Fatalf("TriggerRecoveryNow: gRPC call failed: %v", err)
+		t.Fatalf("RequireRecovery: gRPC call failed: %v", err)
 	}
 
 	if len(resp.RemainingProblemCodes) > 0 {
-		t.Logf("TriggerRecoveryNow: %d problems remain on '%s': %v — final cluster state:",
+		t.Logf("RequireRecovery: %d problems remain on '%s': %v — final cluster state:",
 			len(resp.RemainingProblemCodes), orchName, resp.RemainingProblemCodes)
 		logClusterState()
-		t.Fatalf("TriggerRecoveryNow: recovery did not complete within %s", timeout)
+		t.Fatalf("RequireRecovery: recovery did not complete within %s", timeout)
 	}
 
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
+}
+
+// connectToMultiOrch creates a gRPC client connection to the named multiorch instance.
+// Fails the test if the instance is not found or the connection cannot be established.
+func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.ClientConn {
+	t.Helper()
+
+	mo := s.MultiOrchInstances[orchName]
+	if mo == nil {
+		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
+	}
+
+	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("connectToMultiOrch: failed to create gRPC connection to '%s': %v", orchName, err)
+	}
+	return conn
 }
 
 // ensureRecoveryEnabled makes a best-effort attempt to enable recovery.
