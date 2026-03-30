@@ -23,48 +23,9 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/test/utils"
 )
-
-// getBackendPID returns the PostgreSQL backend process ID for the given connection.
-// When a session is pinned, consecutive calls on the same *sql.Conn must return
-// the same PID; when unpinned, the pool is free to assign a different backend.
-func getBackendPID(t *testing.T, conn *sql.Conn) int {
-	t.Helper()
-	var pid int
-	err := conn.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid)
-	require.NoError(t, err, "failed to get backend pid")
-	return pid
-}
-
-// requirePinned asserts that two consecutive backend PID queries return the
-// same value, proving the multigateway session is routed to a single reserved
-// connection (session pinned).
-func requirePinned(t *testing.T, conn *sql.Conn) int {
-	t.Helper()
-	pid1 := getBackendPID(t, conn)
-	pid2 := getBackendPID(t, conn)
-	require.Equal(t, pid1, pid2, "session should be pinned: backend PID must be stable")
-	return pid1
-}
-
-// openMultigatewayConn opens a single *sql.Conn to the multigateway PG port.
-func openMultigatewayConn(t *testing.T, setup *ShardSetup) *sql.Conn {
-	t.Helper()
-	connStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
-
-	// Force a single underlying connection so every query goes through the same
-	// multigateway session (tcp connection).
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	conn, err := db.Conn(t.Context())
-	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
-	return conn
-}
 
 // ---------- Basic pinning ----------
 
@@ -80,7 +41,7 @@ func TestTempTable_CreatePinsSession(t *testing.T) {
 	require.NoError(t, err)
 
 	// After CREATE TEMP TABLE the session must be pinned.
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	// Cleanup
 	_, _ = conn.ExecContext(t.Context(), "DROP TABLE tt_pin_test")
@@ -117,9 +78,9 @@ func TestTempTable_StablePIDAfterMultipleQueries(t *testing.T) {
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_stable (v text)")
 	require.NoError(t, err)
 
-	pinnedPID := getBackendPID(t, conn)
+	pinnedPID := utils.GetBackendPID(t, conn)
 	for i := range 20 {
-		pid := getBackendPID(t, conn)
+		pid := utils.GetBackendPID(t, conn)
 		require.Equal(t, pinnedPID, pid, "PID must remain stable on query %d", i)
 	}
 
@@ -137,7 +98,7 @@ func TestTempTable_CreateAsSelectPins(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_ctas AS SELECT generate_series(1,5) AS n")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	var count int
 	err = conn.QueryRowContext(t.Context(), "SELECT count(*) FROM tt_ctas").Scan(&count)
@@ -155,7 +116,7 @@ func TestTempTable_SelectIntoPins(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "SELECT generate_series(1,3) AS n INTO TEMP TABLE tt_selinto")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	var count int
 	err = conn.QueryRowContext(t.Context(), "SELECT count(*) FROM tt_selinto").Scan(&count)
@@ -175,7 +136,7 @@ func TestTempTable_DiscardTempUnpins(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_discard (id int)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "DISCARD TEMP")
 	require.NoError(t, err)
@@ -195,7 +156,7 @@ func TestTempTable_DiscardAllDropsTempTables(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_discard_all (id int)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "DISCARD ALL")
 	require.NoError(t, err)
@@ -216,13 +177,13 @@ func TestTempTable_DropTableDoesNotUnpin(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_drop (id int)")
 	require.NoError(t, err)
-	pinnedPID := requirePinned(t, conn)
+	pinnedPID := utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "DROP TABLE tt_drop")
 	require.NoError(t, err)
 
 	// Session should still be pinned (same PID).
-	pid := getBackendPID(t, conn)
+	pid := utils.GetBackendPID(t, conn)
 	assert.Equal(t, pinnedPID, pid, "DROP TABLE should not unpin — PID must remain stable")
 }
 
@@ -253,7 +214,7 @@ func TestTempTable_CreateInTxnCommitPersists(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 42, val)
 
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, _ = conn.ExecContext(t.Context(), "DROP TABLE tt_txn_commit")
 }
@@ -281,8 +242,8 @@ func TestTempTable_CreateInTxnRollbackGone(t *testing.T) {
 
 	// Session remains pinned (gateway doesn't undo pin on rollback).
 	// This is a known conservative behavior.
-	pinnedPID := getBackendPID(t, conn)
-	pid2 := getBackendPID(t, conn)
+	pinnedPID := utils.GetBackendPID(t, conn)
+	pid2 := utils.GetBackendPID(t, conn)
 	assert.Equal(t, pinnedPID, pid2, "session should remain pinned after rollback")
 }
 
@@ -295,7 +256,7 @@ func TestTempTable_OnCommitDeleteRows(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_ocdr (id int) ON COMMIT DELETE ROWS")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "BEGIN")
 	require.NoError(t, err)
@@ -391,7 +352,7 @@ func TestTempTable_MultipleTempTables(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	pinnedPID := requirePinned(t, conn)
+	pinnedPID := utils.RequirePinned(t, conn)
 
 	// All tables accessible.
 	for i, tbl := range tables {
@@ -407,7 +368,7 @@ func TestTempTable_MultipleTempTables(t *testing.T) {
 	assert.Equal(t, 6, sum)
 
 	// Still pinned.
-	assert.Equal(t, pinnedPID, getBackendPID(t, conn))
+	assert.Equal(t, pinnedPID, utils.GetBackendPID(t, conn))
 
 	for _, tbl := range tables {
 		_, _ = conn.ExecContext(t.Context(), "DROP TABLE "+tbl)
@@ -451,7 +412,7 @@ func TestTempTable_RepinAfterDiscard(t *testing.T) {
 	// First pin.
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_repin1 (id int)")
 	require.NoError(t, err)
-	pid1 := requirePinned(t, conn)
+	pid1 := utils.RequirePinned(t, conn)
 
 	// Unpin.
 	_, err = conn.ExecContext(t.Context(), "DISCARD TEMP")
@@ -460,7 +421,7 @@ func TestTempTable_RepinAfterDiscard(t *testing.T) {
 	// Re-pin.
 	_, err = conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_repin2 (id int)")
 	require.NoError(t, err)
-	pid2 := requirePinned(t, conn)
+	pid2 := utils.RequirePinned(t, conn)
 
 	// PID may or may not change — the important thing is that the new temp
 	// table is accessible.
@@ -525,7 +486,7 @@ func TestTempTable_GUCPreservedOnPinnedSession(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_guc (id int)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "SET statement_timeout = '30s'")
 	require.NoError(t, err)
@@ -579,7 +540,7 @@ func TestTempTable_IfNotExists(t *testing.T) {
 	// Second CREATE with IF NOT EXISTS — should succeed (no-op) and stay pinned.
 	_, err = conn.ExecContext(t.Context(), "CREATE TEMP TABLE IF NOT EXISTS tt_ine (id int)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, _ = conn.ExecContext(t.Context(), "DROP TABLE tt_ine")
 }
@@ -601,7 +562,7 @@ func TestTempTable_CreateLike(t *testing.T) {
 
 	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("CREATE TEMP TABLE tt_like (LIKE %s)", permTable))
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	// Verify inherited columns work.
 	_, err = conn.ExecContext(t.Context(), "INSERT INTO tt_like (id, name, active) VALUES (1, 'test', true)")
@@ -660,7 +621,7 @@ func TestTempTable_CreateTempViewPins(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP VIEW tt_view AS SELECT 1 AS n, 'hello' AS msg")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	// View should be accessible across queries.
 	var msg string
@@ -682,13 +643,13 @@ func TestTempTable_DiscardPlansDoesNotUnpin(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_dp (id int)")
 	require.NoError(t, err)
-	pinnedPID := requirePinned(t, conn)
+	pinnedPID := utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "DISCARD PLANS")
 	require.NoError(t, err)
 
 	// Still pinned — same PID, temp table still accessible.
-	pid := getBackendPID(t, conn)
+	pid := utils.GetBackendPID(t, conn)
 	assert.Equal(t, pinnedPID, pid, "DISCARD PLANS should not unpin")
 
 	var count int
@@ -707,12 +668,12 @@ func TestTempTable_DiscardSequencesDoesNotUnpin(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_ds (id int)")
 	require.NoError(t, err)
-	pinnedPID := requirePinned(t, conn)
+	pinnedPID := utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "DISCARD SEQUENCES")
 	require.NoError(t, err)
 
-	pid := getBackendPID(t, conn)
+	pid := utils.GetBackendPID(t, conn)
 	assert.Equal(t, pinnedPID, pid, "DISCARD SEQUENCES should not unpin")
 
 	_, _ = conn.ExecContext(t.Context(), "DROP TABLE tt_ds")
@@ -735,8 +696,8 @@ func TestTempTable_ConcurrentPinnedSessions(t *testing.T) {
 	_, err = conn2.ExecContext(t.Context(), "CREATE TEMP TABLE tt_conc2 (id int)")
 	require.NoError(t, err)
 
-	pid1 := requirePinned(t, conn1)
-	pid2 := requirePinned(t, conn2)
+	pid1 := utils.RequirePinned(t, conn1)
+	pid2 := utils.RequirePinned(t, conn2)
 
 	assert.NotEqual(t, pid1, pid2, "two pinned sessions must have different backend PIDs")
 
@@ -761,7 +722,7 @@ func TestTempTable_MultiStatementBatch(t *testing.T) {
 		"CREATE TEMP TABLE tt_batch (id int); INSERT INTO tt_batch VALUES (1), (2), (3)")
 	require.NoError(t, err)
 
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	var count int
 	err = conn.QueryRowContext(t.Context(), "SELECT count(*) FROM tt_batch").Scan(&count)
@@ -782,7 +743,7 @@ func TestTempTable_AlterTable(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_alter (id int)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "ALTER TABLE tt_alter ADD COLUMN name text DEFAULT 'unnamed'")
 	require.NoError(t, err)
@@ -809,7 +770,7 @@ func TestTempTable_Truncate(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_trunc (id int)")
 	require.NoError(t, err)
-	pinnedPID := requirePinned(t, conn)
+	pinnedPID := utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "INSERT INTO tt_trunc VALUES (1), (2), (3)")
 	require.NoError(t, err)
@@ -823,7 +784,7 @@ func TestTempTable_Truncate(t *testing.T) {
 	assert.Equal(t, 0, count, "TRUNCATE should clear all rows")
 
 	// Still pinned.
-	assert.Equal(t, pinnedPID, getBackendPID(t, conn))
+	assert.Equal(t, pinnedPID, utils.GetBackendPID(t, conn))
 
 	_, _ = conn.ExecContext(t.Context(), "DROP TABLE tt_trunc")
 }
@@ -839,7 +800,7 @@ func TestTempTable_SerialColumn(t *testing.T) {
 
 	_, err := conn.ExecContext(t.Context(), "CREATE TEMP TABLE tt_serial (id serial PRIMARY KEY, name text)")
 	require.NoError(t, err)
-	requirePinned(t, conn)
+	utils.RequirePinned(t, conn)
 
 	_, err = conn.ExecContext(t.Context(), "INSERT INTO tt_serial (name) VALUES ('alice')")
 	require.NoError(t, err)
@@ -971,7 +932,7 @@ func TestTempTable_SavepointRollback(t *testing.T) {
 	assert.Error(t, err, "temp table should not exist after ROLLBACK TO SAVEPOINT")
 
 	// Session stays pinned (conservative — gateway saw the CREATE).
-	pid1 := getBackendPID(t, conn)
-	pid2 := getBackendPID(t, conn)
+	pid1 := utils.GetBackendPID(t, conn)
+	pid2 := utils.GetBackendPID(t, conn)
 	assert.Equal(t, pid1, pid2, "session should remain pinned after savepoint rollback")
 }
