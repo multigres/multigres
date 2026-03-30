@@ -115,9 +115,12 @@ jobs:
         if: >-
           !cancelled() &&
           steps.regressions.outputs.found == 'true' &&
-          github.event_name == 'schedule' &&
-          secrets.SLACK_PGREGRESS_WEBHOOK_URL != ''
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
           regressions=$(cat /tmp/pgregress-regressions/regressions.json)
           count=$(echo "$regressions" | jq 'length')
           test_list=$(echo "$regressions" | jq -r '.[] | "- [\(.suite)] \(.test)"' | head -20)
@@ -137,15 +140,18 @@ jobs:
 
           curl -sf -X POST -H 'Content-type: application/json' \
             --data "$payload" \
-            "${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}"
+            "$SLACK_WEBHOOK_URL"
 
       - name: Notify Slack weekly summary
         if: >-
           !cancelled() &&
           (github.event.schedule == '0 9 * * 1' || github.event_name == 'workflow_dispatch') &&
-          steps.results.outputs.path != '' &&
-          secrets.SLACK_PGREGRESS_WEBHOOK_URL != ''
+          steps.results.outputs.path != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
           results_file="${{ steps.results.outputs.path }}"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
@@ -185,7 +191,7 @@ jobs:
 
           curl -sf -X POST -H 'Content-type: application/json' \
             --data "$payload" \
-            "${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}"
+            "$SLACK_WEBHOOK_URL"
 
       # Note: the Go test writes the pass/fail summary (including shields.io badge)
       # directly to GITHUB_STEP_SUMMARY via postgres_builder.go.
