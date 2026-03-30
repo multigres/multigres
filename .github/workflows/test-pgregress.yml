@@ -153,11 +153,19 @@ jobs:
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
           results_file="${{ steps.results.outputs.path }}"
+          baseline_file="/tmp/pgregress-baseline/results.json"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Compute previous pass count from baseline (if it exists)
+          prev_passed="null"
+          if [[ -f "$baseline_file" ]]; then
+            prev_passed=$(jq '[.[].tests[] | select(.status == "pass")] | length' "$baseline_file")
+          fi
 
           # Build per-suite sections and compute overall totals
           payload=$(jq -n \
             --slurpfile results "$results_file" \
+            --argjson prev_passed "$prev_passed" \
             --arg url "$run_url" \
             '
             ($results[0] | map({
@@ -172,9 +180,17 @@ jobs:
             ($suites | map(.passed) | add) as $passed |
             ($suites | map(.failed) | add) as $failed |
             (if $total > 0 then ($passed * 100 / $total | floor) else 0 end) as $rate |
+
+            # Header with previous -> current pass count
+            (if $prev_passed != null then
+              ($prev_passed | tostring) + " -> " + ($passed | tostring) + "/" + ($total | tostring) + " passed (" + ($rate | tostring) + "%)"
+            else
+              ($passed | tostring) + "/" + ($total | tostring) + " passed (" + ($rate | tostring) + "%)"
+            end) as $header_stats |
+
             # Header block
             [{type: "header", text: {type: "plain_text",
-              text: ("Weekly pgregress report: " + ($passed | tostring) + "/" + ($total | tostring) + " passed (" + ($rate | tostring) + "%)")}}] +
+              text: ("Weekly pgregress report: " + $header_stats)}}] +
 
             # Per-suite section blocks
             ($suites | map(
