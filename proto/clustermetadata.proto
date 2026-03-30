@@ -361,9 +361,19 @@ message RuleNumber {
 // them.
 message ShardRule {
   RuleNumber rule_number = 1;
+  // The postgres primary for this rule, through which all transactions (including rules) are
+  // written to the WAL.
   ID primary_id = 2;
   repeated ID cohort_members = 3;
+
+  // What nodes need to acknowledge a write before it's considered durable.
   DurabilityPolicy durability_policy = 4;
+
+  // Which coordinator or pooler facilitated applying the rule.
+  ID coordinator_id = 5;
+  // At what time the coordinator or pooler began trying to apply the rule,
+  // from the coordinator's perspective.
+  google.protobuf.Timestamp creation_time = 6;
 }
 
 // NodePosition describes a node's committed position in logical and physical
@@ -385,33 +395,46 @@ message NodePosition {
 }
 
 // HighestKnownRule is the most recent ShardRule this node is aware of,
-// regardless of whether it has been committed to local WAL yet. It may be
-// ahead of the node's current NodePosition.
+// which could be beyond the end of this pooler's WAL / NodePosition.
 //
-// When highest_known_rule.rule.rule_number > current_position.rule.rule_number,
-// the node has forward knowledge of an upcoming rule:
+// If a pooler is disconnected from replication due to network partitions
+// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
+// to learn the latest shard state.
 //
-//   - If this node is listed as primary_id: this node is actively trying to
-//     establish itself as primary — updating its GUCs and writing this rule
-//     to rule_history.
+// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
+// may represent a rule that the coordinator is _about_ to write that doesn't exist in
+// any WAL entries yet.
 //
-//   - If this node is not listed as primary_id: this node knows
-//     which primary to replicate from. If this node currently believes it is
-//     primary under an older rule, it knows it must self-demote.
-//
-// HighestKnownRule does not need to be persisted. It is used to help nodes make
-// progress and can be re-issued by a coordinator if lost. No guarantees are
-// made that it always moves forward or is preserved across restarts.
+// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
+// settings so that nodes can participate in replication. Nodes with out-of-date information
+// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
+// pooler has incorrect replication settings.
 message HighestKnownRule {
   ShardRule rule = 1;
 }
 
-// CoordinatorPromise is a promise to a coordinator.
-message CoordinatorPromise {
+// HighestCoordinatorPromise is a promise to a coordinator.
+//
+// Promises are used for sequencing coordinators when they take action to establish
+// a new term. Those actions are:
+// - Revoking the ability of primaries established at lower terms to write transactions
+// - Obtaining the exclusive right to begin applying rules under this term number
+//
+// Promises must be persisted to a pooler's local disk to survive pooler restarts.
+//
+// A pooler that has granted a promise for term T to coordinator C1 must refuse any
+// action request with a term less than T or a term equal to T but a different coordinator.
+//
+// Higher-term promises can implicitly replace and revoke lower-term promises.
+message HighestCoordinatorPromise {
   // The coordinator term this node has promised to honor.
   int64 term_number = 1;
 
   // The coordinator (multiorch instance) that this promise was made to.
+  // This is retained for idempotency and informational purposes: if the same
+  // coordinator asks for a promise for the same term number, a pooler will
+  // re-accept. If a different coordinator asks for a promise at the same term
+  // number, a pooler will refuse.
   ID accepted_coordinator_id = 2;
 
   // When this promise was last recorded.
@@ -422,7 +445,7 @@ message CoordinatorPromise {
 // system: its promise, what it has committed, and what it knows is coming.
 message ConsensusStatus {
   // promise is the coordinator term this node has accepted.
-  CoordinatorPromise promise = 1;
+  HighestCoordinatorPromise promise = 1;
 
   // current_position is the highest rule this node has committed to local WAL
   // and the latest WAL position.
