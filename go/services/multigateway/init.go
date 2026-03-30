@@ -37,6 +37,9 @@ import (
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
@@ -322,6 +325,25 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+
+	// Wire LISTEN/NOTIFY notification manager.
+	// Uses a lazy client getter that resolves the primary pooler connection
+	// from the load balancer at subscribe time (after pooler discovery).
+	notifMgr := poolergateway.NewGRPCNotificationManager(
+		func() multipoolerpb.MultiPoolerServiceClient {
+			conn, err := loadBalancer.GetConnection(&querypb.Target{
+				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.ServiceClient()
+		},
+		logger,
+	)
+	mg.pgHandler.SetNotificationManager(notifMgr)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,

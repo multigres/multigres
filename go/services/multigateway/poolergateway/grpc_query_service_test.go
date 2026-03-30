@@ -166,6 +166,10 @@ func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, i
 	return nil, nil
 }
 
+func (m *mockMultiPoolerServiceClient) StreamNotifications(ctx context.Context, in *multipoolerservice.StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamNotificationsResponse], error) {
+	return nil, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 

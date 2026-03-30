@@ -46,6 +46,7 @@ const (
 	MultiPoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
 	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
 	MultiPoolerService_StreamPoolerHealth_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
+	MultiPoolerService_StreamNotifications_FullMethodName       = "/multipoolerservice.MultiPoolerService/StreamNotifications"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -105,6 +106,10 @@ type MultiPoolerServiceClient interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error)
+	// StreamNotifications opens a server-streaming RPC for async PG notifications.
+	// The gateway subscribes to notification channels on behalf of a client session.
+	// The pooler fans out notifications from its shared listener connection.
+	StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error)
 }
 
 type multiPoolerServiceClient struct {
@@ -254,6 +259,25 @@ func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[StreamPoolerHealthResponse]
 
+func (c *multiPoolerServiceClient) StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[5], MultiPoolerService_StreamNotifications_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamNotificationsRequest, StreamNotificationsResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamNotificationsClient = grpc.ServerStreamingClient[StreamNotificationsResponse]
+
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility.
@@ -311,6 +335,10 @@ type MultiPoolerServiceServer interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error
+	// StreamNotifications opens a server-streaming RPC for async PG notifications.
+	// The gateway subscribes to notification channels on behalf of a client session.
+	// The pooler fans out notifications from its shared listener connection.
+	StreamNotifications(*StreamNotificationsRequest, grpc.ServerStreamingServer[StreamNotificationsResponse]) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -350,6 +378,9 @@ func (UnimplementedMultiPoolerServiceServer) ReleaseReservedConnection(context.C
 }
 func (UnimplementedMultiPoolerServiceServer) StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamPoolerHealth not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) StreamNotifications(*StreamNotificationsRequest, grpc.ServerStreamingServer[StreamNotificationsResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamNotifications not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -513,6 +544,17 @@ func _MultiPoolerService_StreamPoolerHealth_Handler(srv interface{}, stream grpc
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_StreamPoolerHealthServer = grpc.ServerStreamingServer[StreamPoolerHealthResponse]
 
+func _MultiPoolerService_StreamNotifications_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamNotificationsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MultiPoolerServiceServer).StreamNotifications(m, &grpc.GenericServerStream[StreamNotificationsRequest, StreamNotificationsResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamNotificationsServer = grpc.ServerStreamingServer[StreamNotificationsResponse]
+
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -566,6 +608,11 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamPoolerHealth",
 			Handler:       _MultiPoolerService_StreamPoolerHealth_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamNotifications",
+			Handler:       _MultiPoolerService_StreamNotifications_Handler,
 			ServerStreams: true,
 		},
 	},

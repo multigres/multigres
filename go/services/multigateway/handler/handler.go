@@ -76,6 +76,7 @@ type MultiGatewayHandler struct {
 	statementTimeout time.Duration
 	metrics          *HandlerMetrics
 	slowThreshold    time.Duration
+	notifMgr         NotificationManager
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -91,6 +92,7 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		statementTimeout: statementTimeout,
 		metrics:          metrics,
 		slowThreshold:    constants.DefaultSlowQueryThreshold,
+		notifMgr:         DefaultNotificationManager(),
 	}
 }
 
@@ -207,6 +209,10 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
+
+	// Flush pending notifications to client after query completes.
+	h.flushNotifications(conn, st)
+
 	return err
 }
 
@@ -239,6 +245,11 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+
+		newState.SubSync = &handlerSubSync{
+			notifMgr: h.notifMgr,
+			logger:   h.logger,
+		}
 
 		conn.SetConnectionState(newState)
 		return newState
@@ -344,6 +355,10 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
+
+	// Deliver any pending notifications after query completes.
+	h.flushNotifications(conn, state)
+
 	return err
 }
 
@@ -424,6 +439,18 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 	connState := conn.GetConnectionState()
 	if connState != nil {
 		state, ok := connState.(*MultiGatewayConnectionState)
+		if ok && state != nil {
+			// Unsubscribe from all LISTEN channels on disconnect.
+			if state.NotifCh != nil {
+				h.notifMgr.UnsubscribeAll(state.NotifCh)
+				state.NotifCh = nil
+				state.ClearListenChannels()
+			}
+			if state.AsyncNotifCh != nil {
+				conn.StopAsyncNotifications()
+				state.AsyncNotifCh = nil
+			}
+		}
 		if ok && state != nil && len(state.ShardStates) > 0 {
 			// Release all reserved connections regardless of reason (transaction, COPY, portal).
 			// Add a timeout to bound cleanup duration — conn.Context() is still valid here
@@ -509,3 +536,23 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 // Ensure MultiGatewayHandler implements server.Handler interface.
 var _ server.Handler = (*MultiGatewayHandler)(nil)
+
+// SetNotificationManager sets the notification manager for LISTEN/NOTIFY support.
+func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
+	h.notifMgr = mgr
+}
+
+// flushNotifications delivers any pending notifications to the client.
+// Called after each query completes (before ReadyForQuery is sent).
+//
+// Notifications flow through a pipeline: NotifCh → forwardNotifications → asyncCh.
+// This method drains the asyncCh (the server.Conn's internal notification channel)
+// with proper bufMu locking, avoiding races with the async pusher goroutine.
+func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *MultiGatewayConnectionState) {
+	if state.AsyncNotifCh == nil {
+		return
+	}
+	if err := conn.FlushPendingNotifications(); err != nil {
+		h.logger.Error("failed to flush notifications", "error", err)
+	}
+}

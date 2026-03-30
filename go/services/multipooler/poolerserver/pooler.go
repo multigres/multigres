@@ -27,6 +27,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -49,6 +50,9 @@ type QueryPoolerServer struct {
 	poolerType     clustermetadatapb.PoolerType
 	servingStatus  clustermetadatapb.PoolerServingStatus
 	healthProvider HealthProvider
+
+	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
+	pubsubListener *pubsub.Listener
 
 	// shuttingDown is true during the graceful drain phase (between receiving
 	// NOT_SERVING and completing the transition). During this phase, new requests
@@ -224,6 +228,17 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	}
 
 	return s.executor, nil
+}
+
+// SetPubSubListener sets the PubSub listener on the pooler server.
+// The listener is created and managed by the MultiPoolerManager.
+func (s *QueryPoolerServer) SetPubSubListener(l *pubsub.Listener) {
+	s.pubsubListener = l
+}
+
+// PubSubListener returns the shared PubSub listener (may be nil).
+func (s *QueryPoolerServer) PubSubListener() *pubsub.Listener {
+	return s.pubsubListener
 }
 
 // PoolManager returns the pool manager instance.

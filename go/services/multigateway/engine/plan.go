@@ -31,6 +31,7 @@ const (
 	PlanTypeApplySessionState   = "ApplySessionState"
 	PlanTypeGatewaySessionState = "GatewaySessionState"
 	PlanTypeGatewayShowVariable = "GatewayShowVariable"
+	PlanTypeListenNotify        = "ListenNotify"
 	PlanTypeSequence            = "Sequence"
 	PlanTypeUnknown             = "Unknown"
 )

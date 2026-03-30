@@ -48,6 +48,7 @@ type QueryResultPayload struct {
 	//
 	//	*QueryResultPayload_Result
 	//	*QueryResultPayload_Diagnostic
+	//	*QueryResultPayload_Notification
 	Payload       isQueryResultPayload_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -108,6 +109,15 @@ func (x *QueryResultPayload) GetDiagnostic() *PgDiagnostic {
 	return nil
 }
 
+func (x *QueryResultPayload) GetNotification() *PgNotification {
+	if x != nil {
+		if x, ok := x.Payload.(*QueryResultPayload_Notification); ok {
+			return x.Notification
+		}
+	}
+	return nil
+}
+
 type isQueryResultPayload_Payload interface {
 	isQueryResultPayload_Payload()
 }
@@ -120,9 +130,15 @@ type QueryResultPayload_Diagnostic struct {
 	Diagnostic *PgDiagnostic `protobuf:"bytes,2,opt,name=diagnostic,proto3,oneof"` // Individual error or notice
 }
 
+type QueryResultPayload_Notification struct {
+	Notification *PgNotification `protobuf:"bytes,3,opt,name=notification,proto3,oneof"` // Async notification from LISTEN
+}
+
 func (*QueryResultPayload_Result) isQueryResultPayload_Payload() {}
 
 func (*QueryResultPayload_Diagnostic) isQueryResultPayload_Payload() {}
+
+func (*QueryResultPayload_Notification) isQueryResultPayload_Payload() {}
 
 // QueryResult represents the result of executing a query
 type QueryResult struct {
@@ -549,6 +565,71 @@ func (x *PgDiagnostic) GetConstraintName() string {
 	return ""
 }
 
+// PgNotification represents a PostgreSQL asynchronous notification.
+// Sent via NotificationResponse ('A') messages to clients that have issued LISTEN.
+type PgNotification struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// pid is the process ID of the notifying backend.
+	Pid int32 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	// channel is the notification channel name.
+	Channel string `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
+	// payload is the notification payload string (may be empty).
+	Payload       string `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PgNotification) Reset() {
+	*x = PgNotification{}
+	mi := &file_query_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PgNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PgNotification) ProtoMessage() {}
+
+func (x *PgNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PgNotification.ProtoReflect.Descriptor instead.
+func (*PgNotification) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PgNotification) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *PgNotification) GetChannel() string {
+	if x != nil {
+		return x.Channel
+	}
+	return ""
+}
+
+func (x *PgNotification) GetPayload() string {
+	if x != nil {
+		return x.Payload
+	}
+	return ""
+}
+
 // StatementDescription describes a prepared statement or portal.
 // Used for the Describe message ('D') response in the extended query protocol.
 type StatementDescription struct {
@@ -565,7 +646,7 @@ type StatementDescription struct {
 
 func (x *StatementDescription) Reset() {
 	*x = StatementDescription{}
-	mi := &file_query_proto_msgTypes[5]
+	mi := &file_query_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +658,7 @@ func (x *StatementDescription) String() string {
 func (*StatementDescription) ProtoMessage() {}
 
 func (x *StatementDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[5]
+	mi := &file_query_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +671,7 @@ func (x *StatementDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatementDescription.ProtoReflect.Descriptor instead.
 func (*StatementDescription) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{5}
+	return file_query_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StatementDescription) GetParameters() []*ParameterDescription {
@@ -618,7 +699,7 @@ type ParameterDescription struct {
 
 func (x *ParameterDescription) Reset() {
 	*x = ParameterDescription{}
-	mi := &file_query_proto_msgTypes[6]
+	mi := &file_query_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -630,7 +711,7 @@ func (x *ParameterDescription) String() string {
 func (*ParameterDescription) ProtoMessage() {}
 
 func (x *ParameterDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[6]
+	mi := &file_query_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -643,7 +724,7 @@ func (x *ParameterDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParameterDescription.ProtoReflect.Descriptor instead.
 func (*ParameterDescription) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{6}
+	return file_query_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ParameterDescription) GetDataTypeOid() uint32 {
@@ -673,7 +754,7 @@ type Target struct {
 
 func (x *Target) Reset() {
 	*x = Target{}
-	mi := &file_query_proto_msgTypes[7]
+	mi := &file_query_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -685,7 +766,7 @@ func (x *Target) String() string {
 func (*Target) ProtoMessage() {}
 
 func (x *Target) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[7]
+	mi := &file_query_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -698,7 +779,7 @@ func (x *Target) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Target.ProtoReflect.Descriptor instead.
 func (*Target) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{7}
+	return file_query_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Target) GetTableGroup() string {
@@ -741,7 +822,7 @@ type PreparedStatement struct {
 
 func (x *PreparedStatement) Reset() {
 	*x = PreparedStatement{}
-	mi := &file_query_proto_msgTypes[8]
+	mi := &file_query_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +834,7 @@ func (x *PreparedStatement) String() string {
 func (*PreparedStatement) ProtoMessage() {}
 
 func (x *PreparedStatement) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[8]
+	mi := &file_query_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +847,7 @@ func (x *PreparedStatement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreparedStatement.ProtoReflect.Descriptor instead.
 func (*PreparedStatement) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{8}
+	return file_query_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PreparedStatement) GetName() string {
@@ -821,7 +902,7 @@ type Portal struct {
 
 func (x *Portal) Reset() {
 	*x = Portal{}
-	mi := &file_query_proto_msgTypes[9]
+	mi := &file_query_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +914,7 @@ func (x *Portal) String() string {
 func (*Portal) ProtoMessage() {}
 
 func (x *Portal) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[9]
+	mi := &file_query_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +927,7 @@ func (x *Portal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Portal.ProtoReflect.Descriptor instead.
 func (*Portal) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{9}
+	return file_query_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Portal) GetName() string {
@@ -909,7 +990,7 @@ type ReservedState struct {
 
 func (x *ReservedState) Reset() {
 	*x = ReservedState{}
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +1002,7 @@ func (x *ReservedState) String() string {
 func (*ReservedState) ProtoMessage() {}
 
 func (x *ReservedState) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +1015,7 @@ func (x *ReservedState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReservedState.ProtoReflect.Descriptor instead.
 func (*ReservedState) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{10}
+	return file_query_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ReservedState) GetReservedConnectionId() uint64 {
@@ -984,7 +1065,7 @@ type ExecuteOptions struct {
 
 func (x *ExecuteOptions) Reset() {
 	*x = ExecuteOptions{}
-	mi := &file_query_proto_msgTypes[11]
+	mi := &file_query_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1077,7 @@ func (x *ExecuteOptions) String() string {
 func (*ExecuteOptions) ProtoMessage() {}
 
 func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[11]
+	mi := &file_query_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1090,7 @@ func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteOptions.ProtoReflect.Descriptor instead.
 func (*ExecuteOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{11}
+	return file_query_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExecuteOptions) GetSessionSettings() map[string]string {
@@ -1044,12 +1125,13 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\x84\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc1\x01\n" +
 	"\x12QueryResultPayload\x12,\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultH\x00R\x06result\x125\n" +
 	"\n" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
-	"diagnosticB\t\n" +
+	"diagnostic\x12;\n" +
+	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
 	"\apayload\"\xa8\x01\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
@@ -1089,7 +1171,11 @@ const file_query_proto_rawDesc = "" +
 	"\vcolumn_name\x18\f \x01(\tR\n" +
 	"columnName\x12$\n" +
 	"\x0edata_type_name\x18\r \x01(\tR\fdataTypeName\x12'\n" +
-	"\x0fconstraint_name\x18\x0e \x01(\tR\x0econstraintName\"y\n" +
+	"\x0fconstraint_name\x18\x0e \x01(\tR\x0econstraintName\"V\n" +
+	"\x0ePgNotification\x12\x10\n" +
+	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
+	"\achannel\x18\x02 \x01(\tR\achannel\x12\x18\n" +
+	"\apayload\x18\x03 \x01(\tR\apayload\"y\n" +
 	"\x14StatementDescription\x12;\n" +
 	"\n" +
 	"parameters\x18\x01 \x03(\v2\x1b.query.ParameterDescriptionR\n" +
@@ -1140,39 +1226,41 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_query_proto_goTypes = []any{
 	(*QueryResultPayload)(nil),      // 0: query.QueryResultPayload
 	(*QueryResult)(nil),             // 1: query.QueryResult
 	(*Field)(nil),                   // 2: query.Field
 	(*Row)(nil),                     // 3: query.Row
 	(*PgDiagnostic)(nil),            // 4: query.PgDiagnostic
-	(*StatementDescription)(nil),    // 5: query.StatementDescription
-	(*ParameterDescription)(nil),    // 6: query.ParameterDescription
-	(*Target)(nil),                  // 7: query.Target
-	(*PreparedStatement)(nil),       // 8: query.PreparedStatement
-	(*Portal)(nil),                  // 9: query.Portal
-	(*ReservedState)(nil),           // 10: query.ReservedState
-	(*ExecuteOptions)(nil),          // 11: query.ExecuteOptions
-	nil,                             // 12: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 13: clustermetadata.PoolerType
-	(*clustermetadata.ID)(nil),      // 14: clustermetadata.ID
+	(*PgNotification)(nil),          // 5: query.PgNotification
+	(*StatementDescription)(nil),    // 6: query.StatementDescription
+	(*ParameterDescription)(nil),    // 7: query.ParameterDescription
+	(*Target)(nil),                  // 8: query.Target
+	(*PreparedStatement)(nil),       // 9: query.PreparedStatement
+	(*Portal)(nil),                  // 10: query.Portal
+	(*ReservedState)(nil),           // 11: query.ReservedState
+	(*ExecuteOptions)(nil),          // 12: query.ExecuteOptions
+	nil,                             // 13: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 14: clustermetadata.PoolerType
+	(*clustermetadata.ID)(nil),      // 15: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
 	4,  // 1: query.QueryResultPayload.diagnostic:type_name -> query.PgDiagnostic
-	2,  // 2: query.QueryResult.fields:type_name -> query.Field
-	3,  // 3: query.QueryResult.rows:type_name -> query.Row
-	6,  // 4: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	2,  // 5: query.StatementDescription.fields:type_name -> query.Field
-	13, // 6: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	14, // 7: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	12, // 8: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	5,  // 2: query.QueryResultPayload.notification:type_name -> query.PgNotification
+	2,  // 3: query.QueryResult.fields:type_name -> query.Field
+	3,  // 4: query.QueryResult.rows:type_name -> query.Row
+	7,  // 5: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	2,  // 6: query.StatementDescription.fields:type_name -> query.Field
+	14, // 7: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	15, // 8: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	13, // 9: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1183,6 +1271,7 @@ func file_query_proto_init() {
 	file_query_proto_msgTypes[0].OneofWrappers = []any{
 		(*QueryResultPayload_Result)(nil),
 		(*QueryResultPayload_Diagnostic)(nil),
+		(*QueryResultPayload_Notification)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1190,7 +1279,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

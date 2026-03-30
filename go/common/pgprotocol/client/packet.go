@@ -82,6 +82,14 @@ func (c *Conn) readMessage() (byte, []byte, error) {
 	return msgType, body, nil
 }
 
+// ReadRawMessage reads a single protocol message (type byte + body).
+// The caller is responsible for message classification and parsing.
+// This enables split read/write patterns where the reader goroutine
+// handles all incoming message types (e.g., PubSubListener).
+func (c *Conn) ReadRawMessage() (byte, []byte, error) {
+	return c.readMessage()
+}
+
 // Writing utilities
 
 // writeMessage writes a complete message with type, length, and body.

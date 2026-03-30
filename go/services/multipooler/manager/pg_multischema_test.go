@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,9 @@ func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { r
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
 	return m.queryService
 }
-func (m *mockPoolerController) RegisterGRPCServices() {}
+func (m *mockPoolerController) RegisterGRPCServices()                {}
+func (m *mockPoolerController) SetPubSubListener(_ *pubsub.Listener) {}
+func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return nil }
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
