@@ -366,7 +366,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Logf("BeginTerm accepted, emergency demotion triggered")
 
 	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
-	setup.TriggerRecoveryNow(t, "multiorch", 90*time.Second)
+	setup.RequireRecovery(t, "multiorch", 90*time.Second)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary, "a primary should exist after recovery")
