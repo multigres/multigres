@@ -114,7 +114,7 @@ type testSetup struct {
 func newTestSetup(t *testing.T) *testSetup {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	exec := &mockIExecute{}
 
 	// The primitive calls conn.Handler().HandleParse/HandleBind/HandleClose,
