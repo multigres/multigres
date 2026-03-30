@@ -611,7 +611,7 @@ type TriggerRecoveryNowRequest struct {
 	// If 0 (default), cycles continue until all problems are resolved or the deadline expires.
 	// If 1, exactly one cycle is run and the call returns immediately with any remaining problem codes.
 	// Values greater than 1 are rejected with INVALID_ARGUMENT.
-	MaxCycles     int32 `protobuf:"varint,1,opt,name=max_cycles,json=maxCycles,proto3" json:"max_cycles,omitempty"`
+	MaxCycles     uint32 `protobuf:"varint,1,opt,name=max_cycles,json=maxCycles,proto3" json:"max_cycles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -646,7 +646,7 @@ func (*TriggerRecoveryNowRequest) Descriptor() ([]byte, []int) {
 	return file_multiorchservice_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *TriggerRecoveryNowRequest) GetMaxCycles() int32 {
+func (x *TriggerRecoveryNowRequest) GetMaxCycles() uint32 {
 	if x != nil {
 		return x.MaxCycles
 	}
@@ -747,7 +747,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\":\n" +
 	"\x19TriggerRecoveryNowRequest\x12\x1d\n" +
 	"\n" +
-	"max_cycles\x18\x01 \x01(\x05R\tmaxCycles\"T\n" +
+	"max_cycles\x18\x01 \x01(\rR\tmaxCycles\"T\n" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
 	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes2\xe1\x03\n" +
 	"\x10MultiOrchService\x12Q\n" +

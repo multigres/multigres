@@ -123,7 +123,7 @@ message TriggerRecoveryNowRequest {
   // If 0 (default), cycles continue until all problems are resolved or the deadline expires.
   // If 1, exactly one cycle is run and the call returns immediately with any remaining problem codes.
   // Values greater than 1 are rejected with INVALID_ARGUMENT.
-  int32 max_cycles = 1;
+  uint32 max_cycles = 1;
 }
 
 message TriggerRecoveryNowResponse {

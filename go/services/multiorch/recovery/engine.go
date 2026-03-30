@@ -580,7 +580,7 @@ func (re *Engine) IsRecoveryEnabled() bool {
 // If maxCycles is 0, cycles run until all problems are resolved or the deadline expires.
 // If maxCycles is 1, exactly one cycle runs before returning with any remaining problems.
 // Values greater than 1 should be rejected by the gRPC server before reaching this method.
-func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles int32) ([]DetectedProblemData, error) {
+func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]DetectedProblemData, error) {
 	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution",
 		"max_cycles", maxCycles)
 
