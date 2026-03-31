@@ -41,7 +41,11 @@ func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewFixReplicationAction()
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}

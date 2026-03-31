@@ -45,28 +45,51 @@ func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
 	return g
 }
 
-// GenerateAnalyses creates one ReplicationAnalysis per pooler in the store.
-// This examines the current state and computes derived fields.
-func (g *AnalysisGenerator) GenerateAnalyses() []*store.ReplicationAnalysis {
-	analyses := []*store.ReplicationAnalysis{}
+// GenerateShardAnalyses groups per-pooler analyses into one ShardAnalysis per shard.
+func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
+	// Group analyses by shard key.
+	type shardEntry struct {
+		key      commontypes.ShardKey
+		analyses []*store.ReplicationAnalysis
+	}
+	byKey := make(map[commontypes.ShardKey]*shardEntry)
 
 	for database, tableGroups := range g.poolersByShard {
 		for tableGroup, shards := range tableGroups {
 			for shard, poolers := range shards {
-				shardKey := commontypes.ShardKey{
-					Database:   database,
-					TableGroup: tableGroup,
-					Shard:      shard,
-				}
+				key := commontypes.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
+				entry := &shardEntry{key: key}
 				for _, pooler := range poolers {
-					analysis := g.generateAnalysisForPooler(pooler, shardKey)
-					analyses = append(analyses, analysis)
+					entry.analyses = append(entry.analyses, g.generateAnalysisForPooler(pooler, key))
 				}
+				byKey[key] = entry
 			}
 		}
 	}
 
-	return analyses
+	result := make([]*ShardAnalysis, 0, len(byKey))
+	for _, entry := range byKey {
+		result = append(result, &ShardAnalysis{
+			ShardKey: entry.key,
+			Analyses: entry.analyses,
+		})
+	}
+	return result
+}
+
+// GenerateShardAnalysis returns a ShardAnalysis for a specific shard.
+// Returns an error if no poolers for that shard are found in the store.
+func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey commontypes.ShardKey) (*ShardAnalysis, error) {
+	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
+	if !ok || len(poolers) == 0 {
+		return nil, fmt.Errorf("shard not found: %s", shardKey)
+	}
+
+	var analyses []*store.ReplicationAnalysis
+	for _, pooler := range poolers {
+		analyses = append(analyses, g.generateAnalysisForPooler(pooler, shardKey))
+	}
+	return &ShardAnalysis{ShardKey: shardKey, Analyses: analyses}, nil
 }
 
 // buildPoolersByShard creates a structured map by iterating the store once.

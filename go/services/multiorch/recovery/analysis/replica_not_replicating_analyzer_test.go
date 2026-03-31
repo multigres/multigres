@@ -59,7 +59,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  false,
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
@@ -80,7 +80,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  true, // Replication stopped
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
@@ -98,7 +98,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  false,
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
@@ -112,7 +112,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
@@ -126,7 +126,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
@@ -142,7 +142,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
@@ -163,7 +163,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problem, err := nilFactoryAnalyzer.Analyze(analysis)
+		problem, err := analyzeOne(nilFactoryAnalyzer, analysis)
 		require.Error(t, err)
 		require.Nil(t, problem)
 		require.Contains(t, err.Error(), "factory not initialized")

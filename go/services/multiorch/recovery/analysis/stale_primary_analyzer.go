@@ -57,7 +57,11 @@ func (a *StalePrimaryAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewDemoteStalePrimaryAction()
 }
 
-func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *StalePrimaryAnalyzer) analyzePooler(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}

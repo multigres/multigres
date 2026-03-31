@@ -65,7 +65,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.NotNil(t, problem)
@@ -112,7 +112,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.NotNil(t, problem, "should detect other primary as stale")
@@ -152,7 +152,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			HighestTermPrimary: nil, // Tie detected, so nil
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.Nil(t, problem, "should NOT demote when primary_terms are equal to prevent double demotion")
@@ -171,7 +171,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.Nil(t, problem)
@@ -193,7 +193,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			OtherPrimariesInShard: nil, // No other primaries
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.Nil(t, problem)
@@ -223,7 +223,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.Nil(t, problem)
@@ -233,7 +233,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: nil}
 		analysis := &store.ReplicationAnalysis{IsPrimary: true}
 
-		_, err := analyzer.Analyze(analysis)
+		_, err := analyzeOne(analyzer, analysis)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "factory not initialized")
@@ -283,7 +283,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.NotNil(t, problem)
@@ -328,7 +328,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 
 		require.NoError(t, err)
 		require.Nil(t, problem, "should skip when this pooler's PrimaryTerm=0 (invalid state)")

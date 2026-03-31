@@ -162,7 +162,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			problem, err := analyzer.Analyze(tt.analysis)
+			problem, err := analyzeOne(analyzer, tt.analysis)
 			require.NoError(t, err)
 
 			if tt.expectProblem {
@@ -191,7 +191,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			IsInPrimaryStandbyList: false,
 		}
 
-		problem, err := nilFactoryAnalyzer.Analyze(analysis)
+		problem, err := analyzeOne(nilFactoryAnalyzer, analysis)
 		require.Error(t, err)
 		require.Nil(t, problem)
 		require.Contains(t, err.Error(), "factory not initialized")
