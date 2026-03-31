@@ -61,6 +61,7 @@ type request struct {
 type Listener struct {
 	poolManager connpoolmanager.PoolManager
 	logger      *slog.Logger
+	metrics     *PubSubMetrics
 
 	// requests is the serialized command channel for the event loop.
 	requests chan request
@@ -77,12 +78,13 @@ type Listener struct {
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
-func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger) *Listener {
+func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, metrics *PubSubMetrics) *Listener {
 	stopped := make(chan struct{})
 	close(stopped) // initially stopped
 	return &Listener{
 		poolManager: poolManager,
 		logger:      logger,
+		metrics:     metrics,
 		requests:    make(chan request, 64),
 		stopped:     stopped,
 	}
@@ -202,6 +204,7 @@ func (l *Listener) run(ctx context.Context) {
 
 	var conn *reserved.Conn
 	var readerCh chan readerMessage // receives from reader goroutine
+	var disconnectedAt time.Time    // tracks when connection was lost for gap duration metric
 
 	// releaseConn releases the reserved connection. The readLoop goroutine
 	// will get a read error on the closed socket and exit.
@@ -212,6 +215,11 @@ func (l *Listener) run(ctx context.Context) {
 			conn.Release(reason)
 			conn = nil
 			readerCh = nil
+			// Track disconnect time for reconnect gap duration metric.
+			// Only set on error-path releases (not idle cleanup).
+			if reason == reserved.ReleaseError && disconnectedAt.IsZero() {
+				disconnectedAt = time.Now()
+			}
 		}
 	}
 
@@ -230,6 +238,12 @@ func (l *Listener) run(ctx context.Context) {
 		conn.AddReservationReason(protoutil.ReasonListen)
 		conn.SetInactivityTimeout(0) // never timeout
 		l.logger.InfoContext(ctx, "pubsub: connected to PG via pool")
+
+		// Record reconnect gap duration if this was a reconnect (not initial connect).
+		if !disconnectedAt.IsZero() {
+			l.metrics.ReconnectGapDuration(ctx, time.Since(disconnectedAt).Seconds())
+			disconnectedAt = time.Time{}
+		}
 
 		// Re-LISTEN all active channels via simple query protocol.
 		// On initial connect this is a no-op (channels map is empty).
@@ -274,7 +288,14 @@ func (l *Listener) run(ctx context.Context) {
 				oldCount := channels[req.channel]
 				channels[req.channel]++
 				subscribers[req.channel] = append(subscribers[req.channel], req.subCh)
+				_, existed := allSubs[req.subCh]
 				allSubs[req.subCh] = struct{}{}
+				if !existed {
+					l.metrics.SubscriberAdd(ctx)
+				}
+				if oldCount == 0 {
+					l.metrics.ChannelAdd(ctx)
+				}
 
 				if oldCount == 0 && conn != nil {
 					// First subscriber for this channel — issue LISTEN on the live connection.
@@ -297,8 +318,14 @@ func (l *Listener) run(ctx context.Context) {
 				}
 
 			case reqUnsubscribe:
-				needsUnlisten := l.removeSub(subscribers, allSubs, channels, req.channel, req.subCh)
-				if needsUnlisten && conn != nil {
+				result := l.removeSub(subscribers, allSubs, channels, req.channel, req.subCh)
+				if result.subscriberGone {
+					l.metrics.SubscriberRemove(ctx)
+				}
+				if result.needsUnlisten {
+					l.metrics.ChannelRemove(ctx)
+				}
+				if result.needsUnlisten && conn != nil {
 					if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 							"channel", req.channel, "error", err)
@@ -318,7 +345,12 @@ func (l *Listener) run(ctx context.Context) {
 					}
 				}
 				for _, ch := range toRemove {
-					if l.removeSub(subscribers, allSubs, channels, ch, req.subCh) {
+					result := l.removeSub(subscribers, allSubs, channels, ch, req.subCh)
+					if result.subscriberGone {
+						l.metrics.SubscriberRemove(ctx)
+					}
+					if result.needsUnlisten {
+						l.metrics.ChannelRemove(ctx)
 						toUnlisten = append(toUnlisten, ch)
 					}
 				}
@@ -342,7 +374,7 @@ func (l *Listener) run(ctx context.Context) {
 			// have completed on PG before we return to the caller.
 			if pendingCmds > 0 {
 				if readerCh != nil {
-					l.drainCommands(ctx, readerCh, subscribers, &conn, reconnectTimer, &pendingCmds)
+					l.drainCommands(ctx, readerCh, subscribers, &conn, reconnectTimer, &pendingCmds, &disconnectedAt)
 					// drainCommands may have released the connection on error.
 					// Nil readerCh to avoid reading stale errors from the old readLoop.
 					if conn == nil {
@@ -370,6 +402,7 @@ func (l *Listener) run(ctx context.Context) {
 			if msg.err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: reader error, will reconnect", "error", msg.err)
 				releaseConn(reserved.ReleaseError)
+				l.metrics.Reconnect(ctx)
 				reconnectTimer.Reset(2 * time.Second)
 				continue
 			}
@@ -381,6 +414,7 @@ func (l *Listener) run(ctx context.Context) {
 					default:
 						l.logger.WarnContext(ctx, "pubsub: subscriber channel full, dropping notification",
 							"channel", msg.notification.Channel)
+						l.metrics.NotificationDropped(ctx)
 					}
 				}
 			}
@@ -416,6 +450,7 @@ func (l *Listener) drainCommands(
 	conn **reserved.Conn,
 	reconnectTimer *time.Timer,
 	pendingCmds *int,
+	disconnectedAt *time.Time,
 ) {
 	for *pendingCmds > 0 {
 		select {
@@ -430,6 +465,8 @@ func (l *Listener) drainCommands(
 					(*conn).Release(reserved.ReleaseError)
 					*conn = nil
 				}
+				*disconnectedAt = time.Now()
+				l.metrics.Reconnect(ctx)
 				reconnectTimer.Reset(2 * time.Second)
 				*pendingCmds = 0
 				return
@@ -442,6 +479,7 @@ func (l *Listener) drainCommands(
 					default:
 						l.logger.WarnContext(ctx, "pubsub: subscriber channel full, dropping notification",
 							"channel", msg.notification.Channel)
+						l.metrics.NotificationDropped(ctx)
 					}
 				}
 			}
@@ -502,15 +540,20 @@ func (l *Listener) readLoop(conn *reserved.Conn, ch chan<- readerMessage) {
 	}
 }
 
+// removeSubResult holds the outcome of removeSub for metrics recording.
+type removeSubResult struct {
+	needsUnlisten  bool // channel refcount hit 0 — caller should issue UNLISTEN
+	subscriberGone bool // subscriber fully removed from allSubs (no remaining channels)
+}
+
 // removeSub removes a single subscriber from a channel.
-// Returns true if the channel's refcount hit 0 and an UNLISTEN should be issued.
 func (l *Listener) removeSub(
 	subscribers map[string][]chan *sqltypes.Notification,
 	allSubs map[chan *sqltypes.Notification]struct{},
 	channels map[string]int,
 	channel string,
 	subCh chan *sqltypes.Notification,
-) bool {
+) removeSubResult {
 	subs := subscribers[channel]
 	found := false
 	for i, s := range subs {
@@ -521,10 +564,11 @@ func (l *Listener) removeSub(
 		}
 	}
 	if !found {
-		return false
+		return removeSubResult{}
 	}
 
 	// Only remove from allSubs if the subscriber has no remaining subscriptions.
+	subscriberGone := false
 	stillSubscribed := false
 	for _, otherSubs := range subscribers {
 		if slices.Contains(otherSubs, subCh) {
@@ -534,13 +578,14 @@ func (l *Listener) removeSub(
 	}
 	if !stillSubscribed {
 		delete(allSubs, subCh)
+		subscriberGone = true
 	}
 
 	channels[channel]--
 	if channels[channel] <= 0 {
 		delete(channels, channel)
 		delete(subscribers, channel)
-		return true // caller should issue UNLISTEN
+		return removeSubResult{needsUnlisten: true, subscriberGone: subscriberGone}
 	}
-	return false
+	return removeSubResult{subscriberGone: subscriberGone}
 }
