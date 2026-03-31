@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -71,9 +70,9 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		return nil
 	}
 
-	// No temp table reservation — just execute via regular path.
-	// DISCARD TEMP on an unreserved session is harmless.
-	return exec.StreamExecute(ctx, conn, d.TableGroup, constants.DefaultShard, d.Query, state, callback)
+	// No temp table reservation — return synthetic result.
+	// DISCARD TEMP on a session with no temp tables is a no-op in PG.
+	return callback(ctx, &sqltypes.Result{CommandTag: "DISCARD"})
 }
 
 // GetTableGroup returns the target tablegroup.
