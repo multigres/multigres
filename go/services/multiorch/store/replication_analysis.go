@@ -38,9 +38,8 @@ type ReplicationAnalysis struct {
 	ShardKey commontypes.ShardKey
 
 	// Pooler properties
-	PoolerType           clustermetadatapb.PoolerType
-	CurrentServingStatus clustermetadatapb.PoolerServingStatus
-	IsPrimary            bool
+	PoolerType clustermetadatapb.PoolerType
+	IsPrimary  bool
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool
@@ -49,30 +48,11 @@ type ReplicationAnalysis struct {
 	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
 	AnalyzedAt       time.Time
 
-	// Primary-specific fields
-	PrimaryLSN               string
-	ReadOnly                 bool
-	CountReplicas            uint
-	CountReachableReplicas   uint
-	CountReplicatingReplicas uint
-	CountLaggingReplicas     uint
-
 	// Replica-specific fields
 	ReplicationStopped     bool
-	ReplicaLagMillis       int64
-	IsLagging              bool
-	ReplicaReplayLSN       string
-	ReplicaReceiveLSN      string
-	IsWalReplayPaused      bool
-	WalReplayPauseState    string
 	PrimaryConnInfoHost    string
-	PrimaryConnInfoPort    int32
-	PrimaryID              *clustermetadatapb.ID
 	PrimaryPoolerID        *clustermetadatapb.ID
 	PrimaryReachable       bool
-	PrimaryTimestamp       time.Time
-	PrimaryLSNStr          string
-	ReplicationLagBytes    int64
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
 
 	// Stale primary detection: populated for PRIMARY nodes only

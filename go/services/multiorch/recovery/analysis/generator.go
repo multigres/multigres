@@ -25,9 +25,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
-const DefaultReplicaLagThreshold = 10 * time.Second
-
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
 type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState
@@ -175,15 +172,14 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	}
 
 	analysis := &store.ReplicationAnalysis{
-		PoolerID:             pooler.MultiPooler.Id,
-		ShardKey:             shardKey,
-		PoolerType:           poolerType,
-		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
-		IsPrimary:            poolerType == clustermetadatapb.PoolerType_PRIMARY,
-		LastCheckValid:       pooler.IsLastCheckValid,
-		IsInitialized:        store.IsInitialized(pooler),
-		HasDataDirectory:     pooler.HasDataDirectory,
-		AnalyzedAt:           time.Now(),
+		PoolerID:         pooler.MultiPooler.Id,
+		ShardKey:         shardKey,
+		PoolerType:       poolerType,
+		IsPrimary:        poolerType == clustermetadatapb.PoolerType_PRIMARY,
+		LastCheckValid:   pooler.IsLastCheckValid,
+		IsInitialized:    store.IsInitialized(pooler),
+		HasDataDirectory: pooler.HasDataDirectory,
+		AnalyzedAt:       time.Now(),
 	}
 
 	// Compute staleness
@@ -199,17 +195,8 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		analysis.PrimaryTerm = pooler.ConsensusTerm.PrimaryTerm
 	}
 
-	// If this is a PRIMARY, populate primary-specific fields and aggregate replica stats
+	// If this is a PRIMARY, check for stale primaries by looking for other PRIMARYs in the shard
 	if analysis.IsPrimary {
-		if pooler.PrimaryStatus != nil {
-			analysis.PrimaryLSN = pooler.PrimaryStatus.Lsn
-			analysis.ReadOnly = !pooler.PrimaryStatus.Ready // Primary not ready = read-only
-		}
-
-		// Aggregate replica stats
-		g.aggregateReplicaStats(pooler, analysis, shardKey)
-
-		// Check for stale primary: look for other PRIMARYs in the same shard
 		g.detectOtherPrimary(analysis, shardKey, pooler)
 	}
 
@@ -218,19 +205,10 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		if pooler.ReplicationStatus != nil {
 			rs := pooler.ReplicationStatus
 			analysis.ReplicationStopped = rs.IsWalReplayPaused
-			analysis.IsLagging = rs.Lag != nil && rs.Lag.AsDuration() > DefaultReplicaLagThreshold
-			if rs.Lag != nil {
-				analysis.ReplicaLagMillis = rs.Lag.AsDuration().Milliseconds()
-			}
-			analysis.ReplicaReplayLSN = rs.LastReplayLsn
-			analysis.ReplicaReceiveLSN = rs.LastReceiveLsn
-			analysis.IsWalReplayPaused = rs.IsWalReplayPaused
-			analysis.WalReplayPauseState = rs.WalReplayPauseState
 
 			// Extract primary connection info
 			if rs.PrimaryConnInfo != nil {
 				analysis.PrimaryConnInfoHost = rs.PrimaryConnInfo.Host
-				analysis.PrimaryConnInfoPort = rs.PrimaryConnInfo.Port
 			}
 		}
 
@@ -239,96 +217,6 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	}
 
 	return analysis
-}
-
-// aggregateReplicaStats counts replicas pointing to this primary.
-func (g *AnalysisGenerator) aggregateReplicaStats(
-	primary *multiorchdatapb.PoolerHealthState,
-	analysis *store.ReplicationAnalysis,
-	shardKey commontypes.ShardKey,
-) {
-	var countReplicas uint
-	var countReachable uint
-	var countReplicating uint
-	var countLagging uint
-
-	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
-
-	// Get connected followers from primary status
-	var connectedFollowers []*clustermetadatapb.ID
-	if primary.PrimaryStatus != nil {
-		connectedFollowers = primary.PrimaryStatus.ConnectedFollowers
-	}
-
-	// Iterate only over poolers in the same shard (efficient lookup)
-	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
-		for poolerID, pooler := range poolers {
-			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-				continue
-			}
-
-			// Skip the primary itself
-			if poolerID == primaryIDStr {
-				continue
-			}
-
-			// Skip if not a replica - check health check type, fall back to topology
-			replicaType := pooler.PoolerType
-			if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
-				replicaType = pooler.MultiPooler.Type
-			}
-			if replicaType != clustermetadatapb.PoolerType_REPLICA {
-				continue
-			}
-
-			// Check if this replica is pointing to our primary
-			// We do this by checking if primary is in the replica's connected followers
-			// OR by checking primary_conninfo host/port match
-			isPointingToPrimary := false
-			for _, followerID := range connectedFollowers {
-				if topoclient.MultiPoolerIDString(followerID) == poolerID {
-					isPointingToPrimary = true
-					break
-				}
-			}
-
-			// Also check via primary_conninfo if we didn't find it in connected followers
-			if !isPointingToPrimary && pooler.ReplicationStatus != nil && pooler.ReplicationStatus.PrimaryConnInfo != nil {
-				connInfo := pooler.ReplicationStatus.PrimaryConnInfo
-				primaryPort := primary.MultiPooler.PortMap["postgres"]
-				if connInfo.Host == primary.MultiPooler.Hostname && connInfo.Port == primaryPort {
-					isPointingToPrimary = true
-				}
-			}
-
-			if !isPointingToPrimary {
-				continue // not pointing to this primary
-			}
-
-			countReplicas++
-
-			if pooler.IsLastCheckValid {
-				countReachable++
-			}
-
-			// Check if actively replicating (not paused and lag is reasonable)
-			if pooler.IsLastCheckValid && pooler.ReplicationStatus != nil && !pooler.ReplicationStatus.IsWalReplayPaused {
-				countReplicating++
-			}
-
-			// Check if lagging
-			if pooler.ReplicationStatus != nil && pooler.ReplicationStatus.Lag != nil {
-				if pooler.ReplicationStatus.Lag.AsDuration() > DefaultReplicaLagThreshold {
-					countLagging++
-				}
-			}
-		}
-	}
-
-	analysis.CountReplicas = countReplicas
-	analysis.CountReachableReplicas = countReachable
-	analysis.CountReplicatingReplicas = countReplicating
-	analysis.CountLaggingReplicas = countLagging
 }
 
 // populatePrimaryInfo looks up the primary this replica is replicating from.
@@ -373,9 +261,6 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 
 	// Found the primary - populate basic fields
 	analysis.PrimaryPoolerID = primary.MultiPooler.Id
-	if primary.LastSeen != nil {
-		analysis.PrimaryTimestamp = primary.LastSeen.AsTime()
-	}
 
 	// Track primary health details separately (for distinguishing pooler-down vs postgres-down)
 	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid

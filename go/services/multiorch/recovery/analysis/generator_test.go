@@ -79,8 +79,6 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 	assert.Equal(t, "0", analysis.ShardKey.Shard)
 	assert.True(t, analysis.IsPrimary)
 	assert.True(t, analysis.LastCheckValid)
-	assert.Equal(t, "0/1234567", analysis.PrimaryLSN)
-	assert.Equal(t, uint(0), analysis.CountReplicas, "should have no replicas")
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
@@ -181,10 +179,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.Equal(t, uint(2), primaryAnalysis.CountReplicas)
-	assert.Equal(t, uint(2), primaryAnalysis.CountReachableReplicas)
-	assert.Equal(t, uint(2), primaryAnalysis.CountReplicatingReplicas)
-	assert.Equal(t, uint(1), primaryAnalysis.CountLaggingReplicas)
+	assert.True(t, primaryAnalysis.IsPrimary)
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
@@ -256,9 +251,6 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 
 	require.NotNil(t, replicaAnalysis, "should find replica analysis")
 	assert.False(t, replicaAnalysis.IsPrimary)
-	assert.Equal(t, int64(500), replicaAnalysis.ReplicaLagMillis) // generator converts Duration to millis
-	assert.False(t, replicaAnalysis.IsLagging, "500ms should not be considered lagging")
-	assert.Equal(t, "0/1234567", replicaAnalysis.ReplicaReplayLSN)
 	assert.NotNil(t, replicaAnalysis.PrimaryPoolerID, "should have primary ID populated")
 	assert.True(t, replicaAnalysis.PrimaryReachable)
 }
@@ -318,64 +310,6 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 
 	assert.True(t, tableGroups["tg1"])
 	assert.True(t, tableGroups["tg2"])
-}
-
-func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
-	// Create a store with primary and replica on same host but different ports
-	ps := store.NewPoolerStore(nil, slog.Default())
-
-	primaryID := "multipooler-cell1-node1"
-	replicaID := "multipooler-cell1-node2"
-
-	// Primary on host1:5432
-	ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "node1",
-			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"postgres": 5432},
-		},
-		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-		IsLastCheckValid: true,
-		PrimaryStatus:    &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/1234"},
-	})
-
-	// Replica pointing to host1:5433 (wrong port - different primary)
-	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "node2",
-			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
-			Hostname:   "host2",
-		},
-		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-		IsLastCheckValid: true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			LastReplayLsn: "0/1234",
-			PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-				Host: "host1",
-				Port: 5433, // Different port!
-			},
-		},
-	})
-
-	gen := NewAnalysisGenerator(ps)
-	analysis, err := gen.GenerateAnalysisForPooler(primaryID)
-	require.NoError(t, err)
-
-	// Should NOT count this replica since port doesn't match
-	assert.Equal(t, uint(0), analysis.CountReplicas, "replica with wrong port should not be counted")
 }
 
 // Task 6: Test for skipping nil entries

@@ -603,7 +603,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 
 func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) (*types.Problem, error) {
 	// Detect if this is a replica with replication stopped
-	if !a.IsPrimary && a.IsWalReplayPaused {
+	if !a.IsPrimary && a.ReplicationStopped {
 		return &types.Problem{
 			Code:           types.ProblemReplicaNotReplicating,
 			CheckName:      m.Name(),
@@ -1396,7 +1396,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
-			if !a.IsPrimary && a.IsWalReplayPaused {
+			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "NormalPriorityAnalyzer",
@@ -1418,7 +1418,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	emergencyAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
-			if !a.IsPrimary && a.IsWalReplayPaused {
+			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "EmergencyPriorityAnalyzer",
@@ -1440,7 +1440,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
-			if !a.IsPrimary && a.IsWalReplayPaused {
+			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "HighPriorityAnalyzer",
@@ -1569,7 +1569,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	analyzeFunc := func(a *store.ReplicationAnalysis) *types.Problem {
 		// Detect replica with paused WAL replay
-		if !a.IsPrimary && a.IsWalReplayPaused {
+		if !a.IsPrimary && a.ReplicationStopped {
 			return &types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      "TracingTestAnalyzer",
