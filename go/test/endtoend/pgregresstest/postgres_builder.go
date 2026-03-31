@@ -17,6 +17,7 @@ package pgregresstest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -577,6 +578,43 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	}
 
 	return summary, nil
+}
+
+// jsonSuiteResult is the JSON-serializable representation of a single test suite's results.
+type jsonSuiteResult struct {
+	Name  string                 `json:"name"`
+	Tests []IndividualTestResult `json:"tests"`
+}
+
+// WriteJSONResults serializes suite results to pb.OutputDir/results.json.
+// This file is consumed by CI scripts that compare runs to detect regressions.
+func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) (string, error) {
+	t.Helper()
+
+	if err := os.MkdirAll(pb.OutputDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	var out []jsonSuiteResult
+	for _, s := range suites {
+		out = append(out, jsonSuiteResult{
+			Name:  s.Name,
+			Tests: s.Results.Tests,
+		})
+	}
+
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal results: %w", err)
+	}
+
+	resultsPath := filepath.Join(pb.OutputDir, "results.json")
+	if err := os.WriteFile(resultsPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write results JSON: %w", err)
+	}
+
+	t.Logf("JSON results written to: %s", resultsPath)
+	return resultsPath, nil
 }
 
 // BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and

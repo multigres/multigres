@@ -17,6 +17,7 @@ name: PostgreSQL Compatibility Tests
 on:
   schedule:
     - cron: "0 3 * * *" # Nightly at 3:00 AM UTC
+    - cron: "0 9 * * 1" # Weekly summary: Monday 9:00 AM UTC
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -51,12 +52,54 @@ jobs:
       - name: Build
         run: make build
 
+      - name: Restore baseline results
+        id: baseline
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/pgregress-baseline/results.json
+          key: pgregress-baseline-dummy
+          restore-keys: pgregress-baseline-
+
       - name: Run PostgreSQL compatibility tests
         env:
           RUN_PGREGRESS: "1"
           RUN_PGISOLATION: "1"
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
+
+      - name: Find results.json
+        id: results
+        if: ${{ !cancelled() }}
+        run: |
+          results_file=$(find /tmp/multigres_pg_cache/results -name results.json -type f 2>/dev/null | head -1)
+          if [[ -n "$results_file" ]]; then
+            echo "path=$results_file" >> "$GITHUB_OUTPUT"
+            echo "Found results at: $results_file"
+          else
+            echo "No results.json found"
+          fi
+
+      - name: Detect regressions
+        id: regressions
+        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          exit_code=0
+          .github/scripts/detect-regressions.sh \
+            /tmp/pgregress-baseline/results.json \
+            "$RESULTS_PATH" \
+            /tmp/pgregress-regressions \
+            || exit_code=$?
+
+          if [[ "$exit_code" -eq 0 ]]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$exit_code" -eq 1 ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Regression detection script failed with exit code $exit_code"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload compatibility results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -65,6 +108,146 @@ jobs:
           name: postgres-compatibility-results
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
+
+      - name: Notify Slack on regression
+        if: >-
+          !cancelled() &&
+          steps.regressions.outputs.found == 'true' &&
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          regressions=$(cat /tmp/pgregress-regressions/regressions.json)
+          count=$(echo "$regressions" | jq 'length')
+          test_list=$(echo "$regressions" | jq -r '.[] | "- [\(.suite)] \(.test)"' | head -20)
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          payload=$(jq -n \
+            --arg count "$count" \
+            --arg tests "$test_list" \
+            --arg url "$run_url" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " pgregress regression(s) detected")}},
+                {type: "section", text: {type: "mrkdwn", text: ("Tests that were passing but now fail:\n```\n" + $tests + "\n```")}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack weekly summary
+        if: >-
+          !cancelled() &&
+          (github.event.schedule == '0 9 * * 1' || github.event_name == 'workflow_dispatch') &&
+          steps.results.outputs.path != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          results_file="$RESULTS_PATH"
+          baseline_file="/tmp/pgregress-baseline/results.json"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Compute previous pass count from baseline (if it exists)
+          prev_passed="null"
+          if [[ -f "$baseline_file" ]]; then
+            prev_passed=$(jq '[.[].tests[] | select(.status == "pass")] | length' "$baseline_file")
+          fi
+
+          # Build per-suite sections and compute overall totals
+          payload=$(jq -n \
+            --slurpfile results "$results_file" \
+            --argjson prev_passed "$prev_passed" \
+            --arg url "$run_url" \
+            '
+            ($results[0] | map({
+              name: .name,
+              total: (.tests | length),
+              passed: ([.tests[] | select(.status == "pass")] | length),
+              failed: ([.tests[] | select(.status == "fail")] | length),
+              failing_names: ([.tests[] | select(.status == "fail") | .name] | join(", ") | if length > 300 then .[:300] + "..." else . end)
+            })) as $suites |
+
+            ($suites | map(.total) | add) as $total |
+            ($suites | map(.passed) | add) as $passed |
+            ($suites | map(.failed) | add) as $failed |
+            (if $total > 0 then ($passed * 100 / $total | floor) else 0 end) as $rate |
+
+            # Header with previous -> current pass count
+            (if $prev_passed != null then
+              ($prev_passed | tostring) + " -> " + ($passed | tostring) + "/" + ($total | tostring) + " passed (" + ($rate | tostring) + "%)"
+            else
+              ($passed | tostring) + "/" + ($total | tostring) + " passed (" + ($rate | tostring) + "%)"
+            end) as $header_stats |
+
+            # Header block
+            [{type: "header", text: {type: "plain_text",
+              text: ("Weekly pgregress report: " + $header_stats)}}] +
+
+            # Per-suite section blocks
+            ($suites | map(
+              {type: "section", text: {type: "mrkdwn",
+                text: ("*" + .name + "*: " + (.passed | tostring) + "/" + (.total | tostring) + " passed" +
+                  if .failed > 0 then "\nFailing: `" + .failing_names + "`" else "" end)}}
+            )) +
+
+            # Link block
+            [{type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}] |
+
+            {blocks: .}
+            ')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack on test infrastructure failure
+        if: >-
+          !cancelled() &&
+          steps.results.outputs.path == '' &&
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          payload=$(jq -n \
+            --arg url "$run_url" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: "pgregress tests failed to produce results"}},
+                {type: "section", text: {type: "mrkdwn", text: "The nightly pgregress run did not produce a `results.json`. The test infrastructure likely failed (e.g. cluster bootstrap timeout, build failure)."}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Prepare baseline for cache save
+        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          mkdir -p /tmp/pgregress-baseline
+          cp "$RESULTS_PATH" /tmp/pgregress-baseline/results.json
+
+      - name: Save current results as new baseline
+        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/pgregress-baseline/results.json
+          key: pgregress-baseline-${{ github.run_id }}
 
       # Note: the Go test writes the pass/fail summary (including shields.io badge)
       # directly to GITHUB_STEP_SUMMARY via postgres_builder.go.
