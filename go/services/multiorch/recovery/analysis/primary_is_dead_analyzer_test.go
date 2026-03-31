@@ -127,35 +127,37 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when primary pooler down but replicas connected (postgres still running)", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &PoolerAnalysis{
-			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                  false,
-			IsInitialized:              true,
-			PrimaryPoolerID:            primaryID,
-			PrimaryReachable:           false, // Overall not reachable
-			PrimaryPoolerReachable:     false, // Pooler is down
-			PrimaryPostgresRunning:     false, // Unknown since pooler is down
-			ReplicasConnectedToPrimary: true,  // But replicas are still connected to postgres
+		pa := &PoolerAnalysis{
+			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:              false,
+			IsInitialized:          true,
+			PrimaryPoolerID:        primaryID,
+			PrimaryReachable:       false, // Overall not reachable
+			PrimaryPoolerReachable: false, // Pooler is down
+			PrimaryPostgresRunning: false, // Unknown since pooler is down
+		}
+		sa := &ShardAnalysis{
+			Analyses:                   []*PoolerAnalysis{pa},
+			ReplicasConnectedToPrimary: true, // But replicas are still connected to postgres
 		}
 
-		problem, err := analyzeOne(analyzer, analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem, "should not trigger failover when pooler is down but replicas are connected")
+		require.Empty(t, problems, "should not trigger failover when pooler is down but replicas are connected")
 	})
 
 	t.Run("triggers failover when primary pooler up but postgres down", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &PoolerAnalysis{
-			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                  false,
-			IsInitialized:              true,
-			PrimaryPoolerID:            primaryID,
-			PrimaryReachable:           false, // Not reachable (postgres down)
-			PrimaryPoolerReachable:     true,  // Pooler is up
-			PrimaryPostgresRunning:     false, // But postgres is down
-			ReplicasConnectedToPrimary: false, // Replicas lost connection
+			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:              false,
+			IsInitialized:          true,
+			PrimaryPoolerID:        primaryID,
+			PrimaryReachable:       false, // Not reachable (postgres down)
+			PrimaryPoolerReachable: true,  // Pooler is up
+			PrimaryPostgresRunning: false, // But postgres is down
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)
@@ -167,15 +169,14 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &PoolerAnalysis{
-			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                  false,
-			IsInitialized:              true,
-			PrimaryPoolerID:            primaryID,
-			PrimaryReachable:           false, // Not reachable
-			PrimaryPoolerReachable:     false, // Pooler is down
-			PrimaryPostgresRunning:     false, // Unknown
-			ReplicasConnectedToPrimary: false, // Replicas also disconnected
+			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:              false,
+			IsInitialized:          true,
+			PrimaryPoolerID:        primaryID,
+			PrimaryReachable:       false, // Not reachable
+			PrimaryPoolerReachable: false, // Pooler is down
+			PrimaryPostgresRunning: false, // Unknown
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)

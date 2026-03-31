@@ -15,11 +15,13 @@
 package analysis
 
 import (
+	"cmp"
 	"time"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // ShardAnalysis groups all per-pooler analyses for a single shard.
@@ -27,14 +29,32 @@ import (
 type ShardAnalysis struct {
 	ShardKey commontypes.ShardKey
 	Analyses []*PoolerAnalysis
+
+	// Shard-level aggregates computed once by the generator.
+
+	// Primaries is the list of all reachable poolers in the shard that are reporting
+	// as PRIMARY. More than one entry indicates a split-brain / stale-primary scenario.
+	Primaries []*PoolerAnalysis
+
+	// HighestTermPrimary is the primary with the highest PrimaryTerm among all
+	// primaries in Primaries. Nil when Primaries is empty or there is a tie.
+	HighestTermPrimary *PoolerAnalysis
+
+	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
+	// connected to the primary Postgres. Used to avoid failover when only the primary
+	// pooler process is down but Postgres is still running.
+	ReplicasConnectedToPrimary bool
 }
 
-// PrimaryInfo represents information about a primary pooler in the shard.
-// Used for stale primary detection to identify which primary is most advanced.
-type PrimaryInfo struct {
-	ID            *clustermetadatapb.ID // Pooler ID
-	ConsensusTerm int64                 // Current consensus term (for logging/context)
-	PrimaryTerm   int64                 // Term when this node was promoted to primary
+// Replicas returns the PoolerAnalysis entries for all replica poolers.
+func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
+	var replicas []*PoolerAnalysis
+	for _, pa := range sa.Analyses {
+		if !pa.IsPrimary {
+			replicas = append(replicas, pa)
+		}
+	}
+	return replicas
 }
 
 // PoolerAnalysis represents the analyzed state of a single pooler
@@ -63,21 +83,27 @@ type PoolerAnalysis struct {
 	PrimaryReachable       bool
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
 
-	// Stale primary detection: populated for PRIMARY nodes only
-	PrimaryTerm           int64          // This pooler's primary term (term when promoted)
-	OtherPrimariesInShard []*PrimaryInfo // All other primaries detected in the shard
-	HighestTermPrimary    *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
-	ConsensusTerm         int64          // This node's consensus term (from health check)
+	// Primary term and WAL position
+	PrimaryTerm   int64 // This pooler's primary term (term when promoted)
+	ConsensusTerm int64 // This node's consensus term (from health check)
+	// LSN is the most relevant WAL position for this node.
+	// For primaries this should probably be the last committed LSN (pg_last_committed_xact()).
+	// For replicas this should probably be the last applied/replayed LSN (pg_last_wal_replay_lsn()).
+	// TODO: consider also tracking flush LSN (pg_current_wal_flush_lsn()) for primaries
+	// to distinguish committed vs written-but-not-committed data.
+	LSN pgutil.LSN
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
 	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
+}
 
-	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
-	// connected to the primary Postgres (have primary_conninfo configured and are receiving WAL).
-	// Used to avoid failover when only the primary pooler is down but Postgres is still running.
-	// If even one replica has lost connection, this is false.
-	ReplicasConnectedToPrimary bool
+// comparePrimaryTimeline compares two primary PoolerAnalysis entries by PrimaryTerm only.
+// Returns negative if a is less advanced than b, 0 if equal, positive if a is more advanced.
+// LSN is intentionally excluded: for primaries, PrimaryTerm must be unique per promotion, so
+// equal PrimaryTerms indicate a consensus bug rather than a resolvable tie.
+func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
+	return cmp.Compare(a.PrimaryTerm, b.PrimaryTerm)
 }
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.

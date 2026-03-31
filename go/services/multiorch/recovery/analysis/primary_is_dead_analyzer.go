@@ -43,10 +43,12 @@ func (a *PrimaryIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 }
 
 func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
-	return analyzeAllPoolers(sa, a.analyzePooler)
+	return analyzeAllPoolers(sa, func(pa *PoolerAnalysis) (*types.Problem, error) {
+		return a.analyzePooler(sa, pa)
+	})
 }
 
-func (a *PrimaryIsDeadAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
+func (a *PrimaryIsDeadAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -78,7 +80,7 @@ func (a *PrimaryIsDeadAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*
 	// For case 2, we check if ALL replicas are still connected to the primary Postgres.
 	// If they are, Postgres is still running and only the pooler process is down.
 	// In this case, we do NOT trigger failover - the operator should restart the pooler.
-	if !poolerAnalysis.PrimaryPoolerReachable && poolerAnalysis.ReplicasConnectedToPrimary {
+	if !poolerAnalysis.PrimaryPoolerReachable && sa.ReplicasConnectedToPrimary {
 		// Primary pooler is down but Postgres is still running (replicas are connected).
 		// Do not trigger failover - operator should restart the pooler process.
 		a.factory.Logger().Warn("primary pooler unreachable but postgres still running",
