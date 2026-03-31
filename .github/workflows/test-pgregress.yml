@@ -82,11 +82,13 @@ jobs:
       - name: Detect regressions
         id: regressions
         if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
           exit_code=0
           .github/scripts/detect-regressions.sh \
             /tmp/pgregress-baseline/results.json \
-            "${{ steps.results.outputs.path }}" \
+            "$RESULTS_PATH" \
             /tmp/pgregress-regressions \
             || exit_code=$?
 
@@ -145,10 +147,11 @@ jobs:
           steps.results.outputs.path != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
-          results_file="${{ steps.results.outputs.path }}"
+          results_file="$RESULTS_PATH"
           baseline_file="/tmp/pgregress-baseline/results.json"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
@@ -233,9 +236,11 @@ jobs:
 
       - name: Prepare baseline for cache save
         if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
           mkdir -p /tmp/pgregress-baseline
-          cp "${{ steps.results.outputs.path }}" /tmp/pgregress-baseline/results.json
+          cp "$RESULTS_PATH" /tmp/pgregress-baseline/results.json
 
       - name: Save current results as new baseline
         if: ${{ !cancelled() && steps.results.outputs.path != '' }}
