@@ -50,7 +50,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		analysis      *store.ReplicationAnalysis
+		analysis      *PoolerAnalysis
 		expectProblem bool
 		expectedCode  types.ProblemCode
 		expectedScope types.ProblemScope
@@ -58,7 +58,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 	}{
 		{
 			name: "detects replica not in standby list",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
@@ -76,7 +76,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores replica already in standby list",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
@@ -91,7 +91,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores primary nodes",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_PRIMARY,
@@ -103,7 +103,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores uninitialized replica",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
@@ -115,7 +115,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores replica when primary is unreachable",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
@@ -130,7 +130,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores replica with no replication configured",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
@@ -145,7 +145,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores UNKNOWN pooler type",
-			analysis: &store.ReplicationAnalysis{
+			analysis: &PoolerAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "unknown1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 				PoolerType:             clustermetadatapb.PoolerType_UNKNOWN,
@@ -179,7 +179,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotInStandbyListAnalyzer{factory: nil}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			PoolerType:             clustermetadatapb.PoolerType_REPLICA,

@@ -21,7 +21,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -61,7 +60,7 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *StalePrimaryAnalyzer) analyzePooler(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *StalePrimaryAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}

@@ -50,7 +50,7 @@ func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 	// Group analyses by shard key.
 	type shardEntry struct {
 		key      commontypes.ShardKey
-		analyses []*store.ReplicationAnalysis
+		analyses []*PoolerAnalysis
 	}
 	byKey := make(map[commontypes.ShardKey]*shardEntry)
 
@@ -85,7 +85,7 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey commontypes.ShardKey)
 		return nil, fmt.Errorf("shard not found: %s", shardKey)
 	}
 
-	var analyses []*store.ReplicationAnalysis
+	var analyses []*PoolerAnalysis
 	for _, pooler := range poolers {
 		analyses = append(analyses, g.generateAnalysisForPooler(pooler, shardKey))
 	}
@@ -158,7 +158,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 
 // GenerateAnalysisForPooler generates analysis for a single pooler using the cached poolersByShard.
 // If fresh data is needed (e.g., after re-polling the store), create a new AnalysisGenerator.
-func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*store.ReplicationAnalysis, error) {
+func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*PoolerAnalysis, error) {
 	// Get pooler from store
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
@@ -185,7 +185,7 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *multiorchdatapb.PoolerHealthState,
 	shardKey commontypes.ShardKey,
-) *store.ReplicationAnalysis {
+) *PoolerAnalysis {
 	// Determine pooler type from health check (PoolerType).
 	// Nodes are never created with topology type PRIMARY, so health check is authoritative.
 	// Fall back to topology type only if health check type is UNKNOWN.
@@ -194,7 +194,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		poolerType = pooler.MultiPooler.Type
 	}
 
-	analysis := &store.ReplicationAnalysis{
+	analysis := &PoolerAnalysis{
 		PoolerID:         pooler.MultiPooler.Id,
 		ShardKey:         shardKey,
 		PoolerType:       poolerType,
@@ -244,7 +244,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 // populatePrimaryInfo looks up the primary this replica is replicating from.
 func (g *AnalysisGenerator) populatePrimaryInfo(
-	analysis *store.ReplicationAnalysis,
+	analysis *PoolerAnalysis,
 	shardKey commontypes.ShardKey,
 ) {
 	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
@@ -415,7 +415,7 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 // Populates OtherPrimariesInShard and determines HighestTermPrimary based on PrimaryTerm.
 // This is used to detect stale primaries that came back online after failover.
 func (g *AnalysisGenerator) detectOtherPrimary(
-	analysis *store.ReplicationAnalysis,
+	analysis *PoolerAnalysis,
 	shardKey commontypes.ShardKey,
 	thisPooler *multiorchdatapb.PoolerHealthState,
 ) {
@@ -425,7 +425,7 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 	}
 
 	thisIDStr := topoclient.MultiPoolerIDString(thisPooler.MultiPooler.Id)
-	var otherPrimaries []*store.PrimaryInfo
+	var otherPrimaries []*PrimaryInfo
 
 	// Collect ALL other primaries (not just first one)
 	for poolerID, pooler := range poolers {
@@ -455,7 +455,7 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
 			}
 
-			otherPrimaries = append(otherPrimaries, &store.PrimaryInfo{
+			otherPrimaries = append(otherPrimaries, &PrimaryInfo{
 				ID:            pooler.MultiPooler.Id,
 				ConsensusTerm: consensusTerm,
 				PrimaryTerm:   primaryTerm,
@@ -468,7 +468,7 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 
 	// Find most advanced primary (include THIS pooler in comparison)
 	// This should always be set for PRIMARY poolers, even if there are no other primaries
-	allPrimaries := []*store.PrimaryInfo{
+	allPrimaries := []*PrimaryInfo{
 		{
 			ID:            thisPooler.MultiPooler.Id,
 			ConsensusTerm: analysis.ConsensusTerm,
@@ -486,8 +486,8 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 // PrimaryTerm is set during promotion and only cleared during demotion. This function
 // is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
 // never happen in a properly initialized shard.
-func findHighestTermPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
-	var mostAdvanced *store.PrimaryInfo
+func findHighestTermPrimary(primaries []*PrimaryInfo) *PrimaryInfo {
+	var mostAdvanced *PrimaryInfo
 	maxPrimaryTerm := int64(0)
 	tieDetected := false
 

@@ -35,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
@@ -47,7 +46,7 @@ import (
 
 // customAnalyzer is a test analyzer that can use a custom analyze function.
 type customAnalyzer struct {
-	analyzeFn      func(*store.ReplicationAnalysis) *types.Problem
+	analyzeFn      func(*analysis.PoolerAnalysis) *types.Problem
 	name           string
 	problemCode    types.ProblemCode
 	recoveryAction types.RecoveryAction
@@ -1345,7 +1344,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
@@ -1367,7 +1366,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	}
 
 	emergencyAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
@@ -1389,7 +1388,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	}
 
 	highAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			if !a.IsPrimary && a.ReplicationStopped {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
@@ -1502,7 +1501,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		Name:      "replica-pooler",
 	}
 
-	analyzeFunc := func(a *store.ReplicationAnalysis) *types.Problem {
+	analyzeFunc := func(a *analysis.PoolerAnalysis) *types.Problem {
 		// Detect replica with paused WAL replay
 		if !a.IsPrimary && a.ReplicationStopped {
 			return &types.Problem{
@@ -1701,7 +1700,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	// This tests that observing works correctly even when different poolers
 	// in the same shard return different results
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			// Only detect problem for replica (not primary)
 			// This simulates realistic scenario where problem detection
 			// varies by pooler but should still trigger grace period
@@ -1829,7 +1828,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 
 	// Create custom analyzer that can toggle problem detection
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			if a.PoolerID != nil && a.PoolerID.Name == "replica-pooler" && problemDetected {
 				return &types.Problem{
 					Code:           testProblemCode,
@@ -2030,7 +2029,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 
 	// Create custom analyzer that detects the problem for both replicas
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
 			// Detect problem for both replicas (not primary)
 			if a.PoolerID != nil && (a.PoolerID.Name == "replica1-pooler" || a.PoolerID.Name == "replica2-pooler") {
 				return &types.Problem{

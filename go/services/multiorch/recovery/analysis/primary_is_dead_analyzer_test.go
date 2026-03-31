@@ -49,7 +49,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects dead primary (primary exists in topology but unreachable)", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:        false,
@@ -69,7 +69,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores healthy primary (reachable)", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsPrimary:        false,
 			IsInitialized:    true,
 			PrimaryPoolerID:  primaryID, // Primary exists
@@ -82,7 +82,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores no primary scenario (future analysis)", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsPrimary:        false,
 			IsInitialized:    true,
 			PrimaryPoolerID:  nil,   // No primary exists in topology
@@ -95,7 +95,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores primary itself", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsPrimary:        true, // This is the primary node
 			IsInitialized:    true,
 			PrimaryPoolerID:  nil,
@@ -109,7 +109,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsPrimary:        false,
 			IsInitialized:    false, // Uninitialized
 			PrimaryPoolerID:  primaryID,
@@ -127,7 +127,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when primary pooler down but replicas connected (postgres still running)", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,
@@ -146,7 +146,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("triggers failover when primary pooler up but postgres down", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,
@@ -166,7 +166,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,

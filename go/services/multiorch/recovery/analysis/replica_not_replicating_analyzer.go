@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
@@ -45,7 +44,7 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Prob
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -84,7 +83,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *store.Repl
 }
 
 // needsReplicationFix returns true if replication is not configured or stopped.
-func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(analysis *store.ReplicationAnalysis) bool {
+func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(analysis *PoolerAnalysis) bool {
 	// No primary_conninfo configured
 	if analysis.PrimaryConnInfoHost == "" {
 		return true

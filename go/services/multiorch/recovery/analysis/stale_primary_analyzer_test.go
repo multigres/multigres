@@ -32,7 +32,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -43,7 +43,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 			PrimaryTerm:   5,
 			ConsensusTerm: 10,
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -54,7 +54,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   6,
 				},
 			},
-			HighestTermPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -79,7 +79,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects other primary as stale when this pooler has higher primary_term", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -90,7 +90,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 			PrimaryTerm:   6,
 			ConsensusTerm: 11,
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -101,7 +101,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			HighestTermPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -127,7 +127,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		// unique per primary). We skip automatic demotion to avoid making the situation worse.
 		// See generator.go findMostAdvancedPrimary() for details and potential future solutions.
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -138,7 +138,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 			PrimaryTerm:   5,
 			ConsensusTerm: 10,
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -160,7 +160,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replicas", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -179,7 +179,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when no other primary detected", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -201,7 +201,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores uninitialized primary", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -210,7 +210,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
 			IsInitialized: false, // Not initialized
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -231,7 +231,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: nil}
-		analysis := &store.ReplicationAnalysis{IsPrimary: true}
+		analysis := &PoolerAnalysis{IsPrimary: true}
 
 		_, err := analyzeOne(analyzer, analysis)
 
@@ -241,7 +241,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("handles multiple other primaries", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -252,7 +252,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 			PrimaryTerm:   6,
 			ConsensusTerm: 11,
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -272,7 +272,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			HighestTermPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -295,7 +295,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		// Note: This tests the invariant check. In a properly initialized shard,
 		// PRIMARY poolers should never have PrimaryTerm=0.
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -306,7 +306,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 			PrimaryTerm:   0, // Invalid: initialized PRIMARY should never have PrimaryTerm=0
 			ConsensusTerm: 10,
-			OtherPrimariesInShard: []*store.PrimaryInfo{
+			OtherPrimariesInShard: []*PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -317,7 +317,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			HighestTermPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",

@@ -16,13 +16,12 @@ package analysis
 
 import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // flattenShardAnalyses collects all ReplicationAnalysis entries across all ShardAnalysis groups.
 // Used in tests to assert on individual analyses without caring about shard grouping.
-func flattenShardAnalyses(shards []*ShardAnalysis) []*store.ReplicationAnalysis {
-	var analyses []*store.ReplicationAnalysis
+func flattenShardAnalyses(shards []*ShardAnalysis) []*PoolerAnalysis {
+	var analyses []*PoolerAnalysis
 	for _, sa := range shards {
 		analyses = append(analyses, sa.Analyses...)
 	}
@@ -32,8 +31,8 @@ func flattenShardAnalyses(shards []*ShardAnalysis) []*store.ReplicationAnalysis 
 // analyzeOne wraps a single ReplicationAnalysis in a ShardAnalysis, calls Analyze,
 // and returns the first problem detected (or nil) along with any error.
 // Used in tests that exercise single-pooler scenarios.
-func analyzeOne(analyzer Analyzer, a *store.ReplicationAnalysis) (*types.Problem, error) {
-	sa := &ShardAnalysis{Analyses: []*store.ReplicationAnalysis{a}}
+func analyzeOne(analyzer Analyzer, a *PoolerAnalysis) (*types.Problem, error) {
+	sa := &ShardAnalysis{Analyses: []*PoolerAnalysis{a}}
 	problems, err := analyzer.Analyze(sa)
 	if len(problems) > 0 {
 		p := problems[0]

@@ -171,7 +171,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	require.Len(t, analyses, 3, "should generate three analyses")
 
 	// Find the primary analysis
-	var primaryAnalysis *store.ReplicationAnalysis
+	var primaryAnalysis *PoolerAnalysis
 	for _, a := range analyses {
 		if a.IsPrimary {
 			primaryAnalysis = a
@@ -242,7 +242,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	require.Len(t, analyses, 2, "should generate two analyses")
 
 	// Find the replica analysis
-	var replicaAnalysis *store.ReplicationAnalysis
+	var replicaAnalysis *PoolerAnalysis
 	for _, a := range analyses {
 		if !a.IsPrimary {
 			replicaAnalysis = a
