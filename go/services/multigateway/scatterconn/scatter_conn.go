@@ -183,31 +183,47 @@ func (sc *ScatterConn) StreamExecute(
 				updatedSS.ReservedState.ReservationReasons |= protoutil.ReasonTransaction
 			}
 		}
+
+		// If this query creates a temp table, ensure the reason is tracked
+		// so the connection survives COMMIT.
+		if state.PendingTempTableReservation && err == nil {
+			state.PendingTempTableReservation = false
+			updatedSS := state.GetMatchingShardState(target)
+			if updatedSS != nil && updatedSS.ReservedState != nil {
+				updatedSS.ReservedState.ReservationReasons |= protoutil.ReasonTempTable
+			}
+		}
+
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
 		}
 		return nil
 	}
 
-	// Case 2: In transaction but no reserved connection - create one with BEGIN
-	if conn.IsInTransaction() {
-		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
-
-		reservationOpts := protoutil.NewTransactionReservationOptions()
+	// Case 2: Need a new reserved connection — for transaction, temp table, or both.
+	if conn.IsInTransaction() || state.PendingTempTableReservation {
+		reasons := uint32(0)
+		if conn.IsInTransaction() {
+			reasons |= protoutil.ReasonTransaction
+		}
+		if state.PendingTempTableReservation {
+			reasons |= protoutil.ReasonTempTable
+			state.PendingTempTableReservation = false
+		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
 		if state.HasTempTableReservation() {
-			reservationOpts.Reasons |= protoutil.ReasonTempTable
+			reasons |= protoutil.ReasonTempTable
 		}
+
+		sc.logger.DebugContext(ctx, "creating reserved connection",
+			"reasons", protoutil.ReasonsString(reasons))
+
+		reservationOpts := protoutil.NewReservationOptions(reasons)
 		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
 		// so the multipooler preserves transaction options instead of using plain "BEGIN".
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
-			// NOTE: PendingBeginQuery is consumed by the first shard. In a future
-			// multi-shard transaction, subsequent shards would get a plain BEGIN
-			// instead of preserving the isolation level. When we add distributed
-			// transactions, preserve this for the transaction lifetime and only
-			// clear on commit/rollback.
 			state.PendingBeginQuery = ""
 		}
 		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
@@ -215,7 +231,6 @@ func (sc *ScatterConn) StreamExecute(
 			return fmt.Errorf("reserve stream execute failed: %w", err)
 		}
 
-		// Use authoritative state from multipooler (reasons already include transaction)
 		sc.applyReservedState(conn, state, target, reservedState)
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
@@ -223,7 +238,7 @@ func (sc *ScatterConn) StreamExecute(
 		return nil
 	}
 
-	// Case 3: Not in transaction - use regular pooled connection
+	// Case 3: Not in transaction, no temp table — use regular pooled connection
 	sc.logger.DebugContext(ctx, "executing query via regular pooled connection",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -242,102 +257,6 @@ func (sc *ScatterConn) StreamExecute(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	return nil
-}
-
-// ReserveAndExecute executes a query through a reserved connection, creating
-// the reservation if one does not already exist for the target shard. The
-// reasons bitmask is OR'd into the shard state's ReservationReasons so that
-// the connection survives until all reasons are cleared.
-//
-// If a reserved connection already exists on the target shard it is reused;
-// otherwise ReserveStreamExecute is called on the gateway to create one. When
-// the caller is in a transaction and PendingBeginQuery is set, that BEGIN is
-// consumed as part of the reservation.
-func (sc *ScatterConn) ReserveAndExecute(
-	ctx context.Context,
-	conn *server.Conn,
-	tableGroup string,
-	shard string,
-	sql string,
-	state *handler.MultiGatewayConnectionState,
-	reasons uint32,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "shard.reserve_and_execute",
-		trace.WithAttributes(
-			attribute.String("tablegroup", tableGroup),
-			attribute.String("shard", shard),
-			attribute.String("db.namespace", conn.Database()),
-		),
-	)
-	defer span.End()
-
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
-
-	eo := &querypb.ExecuteOptions{
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
-	}
-
-	ss := state.GetMatchingShardState(target)
-
-	// Case 1: Already have reserved connection — use it and OR in the new reasons.
-	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
-		sc.logger.DebugContext(ctx, "reserve-and-execute: using existing reserved connection",
-			"reserved_conn_id", ss.ReservedState.GetReservedConnectionId(),
-			"reasons", protoutil.ReasonsString(reasons))
-
-		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
-		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
-		if err != nil {
-			return err
-		}
-
-		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
-		sc.applyReservedState(conn, state, target, reservedState)
-		if err != nil {
-			return fmt.Errorf("query execution failed: %w", err)
-		}
-
-		// OR the requested reasons into the shard state.
-		updatedSS := state.GetMatchingShardState(target)
-		if updatedSS != nil && updatedSS.ReservedState != nil {
-			updatedSS.ReservedState.ReservationReasons |= reasons
-		}
-		return nil
-	}
-
-	// Case 2: No reserved connection — create one via ReserveStreamExecute.
-	sc.logger.DebugContext(ctx, "reserve-and-execute: creating reserved connection",
-		"reasons", protoutil.ReasonsString(reasons))
-
-	effectiveReasons := reasons
-	// If conn.IsInTransaction() but ReasonTransaction is not in reasons, don't
-	// force it — let the caller decide. But if ReasonTransaction IS requested
-	// and conn is NOT in a transaction, strip it to avoid sending BEGIN.
-	if protoutil.HasTransactionReason(effectiveReasons) && !conn.IsInTransaction() {
-		effectiveReasons = protoutil.RemoveReason(effectiveReasons, protoutil.ReasonTransaction)
-	}
-
-	reservationOpts := protoutil.NewReservationOptions(effectiveReasons)
-
-	// Consume PendingBeginQuery if we're in a transaction.
-	if conn.IsInTransaction() && state.PendingBeginQuery != "" {
-		reservationOpts.BeginQuery = state.PendingBeginQuery
-		state.PendingBeginQuery = ""
-	}
-
-	reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
-	if err != nil {
-		return fmt.Errorf("reserve stream execute failed: %w", err)
-	}
-
-	sc.applyReservedState(conn, state, target, reservedState)
 	return nil
 }
 
@@ -397,20 +316,26 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
-	} else if conn.IsInTransaction() {
-		// Case 2: In transaction but no reserved connection — create one with BEGIN.
-		// Same deferred-BEGIN pattern as StreamExecute and CopyInitiate.
-		//
+	} else if conn.IsInTransaction() || state.PendingTempTableReservation {
+		// Case 2: Need a new reserved connection — for transaction, temp table, or both.
 		// We reuse ReserveStreamExecute with a no-op "SELECT 1" query rather than
-		// adding a dedicated ReservePortalStreamExecute RPC. A new RPC would require
-		// changes to the QueryService interface, proto definitions, all implementations,
-		// and the gRPC service, far more invasive for the same result.
-		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for portal transaction")
-
-		reservationOpts := protoutil.NewTransactionReservationOptions()
-		if state.HasTempTableReservation() {
-			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		// adding a dedicated ReservePortalStreamExecute RPC.
+		reasons := uint32(0)
+		if conn.IsInTransaction() {
+			reasons |= protoutil.ReasonTransaction
 		}
+		if state.PendingTempTableReservation {
+			reasons |= protoutil.ReasonTempTable
+			state.PendingTempTableReservation = false
+		}
+		if state.HasTempTableReservation() {
+			reasons |= protoutil.ReasonTempTable
+		}
+
+		sc.logger.DebugContext(ctx, "creating reserved connection for portal",
+			"reasons", protoutil.ReasonsString(reasons))
+
+		reservationOpts := protoutil.NewReservationOptions(reasons)
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""

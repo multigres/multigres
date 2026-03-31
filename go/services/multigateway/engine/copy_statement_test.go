@@ -53,19 +53,6 @@ type mockIExecute struct {
 	copyAbortErr    error
 }
 
-func (m *mockIExecute) ReserveAndExecute(
-	ctx context.Context,
-	conn *server.Conn,
-	tableGroup string,
-	shard string,
-	sql string,
-	state *handler.MultiGatewayConnectionState,
-	reasons uint32,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	return nil
-}
-
 func (m *mockIExecute) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,

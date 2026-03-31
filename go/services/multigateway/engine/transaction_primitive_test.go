@@ -51,19 +51,6 @@ type txMockIExecute struct {
 	concludeTransactionConclusion multipoolerpb.TransactionConclusion
 }
 
-func (m *txMockIExecute) ReserveAndExecute(
-	ctx context.Context,
-	conn *server.Conn,
-	tableGroup string,
-	shard string,
-	sql string,
-	state *handler.MultiGatewayConnectionState,
-	reasons uint32,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	return nil
-}
-
 func (m *txMockIExecute) StreamExecute(
 	_ context.Context,
 	_ *server.Conn,

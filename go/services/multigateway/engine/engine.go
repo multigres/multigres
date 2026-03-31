@@ -58,26 +58,6 @@ type IExecute interface {
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
-	// ReserveAndExecute executes a query through a reserved connection, creating
-	// the reservation if one does not already exist for the target shard. The
-	// reasons bitmask is OR'd into the shard state's ReservationReasons so that
-	// the connection survives until all reasons are cleared.
-	//
-	// If a reserved connection already exists on the target shard it is reused;
-	// otherwise ReserveStreamExecute is called on the gateway to create one. When
-	// the caller is in a transaction and PendingBeginQuery is set, that BEGIN is
-	// consumed as part of the reservation.
-	ReserveAndExecute(
-		ctx context.Context,
-		conn *server.Conn,
-		tableGroup string,
-		shard string,
-		sql string,
-		state *handler.MultiGatewayConnectionState,
-		reasons uint32,
-		callback func(context.Context, *sqltypes.Result) error,
-	) error
-
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 	//
 	// Parameters:

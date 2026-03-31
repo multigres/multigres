@@ -19,14 +19,14 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // TempTableRoute routes a query that creates temporary objects through a
-// reserved connection. It calls ReserveAndExecute with ReasonTempTable
-// to ensure the temp table persists across queries on the same session.
+// reserved connection. It sets PendingTempTableReservation on the state
+// so that ScatterConn's StreamExecute creates a reserved connection with
+// ReasonTempTable, following the same pattern as transactions.
 type TempTableRoute struct {
 	TableGroup string
 	Shard      string
@@ -38,7 +38,9 @@ func NewTempTableRoute(tableGroup, shard, sql string) *TempTableRoute {
 	return &TempTableRoute{TableGroup: tableGroup, Shard: shard, Query: sql}
 }
 
-// StreamExecute executes the temp table creation through a reserved connection.
+// StreamExecute sets the temp table reservation flag and delegates to
+// StreamExecute. ScatterConn will see the flag and create a reserved
+// connection with ReasonTempTable.
 func (t *TempTableRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -46,11 +48,8 @@ func (t *TempTableRoute) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	reasons := protoutil.ReasonTempTable
-	if conn.IsInTransaction() {
-		reasons |= protoutil.ReasonTransaction
-	}
-	return exec.ReserveAndExecute(ctx, conn, t.TableGroup, t.Shard, t.Query, state, reasons, callback)
+	state.PendingTempTableReservation = true
+	return exec.StreamExecute(ctx, conn, t.TableGroup, t.Shard, t.Query, state, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

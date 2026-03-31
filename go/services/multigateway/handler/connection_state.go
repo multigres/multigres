@@ -72,6 +72,12 @@ type MultiGatewayConnectionState struct {
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
 
+	// PendingTempTableReservation is set by the planner (via TempTableRoute)
+	// when the current query creates a temporary object. ScatterConn consumes
+	// it to create a reserved connection with ReasonTempTable. One-shot:
+	// cleared after the reservation is created.
+	PendingTempTableReservation bool
+
 	// TxnStartTime records when the current transaction began (set at BEGIN,
 	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
 	// means no active transaction is being timed.

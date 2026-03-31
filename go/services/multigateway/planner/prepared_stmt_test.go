@@ -77,10 +77,6 @@ func (m *mockIExecute) CopyAbort(context.Context, *server.Conn, string, string, 
 	return nil
 }
 
-func (m *mockIExecute) ReserveAndExecute(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, uint32, func(context.Context, *sqltypes.Result) error) error {
-	return nil
-}
-
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
