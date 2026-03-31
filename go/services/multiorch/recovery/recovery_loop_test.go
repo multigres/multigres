@@ -1864,7 +1864,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	initialDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 	require.True(t, exists, "deadline should be set after problem detected")
@@ -1886,7 +1886,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	resetDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
@@ -1908,7 +1908,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	recurrenceDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 

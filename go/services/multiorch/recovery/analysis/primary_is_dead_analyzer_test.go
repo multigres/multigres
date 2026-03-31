@@ -64,6 +64,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
 		require.Equal(t, types.ScopeShard, problem.Scope)
 		require.Equal(t, types.PriorityEmergency, problem.Priority)
+		require.Nil(t, problem.PoolerID)
 		require.NotNil(t, problem.RecoveryAction)
 	})
 
@@ -164,6 +165,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, problem, "should trigger failover when pooler is up but postgres is down")
 		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
+		require.Nil(t, problem.PoolerID)
 	})
 
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
@@ -183,5 +185,6 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, problem, "should trigger failover when pooler down and replicas disconnected")
 		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
+		require.Nil(t, problem.PoolerID)
 	})
 }

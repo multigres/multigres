@@ -60,11 +60,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 				)
 			}
 
-			// Observe health per-pooler: a pooler is unhealthy if it appears in the detected problems.
-			// TODO: shard-wide problems (PoolerID == nil) don't contribute to per-pooler unhealthy
-			// tracking here. Follow up by recording grace period observations under the shard key
-			// (e.g. shardAnalysis.ShardKey.String()) for analyzers that produce shard-scoped problems,
-			// so grace periods work correctly for shard-wide recoveries.
+			// Observe health per-pooler: a pooler is unhealthy if it appears in detected problems.
 			problematicPoolerIDs := make(map[string]bool, len(detectedProblems))
 			for _, p := range detectedProblems {
 				if p.PoolerID != nil {
@@ -76,6 +72,17 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 				isHealthy := !problematicPoolerIDs[poolerID]
 				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
 			}
+
+			// Observe shard-level health for analyzers that produce shard-scoped problems
+			// (PoolerID nil). The entity key is the shard key string.
+			shardHasProblem := false
+			for _, p := range detectedProblems {
+				if p.PoolerID == nil {
+					shardHasProblem = true
+					break
+				}
+			}
+			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), shardAnalysis.ShardKey.String(), analyzer.RecoveryAction(), !shardHasProblem)
 
 			problems = append(problems, detectedProblems...)
 		}

@@ -77,7 +77,7 @@ func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 
 	// Verify the deadline was set
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -117,7 +117,7 @@ func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 
 	// Get the deadline
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	firstDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -177,7 +177,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Wait a bit
@@ -187,7 +187,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	afterUnhealthyDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	afterUnhealthyDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Deadline should be unchanged (frozen)
@@ -200,7 +200,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	stillFrozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	stillFrozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, frozenDeadline, stillFrozenDeadline, "deadline should remain frozen across multiple unhealthy observations")
@@ -209,7 +209,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	resetDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	resetDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.True(t, resetDeadline.After(frozenDeadline), "deadline should be reset when healthy again")
@@ -357,7 +357,7 @@ func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 		tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 		tracker.mu.Lock()
-		key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+		key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 		deadline := tracker.deadlines[key]
 		tracker.mu.Unlock()
 
@@ -395,7 +395,7 @@ func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 
 	// Get deadline
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	deadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -454,7 +454,7 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 
 	// Verify deadline was initialized with base + jitter
 	tracker.mu.Lock()
-	deadline, exists := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
+	deadline, exists := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: poolerIDStr}]
 	tracker.mu.Unlock()
 
 	require.True(t, exists, "deadline should be initialized even when first observation is unhealthy")
@@ -475,7 +475,7 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, false)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: poolerIDStr}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, deadline, frozenDeadline, "deadline should remain frozen on subsequent unhealthy observations")
@@ -521,7 +521,7 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 
 	// Verify no entry was created
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemReplicaNotReplicating, poolerID: poolerIDStr}
+	key := gracePeriodKey{code: types.ProblemReplicaNotReplicating, entityID: poolerIDStr}
 	_, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -582,7 +582,7 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 
 	// Verify state is consistent
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: poolerIDStr}
 	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -611,7 +611,7 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	after1 := time.Now()
 
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	originalDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -643,7 +643,7 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	after2 := time.Now()
 
 	newTracker.mu.Lock()
-	key2 := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key2 := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	newDeadline := newTracker.deadlines[key2]
 	newTracker.mu.Unlock()
 

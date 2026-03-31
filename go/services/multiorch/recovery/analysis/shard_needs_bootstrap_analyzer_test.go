@@ -63,6 +63,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
 		require.Equal(t, types.ScopeShard, problem.Scope)
 		require.Equal(t, types.PriorityShardBootstrap, problem.Priority)
+		require.Nil(t, problem.PoolerID)
 		require.NotNil(t, problem.RecoveryAction)
 	})
 
@@ -103,6 +104,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
+		require.Nil(t, problem.PoolerID)
 	})
 
 	t.Run("skips REPLICA type with data directory", func(t *testing.T) {
