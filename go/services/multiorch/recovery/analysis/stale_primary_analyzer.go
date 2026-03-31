@@ -62,13 +62,13 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	}
 
 	// A tie in PrimaryTerm indicates a consensus bug — skip automatic demotion.
-	if sa.HighestTermPrimary == nil {
+	if sa.HighestTermReachablePrimary == nil {
 		return nil, nil
 	}
 
 	// Collect stale primaries: all in sa.Primaries that are not the highest-term primary
 	// and have a valid (non-zero) PrimaryTerm.
-	mostAdvancedIDStr := topoclient.MultiPoolerIDString(sa.HighestTermPrimary.PoolerID)
+	mostAdvancedIDStr := topoclient.MultiPoolerIDString(sa.HighestTermReachablePrimary.PoolerID)
 	var stalePrimaries []*PoolerAnalysis
 	for _, p := range sa.Primaries {
 		if topoclient.MultiPoolerIDString(p.PoolerID) == mostAdvancedIDStr {
@@ -100,8 +100,8 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 			Description: fmt.Sprintf("Stale primary detected: %s (stale_primary_term %d) is stale, most advanced primary %s (most_advanced_primary_term %d)",
 				stale.PoolerID.Name,
 				stale.PrimaryTerm,
-				sa.HighestTermPrimary.PoolerID.Name,
-				sa.HighestTermPrimary.PrimaryTerm),
+				sa.HighestTermReachablePrimary.PoolerID.Name,
+				sa.HighestTermReachablePrimary.PrimaryTerm),
 			Priority:       types.PriorityEmergency - types.Priority(i),
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),

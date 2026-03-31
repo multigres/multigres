@@ -237,23 +237,20 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	ps.Set("multipooler-cell1-replica-1", replica)
 
 	generator := NewAnalysisGenerator(ps)
-	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
+	shards := generator.GenerateShardAnalyses()
 
-	require.Len(t, analyses, 2, "should generate two analyses")
+	require.Len(t, shards, 1, "should generate one shard analysis")
+	sa := shards[0]
+	require.Len(t, sa.Analyses, 2, "should generate two pooler analyses")
 
 	// Find the replica analysis
-	var replicaAnalysis *PoolerAnalysis
-	for _, a := range analyses {
-		if !a.IsPrimary {
-			replicaAnalysis = a
-			break
-		}
-	}
+	replicaAnalysis := sa.Replicas()
+	require.Len(t, replicaAnalysis, 1, "should find one replica")
+	assert.False(t, replicaAnalysis[0].IsPrimary)
 
-	require.NotNil(t, replicaAnalysis, "should find replica analysis")
-	assert.False(t, replicaAnalysis.IsPrimary)
-	assert.NotNil(t, replicaAnalysis.PrimaryPoolerID, "should have primary ID populated")
-	assert.True(t, replicaAnalysis.PrimaryReachable)
+	// Primary health is now a shard-level field
+	assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID, "should have topology primary ID populated")
+	assert.True(t, sa.PrimaryReachable)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.T) {
@@ -370,12 +367,10 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	gen := NewAnalysisGenerator(ps)
 	sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
-	analysis := findPoolerByName(sa, "replica")
-	require.NotNil(t, analysis)
 
-	// When no primary exists in the shard, PrimaryPoolerID should be nil
-	assert.Nil(t, analysis.PrimaryPoolerID)
-	assert.False(t, analysis.PrimaryReachable)
+	// When no primary exists in the shard, topology primary fields should be nil/false
+	assert.Nil(t, sa.HighestTermDiscoveredPrimaryID)
+	assert.False(t, sa.PrimaryReachable)
 }
 
 // Task 7: Test for primary with postgres down
@@ -427,10 +422,10 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	analysis := findPoolerByName(sa, "replica")
 	require.NotNil(t, analysis)
 
-	// PrimaryPoolerID should be set
-	assert.NotNil(t, analysis.PrimaryPoolerID)
+	// HighestTermDiscoveredPrimaryID should be set even when postgres is down
+	assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID)
 	// But PrimaryReachable should be false because postgres is down
-	assert.False(t, analysis.PrimaryReachable, "primary should NOT be reachable when postgres is down")
+	assert.False(t, sa.PrimaryReachable, "primary should NOT be reachable when postgres is down")
 }
 
 func TestIsInStandbyList(t *testing.T) {
@@ -546,9 +541,10 @@ func TestIsInStandbyList(t *testing.T) {
 			})
 
 			generator := NewAnalysisGenerator(ps)
+			sa, err := generator.GenerateShardAnalysis(commontypes.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"})
+			require.NoError(t, err)
 
-			primary, _ := ps.Get("multipooler-cell1-primary-1")
-			result := generator.isInStandbyList(tt.replicaID, primary)
+			result := sa.IsInStandbyList(tt.replicaID)
 
 			assert.Equal(t, tt.expected, result)
 		})
@@ -599,12 +595,9 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		gen := NewAnalysisGenerator(ps)
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
-		analysis := findPoolerByName(sa, "replica")
-		require.NotNil(t, analysis)
 
-		assert.True(t, analysis.PrimaryPoolerReachable)
-		assert.True(t, analysis.PrimaryPostgresRunning)
-		assert.True(t, analysis.PrimaryReachable)
+		assert.True(t, sa.PrimaryPoolerReachable)
+		assert.True(t, sa.PrimaryReachable)
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
@@ -650,12 +643,9 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		gen := NewAnalysisGenerator(ps)
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
-		analysis := findPoolerByName(sa, "replica")
-		require.NotNil(t, analysis)
 
-		assert.False(t, analysis.PrimaryPoolerReachable)
-		assert.False(t, analysis.PrimaryPostgresRunning)
-		assert.False(t, analysis.PrimaryReachable)
+		assert.False(t, sa.PrimaryPoolerReachable)
+		assert.False(t, sa.PrimaryReachable)
 	})
 }
 
@@ -1036,7 +1026,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		require.NoError(t, err)
 		analysis := findPoolerByName(sa, "replica-1")
 		require.NotNil(t, analysis)
-		assert.True(t, analysis.IsInPrimaryStandbyList, "replica1 should be in standby list")
+		assert.True(t, sa.IsInStandbyList(analysis.PoolerID), "replica1 should be in standby list")
 	})
 
 	t.Run("replica not in standby list", func(t *testing.T) {
@@ -1044,7 +1034,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		require.NoError(t, err)
 		analysis := findPoolerByName(sa, "replica-2")
 		require.NotNil(t, analysis)
-		assert.False(t, analysis.IsInPrimaryStandbyList, "replica2 should not be in standby list")
+		assert.False(t, sa.IsInStandbyList(analysis.PoolerID), "replica2 should not be in standby list")
 	})
 }
 
@@ -1116,13 +1106,13 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 	analysis := findPoolerByName(sa, "replica-1")
 	require.NotNil(t, analysis)
 
-	// The replica's analysis must point to the new (correct) primary, not the stale one.
+	// The shard-level topology primary must point to the new (correct) primary, not the stale one.
 	// If it pointed to the stale primary (postgres dead), PrimaryReachable would be false
 	// and PrimaryIsDeadAnalyzer would falsely trigger a new election.
-	require.NotNil(t, analysis.PrimaryPoolerID)
-	assert.Equal(t, "new-primary", analysis.PrimaryPoolerID.Name,
+	require.NotNil(t, sa.HighestTermDiscoveredPrimaryID)
+	assert.Equal(t, "new-primary", sa.HighestTermDiscoveredPrimaryID.Name,
 		"should pick primary with highest PrimaryTerm")
-	assert.True(t, analysis.PrimaryReachable,
+	assert.True(t, sa.PrimaryReachable,
 		"primary must appear reachable when new primary has postgres running")
 }
 
@@ -1143,9 +1133,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 2)
 
 		// primary-2 has higher PrimaryTerm, so it's the most advanced
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-2", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(6), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 
 	t.Run("multiple other primaries detected", func(t *testing.T) {
@@ -1172,9 +1162,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 
 		// primary-3 has highest PrimaryTerm (6), even though primary-1 has highest ConsensusTerm (11).
 		// This verifies we're comparing on PrimaryTerm, not ConsensusTerm.
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-3", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-3", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(6), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 
 	t.Run("this primary is most advanced", func(t *testing.T) {
@@ -1192,9 +1182,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 3)
 
 		// This primary has highest PrimaryTerm (7), so it's the most advanced
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(7), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(7), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 
 	t.Run("tie in primary_term returns nil", func(t *testing.T) {
@@ -1211,7 +1201,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 2)
 
 		// Tie detected, so HighestTermPrimary should be nil
-		assert.Nil(t, sa.HighestTermPrimary, "tie in PrimaryTerm should result in nil HighestTermPrimary")
+		assert.Nil(t, sa.HighestTermReachablePrimary, "tie in PrimaryTerm should result in nil HighestTermPrimary")
 	})
 
 	t.Run("all primary_terms zero returns nil (defensive - invalid state)", func(t *testing.T) {
@@ -1231,7 +1221,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 2)
 
 		// All PrimaryTerm=0 is invalid state, defensive check returns nil
-		assert.Nil(t, sa.HighestTermPrimary, "all PrimaryTerm=0 (invalid state) should result in nil HighestTermPrimary")
+		assert.Nil(t, sa.HighestTermReachablePrimary, "all PrimaryTerm=0 (invalid state) should result in nil HighestTermPrimary")
 	})
 
 	t.Run("mix of zero and non-zero primary_terms", func(t *testing.T) {
@@ -1249,9 +1239,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 3)
 
 		// primary-2 has non-zero PrimaryTerm (5), so it's the most advanced
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-2", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 
 	t.Run("no other primaries detected", func(t *testing.T) {
@@ -1267,9 +1257,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 1)
 
 		// Single primary is still the most advanced
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 
 	t.Run("unreachable primary not detected", func(t *testing.T) {
@@ -1286,9 +1276,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, sa.Primaries, 1, "unreachable primaries should not be detected")
 
 		// Only this primary is reachable, so it's the most advanced
-		require.NotNil(t, sa.HighestTermPrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermPrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermPrimary.PrimaryTerm)
+		require.NotNil(t, sa.HighestTermReachablePrimary)
+		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
+		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
 	})
 }
 

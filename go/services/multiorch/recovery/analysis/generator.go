@@ -213,84 +213,33 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 				analysis.PrimaryConnInfoHost = rs.PrimaryConnInfo.Host
 			}
 		}
-
-		// Lookup primary info
-		g.populatePrimaryInfo(analysis, shardKey)
 	}
 
 	return analysis
 }
 
-// populatePrimaryInfo looks up the primary this replica is replicating from.
-func (g *AnalysisGenerator) populatePrimaryInfo(
-	analysis *PoolerAnalysis,
-	shardKey commontypes.ShardKey,
-) {
-	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
-	if !ok {
-		return
-	}
-
-	// Find the primary with the highest PrimaryTerm in the same shard.
-	// During a failover, two primaries may transiently coexist: the stale old primary
-	// (postgres dead) and the newly elected one (postgres running). Selecting by
-	// PrimaryTerm ensures we always use the most recently elected primary, preventing
-	// PrimaryIsDeadAnalyzer from falsely triggering on the stale one.
-	var primary *multiorchdatapb.PoolerHealthState
-	var highestPrimaryTerm int64
+// findHighestTermRawPooler returns the raw PoolerHealthState with the highest PrimaryTerm
+// among all PRIMARY-typed poolers, regardless of reachability. Returns nil if none found.
+func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	var best *multiorchdatapb.PoolerHealthState
+	var bestTerm int64
 	for _, pooler := range poolers {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
 		}
-
 		if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
-
-		var primaryTerm int64
+		var term int64
 		if pooler.ConsensusTerm != nil {
-			primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+			term = pooler.ConsensusTerm.PrimaryTerm
 		}
-		if primary == nil || primaryTerm > highestPrimaryTerm {
-			primary = pooler
-			highestPrimaryTerm = primaryTerm
-		}
-	}
-
-	if primary == nil {
-		return // no primary found
-	}
-
-	// Found the primary - populate basic fields
-	analysis.PrimaryPoolerID = primary.MultiPooler.Id
-
-	// Track primary health details separately (for distinguishing pooler-down vs postgres-down)
-	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid
-	analysis.PrimaryPostgresRunning = primary.IsPostgresRunning
-
-	// Primary is reachable only if both pooler is reachable AND Postgres is running
-	analysis.PrimaryReachable = analysis.PrimaryPoolerReachable && analysis.PrimaryPostgresRunning
-
-	// Check if this replica is in the primary's synchronous standby list
-	analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, primary)
-}
-
-// isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
-func (g *AnalysisGenerator) isInStandbyList(
-	replicaID *clustermetadatapb.ID,
-	primary *multiorchdatapb.PoolerHealthState,
-) bool {
-	if primary.PrimaryStatus == nil || primary.PrimaryStatus.SyncReplicationConfig == nil {
-		return false
-	}
-
-	for _, standbyID := range primary.PrimaryStatus.SyncReplicationConfig.StandbyIds {
-		if standbyID.Cell == replicaID.Cell && standbyID.Name == replicaID.Name {
-			return true
+		if best == nil || term > bestTerm {
+			best = pooler
+			bestTerm = term
 		}
 	}
-
-	return false
+	return best
 }
 
 // allReplicasConnectedToPrimary checks if ALL replicas in the shard are connected to the primary.
@@ -397,25 +346,36 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	}
 
 	// Determine the highest-term primary (used for stale-primary detection).
-	sa.HighestTermPrimary = findHighestTermPooler(sa.Primaries)
+	sa.HighestTermReachablePrimary = findHighestTermPooler(sa.Primaries)
 
-	// Determine if all replicas are still connected to the primary Postgres.
-	// Prefer the highest-term reachable primary; fall back to any PRIMARY-typed pooler.
-	// The fallback is needed when the primary pooler is down but Postgres is still running —
-	// precisely the scenario where this field matters for avoiding premature failover.
-	var rawPrimary *multiorchdatapb.PoolerHealthState
-	if sa.HighestTermPrimary != nil {
-		rawPrimary = poolers[topoclient.MultiPoolerIDString(sa.HighestTermPrimary.PoolerID)]
-	} else {
-		for _, pooler := range poolers {
-			if pooler.GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
-				rawPrimary = pooler
-				break
-			}
+	// Compute topology primary: the highest-term primary in the shard regardless of reachability.
+	// This may differ from HighestTermPrimary when the primary pooler is down.
+	topologyPrimary := findHighestTermRawPooler(poolers)
+	if topologyPrimary != nil {
+		sa.HighestTermDiscoveredPrimaryID = topologyPrimary.MultiPooler.Id
+		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresRunning
+
+		// Populate the standby list from the topology primary (used by IsInStandbyList).
+		if topologyPrimary.PrimaryStatus != nil && topologyPrimary.PrimaryStatus.SyncReplicationConfig != nil {
+			sa.PrimaryStandbyIDs = topologyPrimary.PrimaryStatus.SyncReplicationConfig.StandbyIds
 		}
 	}
-	if rawPrimary != nil {
-		sa.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(rawPrimary, poolers)
+
+	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
+	for _, pa := range sa.Analyses {
+		if !pa.IsPrimary && pa.LastCheckValid && pa.IsInitialized {
+			sa.HasInitializedReplica = true
+			break
+		}
+	}
+
+	// Determine if all replicas are still connected to the primary Postgres.
+	// Use the topology primary (which may be unreachable) so we can detect the
+	// "pooler down but Postgres still running" scenario that ReplicasConnectedToPrimary
+	// is designed to catch.
+	if topologyPrimary != nil {
+		sa.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(topologyPrimary, poolers)
 	}
 }
 

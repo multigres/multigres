@@ -54,7 +54,6 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			LastCheckValid:   true,
 			IsInitialized:    false,
 			HasDataDirectory: false, // Explicitly set - no data directory
-			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)
@@ -69,8 +68,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores initialized pooler", func(t *testing.T) {
 		analysis := &PoolerAnalysis{
-			IsInitialized:   true,
-			PrimaryPoolerID: nil,
+			IsInitialized: true,
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)
@@ -79,14 +77,16 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores uninitialized pooler if primary exists", func(t *testing.T) {
-		analysis := &PoolerAnalysis{
-			IsInitialized:   false,
-			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
+		sa := &ShardAnalysis{
+			HighestTermDiscoveredPrimaryID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
+			Analyses: []*PoolerAnalysis{{
+				IsInitialized: false,
+			}},
 		}
 
-		problem, err := analyzeOne(analyzer, analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem)
+		require.Empty(t, problems)
 	})
 
 	t.Run("detects bootstrap needed for REPLICA type without data directory", func(t *testing.T) {
@@ -97,7 +97,6 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			LastCheckValid:   true,
 			IsInitialized:    false,
 			HasDataDirectory: false, // No data directory
-			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)
@@ -114,7 +113,6 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
 			IsInitialized:    false,                                // might be temporarily down
 			HasDataDirectory: true,                                 // Has data directory
-			PrimaryPoolerID:  nil,
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)

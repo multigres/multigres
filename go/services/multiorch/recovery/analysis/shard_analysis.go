@@ -36,14 +36,49 @@ type ShardAnalysis struct {
 	// as PRIMARY. More than one entry indicates a split-brain / stale-primary scenario.
 	Primaries []*PoolerAnalysis
 
-	// HighestTermPrimary is the primary with the highest PrimaryTerm among all
+	// HighestTermReachablePrimary is the primary with the highest PrimaryTerm among all
 	// primaries in Primaries. Nil when Primaries is empty or there is a tie.
-	HighestTermPrimary *PoolerAnalysis
+	HighestTermReachablePrimary *PoolerAnalysis
+
+	// HighestTermDiscoveredPrimaryID is the pooler ID of the highest-term primary known to exist
+	// in this shard's topology, regardless of whether it is currently reachable.
+	// Nil if no primary has been recorded in topology yet.
+	HighestTermDiscoveredPrimaryID *clustermetadatapb.ID
+
+	// PrimaryReachable is true if the topology primary's pooler is reachable AND
+	// its Postgres is running. False when TopologyPrimaryID is nil.
+	PrimaryReachable bool
+
+	// PrimaryPoolerReachable is true if the topology primary's pooler health check
+	// succeeded, independently of whether Postgres is running.
+	// False when TopologyPrimaryID is nil.
+	PrimaryPoolerReachable bool
+
+	// PrimaryStandbyIDs is the synchronous_standby_names list from the topology primary.
+	// Nil when TopologyPrimaryID is nil or the primary has no sync replication config.
+	// Use IsInStandbyList to check membership.
+	PrimaryStandbyIDs []*clustermetadatapb.ID
+
+	// HasInitializedReplica is true if at least one non-primary, reachable,
+	// initialized pooler exists in the shard. Used by PrimaryIsDeadAnalyzer to
+	// avoid false positives when the shard has no replica that can observe the primary.
+	HasInitializedReplica bool
 
 	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
 	// connected to the primary Postgres. Used to avoid failover when only the primary
 	// pooler process is down but Postgres is still running.
 	ReplicasConnectedToPrimary bool
+}
+
+// IsInStandbyList reports whether the given pooler ID appears in the primary's
+// synchronous standby list. Returns false when no standby list is available.
+func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
+	for _, standbyID := range sa.PrimaryStandbyIDs {
+		if standbyID.Cell == id.Cell && standbyID.Name == id.Name {
+			return true
+		}
+	}
+	return false
 }
 
 // Replicas returns the PoolerAnalysis entries for all replica poolers.
@@ -77,11 +112,8 @@ type PoolerAnalysis struct {
 	AnalyzedAt       time.Time
 
 	// Replica-specific fields
-	ReplicationStopped     bool
-	PrimaryConnInfoHost    string
-	PrimaryPoolerID        *clustermetadatapb.ID
-	PrimaryReachable       bool
-	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
+	ReplicationStopped  bool
+	PrimaryConnInfoHost string
 
 	// Primary term and WAL position
 	PrimaryTerm   int64 // This pooler's primary term (term when promoted)
@@ -92,10 +124,6 @@ type PoolerAnalysis struct {
 	// TODO: consider also tracking flush LSN (pg_current_wal_flush_lsn()) for primaries
 	// to distinguish committed vs written-but-not-committed data.
 	LSN pgutil.LSN
-
-	// Primary health details (for distinguishing pooler-down vs postgres-down)
-	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
-	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
 }
 
 // comparePrimaryTimeline compares two primary PoolerAnalysis entries by PrimaryTerm only.
@@ -107,12 +135,14 @@ func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
 }
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
+// Both the shard analysis and the per-pooler analysis are passed so callbacks can
+// access shard-level fields (e.g. PrimaryReachable) alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
-func analyzeAllPoolers(sa *ShardAnalysis, fn func(*PoolerAnalysis) (*types.Problem, error)) ([]types.Problem, error) {
+func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *PoolerAnalysis) (*types.Problem, error)) ([]types.Problem, error) {
 	var problems []types.Problem
 	var firstErr error
 	for _, poolerAnalysis := range sa.Analyses {
-		p, err := fn(poolerAnalysis)
+		p, err := fn(sa, poolerAnalysis)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

@@ -55,15 +55,10 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Proble
 			continue
 		}
 
-		// Skip primary nodes - they don't have a PrimaryPoolerID by design (they ARE the primary).
-		// A dead primary should be handled by PrimaryIsDead (detected by replicas), not by
-		// ShardNeedsBootstrap. When a primary's postgres dies, it appears as:
-		// - IsPrimary = true (it's the primary)
-		// - IsInitialized = false (postgres down, can't get LSN)
-		// - PrimaryPoolerID = nil (it's the primary itself)
-		// This would incorrectly trigger ShardNeedsBootstrap if we don't skip it.
-		// Always skip primary nodes regardless of initialization state - if a primary's postgres
-		// crashes, PrimaryIsDead will handle it (detected by replicas).
+		// Skip primary nodes. A dead primary should be handled by PrimaryIsDead
+		// (detected via sa.HighestTermDiscoveredPrimaryID + sa.PrimaryReachable), not by
+		// ShardNeedsBootstrap. When a primary's postgres dies it appears as
+		// IsPrimary=true, IsInitialized=false — skipping it avoids a false positive.
 		if pa.IsPrimary {
 			continue
 		}
@@ -82,8 +77,8 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Proble
 			continue
 		}
 
-		// Only trigger if no primary exists in the shard.
-		if pa.PrimaryPoolerID != nil {
+		// Only trigger if no primary exists in the shard topology.
+		if sa.HighestTermDiscoveredPrimaryID != nil {
 			continue
 		}
 

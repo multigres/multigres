@@ -46,10 +46,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			ConsensusTerm: 11,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           stalePA.ShardKey,
-			Analyses:           []*PoolerAnalysis{stalePA},
-			Primaries:          []*PoolerAnalysis{stalePA, newPA},
-			HighestTermPrimary: newPA,
+			ShardKey:                    stalePA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{stalePA},
+			Primaries:                   []*PoolerAnalysis{stalePA, newPA},
+			HighestTermReachablePrimary: newPA,
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -81,10 +81,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			ConsensusTerm: 10,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           newPA.ShardKey,
-			Analyses:           []*PoolerAnalysis{newPA},
-			Primaries:          []*PoolerAnalysis{newPA, stalePA},
-			HighestTermPrimary: newPA,
+			ShardKey:                    newPA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{newPA},
+			Primaries:                   []*PoolerAnalysis{newPA, stalePA},
+			HighestTermReachablePrimary: newPA,
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -116,10 +116,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			PrimaryTerm: 5,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           primaryAPA.ShardKey,
-			Analyses:           []*PoolerAnalysis{primaryAPA},
-			Primaries:          []*PoolerAnalysis{primaryAPA, primaryBPA},
-			HighestTermPrimary: nil, // Tie detected, so nil
+			ShardKey:                    primaryAPA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{primaryAPA},
+			Primaries:                   []*PoolerAnalysis{primaryAPA, primaryBPA},
+			HighestTermReachablePrimary: nil, // Tie detected, so nil
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -158,10 +158,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			ConsensusTerm: 10,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           pa.ShardKey,
-			Analyses:           []*PoolerAnalysis{pa},
-			Primaries:          []*PoolerAnalysis{pa}, // Only one primary — no stale primary to detect
-			HighestTermPrimary: pa,
+			ShardKey:                    pa.ShardKey,
+			Analyses:                    []*PoolerAnalysis{pa},
+			Primaries:                   []*PoolerAnalysis{pa}, // Only one primary — no stale primary to detect
+			HighestTermReachablePrimary: pa,
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -183,10 +183,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			PrimaryTerm: 5,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           uninitPA.ShardKey,
-			Analyses:           []*PoolerAnalysis{uninitPA},
-			Primaries:          []*PoolerAnalysis{uninitPA, otherPA},
-			HighestTermPrimary: otherPA,
+			ShardKey:                    uninitPA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{uninitPA},
+			Primaries:                   []*PoolerAnalysis{uninitPA, otherPA},
+			HighestTermReachablePrimary: otherPA,
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -224,10 +224,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			PrimaryTerm: 5,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           newPA.ShardKey,
-			Analyses:           []*PoolerAnalysis{newPA},
-			Primaries:          []*PoolerAnalysis{newPA, stale1PA, stale2PA},
-			HighestTermPrimary: newPA,
+			ShardKey:                    newPA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{newPA},
+			Primaries:                   []*PoolerAnalysis{newPA, stale1PA, stale2PA},
+			HighestTermReachablePrimary: newPA,
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -258,10 +258,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			PrimaryTerm: 5,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:           zeroTermPA.ShardKey,
-			Analyses:           []*PoolerAnalysis{zeroTermPA},
-			Primaries:          []*PoolerAnalysis{zeroTermPA, otherPA},
-			HighestTermPrimary: otherPA,
+			ShardKey:                    zeroTermPA.ShardKey,
+			Analyses:                    []*PoolerAnalysis{zeroTermPA},
+			Primaries:                   []*PoolerAnalysis{zeroTermPA, otherPA},
+			HighestTermReachablePrimary: otherPA,
 		}
 
 		problems, err := analyzer.Analyze(sa)
