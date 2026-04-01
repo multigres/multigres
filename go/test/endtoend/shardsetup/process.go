@@ -137,6 +137,7 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.PoolerDir))
 
 	t.Logf("Running server command: %v", p.Process.Args)
+
 	if err := p.waitForStartup(ctx, t, 20*time.Second, 50); err != nil {
 		return err
 	}
@@ -195,6 +196,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.PoolerDir))
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
+
 	return p.waitForStartup(ctx, t, 15*time.Second, 30)
 }
 
