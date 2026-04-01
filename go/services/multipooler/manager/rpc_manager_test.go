@@ -1566,6 +1566,79 @@ func TestReplicationStatus(t *testing.T) {
 		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
 	})
 
+	t.Run("Status_returns_cohort_members_from_leadership_history", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		t.Cleanup(func() { pm.Shutdown() })
+
+		mockQueryService := mock.NewQueryService()
+
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1000000"}}))
+		mockQueryService.AddQueryPattern("SELECT application_name",
+			mock.MakeQueryResult([]string{"application_name"}, nil))
+		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
+			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
+		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
+			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+		// Leadership history with two cohort members
+		mockQueryService.AddQueryPattern("SELECT id, term_number, event_type",
+			mock.MakeQueryResult(
+				[]string{"id", "term_number", "event_type", "leader_id", "coordinator_id", "wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at"},
+				[][]any{{int64(1), int64(1), "promotion", "zone1_test-service", "zone1_test-service", "0/1000000", "bootstrap", "initial", `["zone1_pooler-a","zone1_pooler-b"]`, `["zone1_pooler-a","zone1_pooler-b"]`, "2026-01-01 00:00:00+00"}},
+			))
+
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		status, err := pm.Status(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, status)
+
+		require.Len(t, status.CohortMembers, 2)
+		assert.Equal(t, "zone1", status.CohortMembers[0].Cell)
+		assert.Equal(t, "pooler-a", status.CohortMembers[0].Name)
+		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.CohortMembers[0].Component)
+		assert.Equal(t, "zone1", status.CohortMembers[1].Cell)
+		assert.Equal(t, "pooler-b", status.CohortMembers[1].Name)
+	})
+
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()

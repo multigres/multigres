@@ -239,6 +239,12 @@ message Status {
   // How long the current action has been running.
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
+
+  // Cohort members from the most recent multigres.leadership_history record.
+  // Empty if the table has no records or the database is unreachable.
+  // A record with an empty list (written during first-backup creation) signals
+  // that the shard has been initialized but not yet had its cohort established.
+  repeated clustermetadata.ID cohort_members = 13;
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
@@ -249,6 +255,8 @@ enum PostgresAction {
   POSTGRES_ACTION_STARTING = 1;
   // A pgBackRest restore is running to initialize the data directory.
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
+  // No backup exists yet; running initdb and creating the first pgBackRest backup.
+  POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers

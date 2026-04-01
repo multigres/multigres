@@ -78,4 +78,9 @@ message PoolerHealthState {
 
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   consensusdata.StatusResponse consensus_status = 14;
+
+  // Cohort members from the most recent multigres.leadership_history record,
+  // populated from the Status RPC response. An empty list (not nil) on an
+  // initialized pooler signals the shard needs its initial cohort established.
+  repeated clustermetadata.ID cohort_members = 15;
 }

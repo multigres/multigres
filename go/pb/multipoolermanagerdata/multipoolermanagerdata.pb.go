@@ -48,6 +48,8 @@ const (
 	PostgresAction_POSTGRES_ACTION_STARTING PostgresAction = 1
 	// A pgBackRest restore is running to initialize the data directory.
 	PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP PostgresAction = 2
+	// No backup exists yet; running initdb and creating the first pgBackRest backup.
+	PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP PostgresAction = 3
 )
 
 // Enum value maps for PostgresAction.
@@ -56,11 +58,13 @@ var (
 		0: "POSTGRES_ACTION_UNSPECIFIED",
 		1: "POSTGRES_ACTION_STARTING",
 		2: "POSTGRES_ACTION_RESTORING_FROM_BACKUP",
+		3: "POSTGRES_ACTION_CREATING_FIRST_BACKUP",
 	}
 	PostgresAction_value = map[string]int32{
 		"POSTGRES_ACTION_UNSPECIFIED":           0,
 		"POSTGRES_ACTION_STARTING":              1,
 		"POSTGRES_ACTION_RESTORING_FROM_BACKUP": 2,
+		"POSTGRES_ACTION_CREATING_FIRST_BACKUP": 3,
 	}
 )
 
@@ -1390,8 +1394,13 @@ type Status struct {
 	// How long the current action has been running.
 	// Only meaningful when postgres_action != UNSPECIFIED.
 	PostgresActionDuration *durationpb.Duration `protobuf:"bytes,12,opt,name=postgres_action_duration,json=postgresActionDuration,proto3" json:"postgres_action_duration,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Cohort members from the most recent multigres.leadership_history record.
+	// Empty if the table has no records or the database is unreachable.
+	// A record with an empty list (written during first-backup creation) signals
+	// that the shard has been initialized but not yet had its cohort established.
+	CohortMembers []*clustermetadata.ID `protobuf:"bytes,13,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Status) Reset() {
@@ -1504,6 +1513,13 @@ func (x *Status) GetPostgresAction() PostgresAction {
 func (x *Status) GetPostgresActionDuration() *durationpb.Duration {
 	if x != nil {
 		return x.PostgresActionDuration
+	}
+	return nil
+}
+
+func (x *Status) GetCohortMembers() []*clustermetadata.ID {
+	if x != nil {
+		return x.CohortMembers
 	}
 	return nil
 }
@@ -4182,7 +4198,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
 	"\x16PrimaryPositionRequest\"<\n" +
 	"\x17PrimaryPositionResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xcc\x05\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\x88\x06\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
@@ -4197,7 +4213,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\bshard_id\x18\n" +
 	" \x01(\tR\ashardId\x12O\n" +
 	"\x0fpostgres_action\x18\v \x01(\x0e2&.multipoolermanagerdata.PostgresActionR\x0epostgresAction\x12S\n" +
-	"\x18postgres_action_duration\x18\f \x01(\v2\x19.google.protobuf.DurationR\x16postgresActionDuration\"\x0f\n" +
+	"\x18postgres_action_duration\x18\f \x01(\v2\x19.google.protobuf.DurationR\x16postgresActionDuration\x12:\n" +
+	"\x0ecohort_members\x18\r \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\"\x0f\n" +
 	"\rStatusRequest\"H\n" +
 	"\x0eStatusResponse\x126\n" +
 	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\"\x98\x03\n" +
@@ -4364,11 +4381,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"-\n" +
 	"\x11SetMonitorRequest\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\"\x14\n" +
-	"\x12SetMonitorResponse*z\n" +
+	"\x12SetMonitorResponse*\xa5\x01\n" +
 	"\x0ePostgresAction\x12\x1f\n" +
 	"\x1bPOSTGRES_ACTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_ACTION_STARTING\x10\x01\x12)\n" +
-	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02*\x98\x01\n" +
+	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02\x12)\n" +
+	"%POSTGRES_ACTION_CREATING_FIRST_BACKUP\x10\x03*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
@@ -4503,47 +4521,48 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	51, // 16: multipoolermanagerdata.Status.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
 	0,  // 17: multipoolermanagerdata.Status.postgres_action:type_name -> multipoolermanagerdata.PostgresAction
 	72, // 18: multipoolermanagerdata.Status.postgres_action_duration:type_name -> google.protobuf.Duration
-	24, // 19: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
-	72, // 20: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
-	72, // 21: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
-	72, // 22: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
-	74, // 23: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
-	27, // 24: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
-	28, // 25: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
-	18, // 26: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	72, // 27: multipoolermanagerdata.EmergencyDemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
-	73, // 28: multipoolermanagerdata.DemoteStalePrimaryRequest.source:type_name -> clustermetadata.MultiPooler
-	1,  // 29: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
-	7,  // 30: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	75, // 31: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	45, // 32: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	74, // 33: multipoolermanagerdata.PromoteRequest.coordinator_id:type_name -> clustermetadata.ID
-	74, // 34: multipoolermanagerdata.PromoteRequest.cohort_members:type_name -> clustermetadata.ID
-	74, // 35: multipoolermanagerdata.PromoteRequest.accepted_members:type_name -> clustermetadata.ID
-	7,  // 36: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	4,  // 37: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	2,  // 38: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	74, // 39: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	3,  // 40: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	74, // 41: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	74, // 42: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
-	74, // 43: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
-	76, // 44: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	74, // 45: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	74, // 46: multipoolermanagerdata.InitializeEmptyPrimaryRequest.coordinator_id:type_name -> clustermetadata.ID
-	71, // 47: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
-	62, // 48: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	62, // 49: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	5,  // 50: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	75, // 51: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	77, // 52: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	77, // 53: multipoolermanagerdata.CreateDurabilityPolicyRequest.durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	73, // 54: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	74, // 19: multipoolermanagerdata.Status.cohort_members:type_name -> clustermetadata.ID
+	24, // 20: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
+	72, // 21: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
+	72, // 22: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
+	72, // 23: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
+	74, // 24: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
+	27, // 25: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
+	28, // 26: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
+	18, // 27: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
+	72, // 28: multipoolermanagerdata.EmergencyDemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
+	73, // 29: multipoolermanagerdata.DemoteStalePrimaryRequest.source:type_name -> clustermetadata.MultiPooler
+	1,  // 30: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
+	7,  // 31: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	75, // 32: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	45, // 33: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	74, // 34: multipoolermanagerdata.PromoteRequest.coordinator_id:type_name -> clustermetadata.ID
+	74, // 35: multipoolermanagerdata.PromoteRequest.cohort_members:type_name -> clustermetadata.ID
+	74, // 36: multipoolermanagerdata.PromoteRequest.accepted_members:type_name -> clustermetadata.ID
+	7,  // 37: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	4,  // 38: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	2,  // 39: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	74, // 40: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	3,  // 41: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
+	74, // 42: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
+	74, // 43: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
+	74, // 44: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
+	76, // 45: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	74, // 46: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	74, // 47: multipoolermanagerdata.InitializeEmptyPrimaryRequest.coordinator_id:type_name -> clustermetadata.ID
+	71, // 48: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
+	62, // 49: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	62, // 50: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	5,  // 51: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	75, // 52: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	77, // 53: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	77, // 54: multipoolermanagerdata.CreateDurabilityPolicyRequest.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	73, // 55: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

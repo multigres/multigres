@@ -119,6 +119,60 @@ func TestNewPoolerID(t *testing.T) {
 	}
 }
 
+func TestPoolerIDFromAppName(t *testing.T) {
+	tests := []struct {
+		name         string
+		appName      string
+		expectedCell string
+		expectedName string
+		expectError  bool
+	}{
+		{
+			name:         "standard app name",
+			appName:      "us-west_replica-1",
+			expectedCell: "us-west",
+			expectedName: "replica-1",
+		},
+		{
+			name:         "zone with hyphens and numbers",
+			appName:      "us-east-1a_primary-db-001",
+			expectedCell: "us-east-1a",
+			expectedName: "primary-db-001",
+		},
+		{
+			name:         "simple zone and name",
+			appName:      "zone1_pooler-001",
+			expectedCell: "zone1",
+			expectedName: "pooler-001",
+		},
+		{
+			name:         "no underscore - best-effort ID uses appName as Name",
+			appName:      "nounderscore",
+			expectedName: "nounderscore", // best-effort: raw appName preserved in Name
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := poolerIDFromAppName(tt.appName)
+			if tt.expectError {
+				require.Error(t, err)
+				// Best-effort ID is always returned: caller can include it rather than drop the member
+				require.NotNil(t, result.id)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedName, result.id.Name, "Name should preserve raw appName")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedCell, result.id.Cell)
+				assert.Equal(t, tt.expectedName, result.id.Name)
+				assert.Equal(t, tt.appName, result.appName)
+			}
+		})
+	}
+}
+
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
 		name     string

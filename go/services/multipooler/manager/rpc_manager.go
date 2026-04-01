@@ -306,6 +306,20 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
 
+	// Get cohort members from the most recent leadership_history record (best-effort).
+	if rec, err := pm.currentLeadershipRecord(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to read leadership history for status", "error", err)
+	} else if rec != nil {
+		for _, appName := range rec.CohortMembers {
+			pid, parseErr := poolerIDFromAppName(appName)
+			if parseErr != nil {
+				pm.logger.WarnContext(ctx, "Failed to parse cohort member app name, using best-effort ID",
+					"app_name", appName, "error", parseErr)
+			}
+			poolerStatus.CohortMembers = append(poolerStatus.CohortMembers, pid.id)
+		}
+	}
+
 	// Try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {

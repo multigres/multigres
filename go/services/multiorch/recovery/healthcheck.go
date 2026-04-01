@@ -183,6 +183,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	pooler.IsInitialized = status.IsInitialized
 	pooler.HasDataDirectory = status.HasDataDirectory
 	pooler.ConsensusTerm = status.ConsensusTerm
+	pooler.CohortMembers = status.CohortMembers
 
 	// Fetch consensus status for stale primary detection and timeline divergence
 	// This is a separate RPC call that gives us the consensus term and timeline info

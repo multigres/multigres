@@ -60,6 +60,10 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 					{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica2"},
 				},
 			},
+			CohortMembers: []*clustermetadata.ID{
+				{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+				{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			},
 		},
 	})
 
@@ -116,6 +120,13 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 
 	// Check that REPLICA fields are not populated
 	require.Nil(t, updated.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
+
+	// Check that CohortMembers are propagated from Status response
+	require.Len(t, updated.CohortMembers, 2, "CohortMembers should be propagated from Status response")
+	require.Equal(t, "zone1", updated.CohortMembers[0].Cell)
+	require.Equal(t, "pooler1", updated.CohortMembers[0].Name)
+	require.Equal(t, "zone1", updated.CohortMembers[1].Cell)
+	require.Equal(t, "replica1", updated.CohortMembers[1].Name)
 }
 
 // TestPollPooler_UpdatesStore_Replica tests that polling a REPLICA pooler updates the store with correct health metrics
