@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
@@ -45,6 +46,11 @@ type QueryPoolerServer struct {
 	logger      *slog.Logger
 	poolManager connpoolmanager.PoolManager
 	executor    *executor.Executor
+
+	// tableGroup and shard identify which tablegroup/shard this pooler serves.
+	// Set at construction time and immutable.
+	tableGroup string
+	shard      string
 
 	mu             sync.Mutex
 	poolerType     clustermetadatapb.PoolerType
@@ -70,7 +76,7 @@ type QueryPoolerServer struct {
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during NOT_SERVING transitions before force-closing reserved connections.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider, gracePeriod time.Duration) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID)
@@ -80,6 +86,8 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		logger:         logger,
 		poolManager:    poolManager,
 		executor:       exec,
+		tableGroup:     tableGroup,
+		shard:          shard,
 		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		healthProvider: healthProvider,
 		gracePeriod:    gracePeriod,
@@ -152,18 +160,59 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 // StartRequest checks whether a new request should be admitted.
 // Returns nil if the request is allowed, or an error if it should be rejected.
 //
+// It validates the target against this pooler's identity (tablegroup, shard, type)
+// via checkTarget, then checks serving status. A target mismatch returns MTF01,
+// which causes the gateway to buffer the request until the correct pooler is available.
+//
 // During graceful shutdown (shuttingDown=true), requests on existing reserved
 // connections (allowOnShutdown=true) are still admitted so that in-flight
 // transactions can complete. New reservations and fresh queries are rejected.
-func (s *QueryPoolerServer) StartRequest(allowOnShutdown bool) error {
+func (s *QueryPoolerServer) StartRequest(target *query.Target, allowOnShutdown bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkTargetLocked(target); err != nil {
+		return err
+	}
 
 	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING && !s.shuttingDown {
 		return mterrors.MTF01.New()
 	}
 
 	if s.shuttingDown && !allowOnShutdown {
+		return mterrors.MTF01.New()
+	}
+
+	return nil
+}
+
+// checkTargetLocked validates that the request's target matches this pooler's identity.
+//
+// Validation rules:
+//   - TableGroup and Shard must always match. A mismatch is a routing bug (MTD01).
+//   - PoolerType: if the target is PRIMARY but this pooler is a REPLICA, the gateway
+//     has stale topology (likely a demotion happened). Returns MTF01 to trigger
+//     buffering until the new primary is discovered. All other type combinations
+//     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic) or are bugs.
+//
+// Caller must hold s.mu.
+func (s *QueryPoolerServer) checkTargetLocked(target *query.Target) error {
+	if target == nil {
+		return nil
+	}
+
+	if s.tableGroup != "" && target.TableGroup != "" && target.TableGroup != s.tableGroup {
+		return mterrors.MTD01.New("target tablegroup %q does not match pooler tablegroup %q", target.TableGroup, s.tableGroup)
+	}
+
+	if s.shard != "" && target.Shard != "" && target.Shard != s.shard {
+		return mterrors.MTD01.New("target shard %q does not match pooler shard %q", target.Shard, s.shard)
+	}
+
+	// A PRIMARY request hitting a REPLICA means the gateway thinks this pooler is
+	// still the primary, but it was demoted. Return MTF01 to trigger buffering.
+	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
+		s.poolerType == clustermetadatapb.PoolerType_REPLICA {
 		return mterrors.MTF01.New()
 	}
 
