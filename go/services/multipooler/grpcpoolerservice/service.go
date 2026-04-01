@@ -536,8 +536,8 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 // Returns remaining reasons if connection is still reserved.
 func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerpb.DiscardTempTablesRequest) (*multipoolerpb.DiscardTempTablesResponse, error) {
 	// Always on existing reserved connection, allow during shutdown.
-	if err := s.pooler.StartRequest(true); err != nil {
-		return nil, err
+	if err := s.pooler.StartRequest(req.Target, true); err != nil {
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
