@@ -61,13 +61,7 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		// transaction (PG rejects it), so a pending BEGIN that was never
 		// sent to PG should be discarded.
 		state.PendingBeginQuery = ""
-
-		err := exec.DiscardTempTables(ctx, conn, state, callback)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return exec.DiscardTempTables(ctx, conn, state, callback)
 	}
 
 	// No temp table reservation — return synthetic result.

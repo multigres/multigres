@@ -301,9 +301,7 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 }
 
 // HasTempTableReservation returns true if any shard state has a reserved
-// connection with the temp table reason set. This replaces the old
-// SessionPinned bool field with a derived check on the authoritative
-// reservation state from the multipooler.
+// connection with the temp table reason set.
 func (m *MultiGatewayConnectionState) HasTempTableReservation() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
