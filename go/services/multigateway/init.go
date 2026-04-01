@@ -329,6 +329,10 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
 	// from the load balancer at subscribe time (after pooler discovery).
+	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
+	if notifMetricsErr != nil {
+		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
+	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
 		func() multipoolerpb.MultiPoolerServiceClient {
 			conn, err := loadBalancer.GetConnection(&querypb.Target{
@@ -342,8 +346,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			return conn.ServiceClient()
 		},
 		logger,
+		notifMetrics,
 	)
-	mg.pgHandler.SetNotificationManager(notifMgr)
+	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,

@@ -77,6 +77,7 @@ type MultiGatewayHandler struct {
 	metrics          *HandlerMetrics
 	slowThreshold    time.Duration
 	notifMgr         NotificationManager
+	onNotifDropped   func(ctx context.Context) // called when async notification delivery drops
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -247,8 +248,9 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		newState.InitStatementTimeout(stDefault)
 
 		newState.SubSync = &handlerSubSync{
-			notifMgr: h.notifMgr,
-			logger:   h.logger,
+			notifMgr:       h.notifMgr,
+			logger:         h.logger,
+			onNotifDropped: h.onNotifDropped,
 		}
 
 		conn.SetConnectionState(newState)
@@ -538,8 +540,11 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 var _ server.Handler = (*MultiGatewayHandler)(nil)
 
 // SetNotificationManager sets the notification manager for LISTEN/NOTIFY support.
-func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
+// The optional onDropped callback is invoked when a notification is dropped due to
+// a full async delivery channel (for metrics recording).
+func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager, onDropped func(ctx context.Context)) {
 	h.notifMgr = mgr
+	h.onNotifDropped = onDropped
 }
 
 // flushNotifications delivers any pending notifications to the client.

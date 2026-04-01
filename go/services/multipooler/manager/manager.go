@@ -424,7 +424,11 @@ func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
 	if pm.connPoolMgr == nil {
 		return nil
 	}
-	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger)
+	pubsubMetrics, err := pubsub.NewPubSubMetrics()
+	if err != nil {
+		pm.logger.WarnContext(ctx, "failed to initialise some pubsub metrics", "error", err)
+	}
+	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger, pubsubMetrics)
 	pm.qsc.SetPubSubListener(pm.pubsubListener)
 	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
 }

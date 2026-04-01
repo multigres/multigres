@@ -459,6 +459,89 @@
         "x": 0,
         "y": 47
       },
+      "id": 160,
+      "panels": [],
+      "title": "Multigateway - Notifications",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Active gRPC notification streams (one per unique PG channel). Monitors goroutine overhead.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "id": 161,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "mg_gateway_notification_streams{job=\"multigateway\"}",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Notification Streams",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Notifications dropped on the gateway side due to full subscriber channels.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "id": 162,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(mg_gateway_notifications_dropped_total{job=\"multigateway\"}[$__rate_interval])",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Notification Drops",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
       "id": 200,
       "panels": [],
       "title": "Multipooler - Connection Pooling",
@@ -480,7 +563,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 58
       },
       "id": 5,
       "targets": [
@@ -516,7 +599,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 58
       },
       "id": 6,
       "targets": [
@@ -564,7 +647,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 57
+        "y": 67
       },
       "id": 7,
       "targets": [
@@ -600,7 +683,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 57
+        "y": 67
       },
       "id": 8,
       "targets": [
@@ -654,7 +737,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 66
+        "y": 76
       },
       "id": 9,
       "targets": [
@@ -690,7 +773,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 66
+        "y": 76
       },
       "id": 10,
       "targets": [
@@ -725,7 +808,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 85
       },
       "id": 11,
       "targets": [
@@ -771,7 +854,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 85
       },
       "id": 12,
       "targets": [
@@ -809,7 +892,160 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 84
+        "y": 94
+      },
+      "id": 250,
+      "panels": [],
+      "title": "Multipooler - PubSub",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Active PG LISTEN channels and unique notification subscribers.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 95
+      },
+      "id": 251,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "mg_pubsub_channels{job=\"multipooler\"}",
+          "legendFormat": "channels - {{instance}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "mg_pubsub_subscribers{job=\"multipooler\"}",
+          "legendFormat": "subscribers - {{instance}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "PubSub Channels & Subscribers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Notifications dropped at the multipooler due to full subscriber channels, and reconnect events.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 95
+      },
+      "id": 252,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(mg_pubsub_notifications_dropped_total{job=\"multipooler\"}[$__rate_interval])",
+          "legendFormat": "drops - {{instance}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(mg_pubsub_reconnects_total{job=\"multipooler\"}[$__rate_interval])",
+          "legendFormat": "reconnects - {{instance}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "PubSub Drops & Reconnects",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Time from PG disconnect to successful reconnect. Proxy for notification loss window.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 95
+      },
+      "id": 253,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mg_pubsub_reconnect_gap_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "p95 - {{instance}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(mg_pubsub_reconnect_gap_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "p50 - {{instance}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Reconnect Gap Duration",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 104
       },
       "id": 300,
       "panels": [],
@@ -832,7 +1068,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 105
       },
       "id": 13,
       "targets": [
@@ -868,7 +1104,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 105
       },
       "id": 14,
       "targets": [
@@ -916,7 +1152,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 114
       },
       "id": 15,
       "targets": [
@@ -952,7 +1188,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 114
       },
       "id": 16,
       "targets": [
@@ -1000,7 +1236,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 103
+        "y": 123
       },
       "id": 17,
       "targets": [
@@ -1035,7 +1271,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 103
+        "y": 123
       },
       "id": 18,
       "targets": [
@@ -1093,7 +1329,7 @@
         "h": 9,
         "w": 6,
         "x": 0,
-        "y": 112
+        "y": 132
       },
       "id": 19,
       "options": {
@@ -1141,7 +1377,7 @@
         "h": 9,
         "w": 18,
         "x": 6,
-        "y": 112
+        "y": 132
       },
       "id": 20,
       "targets": [
@@ -1179,7 +1415,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 141
       },
       "id": 400,
       "panels": [],
@@ -1202,7 +1438,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 122
+        "y": 142
       },
       "id": 21,
       "targets": [
@@ -1255,7 +1491,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 122
+        "y": 142
       },
       "id": 22,
       "targets": [
