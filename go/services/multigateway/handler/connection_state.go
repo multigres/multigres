@@ -72,6 +72,12 @@ type MultiGatewayConnectionState struct {
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
 
+	// PendingTempTableReservation is set by the planner (via TempTableRoute)
+	// when the current query creates a temporary object. ScatterConn consumes
+	// it to create a reserved connection with ReasonTempTable. One-shot:
+	// cleared after the reservation is created.
+	PendingTempTableReservation bool
+
 	// TxnStartTime records when the current transaction began (set at BEGIN,
 	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
 	// means no active transaction is being timed.
@@ -292,6 +298,19 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 	defer m.mu.Unlock()
 	value, exists := m.SessionSettings[name]
 	return value, exists
+}
+
+// HasTempTableReservation returns true if any shard state has a reserved
+// connection with the temp table reason set.
+func (m *MultiGatewayConnectionState) HasTempTableReservation() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState != nil && protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetStartupParams returns a copy of the startup parameters.

@@ -170,6 +170,10 @@ func (m *mockMultiPoolerServiceClient) StreamNotifications(ctx context.Context, 
 	return nil, nil
 }
 
+func (m *mockMultiPoolerServiceClient) DiscardTempTables(ctx context.Context, in *multipoolerservice.DiscardTempTablesRequest, opts ...grpc.CallOption) (*multipoolerservice.DiscardTempTablesResponse, error) {
+	return nil, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 

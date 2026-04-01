@@ -24,6 +24,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -183,6 +184,18 @@ func (e *Executor) StreamExecute(
 			// Query failed but connection still exists — return current state
 			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
+
+		// Auto-detect transaction state from PG backend. If a BEGIN was sent
+		// inline (e.g., prepended for session-pinned connections), the reserved
+		// connection won't have ReasonTransaction set. Sync it from PG's
+		// ReadyForQuery transaction indicator.
+		if reservedConn.Conn().TxnStatus() == protocol.TxnStatusInBlock && !reservedConn.IsInTransaction() {
+			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
+		} else if reservedConn.Conn().TxnStatus() == protocol.TxnStatusIdle && reservedConn.IsInTransaction() {
+			// Transaction ended via inline COMMIT/ROLLBACK — remove the reason.
+			reservedConn.RemoveReservationReason(protoutil.ReasonTransaction)
+		}
+
 		return e.buildReservedState(reservedConn), nil
 	}
 
@@ -422,7 +435,6 @@ func (e *Executor) Describe(
 		return nil, err
 	}
 
-	// If portal is provided, we need to bind first, then describe
 	if portal != nil {
 		paramFormats := int32ToInt16Slice(portal.ParamFormats)
 		resultFormats := int32ToInt16Slice(portal.ResultFormats)
@@ -794,6 +806,14 @@ func (e *Executor) ReserveStreamExecute(
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
 
+	// Apply all reservation reasons to the reserved connection.
+	// BeginWithQuery below adds ReasonTransaction internally, but non-transaction
+	// reasons (e.g., temp_table) must be added explicitly so that buildReservedState
+	// returns the correct bitmask and DiscardTempTables can find the shard.
+	if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+		reservedConn.AddReservationReason(nonBeginReasons)
+	}
+
 	// If this is a transaction reservation, execute BEGIN first.
 	// The BEGIN result is not sent to the callback — it's an internal setup detail.
 	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
@@ -903,6 +923,58 @@ func (e *Executor) ConcludeTransaction(
 	return result, e.buildReservedState(reservedConn), nil
 }
 
+// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+// The connection may remain reserved if there are other reasons to keep it (e.g., transaction).
+// Returns ReservedState with the authoritative reservation state.
+func (e *Executor) DiscardTempTables(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, nil, errors.New("reserved_connection_id is required")
+	}
+
+	user := e.getUserFromOptions(options)
+
+	e.logger.DebugContext(ctx, "discard temp tables",
+		"user", user,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok {
+		// Connection destroyed — return zero state so gateway clears its tracking
+		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+	}
+
+	// Send DISCARD TEMP to PostgreSQL to drop all temp tables on this backend.
+	if _, err := reservedConn.Query(ctx, "DISCARD TEMP"); err != nil {
+		reservedConn.Release(reserved.ReleaseError)
+		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
+	}
+
+	// Remove the temp table reason
+	reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+
+	result := &sqltypes.Result{CommandTag: "DISCARD"}
+
+	// If no other reasons remain, release the connection
+	remainingReasons := reservedConn.RemainingReasons()
+	if remainingReasons == 0 {
+		reservedConn.Release(reserved.ReleaseCommit)
+		e.logger.DebugContext(ctx, "discard temp tables completed, connection released",
+			"reserved_conn_id", options.ReservedConnectionId)
+		return result, nil, nil
+	}
+
+	e.logger.DebugContext(ctx, "discard temp tables completed, connection still reserved",
+		"reserved_conn_id", options.ReservedConnectionId,
+		"remaining_reasons", protoutil.ReasonsString(remainingReasons))
+
+	return result, e.buildReservedState(reservedConn), nil
+}
+
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 // Used during client disconnect cleanup. Handles transaction rollback, COPY abort,
 // and portal release internally. If any cleanup step fails, the connection is
@@ -954,10 +1026,20 @@ func (e *Executor) ReleaseReservedConnection(
 		}
 	}
 
-	// Step 3: Release all portals (in-memory only, always succeeds).
+	// Step 3: If there are temp tables, discard them so the backend is clean
+	// when returned to the pool.
+	if !cleanupFailed && protoutil.HasTempTableReason(reservedConn.RemainingReasons()) {
+		if _, err := reservedConn.Conn().Query(ctx, "DISCARD TEMP"); err != nil {
+			e.logger.ErrorContext(ctx, "DISCARD TEMP failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 4: Release all portals (in-memory only, always succeeds).
 	reservedConn.ReleaseAllPortals()
 
-	// Step 4: Release or close the connection.
+	// Step 5: Release or close the connection.
 	if cleanupFailed {
 		reservedConn.Release(reserved.ReleaseError)
 	} else {

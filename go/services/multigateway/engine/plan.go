@@ -33,6 +33,7 @@ const (
 	PlanTypeGatewayShowVariable = "GatewayShowVariable"
 	PlanTypeListenNotify        = "ListenNotify"
 	PlanTypeSequence            = "Sequence"
+	PlanTypeTempTableRoute      = "TempTableRoute"
 	PlanTypeUnknown             = "Unknown"
 )
 

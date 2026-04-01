@@ -439,6 +439,29 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
 }
 
+// DiscardTempTables implements queryservice.QueryService.
+// It sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+func (pg *PoolerGateway) DiscardTempTables(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().DiscardTempTables(ctx, target, options)
+}
+
 // ReleaseReservedConnection implements queryservice.QueryService.
 // It forcefully releases a reserved connection regardless of reason.
 func (pg *PoolerGateway) ReleaseReservedConnection(
