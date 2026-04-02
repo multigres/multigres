@@ -77,7 +77,7 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 func setupDurabilityPolicyForPreVote(fakeClient *rpcclient.FakeClient, poolerKey string, requiredCount int32) {
 	fakeClient.GetDurabilityPolicyResponses[poolerKey] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
 		Policy: &clustermetadatapb.DurabilityPolicy{
-			PolicyName: "ANY_2",
+			PolicyName: "AT_LEAST_2",
 			QuorumRule: &clustermetadatapb.QuorumRule{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: requiredCount,

@@ -754,7 +754,7 @@ message GetDurabilityPolicyResponse {
 
 // CreateDurabilityPolicyRequest creates a new durability policy
 message CreateDurabilityPolicyRequest {
-  // The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
+  // The name of the policy (e.g., "AT_LEAST_2", "MULTI_CELL_AT_LEAST_2")
   string policy_name = 1;
 
   // The quorum rule defining the policy behavior

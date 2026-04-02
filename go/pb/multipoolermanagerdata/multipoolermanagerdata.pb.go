@@ -3860,7 +3860,7 @@ func (x *GetDurabilityPolicyResponse) GetPolicy() *clustermetadata.DurabilityPol
 // CreateDurabilityPolicyRequest creates a new durability policy
 type CreateDurabilityPolicyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
+	// The name of the policy (e.g., "AT_LEAST_2", "MULTI_CELL_AT_LEAST_2")
 	PolicyName string `protobuf:"bytes,1,opt,name=policy_name,json=policyName,proto3" json:"policy_name,omitempty"`
 	// The quorum rule defining the policy behavior
 	QuorumRule    *clustermetadata.QuorumRule `protobuf:"bytes,2,opt,name=quorum_rule,json=quorumRule,proto3" json:"quorum_rule,omitempty"`

@@ -45,7 +45,7 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
 		Name:             database,
 		BackupLocation:   utils.FilesystemBackupLocation("/var/backups/pgbackrest"),
-		DurabilityPolicy: "ANY_2",
+		DurabilityPolicy: "AT_LEAST_2",
 	})
 	require.NoError(t, err)
 }
