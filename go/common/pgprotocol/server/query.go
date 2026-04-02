@@ -115,10 +115,6 @@ func (c *Conn) writeParameterDescription(params []*query.ParameterDescription) e
 //   - Type modifier: int32
 //   - Format code: int16 (0=text, 1=binary)
 func (c *Conn) writeRowDescription(fields []*query.Field) error {
-	if len(fields) == 0 {
-		return nil // No fields to describe
-	}
-
 	// Calculate message size.
 	size := 4 + 2 // length + field count
 	for _, field := range fields {

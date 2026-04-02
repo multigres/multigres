@@ -55,6 +55,12 @@ message QueryResult {
   // Field 5 removed - use QueryResultPayload.diagnostic instead
   reserved 5;
   reserved "notices";
+
+  // has_fields distinguishes "no result set" (false, fields is nil) from
+  // "zero-column result set" (true, fields is empty). Protobuf cannot
+  // distinguish a nil repeated field from an empty one, so this bool
+  // preserves the distinction across the gRPC boundary.
+  bool has_fields = 6;
 }
 
 // Field represents metadata about a column in the result set.
