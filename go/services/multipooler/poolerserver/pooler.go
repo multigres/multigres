@@ -110,16 +110,19 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	s.logger.InfoContext(ctx, "Transitioning serving type",
 		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
 		"status_from", s.servingStatus, "status_to", servingStatus)
-	s.poolerType = poolerType
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		s.poolerType = poolerType
 		s.servingStatus = servingStatus
 		s.shuttingDown = false
 		s.mu.Unlock()
 		return nil
 	}
 
-	// NOT_SERVING: begin graceful drain
+	// NOT_SERVING: begin graceful drain.
+	// The poolerType is NOT updated yet — in-flight requests on reserved
+	// connections (e.g., COMMIT after a demotion) must still see the old type
+	// so that checkTargetLocked allows them to complete.
 	s.shuttingDown = true
 	s.mu.Unlock()
 
@@ -148,8 +151,10 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		}
 	}
 
-	// Complete the transition
+	// Complete the transition. The poolerType is set here (after drain) so that
+	// in-flight requests saw the old type throughout the drain phase.
 	s.mu.Lock()
+	s.poolerType = poolerType
 	s.servingStatus = servingStatus
 	s.shuttingDown = false
 	s.mu.Unlock()
@@ -193,7 +198,7 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, allowOnShutdown b
 //   - PoolerType: if the target is PRIMARY but this pooler is a REPLICA, the gateway
 //     has stale topology (likely a demotion happened). Returns MTF01 to trigger
 //     buffering until the new primary is discovered. All other type combinations
-//     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic) or are bugs.
+//     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic).
 //
 // Caller must hold s.mu.
 func (s *QueryPoolerServer) checkTargetLocked(target *query.Target) error {
