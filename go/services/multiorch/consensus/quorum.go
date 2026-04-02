@@ -24,12 +24,10 @@ import (
 // ValidateQuorum checks if the recruited nodes satisfy the quorum rule
 func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	switch rule.QuorumType {
-	case clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-		clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N: //nolint:staticcheck // deprecated
-		return c.validateAnyNQuorum(rule, cohort, recruited)
+	case clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N:
+		return c.validateAtLeastNQuorum(rule, cohort, recruited)
 
-	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-		clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N: //nolint:staticcheck // deprecated
+	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
 		return c.validateMultiCellQuorum(rule, recruited)
 
 	default:
@@ -37,12 +35,12 @@ func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort 
 	}
 }
 
-// validateAnyNQuorum validates that we have at least N nodes recruited
-func (c *Coordinator) validateAnyNQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
+// validateAtLeastNQuorum validates that we have at least N nodes recruited
+func (c *Coordinator) validateAtLeastNQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	required := int(rule.RequiredCount)
 	recruitedCount := len(recruited)
 
-	c.logger.Debug("validating ANY_N quorum",
+	c.logger.Debug("validating AT_LEAST_N quorum",
 		"required", required,
 		"recruited", recruitedCount,
 		"cohort_size", len(cohort))
@@ -52,7 +50,7 @@ func (c *Coordinator) validateAnyNQuorum(rule *clustermetadatapb.QuorumRule, coh
 			recruitedCount, required, rule.Description)
 	}
 
-	c.logger.Info("ANY_N quorum satisfied",
+	c.logger.Info("AT_LEAST_N quorum satisfied",
 		"recruited", recruitedCount,
 		"required", required)
 
@@ -71,7 +69,7 @@ func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule
 	requiredCells := int(rule.RequiredCount)
 	recruitedCells := len(nodesByCell)
 
-	c.logger.Debug("validating MULTI_CELL_ANY_N quorum",
+	c.logger.Debug("validating MULTI_CELL_AT_LEAST_N quorum",
 		"required_cells", requiredCells,
 		"recruited_cells", recruitedCells,
 		"cells", getCellNames(nodesByCell))
@@ -81,7 +79,7 @@ func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule
 			recruitedCells, requiredCells, rule.Description)
 	}
 
-	c.logger.Info("MULTI_CELL_ANY_N quorum satisfied",
+	c.logger.Info("MULTI_CELL_AT_LEAST_N quorum satisfied",
 		"recruited_cells", recruitedCells,
 		"required_cells", requiredCells,
 		"cells", getCellNames(nodesByCell))

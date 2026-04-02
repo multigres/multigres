@@ -66,11 +66,10 @@ func BuildSyncReplicationConfig(
 		return nil, nil
 	}
 
-	// For MULTI_CELL_AT_LEAST_N (and deprecated MULTI_CELL_ANY_N), filter out standbys in the same cell as the primary
+	// For MULTI_CELL_AT_LEAST_N, filter out standbys in the same cell as the primary
 	// This ensures that synchronous replication requires acknowledgment from different cells
 	eligibleStandbys := standbys
-	isMultiCell := quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N ||
-		quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N //nolint:staticcheck // deprecated
+	isMultiCell := quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
 	if isMultiCell {
 		candidateCell := candidate.MultiPooler.Id.Cell
 		filtered := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys))
@@ -81,7 +80,7 @@ func BuildSyncReplicationConfig(
 		}
 		eligibleStandbys = filtered
 
-		logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
+		logger.Info("Filtered standbys for MULTI_CELL_AT_LEAST_N",
 			"candidate_cell", candidate.MultiPooler.Id.Cell,
 			"total_standbys", len(standbys),
 			"eligible_standbys", len(eligibleStandbys),

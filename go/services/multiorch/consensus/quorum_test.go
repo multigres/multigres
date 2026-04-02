@@ -47,7 +47,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			cohort[1],
 		}
 
-		err := c.validateAnyNQuorum(rule, cohort, recruited)
+		err := c.validateAtLeastNQuorum(rule, cohort, recruited)
 		require.NoError(t, err)
 	})
 
@@ -66,7 +66,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 		recruited := cohort // All 3 recruited
 
-		err := c.validateAnyNQuorum(rule, cohort, recruited)
+		err := c.validateAtLeastNQuorum(rule, cohort, recruited)
 		require.NoError(t, err)
 	})
 
@@ -88,7 +88,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			cohort[1],
 		}
 
-		err := c.validateAnyNQuorum(rule, cohort, recruited)
+		err := c.validateAtLeastNQuorum(rule, cohort, recruited)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "quorum not satisfied")
 		require.Contains(t, err.Error(), "recruited 2 nodes, required 3")
@@ -107,7 +107,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 		recruited := cohort
 
-		err := c.validateAnyNQuorum(rule, cohort, recruited)
+		err := c.validateAtLeastNQuorum(rule, cohort, recruited)
 		require.NoError(t, err)
 	})
 }
@@ -223,7 +223,7 @@ func TestValidateQuorum(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := &Coordinator{logger: logger}
 
-	t.Run("ANY_N - delegates to validateAnyNQuorum", func(t *testing.T) {
+	t.Run("AT_LEAST_N - delegates to validateAtLeastNQuorum", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
@@ -241,7 +241,7 @@ func TestValidateQuorum(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("MULTI_CELL_ANY_N - delegates to validateMultiCellQuorum", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N - delegates to validateMultiCellQuorum", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
