@@ -83,6 +83,7 @@ func newStartRequestTestServer() *QueryPoolerServer {
 		logger:        logger,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		gracePeriod:   3 * time.Second,
+		stateChanged:  make(chan struct{}),
 	}
 }
 
@@ -289,6 +290,7 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 		poolManager:   mock,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		gracePeriod:   3 * time.Second,
+		stateChanged:  make(chan struct{}),
 	}
 }
 

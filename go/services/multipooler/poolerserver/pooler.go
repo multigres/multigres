@@ -68,6 +68,11 @@ type QueryPoolerServer struct {
 	// gracePeriod is how long OnStateChange waits for in-flight connections to drain
 	// before force-closing reserved connections. Configured via --connpool-drain-grace-period.
 	gracePeriod time.Duration
+
+	// stateChanged is closed and re-created on every state transition.
+	// AwaitStateChange blocks on this channel to be notified when the
+	// pooler's type and serving status are updated.
+	stateChanged chan struct{}
 }
 
 // NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager
@@ -91,6 +96,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		healthProvider: healthProvider,
 		gracePeriod:    gracePeriod,
+		stateChanged:   make(chan struct{}),
 	}
 }
 
@@ -115,6 +121,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		s.poolerType = poolerType
 		s.servingStatus = servingStatus
 		s.shuttingDown = false
+		s.notifyStateChangedLocked()
 		s.mu.Unlock()
 		return nil
 	}
@@ -157,6 +164,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	s.poolerType = poolerType
 	s.servingStatus = servingStatus
 	s.shuttingDown = false
+	s.notifyStateChangedLocked()
 	s.mu.Unlock()
 
 	return nil
@@ -222,6 +230,35 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target) error {
 	}
 
 	return nil
+}
+
+// notifyStateChangedLocked closes the stateChanged channel to wake any
+// AwaitStateChange callers, then replaces it with a fresh channel.
+// Caller must hold s.mu.
+func (s *QueryPoolerServer) notifyStateChangedLocked() {
+	close(s.stateChanged)
+	s.stateChanged = make(chan struct{})
+}
+
+// AwaitStateChange blocks until the pooler's type and serving status match
+// the given targets, or ctx is cancelled. Used by the health streamer to
+// ensure the query server is ready before broadcasting the new state.
+func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) {
+	for {
+		s.mu.Lock()
+		if s.poolerType == poolerType && s.servingStatus == servingStatus {
+			s.mu.Unlock()
+			return
+		}
+		ch := s.stateChanged
+		s.mu.Unlock()
+
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // IsServing returns true if currently serving queries.
