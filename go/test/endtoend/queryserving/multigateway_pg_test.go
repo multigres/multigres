@@ -31,6 +31,8 @@ import (
 
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping PostgreSQLConnection test in short mode")
@@ -45,143 +47,149 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	// Setup test cleanup - this will ensure clean state after test completes
 	setup.SetupTest(t)
 
-	// Connect to the multigateway
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err, "failed to open database connection")
-	defer db.Close()
-
 	// Set connection timeout
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Ping to verify connection
-	err = db.PingContext(ctx)
-	require.NoError(t, err, "failed to ping database - multigateway may not be ready")
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			// Connect to the target
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err, "failed to open database connection")
+			defer db.Close()
 
-	t.Run("basic SELECT query", func(t *testing.T) {
-		// Execute a simple query that should work on any PostgreSQL database
-		rows, err := db.QueryContext(ctx, "SELECT 1 as num, 'hello' as greeting")
-		require.NoError(t, err, "failed to execute query")
-		defer rows.Close()
+			// Ping to verify connection
+			err = db.PingContext(ctx)
+			require.NoError(t, err, "failed to ping database - multigateway may not be ready")
 
-		// Verify we got columns
-		columns, err := rows.Columns()
-		require.NoError(t, err, "failed to get columns")
-		assert.Equal(t, []string{"num", "greeting"}, columns, "unexpected columns")
+			t.Run("basic SELECT query", func(t *testing.T) {
+				// Execute a simple query that should work on any PostgreSQL database
+				rows, err := db.QueryContext(ctx, "SELECT 1 as num, 'hello' as greeting")
+				require.NoError(t, err, "failed to execute query")
+				defer rows.Close()
 
-		// Verify we got the expected row
-		require.True(t, rows.Next(), "expected at least one row")
+				// Verify we got columns
+				columns, err := rows.Columns()
+				require.NoError(t, err, "failed to get columns")
+				assert.Equal(t, []string{"num", "greeting"}, columns, "unexpected columns")
 
-		var num int
-		var greeting string
-		err = rows.Scan(&num, &greeting)
-		require.NoError(t, err, "failed to scan row")
-		assert.Equal(t, 1, num, "unexpected num value")
-		assert.Equal(t, "hello", greeting, "unexpected greeting value")
+				// Verify we got the expected row
+				require.True(t, rows.Next(), "expected at least one row")
 
-		// Verify no more rows
-		assert.False(t, rows.Next(), "expected only one row")
-		assert.NoError(t, rows.Err(), "rows iteration error")
-	})
+				var num int
+				var greeting string
+				err = rows.Scan(&num, &greeting)
+				require.NoError(t, err, "failed to scan row")
+				assert.Equal(t, 1, num, "unexpected num value")
+				assert.Equal(t, "hello", greeting, "unexpected greeting value")
 
-	t.Run("test table create, insert, select, drop", func(t *testing.T) {
-		tableName := fmt.Sprintf("mg_test_%d", time.Now().UnixNano())
+				// Verify no more rows
+				assert.False(t, rows.Next(), "expected only one row")
+				assert.NoError(t, rows.Err(), "rows iteration error")
+			})
 
-		// Create table
-		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, name TEXT)", tableName))
-		require.NoError(t, err, "failed to create table")
+			t.Run("test table create, insert, select, drop", func(t *testing.T) {
+				tableName := fmt.Sprintf("mg_test_%d", time.Now().UnixNano())
 
-		// Insert data
-		_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES (1, 'test1'), (2, 'test2')", tableName))
-		require.NoError(t, err, "failed to insert data")
+				// Create table
+				_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, name TEXT)", tableName))
+				require.NoError(t, err, "failed to create table")
 
-		// Select data
-		rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", tableName))
-		require.NoError(t, err, "failed to select data")
-		defer rows.Close()
+				// Insert data
+				_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES (1, 'test1'), (2, 'test2')", tableName))
+				require.NoError(t, err, "failed to insert data")
 
-		// Verify rows
-		var results []struct {
-			id   int
-			name string
-		}
-		for rows.Next() {
-			var r struct {
-				id   int
-				name string
-			}
-			err = rows.Scan(&r.id, &r.name)
-			require.NoError(t, err, "failed to scan row")
-			results = append(results, r)
-		}
+				// Select data
+				rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", tableName))
+				require.NoError(t, err, "failed to select data")
+				defer rows.Close()
 
-		assert.Len(t, results, 2, "expected 2 rows")
-		assert.Equal(t, 1, results[0].id)
-		assert.Equal(t, "test1", results[0].name)
-		assert.Equal(t, 2, results[1].id)
-		assert.Equal(t, "test2", results[1].name)
+				// Verify rows
+				var results []struct {
+					id   int
+					name string
+				}
+				for rows.Next() {
+					var r struct {
+						id   int
+						name string
+					}
+					err = rows.Scan(&r.id, &r.name)
+					require.NoError(t, err, "failed to scan row")
+					results = append(results, r)
+				}
 
-		// Drop table
-		_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
-		require.NoError(t, err, "failed to drop table")
-	})
+				assert.Len(t, results, 2, "expected 2 rows")
+				assert.Equal(t, 1, results[0].id)
+				assert.Equal(t, "test1", results[0].name)
+				assert.Equal(t, 2, results[1].id)
+				assert.Equal(t, "test2", results[1].name)
 
-	t.Run("test UPDATE and DELETE", func(t *testing.T) {
-		tableName := fmt.Sprintf("mg_test_%d", time.Now().UnixNano())
+				// Drop table
+				_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
+				require.NoError(t, err, "failed to drop table")
+			})
 
-		// Create and populate table
-		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, value INT)", tableName))
-		require.NoError(t, err, "failed to create table")
-		_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES (1, 10), (2, 20), (3, 30)", tableName))
-		require.NoError(t, err, "failed to insert data")
+			t.Run("test UPDATE and DELETE", func(t *testing.T) {
+				tableName := fmt.Sprintf("mg_test_%d", time.Now().UnixNano())
 
-		// Update
-		result, err := db.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET value = 100 WHERE id = 1", tableName))
-		require.NoError(t, err, "failed to update")
-		rowsAffected, err := result.RowsAffected()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), rowsAffected, "expected 1 row affected by UPDATE")
+				// Create and populate table
+				_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, value INT)", tableName))
+				require.NoError(t, err, "failed to create table")
+				_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES (1, 10), (2, 20), (3, 30)", tableName))
+				require.NoError(t, err, "failed to insert data")
 
-		// Delete
-		result, err = db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
-		require.NoError(t, err, "failed to delete")
-		rowsAffected, err = result.RowsAffected()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), rowsAffected, "expected 1 row affected by DELETE")
+				// Update
+				result, err := db.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET value = 100 WHERE id = 1", tableName))
+				require.NoError(t, err, "failed to update")
+				rowsAffected, err := result.RowsAffected()
+				require.NoError(t, err)
+				assert.Equal(t, int64(1), rowsAffected, "expected 1 row affected by UPDATE")
 
-		// Verify final state
-		rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT id, value FROM %s ORDER BY id", tableName))
-		require.NoError(t, err)
-		defer rows.Close()
+				// Delete
+				result, err = db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
+				require.NoError(t, err, "failed to delete")
+				rowsAffected, err = result.RowsAffected()
+				require.NoError(t, err)
+				assert.Equal(t, int64(1), rowsAffected, "expected 1 row affected by DELETE")
 
-		var results []struct {
-			id    int
-			value int
-		}
-		for rows.Next() {
-			var r struct {
-				id    int
-				value int
-			}
-			err = rows.Scan(&r.id, &r.value)
-			require.NoError(t, err)
-			results = append(results, r)
-		}
+				// Verify final state
+				rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT id, value FROM %s ORDER BY id", tableName))
+				require.NoError(t, err)
+				defer rows.Close()
 
-		assert.Len(t, results, 2, "expected 2 rows after UPDATE and DELETE")
-		assert.Equal(t, 1, results[0].id)
-		assert.Equal(t, 100, results[0].value)
-		assert.Equal(t, 3, results[1].id)
-		assert.Equal(t, 30, results[1].value)
+				var results []struct {
+					id    int
+					value int
+				}
+				for rows.Next() {
+					var r struct {
+						id    int
+						value int
+					}
+					err = rows.Scan(&r.id, &r.value)
+					require.NoError(t, err)
+					results = append(results, r)
+				}
 
-		// Cleanup
-		_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
-		require.NoError(t, err)
-	})
+				assert.Len(t, results, 2, "expected 2 rows after UPDATE and DELETE")
+				assert.Equal(t, 1, results[0].id)
+				assert.Equal(t, 100, results[0].value)
+				assert.Equal(t, 3, results[1].id)
+				assert.Equal(t, 30, results[1].value)
+
+				// Cleanup
+				_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
+				require.NoError(t, err)
+			})
+		})
+	}
 }
 
 // TestMultiGateway_ExtendedQueryProtocol tests the Extended Query Protocol (prepared statements, parameterized queries)
 // using pgx which uses extended protocol by default.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ExtendedQueryProtocol test in short mode")
@@ -196,350 +204,354 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	// Setup test cleanup - this will ensure clean state after test completes
 	setup.SetupTest(t)
 
-	// Connect using pgx (which uses Extended Query Protocol by default)
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
-
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := pgx.Connect(ctx, connStr)
-	require.NoError(t, err, "failed to connect with pgx")
-	defer conn.Close(ctx)
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			// Connect using pgx (which uses Extended Query Protocol by default)
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 
-	t.Run("parameterized query with args", func(t *testing.T) {
-		// pgx uses extended protocol for parameterized queries
-		var num int
-		var greeting string
-		err := conn.QueryRow(ctx, "SELECT $1::int as num, $2::text as greeting", 42, "hello pgx").Scan(&num, &greeting)
-		require.NoError(t, err, "failed to execute parameterized query")
-		assert.Equal(t, 42, num)
-		assert.Equal(t, "hello pgx", greeting)
-	})
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err, "failed to connect with pgx")
+			defer conn.Close(ctx)
 
-	t.Run("prepared statement execution", func(t *testing.T) {
-		tableName := fmt.Sprintf("pgx_test_%d", time.Now().UnixNano())
+			t.Run("parameterized query with args", func(t *testing.T) {
+				// pgx uses extended protocol for parameterized queries
+				var num int
+				var greeting string
+				err := conn.QueryRow(ctx, "SELECT $1::int as num, $2::text as greeting", 42, "hello pgx").Scan(&num, &greeting)
+				require.NoError(t, err, "failed to execute parameterized query")
+				assert.Equal(t, 42, num)
+				assert.Equal(t, "hello pgx", greeting)
+			})
 
-		// Create table
-		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, name TEXT, value NUMERIC)", tableName))
-		require.NoError(t, err, "failed to create table")
-		defer func() {
-			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+			t.Run("prepared statement execution", func(t *testing.T) {
+				tableName := fmt.Sprintf("pgx_test_%d", time.Now().UnixNano())
 
-		// Prepare a statement (explicit prepare)
-		stmtName := "insert_stmt"
-		_, err = conn.Prepare(ctx, stmtName, fmt.Sprintf("INSERT INTO %s (id, name, value) VALUES ($1, $2, $3)", tableName))
-		require.NoError(t, err, "failed to prepare statement")
+				// Create table
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, name TEXT, value NUMERIC)", tableName))
+				require.NoError(t, err, "failed to create table")
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		// Execute prepared statement multiple times with different values
-		testCases := []struct {
-			id    int
-			name  string
-			value float64
-		}{
-			{1, "first", 100.50},
-			{2, "second", 200.75},
-			{3, "third", 300.25},
-		}
+				// Prepare a statement (explicit prepare)
+				stmtName := "insert_stmt"
+				_, err = conn.Prepare(ctx, stmtName, fmt.Sprintf("INSERT INTO %s (id, name, value) VALUES ($1, $2, $3)", tableName))
+				require.NoError(t, err, "failed to prepare statement")
 
-		for _, tc := range testCases {
-			_, err = conn.Exec(ctx, stmtName, tc.id, tc.name, tc.value)
-			require.NoError(t, err, "failed to execute prepared statement for id=%d", tc.id)
-		}
+				// Execute prepared statement multiple times with different values
+				testCases := []struct {
+					id    int
+					name  string
+					value float64
+				}{
+					{1, "first", 100.50},
+					{2, "second", 200.75},
+					{3, "third", 300.25},
+				}
 
-		// Verify all rows were inserted
-		rows, err := conn.Query(ctx, fmt.Sprintf("SELECT id, name, value FROM %s ORDER BY id", tableName))
-		require.NoError(t, err, "failed to select data")
-		defer rows.Close()
+				for _, tc := range testCases {
+					_, err = conn.Exec(ctx, stmtName, tc.id, tc.name, tc.value)
+					require.NoError(t, err, "failed to execute prepared statement for id=%d", tc.id)
+				}
 
-		var results []struct {
-			id    int
-			name  string
-			value float64
-		}
-		for rows.Next() {
-			var r struct {
-				id    int
-				name  string
-				value float64
-			}
-			err = rows.Scan(&r.id, &r.name, &r.value)
-			require.NoError(t, err, "failed to scan row")
-			results = append(results, r)
-		}
+				// Verify all rows were inserted
+				rows, err := conn.Query(ctx, fmt.Sprintf("SELECT id, name, value FROM %s ORDER BY id", tableName))
+				require.NoError(t, err, "failed to select data")
+				defer rows.Close()
 
-		assert.Len(t, results, 3, "expected 3 rows")
-		for i, tc := range testCases {
-			assert.Equal(t, tc.id, results[i].id)
-			assert.Equal(t, tc.name, results[i].name)
-			assert.InDelta(t, tc.value, results[i].value, 0.01)
-		}
-	})
+				var results []struct {
+					id    int
+					name  string
+					value float64
+				}
+				for rows.Next() {
+					var r struct {
+						id    int
+						name  string
+						value float64
+					}
+					err = rows.Scan(&r.id, &r.name, &r.value)
+					require.NoError(t, err, "failed to scan row")
+					results = append(results, r)
+				}
 
-	t.Run("multiple data types via extended protocol", func(t *testing.T) {
-		// Test various PostgreSQL data types through extended protocol
-		var (
-			boolVal   bool
-			intVal    int32
-			bigintVal int64
-			floatVal  float64
-			textVal   string
-			bytesVal  []byte
-		)
+				assert.Len(t, results, 3, "expected 3 rows")
+				for i, tc := range testCases {
+					assert.Equal(t, tc.id, results[i].id)
+					assert.Equal(t, tc.name, results[i].name)
+					assert.InDelta(t, tc.value, results[i].value, 0.01)
+				}
+			})
 
-		err := conn.QueryRow(ctx,
-			"SELECT $1::boolean, $2::integer, $3::bigint, $4::double precision, $5::text, $6::bytea",
-			true, int32(12345), int64(9876543210), 3.14159, "test string", []byte{0xDE, 0xAD, 0xBE, 0xEF},
-		).Scan(&boolVal, &intVal, &bigintVal, &floatVal, &textVal, &bytesVal)
+			t.Run("multiple data types via extended protocol", func(t *testing.T) {
+				// Test various PostgreSQL data types through extended protocol
+				var (
+					boolVal   bool
+					intVal    int32
+					bigintVal int64
+					floatVal  float64
+					textVal   string
+					bytesVal  []byte
+				)
 
-		require.NoError(t, err, "failed to query multiple data types")
-		assert.True(t, boolVal)
-		assert.Equal(t, int32(12345), intVal)
-		assert.Equal(t, int64(9876543210), bigintVal)
-		assert.InDelta(t, 3.14159, floatVal, 0.0001)
-		assert.Equal(t, "test string", textVal)
-		assert.Equal(t, []byte{0xDE, 0xAD, 0xBE, 0xEF}, bytesVal)
-	})
+				err := conn.QueryRow(ctx,
+					"SELECT $1::boolean, $2::integer, $3::bigint, $4::double precision, $5::text, $6::bytea",
+					true, int32(12345), int64(9876543210), 3.14159, "test string", []byte{0xDE, 0xAD, 0xBE, 0xEF},
+				).Scan(&boolVal, &intVal, &bigintVal, &floatVal, &textVal, &bytesVal)
 
-	t.Run("batch queries via extended protocol", func(t *testing.T) {
-		t.Skip("Batch queries require pipeline support which is not yet implemented")
+				require.NoError(t, err, "failed to query multiple data types")
+				assert.True(t, boolVal)
+				assert.Equal(t, int32(12345), intVal)
+				assert.Equal(t, int64(9876543210), bigintVal)
+				assert.InDelta(t, 3.14159, floatVal, 0.0001)
+				assert.Equal(t, "test string", textVal)
+				assert.Equal(t, []byte{0xDE, 0xAD, 0xBE, 0xEF}, bytesVal)
+			})
 
-		tableName := fmt.Sprintf("batch_test_%d", time.Now().UnixNano())
+			t.Run("batch queries via extended protocol", func(t *testing.T) {
+				t.Skip("Batch queries require pipeline support which is not yet implemented")
 
-		// Create table
-		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, data TEXT)", tableName))
-		require.NoError(t, err)
-		defer func() {
-			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+				tableName := fmt.Sprintf("batch_test_%d", time.Now().UnixNano())
 
-		// Use pgx batch for multiple operations
-		batch := &pgx.Batch{}
-		for i := 1; i <= 5; i++ {
-			batch.Queue(fmt.Sprintf("INSERT INTO %s (id, data) VALUES ($1, $2)", tableName), i, fmt.Sprintf("data_%d", i))
-		}
-		batch.Queue("SELECT COUNT(*) FROM " + tableName)
+				// Create table
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, data TEXT)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		results := conn.SendBatch(ctx, batch)
-		defer results.Close()
+				// Use pgx batch for multiple operations
+				batch := &pgx.Batch{}
+				for i := 1; i <= 5; i++ {
+					batch.Queue(fmt.Sprintf("INSERT INTO %s (id, data) VALUES ($1, $2)", tableName), i, fmt.Sprintf("data_%d", i))
+				}
+				batch.Queue("SELECT COUNT(*) FROM " + tableName)
 
-		// Check insert results
-		for i := range 5 {
-			_, err := results.Exec()
-			require.NoError(t, err, "batch insert %d failed", i+1)
-		}
+				results := conn.SendBatch(ctx, batch)
+				defer results.Close()
 
-		// Check count result
-		var count int
-		err = results.QueryRow().Scan(&count)
-		require.NoError(t, err, "failed to get count from batch")
-		assert.Equal(t, 5, count, "expected 5 rows after batch insert")
-	})
+				// Check insert results
+				for i := range 5 {
+					_, err := results.Exec()
+					require.NoError(t, err, "batch insert %d failed", i+1)
+				}
 
-	t.Run("NULL handling via extended protocol", func(t *testing.T) {
-		var nullableInt *int
-		var nullableText *string
+				// Check count result
+				var count int
+				err = results.QueryRow().Scan(&count)
+				require.NoError(t, err, "failed to get count from batch")
+				assert.Equal(t, 5, count, "expected 5 rows after batch insert")
+			})
 
-		// Query NULL values
-		err := conn.QueryRow(ctx, "SELECT $1::integer, $2::text", nil, nil).Scan(&nullableInt, &nullableText)
-		require.NoError(t, err, "failed to query NULL values")
-		assert.Nil(t, nullableInt, "expected NULL integer")
-		assert.Nil(t, nullableText, "expected NULL text")
+			t.Run("NULL handling via extended protocol", func(t *testing.T) {
+				var nullableInt *int
+				var nullableText *string
 
-		// Query non-NULL values
-		err = conn.QueryRow(ctx, "SELECT $1::integer, $2::text", 42, "not null").Scan(&nullableInt, &nullableText)
-		require.NoError(t, err, "failed to query non-NULL values")
-		require.NotNil(t, nullableInt)
-		require.NotNil(t, nullableText)
-		assert.Equal(t, 42, *nullableInt)
-		assert.Equal(t, "not null", *nullableText)
-	})
+				// Query NULL values
+				err := conn.QueryRow(ctx, "SELECT $1::integer, $2::text", nil, nil).Scan(&nullableInt, &nullableText)
+				require.NoError(t, err, "failed to query NULL values")
+				assert.Nil(t, nullableInt, "expected NULL integer")
+				assert.Nil(t, nullableText, "expected NULL text")
 
-	t.Run("NULL vs empty string distinction", func(t *testing.T) {
-		tableName := fmt.Sprintf("null_empty_test_%d", time.Now().UnixNano())
+				// Query non-NULL values
+				err = conn.QueryRow(ctx, "SELECT $1::integer, $2::text", 42, "not null").Scan(&nullableInt, &nullableText)
+				require.NoError(t, err, "failed to query non-NULL values")
+				require.NotNil(t, nullableInt)
+				require.NotNil(t, nullableText)
+				assert.Equal(t, 42, *nullableInt)
+				assert.Equal(t, "not null", *nullableText)
+			})
 
-		// Create a table with a nullable text column
-		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, value TEXT)", tableName))
-		require.NoError(t, err, "failed to create table")
-		defer func() {
-			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+			t.Run("NULL vs empty string distinction", func(t *testing.T) {
+				tableName := fmt.Sprintf("null_empty_test_%d", time.Now().UnixNano())
 
-		// Insert NULL, empty string, and regular string
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 1, nil)
-		require.NoError(t, err, "failed to insert NULL value")
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 2, "")
-		require.NoError(t, err, "failed to insert empty string")
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 3, "hello")
-		require.NoError(t, err, "failed to insert regular string")
+				// Create a table with a nullable text column
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, value TEXT)", tableName))
+				require.NoError(t, err, "failed to create table")
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		// Query and verify the distinction is preserved
-		rows, err := conn.Query(ctx, fmt.Sprintf("SELECT id, value FROM %s ORDER BY id", tableName))
-		require.NoError(t, err, "failed to query table")
-		defer rows.Close()
+				// Insert NULL, empty string, and regular string
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 1, nil)
+				require.NoError(t, err, "failed to insert NULL value")
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 2, "")
+				require.NoError(t, err, "failed to insert empty string")
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 3, "hello")
+				require.NoError(t, err, "failed to insert regular string")
 
-		// Row 1: NULL
-		require.True(t, rows.Next(), "expected row 1")
-		var id int
-		var value *string
-		err = rows.Scan(&id, &value)
-		require.NoError(t, err, "failed to scan row 1")
-		assert.Equal(t, 1, id)
-		assert.Nil(t, value, "row 1 should be NULL, not empty string")
+				// Query and verify the distinction is preserved
+				rows, err := conn.Query(ctx, fmt.Sprintf("SELECT id, value FROM %s ORDER BY id", tableName))
+				require.NoError(t, err, "failed to query table")
+				defer rows.Close()
 
-		// Row 2: empty string
-		require.True(t, rows.Next(), "expected row 2")
-		err = rows.Scan(&id, &value)
-		require.NoError(t, err, "failed to scan row 2")
-		assert.Equal(t, 2, id)
-		require.NotNil(t, value, "row 2 should be empty string, not NULL")
-		assert.Equal(t, "", *value, "row 2 should be empty string")
+				// Row 1: NULL
+				require.True(t, rows.Next(), "expected row 1")
+				var id int
+				var value *string
+				err = rows.Scan(&id, &value)
+				require.NoError(t, err, "failed to scan row 1")
+				assert.Equal(t, 1, id)
+				assert.Nil(t, value, "row 1 should be NULL, not empty string")
 
-		// Row 3: regular string
-		require.True(t, rows.Next(), "expected row 3")
-		err = rows.Scan(&id, &value)
-		require.NoError(t, err, "failed to scan row 3")
-		assert.Equal(t, 3, id)
-		require.NotNil(t, value, "row 3 should be 'hello'")
-		assert.Equal(t, "hello", *value)
+				// Row 2: empty string
+				require.True(t, rows.Next(), "expected row 2")
+				err = rows.Scan(&id, &value)
+				require.NoError(t, err, "failed to scan row 2")
+				assert.Equal(t, 2, id)
+				require.NotNil(t, value, "row 2 should be empty string, not NULL")
+				assert.Equal(t, "", *value, "row 2 should be empty string")
 
-		require.False(t, rows.Next(), "expected no more rows")
-		require.NoError(t, rows.Err())
-	})
+				// Row 3: regular string
+				require.True(t, rows.Next(), "expected row 3")
+				err = rows.Scan(&id, &value)
+				require.NoError(t, err, "failed to scan row 3")
+				assert.Equal(t, 3, id)
+				require.NotNil(t, value, "row 3 should be 'hello'")
+				assert.Equal(t, "hello", *value)
 
-	t.Run("cursor via DECLARE and FETCH", func(t *testing.T) {
-		t.Skip("Cursors require transaction management which is not yet implemented")
+				require.False(t, rows.Next(), "expected no more rows")
+				require.NoError(t, rows.Err())
+			})
 
-		tableName := fmt.Sprintf("cursor_test_%d", time.Now().UnixNano())
+			t.Run("cursor via DECLARE and FETCH", func(t *testing.T) {
+				t.Skip("Cursors require transaction management which is not yet implemented")
 
-		// Create and populate table
-		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, value TEXT)", tableName))
-		require.NoError(t, err)
-		defer func() {
-			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+				tableName := fmt.Sprintf("cursor_test_%d", time.Now().UnixNano())
 
-		// Insert test data
-		for i := 1; i <= 10; i++ {
-			_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), i, fmt.Sprintf("value_%d", i))
-			require.NoError(t, err)
-		}
+				// Create and populate table
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, value TEXT)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		// Start transaction for cursor
-		tx, err := conn.Begin(ctx)
-		require.NoError(t, err)
-		defer func() { _ = tx.Rollback(ctx) }()
+				// Insert test data
+				for i := 1; i <= 10; i++ {
+					_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), i, fmt.Sprintf("value_%d", i))
+					require.NoError(t, err)
+				}
 
-		// Declare cursor
-		cursorName := "test_cursor"
-		_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR SELECT id, value FROM %s ORDER BY id", cursorName, tableName))
-		require.NoError(t, err, "failed to declare cursor")
+				// Start transaction for cursor
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback(ctx) }()
 
-		// Fetch first 3 rows
-		rows, err := tx.Query(ctx, "FETCH 3 FROM "+cursorName)
-		require.NoError(t, err, "failed to fetch from cursor")
+				// Declare cursor
+				cursorName := "test_cursor"
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR SELECT id, value FROM %s ORDER BY id", cursorName, tableName))
+				require.NoError(t, err, "failed to declare cursor")
 
-		var fetchedIds []int
-		for rows.Next() {
-			var id int
-			var value string
-			err = rows.Scan(&id, &value)
-			require.NoError(t, err)
-			fetchedIds = append(fetchedIds, id)
-		}
-		rows.Close()
+				// Fetch first 3 rows
+				rows, err := tx.Query(ctx, "FETCH 3 FROM "+cursorName)
+				require.NoError(t, err, "failed to fetch from cursor")
 
-		assert.Equal(t, []int{1, 2, 3}, fetchedIds, "expected first 3 rows from cursor")
+				var fetchedIds []int
+				for rows.Next() {
+					var id int
+					var value string
+					err = rows.Scan(&id, &value)
+					require.NoError(t, err)
+					fetchedIds = append(fetchedIds, id)
+				}
+				rows.Close()
 
-		// Fetch next 3 rows
-		rows, err = tx.Query(ctx, "FETCH 3 FROM "+cursorName)
-		require.NoError(t, err)
+				assert.Equal(t, []int{1, 2, 3}, fetchedIds, "expected first 3 rows from cursor")
 
-		fetchedIds = nil
-		for rows.Next() {
-			var id int
-			var value string
-			err = rows.Scan(&id, &value)
-			require.NoError(t, err)
-			fetchedIds = append(fetchedIds, id)
-		}
-		rows.Close()
+				// Fetch next 3 rows
+				rows, err = tx.Query(ctx, "FETCH 3 FROM "+cursorName)
+				require.NoError(t, err)
 
-		assert.Equal(t, []int{4, 5, 6}, fetchedIds, "expected next 3 rows from cursor")
+				fetchedIds = nil
+				for rows.Next() {
+					var id int
+					var value string
+					err = rows.Scan(&id, &value)
+					require.NoError(t, err)
+					fetchedIds = append(fetchedIds, id)
+				}
+				rows.Close()
 
-		// Close cursor
-		_, err = tx.Exec(ctx, "CLOSE "+cursorName)
-		require.NoError(t, err, "failed to close cursor")
+				assert.Equal(t, []int{4, 5, 6}, fetchedIds, "expected next 3 rows from cursor")
 
-		err = tx.Commit(ctx)
-		require.NoError(t, err)
-	})
+				// Close cursor
+				_, err = tx.Exec(ctx, "CLOSE "+cursorName)
+				require.NoError(t, err, "failed to close cursor")
 
-	t.Run("transaction with prepared statements", func(t *testing.T) {
-		t.Skip("Transactions require transaction management which is not yet implemented")
+				err = tx.Commit(ctx)
+				require.NoError(t, err)
+			})
 
-		tableName := fmt.Sprintf("txn_ps_test_%d", time.Now().UnixNano())
+			t.Run("transaction with prepared statements", func(t *testing.T) {
+				t.Skip("Transactions require transaction management which is not yet implemented")
 
-		// Create table
-		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, balance NUMERIC)", tableName))
-		require.NoError(t, err)
-		defer func() {
-			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+				tableName := fmt.Sprintf("txn_ps_test_%d", time.Now().UnixNano())
 
-		// Insert initial data
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, balance) VALUES (1, 1000), (2, 500)", tableName))
-		require.NoError(t, err)
+				// Create table
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, balance NUMERIC)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		// Start transaction
-		tx, err := conn.Begin(ctx)
-		require.NoError(t, err)
+				// Insert initial data
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, balance) VALUES (1, 1000), (2, 500)", tableName))
+				require.NoError(t, err)
 
-		// Prepare statement within transaction
-		updateStmt := "update_balance"
-		_, err = tx.Prepare(ctx, updateStmt, fmt.Sprintf("UPDATE %s SET balance = balance + $1 WHERE id = $2", tableName))
-		require.NoError(t, err)
+				// Start transaction
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
 
-		// Transfer 200 from account 1 to account 2
-		_, err = tx.Exec(ctx, updateStmt, -200, 1)
-		require.NoError(t, err)
-		_, err = tx.Exec(ctx, updateStmt, 200, 2)
-		require.NoError(t, err)
+				// Prepare statement within transaction
+				updateStmt := "update_balance"
+				_, err = tx.Prepare(ctx, updateStmt, fmt.Sprintf("UPDATE %s SET balance = balance + $1 WHERE id = $2", tableName))
+				require.NoError(t, err)
 
-		// Commit transaction
-		err = tx.Commit(ctx)
-		require.NoError(t, err)
+				// Transfer 200 from account 1 to account 2
+				_, err = tx.Exec(ctx, updateStmt, -200, 1)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, updateStmt, 200, 2)
+				require.NoError(t, err)
 
-		// Verify balances
-		var balance1, balance2 float64
-		err = conn.QueryRow(ctx, fmt.Sprintf("SELECT balance FROM %s WHERE id = 1", tableName)).Scan(&balance1)
-		require.NoError(t, err)
-		err = conn.QueryRow(ctx, fmt.Sprintf("SELECT balance FROM %s WHERE id = 2", tableName)).Scan(&balance2)
-		require.NoError(t, err)
+				// Commit transaction
+				err = tx.Commit(ctx)
+				require.NoError(t, err)
 
-		assert.InDelta(t, 800.0, balance1, 0.01, "account 1 should have 800")
-		assert.InDelta(t, 700.0, balance2, 0.01, "account 2 should have 700")
-	})
+				// Verify balances
+				var balance1, balance2 float64
+				err = conn.QueryRow(ctx, fmt.Sprintf("SELECT balance FROM %s WHERE id = 1", tableName)).Scan(&balance1)
+				require.NoError(t, err)
+				err = conn.QueryRow(ctx, fmt.Sprintf("SELECT balance FROM %s WHERE id = 2", tableName)).Scan(&balance2)
+				require.NoError(t, err)
 
-	t.Run("error handling in extended protocol", func(t *testing.T) {
-		t.Skip("Error handling requires transaction state management which is not yet implemented")
+				assert.InDelta(t, 800.0, balance1, 0.01, "account 1 should have 800")
+				assert.InDelta(t, 700.0, balance2, 0.01, "account 2 should have 700")
+			})
 
-		// Test that errors are properly propagated through extended protocol
+			t.Run("error handling in extended protocol", func(t *testing.T) {
+				t.Skip("Error handling requires transaction state management which is not yet implemented")
 
-		// Division by zero
-		var result int
-		err := conn.QueryRow(ctx, "SELECT $1::int / $2::int", 10, 0).Scan(&result)
-		require.Error(t, err, "expected division by zero error")
-		assert.Contains(t, err.Error(), "division by zero")
+				// Test that errors are properly propagated through extended protocol
 
-		// Invalid type cast
-		err = conn.QueryRow(ctx, "SELECT $1::integer", "not a number").Scan(&result)
-		require.Error(t, err, "expected invalid input syntax error")
+				// Division by zero
+				var result int
+				err := conn.QueryRow(ctx, "SELECT $1::int / $2::int", 10, 0).Scan(&result)
+				require.Error(t, err, "expected division by zero error")
+				assert.Contains(t, err.Error(), "division by zero")
 
-		// Connection should still be usable after errors
-		err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
-		require.NoError(t, err, "connection should still work after error")
-		assert.Equal(t, 1, result)
-	})
+				// Invalid type cast
+				err = conn.QueryRow(ctx, "SELECT $1::integer", "not a number").Scan(&result)
+				require.Error(t, err, "expected invalid input syntax error")
+
+				// Connection should still be usable after errors
+				err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+				require.NoError(t, err, "connection should still work after error")
+				assert.Equal(t, 1, result)
+			})
+		})
+	}
 }
 
 // TestMultiGateway_DatabaseSQLTransactions tests explicit transactions using Go's
@@ -547,6 +559,8 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 // where Go's database/sql driver sends BEGIN/COMMIT via the extended query protocol
 // (Parse/Bind/Execute messages), unlike the simple query protocol used by our
 // custom client.Conn in transaction_test.go.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_DatabaseSQLTransactions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping DatabaseSQLTransactions test in short mode")
@@ -558,75 +572,79 @@ func TestMultiGateway_DatabaseSQLTransactions(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err, "failed to open database connection")
-	defer db.Close()
-
-	// Force a single connection so all operations use the same backend connection.
-	db.SetMaxOpenConns(1)
-
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	err = db.PingContext(ctx)
-	require.NoError(t, err, "failed to ping database")
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err, "failed to open database connection")
+			defer db.Close()
 
-	t.Run("BeginTx commit", func(t *testing.T) {
-		tableName := fmt.Sprintf("dbtx_commit_%d", time.Now().UnixNano())
+			// Force a single connection so all operations use the same backend connection.
+			db.SetMaxOpenConns(1)
 
-		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
-		require.NoError(t, err, "failed to create table")
-		defer func() {
-			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+			err = db.PingContext(ctx)
+			require.NoError(t, err, "failed to ping database")
 
-		// database/sql sends BEGIN via extended query protocol (Parse/Bind/Execute).
-		tx, err := db.BeginTx(ctx, nil)
-		require.NoError(t, err, "BeginTx failed")
+			t.Run("BeginTx commit", func(t *testing.T) {
+				tableName := fmt.Sprintf("dbtx_commit_%d", time.Now().UnixNano())
 
-		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
-		require.NoError(t, err, "INSERT in transaction failed")
+				_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
+				require.NoError(t, err, "failed to create table")
+				defer func() {
+					_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
-		require.NoError(t, err, "second INSERT in transaction failed")
+				// database/sql sends BEGIN via extended query protocol (Parse/Bind/Execute).
+				tx, err := db.BeginTx(ctx, nil)
+				require.NoError(t, err, "BeginTx failed")
 
-		err = tx.Commit()
-		require.NoError(t, err, "Commit failed")
+				_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
+				require.NoError(t, err, "INSERT in transaction failed")
 
-		// Verify data was committed
-		var count int
-		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err, "failed to verify committed data")
-		assert.Equal(t, 2, count, "expected 2 rows after commit")
-	})
+				_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
+				require.NoError(t, err, "second INSERT in transaction failed")
 
-	t.Run("BeginTx rollback", func(t *testing.T) {
-		tableName := fmt.Sprintf("dbtx_rollback_%d", time.Now().UnixNano())
+				err = tx.Commit()
+				require.NoError(t, err, "Commit failed")
 
-		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
-		require.NoError(t, err, "failed to create table")
-		defer func() {
-			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
-		}()
+				// Verify data was committed
+				var count int
+				err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err, "failed to verify committed data")
+				assert.Equal(t, 2, count, "expected 2 rows after commit")
+			})
 
-		// Insert initial data outside transaction
-		_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
-		require.NoError(t, err, "failed to insert initial data")
+			t.Run("BeginTx rollback", func(t *testing.T) {
+				tableName := fmt.Sprintf("dbtx_rollback_%d", time.Now().UnixNano())
 
-		// Start transaction, insert, then rollback
-		tx, err := db.BeginTx(ctx, nil)
-		require.NoError(t, err, "BeginTx failed")
+				_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
+				require.NoError(t, err, "failed to create table")
+				defer func() {
+					_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
 
-		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
-		require.NoError(t, err, "INSERT in transaction failed")
+				// Insert initial data outside transaction
+				_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
+				require.NoError(t, err, "failed to insert initial data")
 
-		err = tx.Rollback()
-		require.NoError(t, err, "Rollback failed")
+				// Start transaction, insert, then rollback
+				tx, err := db.BeginTx(ctx, nil)
+				require.NoError(t, err, "BeginTx failed")
 
-		// Verify only initial data exists (Bob was rolled back)
-		var count int
-		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err, "failed to verify data after rollback")
-		assert.Equal(t, 1, count, "expected only 1 row after rollback (Alice)")
-	})
+				_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
+				require.NoError(t, err, "INSERT in transaction failed")
+
+				err = tx.Rollback()
+				require.NoError(t, err, "Rollback failed")
+
+				// Verify only initial data exists (Bob was rolled back)
+				var count int
+				err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err, "failed to verify data after rollback")
+				assert.Equal(t, 1, count, "expected only 1 row after rollback (Alice)")
+			})
+		})
+	}
 }
