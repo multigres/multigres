@@ -20,6 +20,11 @@ import (
 	"path/filepath"
 )
 
+const (
+	// ExitCodeCorruption is reserved for PostgreSQL data corruption signaling.
+	ExitCodeCorruption = 3
+)
+
 // PostgresCtlConfig holds all PostgreSQL control configuration parameters
 // It contains a PostgresServerConfig for all PostgreSQL-specific settings
 // plus additional connection parameters for control operations

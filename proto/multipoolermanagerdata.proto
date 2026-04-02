@@ -563,6 +563,18 @@ message StateResponse {
 
   // Error message if state is error
   string error_message = 2;
+
+  // Whether a backup is currently running on this pooler.
+  bool backup_in_progress = 3;
+
+  // Whether the most recent pgbackrest check passed.
+  optional bool last_integrity_check_passed = 4;
+
+  // Error from the most recent failed pgbackrest check.
+  string last_integrity_check_error = 5;
+
+  // Error code from the most recent stanza-create attempt.
+  string stanza_error = 6;
 }
 
 // UpdateSynchronousStandbyList updates the synchronous standby list

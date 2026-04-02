@@ -32,4 +32,7 @@ type Config struct {
 	PgBackRestCertFile string // TLS client certificate file path
 	PgBackRestKeyFile  string // TLS client key file path
 	PgBackRestCAFile   string // TLS CA certificate file path
+
+	// OperatorManaged disables pooler-managed backup scheduling.
+	OperatorManaged bool
 }

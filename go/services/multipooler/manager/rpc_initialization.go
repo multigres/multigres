@@ -544,9 +544,23 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 
 		output, err := safeCombinedOutput(cmd)
 		if err != nil {
+			// Record the latest stanza-create error code for State().
+			stanzaErr := "unknown"
+			if strings.Contains(output, "[028]") {
+				stanzaErr = "028"
+			}
+			pm.mu.Lock()
+			pm.lastStanzaError = stanzaErr
+			pm.mu.Unlock()
+
 			return mterrors.New(mtrpcpb.Code_INTERNAL,
 				fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
 		}
+
+		// Clear any previous stanza error on success.
+		pm.mu.Lock()
+		pm.lastStanzaError = ""
+		pm.mu.Unlock()
 
 		pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
 		return nil

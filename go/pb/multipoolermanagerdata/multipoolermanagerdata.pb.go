@@ -2858,7 +2858,15 @@ type StateResponse struct {
 	// Manager state (starting, ready, error)
 	State string `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	// Error message if state is error
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// Whether a backup is currently running on this pooler.
+	BackupInProgress bool `protobuf:"varint,3,opt,name=backup_in_progress,json=backupInProgress,proto3" json:"backup_in_progress,omitempty"`
+	// Whether the most recent pgbackrest check passed.
+	LastIntegrityCheckPassed *bool `protobuf:"varint,4,opt,name=last_integrity_check_passed,json=lastIntegrityCheckPassed,proto3,oneof" json:"last_integrity_check_passed,omitempty"`
+	// Error from the most recent failed pgbackrest check.
+	LastIntegrityCheckError string `protobuf:"bytes,5,opt,name=last_integrity_check_error,json=lastIntegrityCheckError,proto3" json:"last_integrity_check_error,omitempty"`
+	// Error code from the most recent stanza-create attempt.
+	StanzaError   string `protobuf:"bytes,6,opt,name=stanza_error,json=stanzaError,proto3" json:"stanza_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2903,6 +2911,34 @@ func (x *StateResponse) GetState() string {
 func (x *StateResponse) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *StateResponse) GetBackupInProgress() bool {
+	if x != nil {
+		return x.BackupInProgress
+	}
+	return false
+}
+
+func (x *StateResponse) GetLastIntegrityCheckPassed() bool {
+	if x != nil && x.LastIntegrityCheckPassed != nil {
+		return *x.LastIntegrityCheckPassed
+	}
+	return false
+}
+
+func (x *StateResponse) GetLastIntegrityCheckError() string {
+	if x != nil {
+		return x.LastIntegrityCheckError
+	}
+	return ""
+}
+
+func (x *StateResponse) GetStanzaError() string {
+	if x != nil {
+		return x.StanzaError
 	}
 	return ""
 }
@@ -4309,10 +4345,15 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\x12\x14\n" +
 	"\x05force\x18\x06 \x01(\bR\x05force\")\n" +
 	"'ConfigureSynchronousReplicationResponse\"\x0e\n" +
-	"\fStateRequest\"J\n" +
+	"\fStateRequest\"\xbc\x02\n" +
 	"\rStateResponse\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xc7\x02\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12,\n" +
+	"\x12backup_in_progress\x18\x03 \x01(\bR\x10backupInProgress\x12B\n" +
+	"\x1blast_integrity_check_passed\x18\x04 \x01(\bH\x00R\x18lastIntegrityCheckPassed\x88\x01\x01\x12;\n" +
+	"\x1alast_integrity_check_error\x18\x05 \x01(\tR\x17lastIntegrityCheckError\x12!\n" +
+	"\fstanza_error\x18\x06 \x01(\tR\vstanzaErrorB\x1e\n" +
+	"\x1c_last_integrity_check_passed\"\xc7\x02\n" +
 	"#UpdateSynchronousStandbyListRequest\x12L\n" +
 	"\toperation\x18\x01 \x01(\x0e2..multipoolermanagerdata.StandbyUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
@@ -4585,6 +4626,7 @@ func file_multipoolermanagerdata_proto_init() {
 	if File_multipoolermanagerdata_proto != nil {
 		return
 	}
+	file_multipoolermanagerdata_proto_msgTypes[42].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
