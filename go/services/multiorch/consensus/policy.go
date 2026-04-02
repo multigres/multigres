@@ -43,7 +43,7 @@ func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *multiorc
 	// Check if a policy was returned
 	if resp.Policy == nil || resp.Policy.QuorumRule == nil {
 		// No active policy found - return a default policy
-		c.logger.WarnContext(ctx, "No active durability policy found, using default ANY_N with majority",
+		c.logger.WarnContext(ctx, "No active durability policy found, using default AT_LEAST_N with majority",
 			"node", node.MultiPooler.Id.Name,
 			"database", database)
 		return c.getDefaultQuorumRule(ctx, 0), nil
