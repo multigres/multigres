@@ -59,19 +59,19 @@ func cleanupTestTables(ctx context.Context, conn *client.Conn) {
 	}
 }
 
-// runTransactionTests executes a slice of transaction test cases.
-// Tests connect through multigateway to validate the full transaction path:
-// client → multigateway → multipooler → PostgreSQL.
-func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases []transactionTestCase) {
+// runTransactionTests executes a slice of transaction test cases against the given port.
+// The port may be either a direct PostgreSQL port or a multigateway port, allowing
+// the same tests to validate both paths.
+func runTransactionTests(t *testing.T, port int, testCases []transactionTestCase) {
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	require.NotZero(t, setup.MultigatewayPgPort, "Multigateway should be configured")
+	require.NotZero(t, port, "port should be configured")
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := client.Connect(ctx, ctx, &client.Config{
 				Host:        "localhost",
-				Port:        setup.MultigatewayPgPort,
+				Port:        port,
 				User:        shardsetup.DefaultTestUser,
 				Password:    shardsetup.TestPostgresPassword,
 				Database:    "postgres",
@@ -88,7 +88,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 				defer cancel()
 				cleanupConn, cleanupErr := client.Connect(cleanupCtx, cleanupCtx, &client.Config{
 					Host:        "localhost",
-					Port:        setup.MultigatewayPgPort,
+					Port:        port,
 					User:        shardsetup.DefaultTestUser,
 					Password:    shardsetup.TestPostgresPassword,
 					Database:    "postgres",
@@ -112,7 +112,9 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 	}
 }
 
-// TestTransactionScenarios tests PostgreSQL transaction behavior
+// TestTransactionScenarios tests PostgreSQL transaction behavior.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestTransactionScenarios(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -120,21 +122,22 @@ func TestTransactionScenarios(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	t.Run("MultiStatement", func(t *testing.T) {
-		runTransactionTests(t, setup, multiStatementTestCases())
-	})
-
-	t.Run("Autocommit", func(t *testing.T) {
-		runTransactionTests(t, setup, autocommitTestCases())
-	})
-
-	t.Run("DDLTransactions", func(t *testing.T) {
-		runTransactionTests(t, setup, ddlTransactionTestCases())
-	})
-
-	t.Run("ExplicitTransactions", func(t *testing.T) {
-		runTransactionTests(t, setup, explicitTransactionTestCases())
-	})
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			t.Run("MultiStatement", func(t *testing.T) {
+				runTransactionTests(t, target.Port, multiStatementTestCases())
+			})
+			t.Run("Autocommit", func(t *testing.T) {
+				runTransactionTests(t, target.Port, autocommitTestCases())
+			})
+			t.Run("DDLTransactions", func(t *testing.T) {
+				runTransactionTests(t, target.Port, ddlTransactionTestCases())
+			})
+			t.Run("ExplicitTransactions", func(t *testing.T) {
+				runTransactionTests(t, target.Port, explicitTransactionTestCases())
+			})
+		})
+	}
 }
 
 // multiStatementTestCases returns test cases for multi-statement behavior (Section 1).

@@ -500,6 +500,8 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 // TestMultiGateway_CopyInTransaction tests that COPY operations within explicit
 // transactions commit and rollback correctly. This validates that the transaction
 // reservation system works end-to-end with COPY.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_CopyInTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping COPY-in-transaction tests in short mode")
@@ -511,154 +513,160 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	conn, err := pgx.Connect(ctx, connStr)
-	require.NoError(t, err, "failed to connect to multigateway")
-	defer conn.Close(ctx)
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 
-	t.Run("COPY in committed transaction persists", func(t *testing.T) {
-		tableName := "copy_txn_commit"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err, "failed to connect to multigateway")
+			defer conn.Close(ctx)
 
-		// BEGIN explicit transaction
-		_, err := conn.Exec(ctx, "BEGIN")
-		require.NoError(t, err)
+			t.Run("COPY in committed transaction persists", func(t *testing.T) {
+				tableName := "copy_txn_commit"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		// INSERT a row, then COPY more data, all within the transaction
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, 'Alice')", tableName))
-		require.NoError(t, err)
+				// BEGIN explicit transaction
+				_, err := conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
 
-		rowsAffected, err := conn.CopyFrom(ctx,
-			pgx.Identifier{tableName},
-			[]string{"id", "name"},
-			pgx.CopyFromRows([][]any{{2, "Bob"}, {3, "Charlie"}}),
-		)
-		require.NoError(t, err, "COPY inside transaction should succeed")
-		assert.Equal(t, int64(2), rowsAffected)
+				// INSERT a row, then COPY more data, all within the transaction
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, 'Alice')", tableName))
+				require.NoError(t, err)
 
-		// COMMIT
-		_, err = conn.Exec(ctx, "COMMIT")
-		require.NoError(t, err)
+				rowsAffected, err := conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{2, "Bob"}, {3, "Charlie"}}),
+				)
+				require.NoError(t, err, "COPY inside transaction should succeed")
+				assert.Equal(t, int64(2), rowsAffected)
 
-		// Verify all 3 rows persist
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(3), count, "all 3 rows (INSERT + COPY) should persist after COMMIT")
-	})
+				// COMMIT
+				_, err = conn.Exec(ctx, "COMMIT")
+				require.NoError(t, err)
 
-	t.Run("COPY data visible within transaction before COMMIT", func(t *testing.T) {
-		tableName := "copy_txn_visible"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+				// Verify all 3 rows persist
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(3), count, "all 3 rows (INSERT + COPY) should persist after COMMIT")
+			})
 
-		// BEGIN explicit transaction
-		_, err := conn.Exec(ctx, "BEGIN")
-		require.NoError(t, err)
+			t.Run("COPY data visible within transaction before COMMIT", func(t *testing.T) {
+				tableName := "copy_txn_visible"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		// COPY data into the table
-		rowsAffected, err := conn.CopyFrom(ctx,
-			pgx.Identifier{tableName},
-			[]string{"id", "name"},
-			pgx.CopyFromRows([][]any{{1, "Alice"}, {2, "Bob"}}),
-		)
-		require.NoError(t, err, "COPY inside transaction should succeed")
-		assert.Equal(t, int64(2), rowsAffected)
+				// BEGIN explicit transaction
+				_, err := conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
 
-		// SELECT within the same transaction — copied data should be visible
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), count, "COPY data should be visible within the transaction")
+				// COPY data into the table
+				rowsAffected, err := conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{1, "Alice"}, {2, "Bob"}}),
+				)
+				require.NoError(t, err, "COPY inside transaction should succeed")
+				assert.Equal(t, int64(2), rowsAffected)
 
-		// Verify specific rows
-		var name string
-		err = conn.QueryRow(ctx, fmt.Sprintf("SELECT name FROM %s WHERE id = 2", tableName)).Scan(&name)
-		require.NoError(t, err)
-		assert.Equal(t, "Bob", name)
+				// SELECT within the same transaction — copied data should be visible
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), count, "COPY data should be visible within the transaction")
 
-		// COMMIT
-		_, err = conn.Exec(ctx, "COMMIT")
-		require.NoError(t, err)
+				// Verify specific rows
+				var name string
+				err = conn.QueryRow(ctx, fmt.Sprintf("SELECT name FROM %s WHERE id = 2", tableName)).Scan(&name)
+				require.NoError(t, err)
+				assert.Equal(t, "Bob", name)
 
-		// Verify data persists after commit
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), count, "COPY data should persist after COMMIT")
-	})
+				// COMMIT
+				_, err = conn.Exec(ctx, "COMMIT")
+				require.NoError(t, err)
 
-	t.Run("COPY in rolled-back transaction is discarded", func(t *testing.T) {
-		tableName := "copy_txn_rollback"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+				// Verify data persists after commit
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), count, "COPY data should persist after COMMIT")
+			})
 
-		// Insert baseline data outside transaction
-		_, err := conn.CopyFrom(ctx,
-			pgx.Identifier{tableName},
-			[]string{"id", "name"},
-			pgx.CopyFromRows([][]any{{1, "Alice"}}),
-		)
-		require.NoError(t, err)
+			t.Run("COPY in rolled-back transaction is discarded", func(t *testing.T) {
+				tableName := "copy_txn_rollback"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		// BEGIN, COPY more data, then ROLLBACK
-		_, err = conn.Exec(ctx, "BEGIN")
-		require.NoError(t, err)
+				// Insert baseline data outside transaction
+				_, err := conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{1, "Alice"}}),
+				)
+				require.NoError(t, err)
 
-		rowsAffected, err := conn.CopyFrom(ctx,
-			pgx.Identifier{tableName},
-			[]string{"id", "name"},
-			pgx.CopyFromRows([][]any{{2, "Bob"}, {3, "Charlie"}}),
-		)
-		require.NoError(t, err, "COPY inside transaction should succeed")
-		assert.Equal(t, int64(2), rowsAffected)
+				// BEGIN, COPY more data, then ROLLBACK
+				_, err = conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
 
-		_, err = conn.Exec(ctx, "ROLLBACK")
-		require.NoError(t, err)
+				rowsAffected, err := conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{2, "Bob"}, {3, "Charlie"}}),
+				)
+				require.NoError(t, err, "COPY inside transaction should succeed")
+				assert.Equal(t, int64(2), rowsAffected)
 
-		// Only Alice should remain — Bob and Charlie were rolled back
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), count, "only pre-transaction data should remain after ROLLBACK")
-	})
+				_, err = conn.Exec(ctx, "ROLLBACK")
+				require.NoError(t, err)
 
-	t.Run("COPY followed by error rolls back entire transaction", func(t *testing.T) {
-		tableName := "copy_txn_error"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT PRIMARY KEY, name TEXT")
+				// Only Alice should remain — Bob and Charlie were rolled back
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(1), count, "only pre-transaction data should remain after ROLLBACK")
+			})
 
-		_, err := conn.Exec(ctx, "BEGIN")
-		require.NoError(t, err)
+			t.Run("COPY followed by error rolls back entire transaction", func(t *testing.T) {
+				tableName := "copy_txn_error"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT PRIMARY KEY, name TEXT")
 
-		// COPY data successfully
-		rowsAffected, err := conn.CopyFrom(ctx,
-			pgx.Identifier{tableName},
-			[]string{"id", "name"},
-			pgx.CopyFromRows([][]any{{1, "Alice"}, {2, "Bob"}}),
-		)
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), rowsAffected)
+				_, err := conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
 
-		// Now cause an error (duplicate key)
-		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, 'Duplicate')", tableName))
-		require.Error(t, err, "duplicate key should fail")
+				// COPY data successfully
+				rowsAffected, err := conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{1, "Alice"}, {2, "Bob"}}),
+				)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), rowsAffected)
 
-		// Transaction is aborted — ROLLBACK to clean up
-		_, err = conn.Exec(ctx, "ROLLBACK")
-		require.NoError(t, err)
+				// Now cause an error (duplicate key)
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, 'Duplicate')", tableName))
+				require.Error(t, err, "duplicate key should fail")
 
-		// Table should be empty — COPY data was rolled back along with the transaction
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(0), count, "COPY data should be rolled back after error in transaction")
-	})
+				// Transaction is aborted — ROLLBACK to clean up
+				_, err = conn.Exec(ctx, "ROLLBACK")
+				require.NoError(t, err)
+
+				// Table should be empty — COPY data was rolled back along with the transaction
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(0), count, "COPY data should be rolled back after error in transaction")
+			})
+		})
+	}
 }
 
 // TestMultiGateway_CopyInMultiStatement verifies that COPY FROM STDIN works
 // correctly when embedded in multi-statement simple query batches. These go
 // through executeWithImplicitTransaction and test the interaction between
 // the COPY wire protocol and the implicit transaction machinery.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-statement COPY tests in short mode")
@@ -670,64 +678,68 @@ func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	conn, err := pgx.Connect(ctx, connStr)
-	require.NoError(t, err, "failed to connect to multigateway")
-	defer conn.Close(ctx)
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 
-	t.Run("COPY in middle of multi-statement batch", func(t *testing.T) {
-		tableName := "copy_multi_mid"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err, "failed to connect to multigateway")
+			defer conn.Close(ctx)
 
-		multiStmt := fmt.Sprintf(
-			"SELECT 1; COPY %s FROM STDIN WITH (FORMAT csv); SELECT 2", tableName)
-		csvData := "1,Alice\n2,Bob\n3,Charlie\n"
+			t.Run("COPY in middle of multi-statement batch", func(t *testing.T) {
+				tableName := "copy_multi_mid"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
-		require.NoError(t, err)
+				multiStmt := fmt.Sprintf(
+					"SELECT 1; COPY %s FROM STDIN WITH (FORMAT csv); SELECT 2", tableName)
+				csvData := "1,Alice\n2,Bob\n3,Charlie\n"
 
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(3), count, "3 rows should persist from COPY")
-	})
+				_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
+				require.NoError(t, err)
 
-	t.Run("COPY as last statement in multi-statement batch", func(t *testing.T) {
-		tableName := "copy_multi_last"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(3), count, "3 rows should persist from COPY")
+			})
 
-		multiStmt := fmt.Sprintf(
-			"SELECT 1; COPY %s FROM STDIN WITH (FORMAT csv)", tableName)
-		csvData := "1,Alice\n2,Bob\n"
+			t.Run("COPY as last statement in multi-statement batch", func(t *testing.T) {
+				tableName := "copy_multi_last"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
-		require.NoError(t, err)
+				multiStmt := fmt.Sprintf(
+					"SELECT 1; COPY %s FROM STDIN WITH (FORMAT csv)", tableName)
+				csvData := "1,Alice\n2,Bob\n"
 
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), count, "2 rows should persist from COPY")
-	})
+				_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
+				require.NoError(t, err)
 
-	t.Run("COPY as first statement in multi-statement batch", func(t *testing.T) {
-		tableName := "copy_multi_first"
-		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), count, "2 rows should persist from COPY")
+			})
 
-		multiStmt := fmt.Sprintf(
-			"COPY %s FROM STDIN WITH (FORMAT csv); SELECT 1", tableName)
-		csvData := "1,Alice\n2,Bob\n"
+			t.Run("COPY as first statement in multi-statement batch", func(t *testing.T) {
+				tableName := "copy_multi_first"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-		_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
-		require.NoError(t, err)
+				multiStmt := fmt.Sprintf(
+					"COPY %s FROM STDIN WITH (FORMAT csv); SELECT 1", tableName)
+				csvData := "1,Alice\n2,Bob\n"
 
-		var count int64
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), count, "2 rows should persist from COPY")
-	})
+				_, err := conn.PgConn().CopyFrom(ctx, strings.NewReader(csvData), multiStmt)
+				require.NoError(t, err)
+
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), count, "2 rows should persist from COPY")
+			})
+		})
+	}
 }
 
 // Helper Functions
