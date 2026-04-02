@@ -1071,8 +1071,17 @@ type ExecuteOptions struct {
 	// Used for connection pinning - this tells the multipooler which specific
 	// connection to use for executing this query.
 	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// reservation_reasons is a bitmask of ReservationReason values. When non-zero and
+	// reserved_connection_id is 0, StreamExecute creates a new reserved connection.
+	// When non-zero and reserved_connection_id is set, the reasons are OR'd into
+	// the existing reservation.
+	ReservationReasons uint32 `protobuf:"varint,6,opt,name=reservation_reasons,json=reservationReasons,proto3" json:"reservation_reasons,omitempty"`
+	// reservation_begin_query is the original BEGIN statement text to use when
+	// creating a transaction reservation (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE").
+	// If empty and the transaction reason is set, defaults to "BEGIN".
+	ReservationBeginQuery string `protobuf:"bytes,7,opt,name=reservation_begin_query,json=reservationBeginQuery,proto3" json:"reservation_begin_query,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1131,6 +1140,20 @@ func (x *ExecuteOptions) GetReservedConnectionId() uint64 {
 		return x.ReservedConnectionId
 	}
 	return 0
+}
+
+func (x *ExecuteOptions) GetReservationReasons() uint32 {
+	if x != nil {
+		return x.ReservationReasons
+	}
+	return 0
+}
+
+func (x *ExecuteOptions) GetReservationBeginQuery() string {
+	if x != nil {
+		return x.ReservationBeginQuery
+	}
+	return ""
 }
 
 var File_query_proto protoreflect.FileDescriptor
@@ -1218,12 +1241,14 @@ const file_query_proto_rawDesc = "" +
 	"\rReservedState\x124\n" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
-	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x90\x02\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\xf9\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
-	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x1aB\n" +
+	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12/\n" +
+	"\x13reservation_reasons\x18\x06 \x01(\rR\x12reservationReasons\x126\n" +
+	"\x17reservation_begin_query\x18\a \x01(\tR\x15reservationBeginQuery\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"

@@ -58,11 +58,6 @@ service MultiPoolerService {
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
 
-  // ReserveStreamExecute creates a reserved connection and executes a query.
-  // Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
-  // Returns the reserved connection ID for subsequent queries.
-  rpc ReserveStreamExecute(ReserveStreamExecuteRequest) returns (stream ReserveStreamExecuteResponse);
-
   // ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
   // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
   // Returns the reserved state - if non-empty, the connection is still reserved.
@@ -337,34 +332,6 @@ enum TransactionConclusion {
   TRANSACTION_CONCLUSION_COMMIT = 1;
   // Execute ROLLBACK to rollback the transaction
   TRANSACTION_CONCLUSION_ROLLBACK = 2;
-}
-
-// ReserveStreamExecuteRequest represents a request to create a reserved connection and execute a query.
-message ReserveStreamExecuteRequest {
-  // query is the SQL query to execute
-  string query = 1;
-
-  // target specifies the routing destination (tablegroup, shard, pooler type)
-  query.Target target = 2;
-
-  // caller_id identifies the caller
-  mtrpc.CallerID caller_id = 3;
-
-  // options contains execution options including session state
-  query.ExecuteOptions options = 4;
-
-  // reservation_options specifies why the connection is being reserved and what setup to perform
-  ReservationOptions reservation_options = 5;
-}
-
-// ReserveStreamExecuteResponse represents a response in the stream of query results.
-message ReserveStreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
-
-  // reserved_state contains the authoritative reservation state from multipooler.
-  // This is returned in the first response and should be used for subsequent queries.
-  query.ReservedState reserved_state = 5;
 }
 
 // ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.

@@ -179,30 +179,6 @@ type QueryService interface {
 		options *query.ExecuteOptions,
 	) (*query.ReservedState, error)
 
-	// ReserveStreamExecute creates a reserved connection and executes a query.
-	// Based on ReservationOptions.Reason, it may execute setup commands:
-	//   - RESERVATION_REASON_TRANSACTION: Execute BEGIN before the query
-	//   - RESERVATION_REASON_TEMP_TABLE: Just reserve, no BEGIN
-	//   - RESERVATION_REASON_PORTAL: Incorrect usage, use PortalStreamExecute instead.
-	//
-	// Parameters:
-	//   ctx: Context for cancellation and timeouts
-	//   target: Target specifying tablegroup, shard, and pooler type
-	//   sql: The SQL query to execute
-	//   options: Execute options including user and session settings
-	//   reservationOptions: Specifies why the connection is being reserved
-	//   callback: Function called for each result chunk
-	//
-	// Returns ReservedState containing the reserved connection ID for subsequent queries.
-	ReserveStreamExecute(
-		ctx context.Context,
-		target *query.Target,
-		sql string,
-		options *query.ExecuteOptions,
-		reservationOptions *multipoolerpb.ReservationOptions,
-		callback func(context.Context, *sqltypes.Result) error,
-	) (*query.ReservedState, error)
-
 	// ConcludeTransaction concludes a transaction on a reserved connection.
 	// Executes COMMIT or ROLLBACK based on the conclusion parameter.
 	//

@@ -288,4 +288,15 @@ message ExecuteOptions {
   // Used for connection pinning - this tells the multipooler which specific
   // connection to use for executing this query.
   uint64 reserved_connection_id = 5;
+
+  // reservation_reasons is a bitmask of ReservationReason values. When non-zero and
+  // reserved_connection_id is 0, StreamExecute creates a new reserved connection.
+  // When non-zero and reserved_connection_id is set, the reasons are OR'd into
+  // the existing reservation.
+  uint32 reservation_reasons = 6;
+
+  // reservation_begin_query is the original BEGIN statement text to use when
+  // creating a transaction reservation (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE").
+  // If empty and the transaction reason is set, defaults to "BEGIN".
+  string reservation_begin_query = 7;
 }

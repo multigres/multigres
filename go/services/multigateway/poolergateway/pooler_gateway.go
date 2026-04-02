@@ -288,25 +288,6 @@ func (pg *PoolerGateway) CopyReady(
 	return format, colFormats, state, err
 }
 
-// ReserveStreamExecute implements queryservice.QueryService.
-// It creates a reserved connection and executes the query.
-func (pg *PoolerGateway) ReserveStreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-	reservationOptions *multipoolerpb.ReservationOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) (*query.ReservedState, error) {
-	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
-		var err error
-		state, err = conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
-		return err
-	})
-	return state, err
-}
-
 // Close implements queryservice.QueryService.
 // It closes all connections to poolers.
 func (pg *PoolerGateway) Close() error {
