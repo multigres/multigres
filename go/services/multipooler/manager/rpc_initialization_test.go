@@ -547,7 +547,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionRestoreFromBackup,
 		},
 		{
-			name: "postgres_stopped_wait_for_backup",
+			name: "postgres_stopped_no_backup_creates_first",
 			state: postgresState{
 				pgctldAvailable:  true,
 				postgresRunning:  false,
@@ -555,7 +555,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 				backupsAvailable: false,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
-			expectedAction: remedialActionNone,
+			expectedAction: remedialActionCreateFirstBackup,
 		},
 	}
 

@@ -1245,7 +1245,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 			}
 
 			// Call GetPrimaryAsPg2Args
-			got, err := pm.GetPrimaryAsPg2Args(context.Background(), nil)
+			got, err := pm.GetPrimaryAsPg2Args(context.Background(), nil, false)
 
 			// Check error expectation
 			if tt.expectError {
@@ -1317,7 +1317,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 
 		args, err := pm.GetPrimaryAsPg2Args(ctx, map[string]string{
 			"pg2_path": "/custom/path",
-		})
+		}, false)
 
 		require.NoError(t, err)
 		assert.Contains(t, args, "--pg2-host=primary.example.com")
@@ -1333,14 +1333,14 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.primaryPort = 5432
 
 		// Without override - should error
-		_, err := pm.GetPrimaryAsPg2Args(ctx, nil)
+		_, err := pm.GetPrimaryAsPg2Args(ctx, nil, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "local mode backup requires pg2_path override")
 
 		// With override - should work
 		args, err := pm.GetPrimaryAsPg2Args(ctx, map[string]string{
 			"pg2_path": "/primary/data",
-		})
+		}, false)
 		require.NoError(t, err)
 		assert.Contains(t, args, "--pg2-host=localhost")
 		assert.Contains(t, args, "--pg2-port=5432")
@@ -1380,7 +1380,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 
 		args, err := pm.GetPrimaryAsPg2Args(ctx, map[string]string{
 			"pg2_host_port": "9999",
-		})
+		}, false)
 
 		require.NoError(t, err)
 		assert.Contains(t, args, "--pg2-host-port=9999")
