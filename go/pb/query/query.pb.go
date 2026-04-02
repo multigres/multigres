@@ -153,7 +153,12 @@ type QueryResult struct {
 	// When streaming results, this should only be set on the final packet of a result set.
 	// When set, the protocol layer will send CommandComplete and reset state for the next result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
-	CommandTag    string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
+	CommandTag string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
+	// has_fields distinguishes "no result set" (false, fields is nil) from
+	// "zero-column result set" (true, fields is empty). Protobuf cannot
+	// distinguish a nil repeated field from an empty one, so this bool
+	// preserves the distinction across the gRPC boundary.
+	HasFields     bool `protobuf:"varint,6,opt,name=has_fields,json=hasFields,proto3" json:"has_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -214,6 +219,13 @@ func (x *QueryResult) GetCommandTag() string {
 		return x.CommandTag
 	}
 	return ""
+}
+
+func (x *QueryResult) GetHasFields() bool {
+	if x != nil {
+		return x.HasFields
+	}
+	return false
 }
 
 // Field represents metadata about a column in the result set.
@@ -1132,14 +1144,16 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xa8\x01\n" +
+	"\apayload\"\xc7\x01\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
 	"\x04rows\x18\x03 \x03(\v2\n" +
 	".query.RowR\x04rows\x12\x1f\n" +
 	"\vcommand_tag\x18\x04 \x01(\tR\n" +
-	"commandTagJ\x04\b\x05\x10\x06R\anotices\"\x89\x02\n" +
+	"commandTag\x12\x1d\n" +
+	"\n" +
+	"has_fields\x18\x06 \x01(\bR\thasFieldsJ\x04\b\x05\x10\x06R\anotices\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
