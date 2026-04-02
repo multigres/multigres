@@ -489,3 +489,79 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 
 	assert.False(t, pooler.IsServing())
 }
+
+func TestAwaitStateChange_AlreadyMatches(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx := t.Context()
+
+	// Transition to PRIMARY/SERVING
+	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// AwaitStateChange should return immediately when state already matches
+	done := make(chan struct{})
+	go func() {
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should return immediately when state matches")
+	}
+}
+
+func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx := t.Context()
+
+	// Start as NOT_SERVING (default)
+	done := make(chan struct{})
+	go func() {
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	// Should still be blocking
+	select {
+	case <-done:
+		t.Fatal("AwaitStateChange should block until state matches")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Transition to the awaited state
+	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should unblock after OnStateChange")
+	}
+}
+
+func TestAwaitStateChange_RespectsContextCancellation(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		// Wait for a state that will never happen
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	// Should be blocking
+	select {
+	case <-done:
+		t.Fatal("AwaitStateChange should block")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should return on context cancellation")
+	}
+}

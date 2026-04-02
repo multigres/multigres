@@ -304,3 +304,81 @@ func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 		t.Fatal("did not receive heartbeat broadcast within expected interval")
 	}
 }
+
+// TestHealthStreamer_WaitsForQueryServerOnServing verifies that the health
+// streamer waits for the query server to complete its SERVING transition
+// before broadcasting the new state to subscribers.
+func TestHealthStreamer_WaitsForQueryServerOnServing(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	hs := newHealthStreamer(logger, nil, "tg1", "0")
+
+	// Create a real QueryPoolerServer to use as the gate.
+	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
+	hs.SetQueryServer(qps)
+
+	// Subscribe to health updates.
+	ch := make(chan *poolerserver.HealthState, 10)
+	hs.clients[ch] = struct{}{}
+
+	// Start hs.OnStateChange(PRIMARY, SERVING) in background.
+	// It should block because qps hasn't transitioned yet.
+	hsDone := make(chan struct{})
+	go func() {
+		_ = hs.OnStateChange(t.Context(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(hsDone)
+	}()
+
+	// Health streamer should NOT have broadcast yet.
+	select {
+	case <-ch:
+		t.Fatal("healthStreamer should not broadcast before query server is ready")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Now transition the query server.
+	require.NoError(t, qps.OnStateChange(t.Context(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// Health streamer should unblock and broadcast.
+	select {
+	case <-hsDone:
+	case <-time.After(time.Second):
+		t.Fatal("healthStreamer should unblock after query server transitions")
+	}
+
+	// Verify the broadcast was sent.
+	select {
+	case state := <-ch:
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, state.Target.PoolerType)
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
+	default:
+		t.Fatal("expected a health broadcast after transition")
+	}
+}
+
+// TestHealthStreamer_DoesNotWaitOnNotServing verifies that NOT_SERVING
+// transitions broadcast immediately without waiting for the query server.
+func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	hs := newHealthStreamer(logger, nil, "tg1", "0")
+
+	// Create a query server that is PRIMARY/SERVING.
+	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
+	require.NoError(t, qps.OnStateChange(t.Context(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	hs.SetQueryServer(qps)
+
+	ch := make(chan *poolerserver.HealthState, 10)
+	hs.clients[ch] = struct{}{}
+
+	// NOT_SERVING should broadcast immediately, even though qps is still PRIMARY/SERVING.
+	hsDone := make(chan struct{})
+	go func() {
+		_ = hs.OnStateChange(t.Context(), clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		close(hsDone)
+	}()
+
+	select {
+	case <-hsDone:
+	case <-time.After(time.Second):
+		t.Fatal("NOT_SERVING transition should not wait for query server")
+	}
+}
