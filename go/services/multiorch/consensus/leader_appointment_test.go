@@ -772,7 +772,7 @@ func TestBeginTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		// Create default ANY_N quorum rule (majority: 2 of 3)
+		// Create default AT_LEAST_N quorum rule (majority: 2 of 3)
 		quorumRule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
@@ -885,7 +885,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
-		// Create ANY_N quorum rule requiring 2 nodes
+		// Create AT_LEAST_N quorum rule requiring 2 nodes
 		quorumRule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,

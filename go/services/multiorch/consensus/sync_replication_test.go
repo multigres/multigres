@@ -148,7 +148,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Len(t, config.StandbyIds, 2)
 	})
 
-	t.Run("MULTI_CELL_ANY_N with required_count=2 and 3 standbys", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with required_count=2 and 3 standbys", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2, // 2 cells required for quorum
@@ -242,9 +242,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, config.ReloadConfig)
 	})
 
-	// ========== MULTI_CELL_ANY_N Cell Filtering Tests ==========
+	// ========== MULTI_CELL_AT_LEAST_N Cell Filtering Tests ==========
 
-	t.Run("MULTI_CELL_ANY_N excludes same-cell standbys", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N excludes same-cell standbys", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
@@ -278,7 +278,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, names["mp3"], "mp3 should be included (different cell)")
 	})
 
-	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
@@ -298,7 +298,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary with ALLOW mode")
 	})
 
-	t.Run("MULTI_CELL_ANY_N with mixed cells only includes different cells", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with mixed cells only includes different cells", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
@@ -326,7 +326,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("MULTI_CELL_ANY_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
@@ -348,7 +348,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Len(t, config.StandbyIds, 2, "Should include all available different-cell standbys")
 	})
 
-	t.Run("ANY_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
+	t.Run("AT_LEAST_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
@@ -357,21 +357,21 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
-			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
+			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for AT_LEAST_N
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
-		require.Len(t, config.StandbyIds, 2, "ANY_N should include all standbys regardless of cell")
+		require.Len(t, config.StandbyIds, 2, "AT_LEAST_N should include all standbys regardless of cell")
 
-		// Verify same-cell standby IS included for ANY_N
+		// Verify same-cell standby IS included for AT_LEAST_N
 		names := make(map[string]bool)
 		for _, id := range config.StandbyIds {
 			names[id.Name] = true
 		}
-		require.True(t, names["mp1"], "mp1 should be included for ANY_N (cell filtering only for MULTI_CELL)")
+		require.True(t, names["mp1"], "mp1 should be included for AT_LEAST_N (cell filtering only for MULTI_CELL)")
 		require.True(t, names["mp2"], "mp2 should be included")
 	})
 
@@ -443,12 +443,12 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 	// ========== Additional REJECT Mode Edge Cases ==========
 
-	t.Run("REJECT mode with ANY_N and no standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with AT_LEAST_N and no standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
-			Description:   "ANY_N quorum requiring 2 nodes",
+			Description:   "AT_LEAST_N quorum requiring 2 nodes",
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
 		}
 
@@ -462,12 +462,12 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "async_fallback=REJECT")
 	})
 
-	t.Run("REJECT mode with ANY_N and insufficient standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with AT_LEAST_N and insufficient standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 5, // Requires 4 standbys to achieve quorum
-			Description:   "ANY_N quorum requiring 5 nodes",
+			Description:   "AT_LEAST_N quorum requiring 5 nodes",
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
 		}
 
@@ -485,7 +485,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "required 4 standbys")
 	})
 
-	t.Run("REJECT mode with MULTI_CELL_ANY_N and insufficient different-cell standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with MULTI_CELL_AT_LEAST_N and insufficient different-cell standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
