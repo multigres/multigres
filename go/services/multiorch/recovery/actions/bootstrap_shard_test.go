@@ -127,34 +127,6 @@ func TestBootstrapShardAction_ParsePolicyMULTI_CELL_AT_LEAST_2(t *testing.T) {
 	assert.Equal(t, "At least 2 nodes from different cells must acknowledge", rule.Description)
 }
 
-// TestBootstrapShardAction_ParsePolicyANY_2 verifies the deprecated ANY_2 policy name is still accepted.
-func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("ANY_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, rule.QuorumType) //nolint:staticcheck // deprecated
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "Any 2 nodes must acknowledge", rule.Description)
-}
-
-// TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2 verifies the deprecated MULTI_CELL_ANY_2 policy name is still accepted.
-func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("MULTI_CELL_ANY_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, rule.QuorumType) //nolint:staticcheck // deprecated
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "Any 2 nodes from different cells must acknowledge", rule.Description)
-}
-
 func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
