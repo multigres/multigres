@@ -546,3 +546,25 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
 	}
 }
+
+// TestTarget represents a connection target for running tests against.
+// Use GetComparisonTargets to obtain targets for both direct PostgreSQL and multigateway,
+// enabling the same test logic to verify proxy behavior matches native PostgreSQL.
+type TestTarget struct {
+	// Name identifies the target (e.g., "postgres", "multigateway").
+	Name string
+	// Port is the PostgreSQL protocol port to connect to.
+	Port int
+}
+
+// GetComparisonTargets returns test targets for both the primary PostgreSQL instance and
+// the multigateway. Running identical tests against both ensures the proxy behavior
+// matches native PostgreSQL exactly.
+func (s *ShardSetup) GetComparisonTargets(t *testing.T) []TestTarget {
+	t.Helper()
+	primary := s.GetPrimary(t)
+	return []TestTarget{
+		{Name: "postgres", Port: primary.Pgctld.PgPort},
+		{Name: "multigateway", Port: s.MultigatewayPgPort},
+	}
+}
