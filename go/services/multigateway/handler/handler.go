@@ -152,13 +152,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	st := h.getConnectionState(conn)
 
 	// If the transaction is in an aborted state, reject all queries unless the
-	// first statement is ROLLBACK. This matches PostgreSQL's behavior: after an
-	// error in a transaction block, commands are rejected until ROLLBACK.
-	// Multi-statement batches starting with ROLLBACK are allowed (e.g.,
-	// "ROLLBACK; SELECT 1;") — ROLLBACK clears the aborted state and the
-	// remaining statements execute normally.
+	// first statement can recover from the aborted state. PostgreSQL allows
+	// ROLLBACK, ROLLBACK TO SAVEPOINT, and COMMIT (converted to ROLLBACK) in
+	// this state. Multi-statement batches are permitted as long as the first
+	// statement is one of these (e.g., "ROLLBACK TO sp1; SELECT 1;").
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		if !h.startsWithRollback(asts) {
+		if !h.startsWithAbortRecovery(asts) {
 			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
@@ -240,12 +239,11 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	return err
 }
 
-// startsWithRollback returns true if the first statement is ROLLBACK,
-// allowing the client to exit an aborted transaction. Multi-statement
-// batches are permitted as long as the first statement is ROLLBACK
-// (matching PostgreSQL behavior).
-func (h *MultiGatewayHandler) startsWithRollback(asts []ast.Stmt) bool {
-	return len(asts) > 0 && ast.IsRollbackStatement(asts[0])
+// startsWithAbortRecovery returns true if the first statement can recover
+// from an aborted transaction. PostgreSQL allows ROLLBACK, ROLLBACK TO
+// SAVEPOINT, and COMMIT in aborted state.
+func (h *MultiGatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
+	return len(asts) > 0 && ast.IsAllowedInAbortedTransaction(asts[0])
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
@@ -342,10 +340,10 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	ctx, span := startQuerySpan(ctx, operationName, "extended", conn.Database(), conn.User())
 	defer span.End()
 
-	// Reject queries in aborted transaction state, except ROLLBACK which is the
-	// only statement that can recover from an aborted transaction.
+	// Reject queries in aborted transaction state, except statements that can
+	// recover: ROLLBACK, ROLLBACK TO SAVEPOINT, and COMMIT (converted to ROLLBACK).
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
+		if !ast.IsAllowedInAbortedTransaction(portalInfo.AstStmt()) {
 			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction

@@ -83,8 +83,11 @@ func (t *TransactionPrimitive) StreamExecute(
 	case ast.TRANS_STMT_ROLLBACK:
 		return t.executeRollback(ctx, exec, conn, state, callback)
 
+	case ast.TRANS_STMT_ROLLBACK_TO:
+		return t.executeRollbackToSavepoint(ctx, exec, conn, state, callback)
+
 	default:
-		// For other transaction statements (SAVEPOINT, etc.), pass through to backend
+		// For other transaction statements (SAVEPOINT, RELEASE SAVEPOINT), pass through to backend
 		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
 	}
 }
@@ -230,6 +233,35 @@ func (t *TransactionPrimitive) executeRollback(
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
+}
+
+// executeRollbackToSavepoint handles ROLLBACK TO SAVEPOINT by passing through
+// to the backend. On success, transitions TxnStatus from Failed back to InBlock
+// so subsequent statements can execute normally. This matches PostgreSQL's
+// behavior where ROLLBACK TO SAVEPOINT is the primary mechanism for recovering
+// from errors within a transaction.
+func (t *TransactionPrimitive) executeRollbackToSavepoint(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
+
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+	if err != nil {
+		return err
+	}
+
+	// On success, restore transaction state if we were in the aborted state.
+	// The backend has rolled back to the savepoint and is now in a normal
+	// in-transaction state.
+	if wasFailed {
+		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	}
+
+	return nil
 }
 
 // recordTxnMetrics records transaction duration and count if TxnStartTime

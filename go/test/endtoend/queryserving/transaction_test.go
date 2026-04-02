@@ -575,6 +575,116 @@ func explicitTransactionTestCases() []transactionTestCase {
 			},
 		},
 		{
+			// ROLLBACK TO SAVEPOINT recovers from an error in a transaction
+			name: "SavepointErrorRecovery",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_sp_recovery_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_sp_recovery_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_recovery_test VALUES (1, 'Alice')")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "SAVEPOINT sp1")
+				require.NoError(t, err)
+
+				// Cause an error — transaction enters aborted state
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err, "Expected division by zero error")
+
+				// ROLLBACK TO SAVEPOINT should recover from the aborted state
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp1")
+				require.NoError(t, err, "ROLLBACK TO SAVEPOINT should succeed in aborted state")
+
+				// Subsequent statements should work normally
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_recovery_test VALUES (2, 'Bob')")
+				require.NoError(t, err, "INSERT should succeed after savepoint recovery")
+
+				_, err = conn.Query(ctx, "COMMIT")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT id, name FROM txn_sp_recovery_test ORDER BY id")
+				require.NoError(t, err)
+				require.Len(t, results[0].Rows, 2, "Alice and Bob should exist")
+				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
+				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
+			},
+		},
+		{
+			// ROLLBACK TO nonexistent savepoint stays in aborted state
+			name: "SavepointErrorRecoveryNonexistent",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				// Cause an error
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err)
+
+				// ROLLBACK TO nonexistent savepoint should fail
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT nonexistent")
+				require.Error(t, err, "ROLLBACK TO nonexistent savepoint should fail")
+
+				// Still in aborted state — ROLLBACK to exit
+				_, err = conn.Query(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				return nil
+			},
+		},
+		{
+			// Multiple savepoint recovery cycles within one transaction
+			name: "SavepointMultipleRecoveries",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_sp_multi_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_sp_multi_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (1, 'Alice')")
+				require.NoError(t, err)
+
+				// First error + recovery cycle
+				_, err = conn.Query(ctx, "SAVEPOINT sp1")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err)
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp1")
+				require.NoError(t, err, "First savepoint recovery should succeed")
+
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (2, 'Bob')")
+				require.NoError(t, err)
+
+				// Second error + recovery cycle
+				_, err = conn.Query(ctx, "SAVEPOINT sp2")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (2, 'Duplicate')")
+				require.Error(t, err, "Expected duplicate key error")
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp2")
+				require.NoError(t, err, "Second savepoint recovery should succeed")
+
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (3, 'Charlie')")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "COMMIT")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT id, name FROM txn_sp_multi_test ORDER BY id")
+				require.NoError(t, err)
+				require.Len(t, results[0].Rows, 3, "Alice, Bob, Charlie should exist")
+				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
+				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
+				assert.Equal(t, "Charlie", string(results[0].Rows[2].Values[1]))
+			},
+		},
+		{
 			// Error causes transaction to enter aborted state
 			name: "AbortedTransactionState",
 			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
