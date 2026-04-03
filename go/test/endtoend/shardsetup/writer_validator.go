@@ -38,9 +38,10 @@ type WriterValidator struct {
 
 	nextID atomic.Int64
 
-	mu         sync.Mutex
-	successful []int64
-	failed     []int64
+	mu           sync.Mutex
+	successful   []int64
+	failed       []int64
+	failedErrors []string // error messages for each failed write (parallel to failed slice)
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -203,6 +204,7 @@ func (w *WriterValidator) recordResult(id int64, err error) {
 		w.successful = append(w.successful, id)
 	} else {
 		w.failed = append(w.failed, id)
+		w.failedErrors = append(w.failedErrors, err.Error())
 	}
 }
 
@@ -224,6 +226,19 @@ func (w *WriterValidator) FailedWrites() []int64 {
 	result := make([]int64, len(w.failed))
 	copy(result, w.failed)
 	return result
+}
+
+// FailedErrors returns a summary of all failed write errors. It deduplicates
+// error messages and returns a map of error message → count.
+func (w *WriterValidator) FailedErrors() map[string]int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	counts := make(map[string]int, len(w.failedErrors))
+	for _, msg := range w.failedErrors {
+		counts[msg]++
+	}
+	return counts
 }
 
 // Stats returns the count of successful and failed writes.
