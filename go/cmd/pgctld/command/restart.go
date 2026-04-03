@@ -107,7 +107,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 	}
 
 	// Stop the server if it's running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
+	if isPostgreSQLRunning(config) {
 		logger.Info("Stopping PostgreSQL server")
 		stopResult, err := StopPostgreSQLWithResult(logger, config, mode)
 		if err != nil {
