@@ -76,7 +76,7 @@ func ReloadPostgreSQLConfigWithResult(logger *slog.Logger, config *pgctld.Postgr
 	result := &ReloadResult{}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	if !isPostgreSQLRunning(config) {
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"
 		return result, errors.New("PostgreSQL is not running")

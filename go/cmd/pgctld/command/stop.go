@@ -122,7 +122,7 @@ func StopPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCon
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	if !isPostgreSQLRunning(config) {
 		logger.Info("PostgreSQL is not running")
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"

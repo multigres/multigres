@@ -188,7 +188,31 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			defer cleanup()
 
 			dataDir := tt.setupDir(baseDir)
-			result := isPostgreSQLRunning(dataDir)
+
+			// Setup mock binaries for pg_isready
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+
+			originalPath := os.Getenv("PATH")
+			os.Setenv("PATH", binDir+":"+originalPath)
+			defer os.Setenv("PATH", originalPath)
+
+			// Create config object
+			config, err := pgctld.NewPostgresCtlConfig(
+				5432,
+				constants.DefaultPostgresUser,
+				constants.DefaultPostgresDatabase,
+				30,
+				dataDir,
+				pgctld.PostgresConfigFile(),
+				baseDir,
+				"localhost",
+				pgctld.PostgresSocketDir(baseDir),
+			)
+			require.NoError(t, err)
+
+			result := isPostgreSQLRunning(config)
 			assert.Equal(t, tt.isRunning, result)
 		})
 	}
