@@ -48,6 +48,11 @@ type healthStreamer struct {
 
 	mu sync.Mutex
 
+	// queryServer, if set, is waited on before broadcasting SERVING
+	// transitions. This ensures the query server has updated its type
+	// before the gateway discovers the new state.
+	queryServer poolerserver.PoolerController
+
 	// Immutable fields (set once via Init)
 	poolerID   *clustermetadatapb.ID
 	tableGroup string
@@ -78,6 +83,12 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 	}
 }
 
+// SetQueryServer sets the query server that the healthStreamer waits on before
+// broadcasting SERVING transitions. Must be called before any state transitions.
+func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
+	hs.queryServer = qs
+}
+
 // UpdatePrimaryObservation updates the primary observation (term + primary ID)
 // and broadcasts to clients.
 func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObservation) {
@@ -91,7 +102,17 @@ func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObse
 // OnStateChange updates both poolerType and servingStatus atomically with a single
 // broadcast. This implements the StateAware interface so the healthStreamer can be
 // registered with StateManager.
+//
+// For SERVING transitions, it waits for the query server (via queryReadyGate)
+// to finish updating before broadcasting. This prevents the gateway from
+// discovering the new primary before the pooler can actually serve that type.
+// NOT_SERVING transitions broadcast immediately so the gateway can start
+// buffering without delay.
 func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
+		hs.queryServer.AwaitStateChange(ctx, poolerType, servingStatus)
+	}
+
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 

@@ -258,7 +258,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm, drainGracePeriod)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+
+	// The health streamer must wait for the query server to update its type before
+	// broadcasting SERVING transitions, so the gateway doesn't discover the new
+	// primary before the pooler is ready to accept requests for that type.
+	pm.healthStreamer.SetQueryServer(pm.qsc)
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
