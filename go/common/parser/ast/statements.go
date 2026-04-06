@@ -629,8 +629,6 @@ func (s *SelectStmt) SqlString() string {
 			}
 		}
 		parts = append(parts, strings.Join(targets, ", "))
-	} else {
-		parts = append(parts, "*")
 	}
 
 	// INTO clause
