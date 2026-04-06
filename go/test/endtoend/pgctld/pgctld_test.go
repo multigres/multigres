@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,22 +54,6 @@ func TestMain(m *testing.M) {
 
 // setupTestEnv sets up environment variables for PostgreSQL tests.
 // poolerDir is the pooler directory; PGDATA is set to poolerDir/pg_data.
-func setupTestEnv(cmd *executil.Cmd, poolerDir string) {
-	cmd.AddEnv(
-		"PGCONNECT_TIMEOUT=5", // Shorter timeout for tests
-		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
-	)
-	if runtime.GOOS == "darwin" {
-		// Required to avoid "postmaster became multithreaded during startup" on macOS
-		cmd.AddEnv("LC_ALL=en_US.UTF-8")
-	}
-}
-
-// setupTestEnvWithPassword sets up environment variables for PostgreSQL tests, including the password.
-func setupTestEnvWithPassword(cmd *executil.Cmd, poolerDir, password string) {
-	setupTestEnv(cmd, poolerDir)
-	cmd.AddEnv("POSTGRES_PASSWORD=" + password)
-}
 
 // TestEndToEndWithRealPostgreSQL tests pgctld with real PostgreSQL binaries
 // This test requires PostgreSQL to be installed on the system
@@ -179,59 +162,8 @@ timeout: 30
 	require.NoError(t, err)
 
 	t.Run("grpc_server_with_real_postgresql", func(t *testing.T) {
-		// Get free ports for this test
-		grpcPort := utils.GetFreePort(t)
-		pgPort := utils.GetFreePort(t)
-		t.Logf("gRPC test using ports - gRPC: %d, PostgreSQL: %d", grpcPort, pgPort)
-
-		// Start gRPC server in background
-		serverCmd := executil.Command(t.Context(), "pgctld", "server",
-			"--pooler-dir", dataDir,
-			"--grpc-port", strconv.Itoa(grpcPort),
-			"--pg-port", strconv.Itoa(pgPort),
-			"--config-file", pgctldConfigFile)
-
-		// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-		serverCmd.AddEnv(
-			"MULTIGRES_TESTDATA_DIR="+tempDir,
-			"PGCONNECT_TIMEOUT=5",
-			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"),
-		)
-
-		// Required to avoid "postmaster became multithreaded during startup" on macOS
-		if runtime.GOOS == "darwin" {
-			serverCmd.AddEnv("LC_ALL=en_US.UTF-8")
-		}
-
-		err := serverCmd.Start()
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			_ = serverCmd.Wait()
-		})
-
-		deadline := time.Now().Add(20 * time.Second)
-		serverStarted := false
-
-		for time.Now().Before(deadline) {
-			// Check if server process is still running (not crashed)
-			if serverCmd.Process != nil {
-				// Check if process is still alive by checking if ProcessState is nil
-				// If the process has exited, ProcessState will be non-nil
-				require.Nil(t, serverCmd.ProcessState, "gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
-
-				// Test basic gRPC connectivity by checking if the server is listening
-				// Try to connect to the gRPC port to verify it's listening
-				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
-				if err == nil {
-					conn.Close()
-					serverStarted = true
-					break
-				}
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		require.True(t, serverStarted, "timeout: gRPC server failed to start listening")
+		srv := startPgCtldServer(t, dataDir, pgctldConfigFile)
+		t.Logf("gRPC test using ports - gRPC: %d, PostgreSQL: %d", srv.GrpcPort, srv.PgPort)
 	})
 }
 
@@ -1169,50 +1101,22 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	err := os.WriteFile(pgctldConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	grpcPort := utils.GetFreePort(t)
-	pgPort := utils.GetFreePort(t)
+	// Add the endtoend directory to PATH so run_command_if_parent_dies.sh can be found.
+	endtoendDir, err := filepath.Abs(".")
+	require.NoError(t, err)
 
 	// Initialize data directory
-	initCmd := executil.Command(t.Context(), "pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(pgPort), "--config-file", pgctldConfigFile)
+	initCmd := executil.Command(t.Context(), "pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(utils.GetFreePort(t)), "--config-file", pgctldConfigFile)
 	setupTestEnv(initCmd, dataDir)
 	require.NoError(t, initCmd.Run())
 
-	// Start pgctld server subprocess with orphan detection enabled
-	serverCmd := executil.Command(t.Context(), "pgctld", "server",
-		"--pooler-dir", dataDir,
-		"--grpc-port", strconv.Itoa(grpcPort),
-		"--pg-port", strconv.Itoa(pgPort),
-		"--config-file", pgctldConfigFile)
-
-	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
-	endtoendDir, err := filepath.Abs(".")
-	require.NoError(t, err)
-	serverCmd.AddEnv(
-		"MULTIGRES_TESTDATA_DIR="+dataDir,
-		"PGCONNECT_TIMEOUT=5",
-		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"),
+	// Start pgctld server subprocess with orphan detection enabled.
+	// Pass the extended PATH so the orphan-detection helper script is found.
+	srv := startPgCtldServer(t, dataDir, pgctldConfigFile,
 		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
 
-	// Required to avoid "postmaster became multithreaded during startup" on macOS
-	if runtime.GOOS == "darwin" {
-		serverCmd.AddEnv("LC_ALL=en_US.UTF-8")
-	}
-
-	require.NoError(t, serverCmd.Start())
-
-	// Wait for gRPC server to be ready
-	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return true
-		}
-		return false
-	}, 10*time.Second, 100*time.Millisecond)
-
 	// Start postgres via gRPC (this will use server's orphan detection setting)
-	grpcAddr := fmt.Sprintf("localhost:%d", grpcPort)
+	grpcAddr := fmt.Sprintf("localhost:%d", srv.GrpcPort)
 	err = InitAndStartPostgreSQL(t, grpcAddr)
 	require.NoError(t, err)
 
@@ -1233,7 +1137,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	require.NoError(t, pgProcess.Signal(syscall.Signal(0)))
 
 	// Kill the pgctld server subprocess abruptly
-	_, killed := serverCmd.Kill(utils.WithShortDeadline(t))
+	_, killed := srv.Cmd.Kill(utils.WithShortDeadline(t))
 	require.True(t, killed, "pgctld server should have been killed within deadline")
 
 	// TODO(dweitzman): Start a process using sleep command and use that PID for orphan detection
@@ -1299,36 +1203,12 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err = os.MkdirAll(primaryDir, 0o755)
 	require.NoError(t, err)
 
-	primaryGrpcPort := utils.GetFreePort(t)
-	primaryPgPort := utils.GetFreePort(t)
-	t.Logf("Primary ports - gRPC: %d, PostgreSQL: %d", primaryGrpcPort, primaryPgPort)
-
-	// Start primary pgctld server
-	primaryServerCmd := executil.Command(t.Context(), "pgctld", "server",
-		"--pooler-dir", primaryDir,
-		"--grpc-port", strconv.Itoa(primaryGrpcPort),
-		"--pg-port", strconv.Itoa(primaryPgPort),
-		"--config-file", primaryConfigFile)
-	setupTestEnvWithPassword(primaryServerCmd, primaryDir, testPassword)
-	require.NoError(t, primaryServerCmd.Start())
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		primaryServerCmd.Stop(stopCtx) //nolint:errcheck
-	}()
-
-	// Wait for primary gRPC server to be ready
-	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", primaryGrpcPort), 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return true
-		}
-		return false
-	}, 10*time.Second, 100*time.Millisecond, "Primary gRPC server should be ready")
+	primary := startPgCtldServer(t, primaryDir, primaryConfigFile,
+		"POSTGRES_PASSWORD="+testPassword)
+	t.Logf("Primary ports - gRPC: %d, PostgreSQL: %d", primary.GrpcPort, primary.PgPort)
 
 	// Initialize and start primary PostgreSQL
-	primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryGrpcPort)
+	primaryGrpcAddr := fmt.Sprintf("localhost:%d", primary.GrpcPort)
 	err = InitAndStartPostgreSQL(t, primaryGrpcAddr)
 	require.NoError(t, err)
 	t.Log("Primary PostgreSQL started successfully")
@@ -1342,36 +1222,12 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err = os.MkdirAll(standbyDir, 0o755)
 	require.NoError(t, err)
 
-	standbyGrpcPort := utils.GetFreePort(t)
-	standbyPgPort := utils.GetFreePort(t)
-	t.Logf("Standby ports - gRPC: %d, PostgreSQL: %d", standbyGrpcPort, standbyPgPort)
-
-	// Start standby pgctld server
-	standbyServerCmd := executil.Command(t.Context(), "pgctld", "server",
-		"--pooler-dir", standbyDir,
-		"--grpc-port", strconv.Itoa(standbyGrpcPort),
-		"--pg-port", strconv.Itoa(standbyPgPort),
-		"--config-file", standbyConfigFile)
-	setupTestEnvWithPassword(standbyServerCmd, standbyDir, testPassword)
-	require.NoError(t, standbyServerCmd.Start())
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		standbyServerCmd.Stop(stopCtx) //nolint:errcheck
-	}()
-
-	// Wait for standby gRPC server to be ready
-	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", standbyGrpcPort), 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return true
-		}
-		return false
-	}, 10*time.Second, 100*time.Millisecond, "Standby gRPC server should be ready")
+	standby := startPgCtldServer(t, standbyDir, standbyConfigFile,
+		"POSTGRES_PASSWORD="+testPassword)
+	t.Logf("Standby ports - gRPC: %d, PostgreSQL: %d", standby.GrpcPort, standby.PgPort)
 
 	// Initialize and start standby PostgreSQL
-	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyGrpcPort)
+	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standby.GrpcPort)
 	err = InitAndStartPostgreSQL(t, standbyGrpcAddr)
 	require.NoError(t, err)
 	t.Log("Standby PostgreSQL started successfully")
@@ -1426,7 +1282,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	t.Log("Calling PgRewind RPC with dry_run=true (should trigger automatic crash recovery)")
 	rewindResp, err := standbyClient.PgRewind(ctx, &pb.PgRewindRequest{
 		SourceHost: "localhost",
-		SourcePort: int32(primaryPgPort),
+		SourcePort: int32(primary.PgPort),
 		DryRun:     true,
 	})
 	if err != nil {

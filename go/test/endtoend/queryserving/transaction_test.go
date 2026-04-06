@@ -59,19 +59,19 @@ func cleanupTestTables(ctx context.Context, conn *client.Conn) {
 	}
 }
 
-// runTransactionTests executes a slice of transaction test cases.
-// Tests connect through multigateway to validate the full transaction path:
-// client → multigateway → multipooler → PostgreSQL.
-func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases []transactionTestCase) {
+// runTransactionTests executes a slice of transaction test cases against the given port.
+// The port may be either a direct PostgreSQL port or a multigateway port, allowing
+// the same tests to validate both paths.
+func runTransactionTests(t *testing.T, port int, testCases []transactionTestCase) {
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	require.NotZero(t, setup.MultigatewayPgPort, "Multigateway should be configured")
+	require.NotZero(t, port, "port should be configured")
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := client.Connect(ctx, ctx, &client.Config{
 				Host:        "localhost",
-				Port:        setup.MultigatewayPgPort,
+				Port:        port,
 				User:        shardsetup.DefaultTestUser,
 				Password:    shardsetup.TestPostgresPassword,
 				Database:    "postgres",
@@ -88,7 +88,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 				defer cancel()
 				cleanupConn, cleanupErr := client.Connect(cleanupCtx, cleanupCtx, &client.Config{
 					Host:        "localhost",
-					Port:        setup.MultigatewayPgPort,
+					Port:        port,
 					User:        shardsetup.DefaultTestUser,
 					Password:    shardsetup.TestPostgresPassword,
 					Database:    "postgres",
@@ -112,7 +112,9 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 	}
 }
 
-// TestTransactionScenarios tests PostgreSQL transaction behavior
+// TestTransactionScenarios tests PostgreSQL transaction behavior.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestTransactionScenarios(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -120,21 +122,22 @@ func TestTransactionScenarios(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	t.Run("MultiStatement", func(t *testing.T) {
-		runTransactionTests(t, setup, multiStatementTestCases())
-	})
-
-	t.Run("Autocommit", func(t *testing.T) {
-		runTransactionTests(t, setup, autocommitTestCases())
-	})
-
-	t.Run("DDLTransactions", func(t *testing.T) {
-		runTransactionTests(t, setup, ddlTransactionTestCases())
-	})
-
-	t.Run("ExplicitTransactions", func(t *testing.T) {
-		runTransactionTests(t, setup, explicitTransactionTestCases())
-	})
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			t.Run("MultiStatement", func(t *testing.T) {
+				runTransactionTests(t, target.Port, multiStatementTestCases())
+			})
+			t.Run("Autocommit", func(t *testing.T) {
+				runTransactionTests(t, target.Port, autocommitTestCases())
+			})
+			t.Run("DDLTransactions", func(t *testing.T) {
+				runTransactionTests(t, target.Port, ddlTransactionTestCases())
+			})
+			t.Run("ExplicitTransactions", func(t *testing.T) {
+				runTransactionTests(t, target.Port, explicitTransactionTestCases())
+			})
+		})
+	}
 }
 
 // multiStatementTestCases returns test cases for multi-statement behavior (Section 1).
@@ -572,6 +575,116 @@ func explicitTransactionTestCases() []transactionTestCase {
 				require.Len(t, results[0].Rows, 2, "Alice and Charlie should exist")
 				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
 				assert.Equal(t, "Charlie", string(results[0].Rows[1].Values[1]))
+			},
+		},
+		{
+			// ROLLBACK TO SAVEPOINT recovers from an error in a transaction
+			name: "SavepointErrorRecovery",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_sp_recovery_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_sp_recovery_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_recovery_test VALUES (1, 'Alice')")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "SAVEPOINT sp1")
+				require.NoError(t, err)
+
+				// Cause an error — transaction enters aborted state
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err, "Expected division by zero error")
+
+				// ROLLBACK TO SAVEPOINT should recover from the aborted state
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp1")
+				require.NoError(t, err, "ROLLBACK TO SAVEPOINT should succeed in aborted state")
+
+				// Subsequent statements should work normally
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_recovery_test VALUES (2, 'Bob')")
+				require.NoError(t, err, "INSERT should succeed after savepoint recovery")
+
+				_, err = conn.Query(ctx, "COMMIT")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT id, name FROM txn_sp_recovery_test ORDER BY id")
+				require.NoError(t, err)
+				require.Len(t, results[0].Rows, 2, "Alice and Bob should exist")
+				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
+				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
+			},
+		},
+		{
+			// ROLLBACK TO nonexistent savepoint stays in aborted state
+			name: "SavepointErrorRecoveryNonexistent",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				// Cause an error
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err)
+
+				// ROLLBACK TO nonexistent savepoint should fail
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT nonexistent")
+				require.Error(t, err, "ROLLBACK TO nonexistent savepoint should fail")
+
+				// Still in aborted state — ROLLBACK to exit
+				_, err = conn.Query(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				return nil
+			},
+		},
+		{
+			// Multiple savepoint recovery cycles within one transaction
+			name: "SavepointMultipleRecoveries",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_sp_multi_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_sp_multi_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (1, 'Alice')")
+				require.NoError(t, err)
+
+				// First error + recovery cycle
+				_, err = conn.Query(ctx, "SAVEPOINT sp1")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "SELECT 1/0")
+				require.Error(t, err)
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp1")
+				require.NoError(t, err, "First savepoint recovery should succeed")
+
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (2, 'Bob')")
+				require.NoError(t, err)
+
+				// Second error + recovery cycle
+				_, err = conn.Query(ctx, "SAVEPOINT sp2")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (2, 'Duplicate')")
+				require.Error(t, err, "Expected duplicate key error")
+				_, err = conn.Query(ctx, "ROLLBACK TO SAVEPOINT sp2")
+				require.NoError(t, err, "Second savepoint recovery should succeed")
+
+				_, err = conn.Query(ctx, "INSERT INTO txn_sp_multi_test VALUES (3, 'Charlie')")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "COMMIT")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT id, name FROM txn_sp_multi_test ORDER BY id")
+				require.NoError(t, err)
+				require.Len(t, results[0].Rows, 3, "Alice, Bob, Charlie should exist")
+				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
+				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
+				assert.Equal(t, "Charlie", string(results[0].Rows[2].Values[1]))
 			},
 		},
 		{

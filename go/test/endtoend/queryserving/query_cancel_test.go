@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,8 @@ import (
 // TestMultiGateway_QueryCancel tests that a PostgreSQL client can cancel a
 // running query through the multigateway using the CancelRequest protocol.
 // This validates end-to-end cancel routing: client → multigateway → backend.
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
 func TestMultiGateway_QueryCancel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping query cancel test in short mode")
@@ -47,153 +50,164 @@ func TestMultiGateway_QueryCancel(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
-	t.Run("pgx context cancel", func(t *testing.T) {
-		conn := connectPgx(t, ctx, setup)
-		defer conn.Close(ctx)
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 
-		cancelCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+			t.Run("pgx context cancel", func(t *testing.T) {
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn.Close(ctx)
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			cancel()
-		}()
+				cancelCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
 
-		start := time.Now()
-		_, err := conn.Exec(cancelCtx, "SELECT pg_sleep(10)")
-		elapsed := time.Since(start)
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+					cancel()
+				}()
 
-		require.Error(t, err, "query should be cancelled")
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			assert.Equal(t, "57014", pgErr.Code, "should be query_canceled (57014)")
-		}
-		assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
-	})
+				start := time.Now()
+				_, err = conn.Exec(cancelCtx, "SELECT pg_sleep(10)")
+				elapsed := time.Since(start)
 
-	t.Run("database/sql ExecContext cancel", func(t *testing.T) {
-		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
-		db, err := sql.Open("postgres", connStr)
-		require.NoError(t, err)
-		defer db.Close()
+				require.Error(t, err, "query should be cancelled")
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) {
+					assert.Equal(t, "57014", pgErr.Code, "should be query_canceled (57014)")
+				}
+				assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
+			})
 
-		err = db.PingContext(ctx)
-		require.NoError(t, err, "failed to ping database")
+			t.Run("database/sql ExecContext cancel", func(t *testing.T) {
+				sqlConnStr := fmt.Sprintf(
+					"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+					target.Port, shardsetup.TestPostgresPassword)
+				db, err := sql.Open("postgres", sqlConnStr)
+				require.NoError(t, err)
+				defer db.Close()
 
-		cancelCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+				err = db.PingContext(ctx)
+				require.NoError(t, err, "failed to ping database")
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			cancel()
-		}()
+				cancelCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
 
-		start := time.Now()
-		_, err = db.ExecContext(cancelCtx, "SELECT pg_sleep(10)")
-		elapsed := time.Since(start)
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+					cancel()
+				}()
 
-		require.Error(t, err, "ExecContext should be cancelled")
-		assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
-	})
+				start := time.Now()
+				_, err = db.ExecContext(cancelCtx, "SELECT pg_sleep(10)")
+				elapsed := time.Since(start)
 
-	t.Run("database/sql QueryContext cancel", func(t *testing.T) {
-		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
-		db, err := sql.Open("postgres", connStr)
-		require.NoError(t, err)
-		defer db.Close()
+				require.Error(t, err, "ExecContext should be cancelled")
+				assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
+			})
 
-		err = db.PingContext(ctx)
-		require.NoError(t, err, "failed to ping database")
+			t.Run("database/sql QueryContext cancel", func(t *testing.T) {
+				sqlConnStr := fmt.Sprintf(
+					"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+					target.Port, shardsetup.TestPostgresPassword)
+				db, err := sql.Open("postgres", sqlConnStr)
+				require.NoError(t, err)
+				defer db.Close()
 
-		cancelCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+				err = db.PingContext(ctx)
+				require.NoError(t, err, "failed to ping database")
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			cancel()
-		}()
+				cancelCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
 
-		start := time.Now()
-		rows, err := db.QueryContext(cancelCtx, "SELECT pg_sleep(10)")
-		elapsed := time.Since(start)
-		if rows != nil {
-			defer rows.Close()
-		}
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+					cancel()
+				}()
 
-		require.Error(t, err, "QueryContext should be cancelled")
-		assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
-	})
+				start := time.Now()
+				rows, err := db.QueryContext(cancelCtx, "SELECT pg_sleep(10)")
+				elapsed := time.Since(start)
+				if rows != nil {
+					defer rows.Close()
+				}
 
-	t.Run("new connection works after cancel", func(t *testing.T) {
-		conn := connectPgx(t, ctx, setup)
-		defer conn.Close(ctx)
+				require.Error(t, err, "QueryContext should be cancelled")
+				assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 10s sleep completes")
+			})
 
-		cancelCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+			t.Run("new connection works after cancel", func(t *testing.T) {
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn.Close(ctx)
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			cancel()
-		}()
+				cancelCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
 
-		_, err := conn.Exec(cancelCtx, "SELECT pg_sleep(10)")
-		require.Error(t, err, "query should be cancelled")
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+					cancel()
+				}()
 
-		// pgx closes the connection after context cancellation, which is
-		// expected client behavior. Verify that the multigateway's state
-		// is not corrupted: a new connection should work fine.
-		conn2 := connectPgx(t, ctx, setup)
-		defer conn2.Close(ctx)
+				_, err = conn.Exec(cancelCtx, "SELECT pg_sleep(10)")
+				require.Error(t, err, "query should be cancelled")
 
-		var result int
-		err = conn2.QueryRow(ctx, "SELECT 1").Scan(&result)
-		require.NoError(t, err, "new connection should work after cancel")
-		assert.Equal(t, 1, result)
-	})
+				// pgx closes the connection after context cancellation, which is
+				// expected client behavior. Verify that the multigateway's state
+				// is not corrupted: a new connection should work fine.
+				conn2, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn2.Close(ctx)
 
-	t.Run("cancel does not affect other connections", func(t *testing.T) {
-		conn1 := connectPgx(t, ctx, setup)
-		defer conn1.Close(ctx)
-		conn2 := connectPgx(t, ctx, setup)
-		defer conn2.Close(ctx)
+				var result int
+				err = conn2.QueryRow(ctx, "SELECT 1").Scan(&result)
+				require.NoError(t, err, "new connection should work after cancel")
+				assert.Equal(t, 1, result)
+			})
 
-		cancelCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+			t.Run("cancel does not affect other connections", func(t *testing.T) {
+				conn1, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn1.Close(ctx)
+				conn2, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn2.Close(ctx)
 
-		// Start a long query on conn1 in a goroutine.
-		errCh := make(chan error, 1)
-		go func() {
-			_, err := conn1.Exec(cancelCtx, "SELECT pg_sleep(10)")
-			errCh <- err
-		}()
+				cancelCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
 
-		// Wait for the query to start executing on the backend.
-		time.Sleep(100 * time.Millisecond)
+				// Start a long query on conn1 in a goroutine.
+				errCh := make(chan error, 1)
+				go func() {
+					_, err := conn1.Exec(cancelCtx, "SELECT pg_sleep(10)")
+					errCh <- err
+				}()
 
-		// conn2 should work fine while conn1 has a running query.
-		var result int
-		err := conn2.QueryRow(ctx, "SELECT 1").Scan(&result)
-		require.NoError(t, err, "conn2 should not be affected by conn1's pending query")
-		assert.Equal(t, 1, result)
+				// Wait for the query to start executing on the backend.
+				time.Sleep(100 * time.Millisecond)
 
-		// Cancel conn1's query.
-		cancel()
+				// conn2 should work fine while conn1 has a running query.
+				var result int
+				err = conn2.QueryRow(ctx, "SELECT 1").Scan(&result)
+				require.NoError(t, err, "conn2 should not be affected by conn1's pending query")
+				assert.Equal(t, 1, result)
 
-		// conn1's query should return with an error.
-		select {
-		case err = <-errCh:
-			require.Error(t, err, "conn1's query should be cancelled")
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out waiting for conn1's query to be cancelled")
-		}
+				// Cancel conn1's query.
+				cancel()
 
-		// conn2 should still be usable after conn1's cancel.
-		err = conn2.QueryRow(ctx, "SELECT 2").Scan(&result)
-		require.NoError(t, err, "conn2 should still work after conn1's cancel")
-		assert.Equal(t, 2, result)
-	})
+				// conn1's query should return with an error.
+				select {
+				case err = <-errCh:
+					require.Error(t, err, "conn1's query should be cancelled")
+				case <-time.After(10 * time.Second):
+					t.Fatal("timed out waiting for conn1's query to be cancelled")
+				}
+
+				// conn2 should still be usable after conn1's cancel.
+				err = conn2.QueryRow(ctx, "SELECT 2").Scan(&result)
+				require.NoError(t, err, "conn2 should still work after conn1's cancel")
+				assert.Equal(t, 2, result)
+			})
+		})
+	}
 }

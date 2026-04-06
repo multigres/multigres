@@ -17,7 +17,6 @@ package pgctld
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -26,7 +25,6 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // TestPgctldLiveEndpoint verifies that pgctld exposes an HTTP /live endpoint
@@ -43,29 +41,10 @@ func TestPgctldLiveEndpoint(t *testing.T) {
 	tempDir, cleanup := testutil.TempDir(t, "pgctld_health_test")
 	defer cleanup()
 
-	grpcPort := utils.GetFreePort(t)
-	httpPort := utils.GetFreePort(t)
-	pgPort := utils.GetFreePort(t)
-
-	// Start pgctld server with HTTP port
-	cmd := executil.Command(t.Context(), "pgctld",
-		"server",
-		"--pooler-dir", tempDir,
-		"--grpc-port", strconv.Itoa(grpcPort),
-		"--http-port", strconv.Itoa(httpPort),
-		"--pg-port", strconv.Itoa(pgPort),
-		"--timeout", "30",
-	)
-	setupTestEnv(cmd, tempDir)
-
-	err := cmd.Start()
-	require.NoError(t, err, "pgctld should start")
-	t.Cleanup(func() {
-		_ = cmd.Wait()
-	})
+	srv := startPgCtldServer(t, tempDir, "")
 
 	// Wait for HTTP /live endpoint to return 200
-	liveURL := fmt.Sprintf("http://localhost:%d/live", httpPort)
+	liveURL := fmt.Sprintf("http://localhost:%d/live", srv.HttpPort)
 	require.Eventually(t, func() bool {
 		resp, err := http.Get(liveURL) //nolint:gosec // Test code, URL is constructed from local port
 		if err != nil {
