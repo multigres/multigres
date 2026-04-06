@@ -126,44 +126,52 @@ func (e *Executor) resolvePlan(
 	astStmt ast.Stmt,
 	conn *server.Conn,
 ) (*engine.Plan, []*ast.A_Const, bool, error) {
-	if isCacheable(astStmt) {
-		normResult := ast.Normalize(astStmt)
-		if normResult.WasNormalized() {
-			// Cache hit
-			if cachedPlan, ok := e.planCache.Get(ctx, normResult.NormalizedSQL); ok {
-				e.logger.DebugContext(ctx, "plan cache hit",
-					"normalized_query", normResult.NormalizedSQL)
-				return cachedPlan, normResult.BindValues, true, nil
-			}
-
-			// Cache miss — plan with normalized SQL/AST
-			plan, err := e.planner.Plan(normResult.NormalizedSQL, normResult.NormalizedAST, conn)
-			if err != nil {
-				return nil, nil, false, err
-			}
-
-			// Set the normalized AST on Route for execution-time SQL reconstruction
-			if route, ok := plan.Primitive.(*engine.Route); ok {
-				route.NormalizedAST = normResult.NormalizedAST
-			}
-
-			e.planCache.Put(normResult.NormalizedSQL, plan)
-			e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
-				"normalized_query", normResult.NormalizedSQL,
-				"plan", plan.String())
-			return plan, normResult.BindValues, false, nil
+	if !isCacheable(astStmt) {
+		plan, err := e.planner.Plan(queryStr, astStmt, conn)
+		if err != nil {
+			return nil, nil, false, err
 		}
+		e.logger.DebugContext(ctx, "query plan created (non-cacheable)",
+			"plan", plan.String(),
+			"tablegroup", plan.GetTableGroup())
+		return plan, nil, false, nil
 	}
 
-	// Non-cacheable or no literals to normalize — plan with original SQL.
-	plan, err := e.planner.Plan(queryStr, astStmt, conn)
+	// Normalize: replace literals with $1, $2, ... placeholders.
+	// If the query has no literals, NormalizedSQL equals the original SQL
+	// and BindValues is empty — the plan is still cached by its SQL string.
+	normResult := ast.Normalize(astStmt)
+	cacheKey := normResult.NormalizedSQL
+	var bindVars []*ast.A_Const
+	if normResult.WasNormalized() {
+		bindVars = normResult.BindValues
+	}
+
+	// Cache hit
+	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
+		e.logger.DebugContext(ctx, "plan cache hit",
+			"normalized_query", cacheKey)
+		return cachedPlan, bindVars, true, nil
+	}
+
+	// Cache miss — plan with normalized SQL/AST and cache the result.
+	plan, err := e.planner.Plan(cacheKey, normResult.NormalizedAST, conn)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	e.logger.DebugContext(ctx, "query plan created",
-		"plan", plan.String(),
-		"tablegroup", plan.GetTableGroup())
-	return plan, nil, false, nil
+
+	// Set the normalized AST on Route for execution-time SQL reconstruction
+	if normResult.WasNormalized() {
+		if route, ok := plan.Primitive.(*engine.Route); ok {
+			route.NormalizedAST = normResult.NormalizedAST
+		}
+	}
+
+	e.planCache.Put(cacheKey, plan)
+	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
+		"normalized_query", cacheKey,
+		"plan", plan.String())
+	return plan, bindVars, false, nil
 }
 
 // isCacheable returns true if the statement type is eligible for plan caching.
@@ -199,11 +207,35 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// Plan the portal query to check if it needs special handling (e.g., gateway-managed
-	// variables like statement_timeout, RESET ALL). PlanPortal returns a non-nil plan
-	// only for statements that the gateway handles locally; all other statements are
-	// sent to the multipooler via PortalStreamExecute with the portal's bound parameters.
 	planStart := time.Now()
+	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	// For cacheable DML (SELECT, INSERT, UPDATE, DELETE), use the plan cache
+	// to resolve routing. The extended protocol query already has $1, $2, ...
+	// placeholders — the same form as our normalized cache key — so portal
+	// queries share cache entries with simple protocol queries.
+	if isCacheable(astStmt) {
+		query := portalInfo.PreparedStatementInfo.Query
+		plan, cacheHit, err := e.resolvePortalPlan(ctx, query, astStmt, conn)
+		planTime := time.Since(planStart)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "portal query planning failed",
+				"query", query, "error", err)
+			return &handler.ExecuteResult{PlanTime: planTime}, err
+		}
+
+		tg, sh := extractRouting(plan, e.planner.GetDefaultTableGroup(), constants.DefaultShard)
+		err = e.exec.PortalStreamExecute(ctx, tg, sh, conn, state, portalInfo, maxRows, callback)
+		return &handler.ExecuteResult{
+			TablesUsed: plan.TablesUsed,
+			PlanType:   plan.Type,
+			PlanTime:   planTime,
+			CacheHit:   cacheHit,
+		}, err
+	}
+
+	// Non-cacheable — check if the gateway needs to handle locally (e.g.,
+	// SET/SHOW gateway-managed variables, LISTEN/NOTIFY, temp table DDL).
 	plan, err := e.planner.PlanPortal(portalInfo, conn)
 	planTime := time.Since(planStart)
 	if err != nil {
@@ -223,15 +255,47 @@ func (e *Executor) PortalStreamExecute(
 		}, err
 	}
 
+	// Non-cacheable, non-local — send directly to multipooler with defaults.
 	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
-	// Extract tables from the AST even when there's no plan (most extended protocol queries).
-	// PlanType is Route since unplanned portals go directly to PostgreSQL.
-	result := &handler.ExecuteResult{
-		TablesUsed: ast.ExtractTablesUsed(portalInfo.PreparedStatementInfo.AstStmt()),
+	return &handler.ExecuteResult{
+		TablesUsed: ast.ExtractTablesUsed(astStmt),
 		PlanType:   engine.PlanTypeRoute,
 		PlanTime:   planTime,
+	}, err
+}
+
+// resolvePortalPlan looks up or creates a cached plan for a portal's query.
+// The query string is used directly as the cache key (extended protocol queries
+// already have $1, $2, ... placeholders).
+func (e *Executor) resolvePortalPlan(
+	ctx context.Context,
+	query string,
+	astStmt ast.Stmt,
+	conn *server.Conn,
+) (*engine.Plan, bool, error) {
+	if cachedPlan, ok := e.planCache.Get(ctx, query); ok {
+		e.logger.DebugContext(ctx, "portal plan cache hit", "query", query)
+		return cachedPlan, true, nil
 	}
-	return result, err
+
+	plan, err := e.planner.Plan(query, astStmt, conn)
+	if err != nil {
+		return nil, false, err
+	}
+
+	e.planCache.Put(query, plan)
+	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
+		"query", query, "plan", plan.String())
+	return plan, false, nil
+}
+
+// extractRouting returns the tablegroup and shard from a plan's Route primitive,
+// falling back to the provided defaults if the primitive is not a Route.
+func extractRouting(plan *engine.Plan, defaultTableGroup, defaultShard string) (string, string) {
+	if route, ok := plan.Primitive.(*engine.Route); ok {
+		return route.TableGroup, route.Shard
+	}
+	return defaultTableGroup, defaultShard
 }
 
 // Describe returns metadata about a prepared statement or portal.

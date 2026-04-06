@@ -24,20 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/cache/theine"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
-// newForTest creates a PlanCache with the doorkeeper disabled for deterministic tests.
+// newForTest wraps the exported NewForTest for convenience in tests.
 func newForTest(capacity int) *PlanCache {
-	metrics, _ := NewCacheMetrics()
-	if capacity <= 0 {
-		return &PlanCache{metrics: metrics}
-	}
-	return &PlanCache{
-		store:   theine.NewStore[theine.StringKey, *engine.Plan](int64(capacity), false),
-		metrics: metrics,
-	}
+	return NewForTest(capacity)
 }
 
 func makePlan(sql string) *engine.Plan {

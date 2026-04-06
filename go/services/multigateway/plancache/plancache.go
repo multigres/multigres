@@ -52,6 +52,18 @@ func New(maxMemory int) *PlanCache {
 	}
 }
 
+// NewForTest creates a PlanCache with the doorkeeper disabled for deterministic tests.
+func NewForTest(maxMemory int) *PlanCache {
+	metrics, _ := NewCacheMetrics()
+	if maxMemory <= 0 {
+		return &PlanCache{metrics: metrics}
+	}
+	return &PlanCache{
+		store:   theine.NewStore[theine.StringKey, *engine.Plan](int64(maxMemory), false),
+		metrics: metrics,
+	}
+}
+
 // Get looks up a cached plan by normalized SQL key.
 // Returns the cached plan and true on hit, or nil and false on miss.
 // Entries from a previous epoch are treated as misses.
