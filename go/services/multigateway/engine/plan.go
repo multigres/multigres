@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -66,19 +67,29 @@ func NewPlan(original string, primitive Primitive) *Plan {
 }
 
 // StreamExecute executes the plan by calling the root primitive's StreamExecute.
+// bindVars contains literal values extracted during normalization; nil for non-cached paths.
 func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, state, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.
 func (p *Plan) GetTableGroup() string {
 	return p.Primitive.GetTableGroup()
+}
+
+// CachedSize returns the approximate memory cost of this plan for cache sizing.
+// Used by the theine cache to enforce memory-based capacity limits.
+// Currently returns 1 (count-based); can be refined to return actual byte size.
+// TODO: Generate cached size
+func (p *Plan) CachedSize(_ bool) int64 {
+	return 1
 }
 
 // String returns a string representation of the plan for debugging.

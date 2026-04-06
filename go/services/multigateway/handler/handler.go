@@ -45,6 +45,9 @@ type ExecuteResult struct {
 
 	// PlanTime is how long query planning took.
 	PlanTime time.Duration
+
+	// CacheHit indicates whether the plan was served from the plan cache.
+	CacheHit bool
 }
 
 // Executor defines the interface for query execution.
