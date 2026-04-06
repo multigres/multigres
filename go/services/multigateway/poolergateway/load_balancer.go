@@ -311,11 +311,14 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	defer lb.mu.Unlock()
 
 	cached := lb.cachedPrimaries[key]
-	if cached != nil && term <= cached.term {
-		return
-	}
 
-	if primaryConn, exists := lb.connections[primaryID]; exists {
+	switch {
+	case cached == nil || term > cached.term:
+		// New primary or higher term — update the cached primary.
+		primaryConn, exists := lb.connections[primaryID]
+		if !exists {
+			return
+		}
 		lb.cachedPrimaries[key] = &cachedPrimary{conn: primaryConn, term: term}
 		lb.logger.Debug("cached primary updated",
 			"tablegroup", key.tableGroup,
@@ -323,11 +326,36 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 			"primary_id", primaryID,
 			"term", term)
 
-		// Notify that a new primary is available — this stops failover buffering
-		// for the shard.
-		if lb.onPrimaryServing != nil {
-			lb.onPrimaryServing(key.tableGroup, key.shard)
-		}
+		// Only stop failover buffering when the primary is confirmed to be
+		// PRIMARY type and SERVING. The PrimaryObservation can arrive before
+		// the pooler has transitioned its query server to PRIMARY/SERVING
+		// (e.g., during Promote, UpdatePrimaryObservation fires before
+		// changeTypeLocked). Draining buffered requests too early would send
+		// them to a pooler that still rejects PRIMARY traffic.
+		lb.notifyIfPrimaryServingLocked(key, primaryConn)
+
+	case term == cached.term:
+		// Same term — the primary is already cached but may not have been
+		// SERVING when we first saw the observation. Re-check now so that
+		// StopBuffering fires once the primary transitions to PRIMARY/SERVING.
+		lb.notifyIfPrimaryServingLocked(key, cached.conn)
+
+	default:
+		// Stale term — ignore.
+		return
+	}
+}
+
+// notifyIfPrimaryServingLocked calls onPrimaryServing if the primary connection
+// is confirmed to be PRIMARY type and SERVING. StopBuffering is idempotent, so
+// calling this on every health update is safe and ensures buffering stops
+// promptly once the primary is ready. Caller must hold lb.mu.
+func (lb *LoadBalancer) notifyIfPrimaryServingLocked(key shardKey, primaryConn *PoolerConnection) {
+	primaryHealth := primaryConn.Health()
+	if lb.onPrimaryServing != nil && primaryHealth != nil &&
+		primaryHealth.Target.GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY &&
+		primaryHealth.IsServing() {
+		lb.onPrimaryServing(key.tableGroup, key.shard)
 	}
 }
 

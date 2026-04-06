@@ -1323,6 +1323,431 @@ func (x *QuorumRule) GetAsyncFallback() AsyncReplicationFallbackMode {
 	return AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN
 }
 
+// RuleNumber uniquely identifies a shard rule — the outcome of a coordinator
+// writing a cluster state change to rule_history. Every change (promotion,
+// cohort membership, durability policy) produces a new RuleNumber.
+//
+// Compared lexicographically: higher coordinator_term takes precedence; within
+// the same coordinator_term, higher rule_subterm takes precedence. rule_subterm
+// resets to 0 when coordinator_term increases, so subterms alone are not
+// globally unique.
+type RuleNumber struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CoordinatorTerm int64                  `protobuf:"varint,1,opt,name=coordinator_term,json=coordinatorTerm,proto3" json:"coordinator_term,omitempty"`
+	RuleSubterm     int64                  `protobuf:"varint,2,opt,name=rule_subterm,json=ruleSubterm,proto3" json:"rule_subterm,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RuleNumber) Reset() {
+	*x = RuleNumber{}
+	mi := &file_clustermetadata_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuleNumber) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuleNumber) ProtoMessage() {}
+
+func (x *RuleNumber) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuleNumber.ProtoReflect.Descriptor instead.
+func (*RuleNumber) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RuleNumber) GetCoordinatorTerm() int64 {
+	if x != nil {
+		return x.CoordinatorTerm
+	}
+	return 0
+}
+
+func (x *RuleNumber) GetRuleSubterm() int64 {
+	if x != nil {
+		return x.RuleSubterm
+	}
+	return 0
+}
+
+// ShardRule is the complete, authoritative description of shard state at a
+// specific rule number. Primary identity, cohort membership, and durability
+// policy are only meaningful together and relative to the rule that established
+// them.
+type ShardRule struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RuleNumber *RuleNumber            `protobuf:"bytes,1,opt,name=rule_number,json=ruleNumber,proto3" json:"rule_number,omitempty"`
+	// The postgres primary for this rule, through which all transactions (including rules) are
+	// written to the WAL.
+	PrimaryId     *ID   `protobuf:"bytes,2,opt,name=primary_id,json=primaryId,proto3" json:"primary_id,omitempty"`
+	CohortMembers []*ID `protobuf:"bytes,3,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	// What nodes need to acknowledge a write before it's considered durable.
+	DurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
+	// Which coordinator or pooler facilitated applying the rule.
+	CoordinatorId *ID `protobuf:"bytes,5,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	// At what time the coordinator or pooler began trying to apply the rule,
+	// from the coordinator's perspective.
+	CreationTime  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=creation_time,json=creationTime,proto3" json:"creation_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardRule) Reset() {
+	*x = ShardRule{}
+	mi := &file_clustermetadata_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardRule) ProtoMessage() {}
+
+func (x *ShardRule) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardRule.ProtoReflect.Descriptor instead.
+func (*ShardRule) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ShardRule) GetRuleNumber() *RuleNumber {
+	if x != nil {
+		return x.RuleNumber
+	}
+	return nil
+}
+
+func (x *ShardRule) GetPrimaryId() *ID {
+	if x != nil {
+		return x.PrimaryId
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCohortMembers() []*ID {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
+func (x *ShardRule) GetDurabilityPolicy() *DurabilityPolicy {
+	if x != nil {
+		return x.DurabilityPolicy
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCoordinatorId() *ID {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCreationTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreationTime
+	}
+	return nil
+}
+
+// NodePosition describes a node's committed position in logical and physical
+// time. It captures the highest ShardRule this node has replicated (or written,
+// for a primary) and the latest WAL position.
+//
+// Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
+// coordinator can determine which node is most advanced when selecting a
+// promotion candidate.
+//
+// Comparison: prefer the node with the higher rule (coordinator_term first,
+// then rule_subterm). Break ties by LSN.
+type NodePosition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The highest shard rule this node has committed to local WAL.
+	Rule *ShardRule `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	// The latest WAL position.
+	Lsn           string `protobuf:"bytes,2,opt,name=lsn,proto3" json:"lsn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodePosition) Reset() {
+	*x = NodePosition{}
+	mi := &file_clustermetadata_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodePosition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodePosition) ProtoMessage() {}
+
+func (x *NodePosition) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodePosition.ProtoReflect.Descriptor instead.
+func (*NodePosition) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *NodePosition) GetRule() *ShardRule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+func (x *NodePosition) GetLsn() string {
+	if x != nil {
+		return x.Lsn
+	}
+	return ""
+}
+
+// HighestKnownRule is the most recent ShardRule this node is aware of,
+// which could be beyond the end of this pooler's WAL / NodePosition.
+//
+// If a pooler is disconnected from replication due to network partitions
+// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
+// to learn the latest shard state.
+//
+// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
+// may represent a rule that the coordinator is _about_ to write that doesn't exist in
+// any WAL entries yet.
+//
+// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
+// settings so that nodes can participate in replication. Nodes with out-of-date information
+// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
+// pooler has incorrect replication settings.
+type HighestKnownRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rule          *ShardRule             `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HighestKnownRule) Reset() {
+	*x = HighestKnownRule{}
+	mi := &file_clustermetadata_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HighestKnownRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HighestKnownRule) ProtoMessage() {}
+
+func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HighestKnownRule.ProtoReflect.Descriptor instead.
+func (*HighestKnownRule) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *HighestKnownRule) GetRule() *ShardRule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+// HighestCoordinatorPromise is a promise to a coordinator.
+//
+// Promises are used for sequencing coordinators when they take action to establish
+// a new term. Those actions are:
+// - Revoking the ability of primaries established at lower terms to write transactions
+// - Obtaining the exclusive right to begin applying rules under this term number
+//
+// Promises must be persisted to a pooler's local disk to survive pooler restarts.
+//
+// A pooler that has granted a promise for term T to coordinator C1 must refuse any
+// action request with a term less than T or a term equal to T but a different coordinator.
+//
+// Higher-term promises can implicitly replace and revoke lower-term promises.
+type HighestCoordinatorPromise struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The coordinator term this node has promised to honor.
+	TermNumber int64 `protobuf:"varint,1,opt,name=term_number,json=termNumber,proto3" json:"term_number,omitempty"`
+	// The coordinator (multiorch instance) that this promise was made to.
+	// This is retained for idempotency and informational purposes: if the same
+	// coordinator asks for a promise for the same term number, a pooler will
+	// re-accept. If a different coordinator asks for a promise at the same term
+	// number, a pooler will refuse.
+	AcceptedCoordinatorId *ID `protobuf:"bytes,2,opt,name=accepted_coordinator_id,json=acceptedCoordinatorId,proto3" json:"accepted_coordinator_id,omitempty"`
+	// When this promise was last recorded.
+	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *HighestCoordinatorPromise) Reset() {
+	*x = HighestCoordinatorPromise{}
+	mi := &file_clustermetadata_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HighestCoordinatorPromise) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HighestCoordinatorPromise) ProtoMessage() {}
+
+func (x *HighestCoordinatorPromise) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HighestCoordinatorPromise.ProtoReflect.Descriptor instead.
+func (*HighestCoordinatorPromise) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *HighestCoordinatorPromise) GetTermNumber() int64 {
+	if x != nil {
+		return x.TermNumber
+	}
+	return 0
+}
+
+func (x *HighestCoordinatorPromise) GetAcceptedCoordinatorId() *ID {
+	if x != nil {
+		return x.AcceptedCoordinatorId
+	}
+	return nil
+}
+
+func (x *HighestCoordinatorPromise) GetLastAcceptanceTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastAcceptanceTime
+	}
+	return nil
+}
+
+// ConsensusStatus is a node's complete view of its position in the distributed
+// system: its promise, what it has committed, and what it knows is coming.
+type ConsensusStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// promise is the coordinator term this node has accepted.
+	Promise *HighestCoordinatorPromise `protobuf:"bytes,1,opt,name=promise,proto3" json:"promise,omitempty"`
+	// current_position is the highest rule this node has committed to local WAL
+	// and the latest WAL position.
+	CurrentPosition *NodePosition `protobuf:"bytes,2,opt,name=current_position,json=currentPosition,proto3" json:"current_position,omitempty"`
+	// highest_known_rule is the most recent rule this node is aware of. May be
+	// ahead of current_position when the node has forward knowledge of an
+	// upcoming rule that has not yet been replicated or written.
+	HighestKnownRule *HighestKnownRule `protobuf:"bytes,3,opt,name=highest_known_rule,json=highestKnownRule,proto3" json:"highest_known_rule,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ConsensusStatus) Reset() {
+	*x = ConsensusStatus{}
+	mi := &file_clustermetadata_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsensusStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsensusStatus) ProtoMessage() {}
+
+func (x *ConsensusStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsensusStatus.ProtoReflect.Descriptor instead.
+func (*ConsensusStatus) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ConsensusStatus) GetPromise() *HighestCoordinatorPromise {
+	if x != nil {
+		return x.Promise
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetCurrentPosition() *NodePosition {
+	if x != nil {
+		return x.CurrentPosition
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetHighestKnownRule() *HighestKnownRule {
+	if x != nil {
+		return x.HighestKnownRule
+	}
+	return nil
+}
+
 var File_clustermetadata_proto protoreflect.FileDescriptor
 
 const file_clustermetadata_proto_rawDesc = "" +
@@ -1420,7 +1845,34 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*@\n" +
+	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback\"Z\n" +
+	"\n" +
+	"RuleNumber\x12)\n" +
+	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12!\n" +
+	"\frule_subterm\x18\x02 \x01(\x03R\vruleSubterm\"\x86\x03\n" +
+	"\tShardRule\x12<\n" +
+	"\vrule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\n" +
+	"ruleNumber\x122\n" +
+	"\n" +
+	"primary_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12:\n" +
+	"\x0ecohort_members\x18\x03 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\x12N\n" +
+	"\x11durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x10durabilityPolicy\x12:\n" +
+	"\x0ecoordinator_id\x18\x05 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\x12?\n" +
+	"\rcreation_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fcreationTime\"P\n" +
+	"\fNodePosition\x12.\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x12\x10\n" +
+	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"B\n" +
+	"\x10HighestKnownRule\x12.\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"\xd7\x01\n" +
+	"\x19HighestCoordinatorPromise\x12\x1f\n" +
+	"\vterm_number\x18\x01 \x01(\x03R\n" +
+	"termNumber\x12K\n" +
+	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12L\n" +
+	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\"\xf2\x01\n" +
+	"\x0fConsensusStatus\x12D\n" +
+	"\apromise\x18\x01 \x01(\v2*.clustermetadata.HighestCoordinatorPromiseR\apromise\x12H\n" +
+	"\x10current_position\x18\x02 \x01(\v2\x1d.clustermetadata.NodePositionR\x0fcurrentPosition\x12O\n" +
+	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule*@\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1458,7 +1910,7 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 }
 
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
 	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
@@ -1478,10 +1930,16 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*KeyRange)(nil),                  // 15: clustermetadata.KeyRange
 	(*DurabilityPolicy)(nil),          // 16: clustermetadata.DurabilityPolicy
 	(*QuorumRule)(nil),                // 17: clustermetadata.QuorumRule
-	nil,                               // 18: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 19: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 20: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
+	(*RuleNumber)(nil),                // 18: clustermetadata.RuleNumber
+	(*ShardRule)(nil),                 // 19: clustermetadata.ShardRule
+	(*NodePosition)(nil),              // 20: clustermetadata.NodePosition
+	(*HighestKnownRule)(nil),          // 21: clustermetadata.HighestKnownRule
+	(*HighestCoordinatorPromise)(nil), // 22: clustermetadata.HighestCoordinatorPromise
+	(*ConsensusStatus)(nil),           // 23: clustermetadata.ConsensusStatus
+	nil,                               // 24: clustermetadata.MultiPooler.PortMapEntry
+	nil,                               // 25: clustermetadata.MultiGateway.PortMapEntry
+	nil,                               // 26: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil),     // 27: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
 	8,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
@@ -1491,22 +1949,35 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	15, // 4: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 5: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 6: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	18, // 7: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	24, // 7: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
 	14, // 8: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	19, // 9: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	25, // 9: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
 	14, // 10: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	20, // 11: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	26, // 11: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
 	4,  // 12: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
 	17, // 13: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
-	21, // 14: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
-	21, // 15: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
+	27, // 14: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
+	27, // 15: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
 	2,  // 16: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
 	3,  // 17: clustermetadata.QuorumRule.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	18, // 18: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	14, // 19: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
+	14, // 20: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	16, // 21: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	14, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	27, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	19, // 24: clustermetadata.NodePosition.rule:type_name -> clustermetadata.ShardRule
+	19, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	14, // 26: clustermetadata.HighestCoordinatorPromise.accepted_coordinator_id:type_name -> clustermetadata.ID
+	27, // 27: clustermetadata.HighestCoordinatorPromise.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	22, // 28: clustermetadata.ConsensusStatus.promise:type_name -> clustermetadata.HighestCoordinatorPromise
+	20, // 29: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.NodePosition
+	21, // 30: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -1524,7 +1995,7 @@ func file_clustermetadata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   16,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
