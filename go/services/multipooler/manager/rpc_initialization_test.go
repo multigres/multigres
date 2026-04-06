@@ -82,7 +82,8 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			// A fresh (uninitialized) pooler passes term and idempotency checks,
 			// then reaches the first pgctld call (InitDataDir). Unit tests stop
 			// here because real pgctld/postgres are not available; the full success
-			// path is covered by the integration test.
+			// path (InitDataDir → StartAsStandby → pg_promote() → schema creation)
+			// is covered by the shardsetup integration test.
 			name:          "initialize fresh pooler",
 			term:          1,
 			expectSuccess: false,

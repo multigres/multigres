@@ -116,9 +116,20 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// Wait for database connection
+	// Wait for database connection. PostgreSQL is in recovery mode (started via
+	// StartAsStandby), which accepts read-only connections, so SELECT 1 succeeds.
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to connect to database")
+	}
+
+	// Promote PostgreSQL from recovery mode to a writable primary. This is
+	// required before any DDL (schema creation) can be executed.
+	pm.logger.InfoContext(ctx, "Promoting PostgreSQL from recovery mode to primary", "shard", pm.getShardID())
+	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
+		return nil, mterrors.Wrap(err, "failed to promote PostgreSQL to primary")
+	}
+	if err := pm.waitForPromotionComplete(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to wait for PostgreSQL promotion")
 	}
 
 	// Create multigres schema and tables (heartbeat, durability_policy, tablegroup, table, shard)
