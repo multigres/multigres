@@ -83,6 +83,8 @@ type MultiGateway struct {
 	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
+	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
+	planCacheMemory viperutil.Value[int]
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
@@ -128,6 +130,12 @@ func NewMultiGateway() *MultiGateway {
 			FlagName: "statement-timeout",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
+		}),
+		planCacheMemory: viperutil.Configure(reg, "plan-cache-memory", viperutil.Options[int]{
+			Default:  32 * 1024 * 1024, // 32 MB
+			FlagName: "plan-cache-memory",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
@@ -261,7 +269,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
-	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
+	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 
 	// Create hash provider for SCRAM authentication using the pooler gateway
 	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)

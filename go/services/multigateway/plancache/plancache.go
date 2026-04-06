@@ -37,18 +37,17 @@ type PlanCache struct {
 	metrics *CacheMetrics
 }
 
-// New creates a PlanCache with the given maximum capacity.
-// The capacity controls how many plan entries the cache can hold.
-// If capacity is <= 0, the cache is effectively disabled.
+// New creates a PlanCache with the given maximum memory in bytes.
+// If maxMemory is <= 0, the cache is effectively disabled.
 // The doorkeeper (bloom filter admission policy) is enabled to prevent
 // cache pollution from one-off queries.
-func New(capacity int) *PlanCache {
+func New(maxMemory int) *PlanCache {
 	metrics, _ := NewCacheMetrics()
-	if capacity <= 0 {
+	if maxMemory <= 0 {
 		return &PlanCache{metrics: metrics}
 	}
 	return &PlanCache{
-		store:   theine.NewStore[theine.StringKey, *engine.Plan](int64(capacity), true),
+		store:   theine.NewStore[theine.StringKey, *engine.Plan](int64(maxMemory), true),
 		metrics: metrics,
 	}
 }
@@ -76,8 +75,8 @@ func (c *PlanCache) Put(normalizedSQL string, plan *engine.Plan) {
 	if c.store == nil {
 		return
 	}
-	// cost=1 makes the cache count-based (each entry costs 1 unit).
-	c.store.Set(theine.StringKey(normalizedSQL), plan, 1, c.epoch.Load())
+	// cost=0 tells theine to call plan.CachedSize() to determine the entry's memory cost.
+	c.store.Set(theine.StringKey(normalizedSQL), plan, 0, c.epoch.Load())
 }
 
 // Invalidate invalidates all cached plans by incrementing the epoch.
