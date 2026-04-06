@@ -36,8 +36,8 @@ func TestProtectedPgctldClient_StateChangingOperationsRequireLock(t *testing.T) 
 	}
 	protected := NewProtectedPgctldClient(mockClient)
 
-	t.Run("Start requires lock", func(t *testing.T) {
-		_, err := protected.Start(ctx, &pgctldpb.StartRequest{})
+	t.Run("StartAsStandby requires lock", func(t *testing.T) {
+		_, err := protected.StartAsStandby(ctx, &pgctldpb.StartAsStandbyRequest{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "action lock")
 	})
@@ -109,11 +109,11 @@ func TestProtectedPgctldClient_WithLockHeld(t *testing.T) {
 	}
 	protected := NewProtectedPgctldClient(mockClient)
 
-	t.Run("Start succeeds with lock", func(t *testing.T) {
-		resp, err := protected.Start(lockCtx, &pgctldpb.StartRequest{})
+	t.Run("StartAsStandby succeeds with lock", func(t *testing.T) {
+		resp, err := protected.StartAsStandby(lockCtx, &pgctldpb.StartAsStandbyRequest{})
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.True(t, mockClient.startCalled)
+		assert.True(t, mockClient.startAsStandbyCalled)
 	})
 
 	t.Run("Restart succeeds with lock", func(t *testing.T) {

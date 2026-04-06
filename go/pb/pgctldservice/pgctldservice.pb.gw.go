@@ -35,9 +35,9 @@ var (
 	_ = metadata.Join
 )
 
-func request_PgCtld_Start_0(ctx context.Context, marshaler runtime.Marshaler, client PgCtldClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_PgCtld_StartAsStandby_0(ctx context.Context, marshaler runtime.Marshaler, client PgCtldClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq StartRequest
+		protoReq StartAsStandbyRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
@@ -46,19 +46,19 @@ func request_PgCtld_Start_0(ctx context.Context, marshaler runtime.Marshaler, cl
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	msg, err := client.Start(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.StartAsStandby(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_PgCtld_Start_0(ctx context.Context, marshaler runtime.Marshaler, server PgCtldServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_PgCtld_StartAsStandby_0(ctx context.Context, marshaler runtime.Marshaler, server PgCtldServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq StartRequest
+		protoReq StartAsStandbyRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	msg, err := server.Start(ctx, &protoReq)
+	msg, err := server.StartAsStandby(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -257,25 +257,25 @@ func local_request_PgCtld_PgRewind_0(ctx context.Context, marshaler runtime.Mars
 // Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterPgCtldHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
 func RegisterPgCtldHandlerServer(ctx context.Context, mux *runtime.ServeMux, server PgCtldServer) error {
-	mux.Handle(http.MethodPost, pattern_PgCtld_Start_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_PgCtld_StartAsStandby_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/pgctldservice.PgCtld/Start", runtime.WithHTTPPathPattern("/pgctldservice.PgCtld/Start"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/pgctldservice.PgCtld/StartAsStandby", runtime.WithHTTPPathPattern("/pgctldservice.PgCtld/StartAsStandby"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_PgCtld_Start_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_PgCtld_StartAsStandby_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_PgCtld_Start_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_PgCtld_StartAsStandby_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_PgCtld_Stop_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -457,22 +457,22 @@ func RegisterPgCtldHandler(ctx context.Context, mux *runtime.ServeMux, conn *grp
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
 // "PgCtldClient" to call the correct interceptors. This client ignores the HTTP middlewares.
 func RegisterPgCtldHandlerClient(ctx context.Context, mux *runtime.ServeMux, client PgCtldClient) error {
-	mux.Handle(http.MethodPost, pattern_PgCtld_Start_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_PgCtld_StartAsStandby_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/pgctldservice.PgCtld/Start", runtime.WithHTTPPathPattern("/pgctldservice.PgCtld/Start"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/pgctldservice.PgCtld/StartAsStandby", runtime.WithHTTPPathPattern("/pgctldservice.PgCtld/StartAsStandby"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_PgCtld_Start_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_PgCtld_StartAsStandby_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_PgCtld_Start_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_PgCtld_StartAsStandby_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_PgCtld_Stop_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -597,23 +597,23 @@ func RegisterPgCtldHandlerClient(ctx context.Context, mux *runtime.ServeMux, cli
 }
 
 var (
-	pattern_PgCtld_Start_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Start"}, ""))
-	pattern_PgCtld_Stop_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Stop"}, ""))
-	pattern_PgCtld_Restart_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Restart"}, ""))
-	pattern_PgCtld_ReloadConfig_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "ReloadConfig"}, ""))
-	pattern_PgCtld_Status_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Status"}, ""))
-	pattern_PgCtld_Version_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Version"}, ""))
-	pattern_PgCtld_InitDataDir_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "InitDataDir"}, ""))
-	pattern_PgCtld_PgRewind_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "PgRewind"}, ""))
+	pattern_PgCtld_StartAsStandby_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "StartAsStandby"}, ""))
+	pattern_PgCtld_Stop_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Stop"}, ""))
+	pattern_PgCtld_Restart_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Restart"}, ""))
+	pattern_PgCtld_ReloadConfig_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "ReloadConfig"}, ""))
+	pattern_PgCtld_Status_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Status"}, ""))
+	pattern_PgCtld_Version_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "Version"}, ""))
+	pattern_PgCtld_InitDataDir_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "InitDataDir"}, ""))
+	pattern_PgCtld_PgRewind_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"pgctldservice.PgCtld", "PgRewind"}, ""))
 )
 
 var (
-	forward_PgCtld_Start_0        = runtime.ForwardResponseMessage
-	forward_PgCtld_Stop_0         = runtime.ForwardResponseMessage
-	forward_PgCtld_Restart_0      = runtime.ForwardResponseMessage
-	forward_PgCtld_ReloadConfig_0 = runtime.ForwardResponseMessage
-	forward_PgCtld_Status_0       = runtime.ForwardResponseMessage
-	forward_PgCtld_Version_0      = runtime.ForwardResponseMessage
-	forward_PgCtld_InitDataDir_0  = runtime.ForwardResponseMessage
-	forward_PgCtld_PgRewind_0     = runtime.ForwardResponseMessage
+	forward_PgCtld_StartAsStandby_0 = runtime.ForwardResponseMessage
+	forward_PgCtld_Stop_0           = runtime.ForwardResponseMessage
+	forward_PgCtld_Restart_0        = runtime.ForwardResponseMessage
+	forward_PgCtld_ReloadConfig_0   = runtime.ForwardResponseMessage
+	forward_PgCtld_Status_0         = runtime.ForwardResponseMessage
+	forward_PgCtld_Version_0        = runtime.ForwardResponseMessage
+	forward_PgCtld_InitDataDir_0    = runtime.ForwardResponseMessage
+	forward_PgCtld_PgRewind_0       = runtime.ForwardResponseMessage
 )

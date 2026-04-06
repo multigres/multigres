@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/pgctld"
 )
 
@@ -170,6 +172,44 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	result.Message = "PostgreSQL server started successfully"
 	logger.Info("PostgreSQL server started successfully")
 	return result, nil
+}
+
+// StartAsStandbyWithResult starts PostgreSQL in standby (recovery) mode.
+// It always writes standby.signal before starting, ensuring postgres never starts as primary.
+// If the data directory was not cleanly stopped, PostgreSQL performs crash recovery
+// automatically during startup (before accepting connections).
+func StartAsStandbyWithResult(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*pb.StartAsStandbyResponse, error) {
+	if isPostgreSQLRunning(config.PostgresDataDir) {
+		pid, _ := readPostmasterPID(config.PostgresDataDir)
+		pid32, _ := intToInt32(pid)
+		return &pb.StartAsStandbyResponse{
+			Result: pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING,
+			Pid:    pid32,
+		}, nil
+	}
+
+	// Write standby.signal so postgres starts in recovery mode, never as primary.
+	// If the data directory was not cleanly stopped, postgres will apply crash recovery
+	// automatically before accepting connections.
+	standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
+	if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to create standby.signal: %w", err)
+	}
+
+	if err := startPostgreSQLWithConfig(logger, config); err != nil {
+		return nil, fmt.Errorf("failed to start PostgreSQL as standby: %w", err)
+	}
+	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
+		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
+	}
+
+	pid, _ := readPostmasterPID(config.PostgresDataDir)
+	pid32, _ := intToInt32(pid)
+	logger.InfoContext(ctx, "PostgreSQL started successfully as standby", "pid", pid32)
+	return &pb.StartAsStandbyResponse{
+		Result: pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED,
+		Pid:    pid32,
+	}, nil
 }
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration

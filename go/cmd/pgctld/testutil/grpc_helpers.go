@@ -32,48 +32,48 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	mu            sync.Mutex
-	StartCalls    []*pb.StartRequest
-	StopCalls     []*pb.StopRequest
-	RestartCalls  []*pb.RestartRequest
-	ReloadCalls   []*pb.ReloadConfigRequest
-	StatusCalls   []*pb.StatusRequest
-	VersionCalls  []*pb.VersionRequest
-	InitDirCalls  []*pb.InitDataDirRequest
-	PgRewindCalls []*pb.PgRewindRequest
+	mu                  sync.Mutex
+	StartAsStandbyCalls []*pb.StartAsStandbyRequest
+	StopCalls           []*pb.StopRequest
+	RestartCalls        []*pb.RestartRequest
+	ReloadCalls         []*pb.ReloadConfigRequest
+	StatusCalls         []*pb.StatusRequest
+	VersionCalls        []*pb.VersionRequest
+	InitDirCalls        []*pb.InitDataDirRequest
+	PgRewindCalls       []*pb.PgRewindRequest
 
 	// Response configurations
-	StartResponse    *pb.StartResponse
-	StopResponse     *pb.StopResponse
-	RestartResponse  *pb.RestartResponse
-	ReloadResponse   *pb.ReloadConfigResponse
-	StatusResponse   *pb.StatusResponse
-	VersionResponse  *pb.VersionResponse
-	InitDirResponse  *pb.InitDataDirResponse
-	PgRewindResponse *pb.PgRewindResponse
+	StartAsStandbyResponse *pb.StartAsStandbyResponse
+	StopResponse           *pb.StopResponse
+	RestartResponse        *pb.RestartResponse
+	ReloadResponse         *pb.ReloadConfigResponse
+	StatusResponse         *pb.StatusResponse
+	VersionResponse        *pb.VersionResponse
+	InitDirResponse        *pb.InitDataDirResponse
+	PgRewindResponse       *pb.PgRewindResponse
 
 	// Error configurations
-	StartError    error
-	StopError     error
-	RestartError  error
-	ReloadError   error
-	StatusError   error
-	VersionError  error
-	InitDirError  error
-	PgRewindError error
+	StartAsStandbyError error
+	StopError           error
+	RestartError        error
+	ReloadError         error
+	StatusError         error
+	VersionError        error
+	InitDirError        error
+	PgRewindError       error
 }
 
-func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
+func (m *MockPgCtldService) StartAsStandby(ctx context.Context, req *pb.StartAsStandbyRequest) (*pb.StartAsStandbyResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.StartCalls = append(m.StartCalls, req)
-	if m.StartError != nil {
-		return nil, m.StartError
+	m.StartAsStandbyCalls = append(m.StartAsStandbyCalls, req)
+	if m.StartAsStandbyError != nil {
+		return nil, m.StartAsStandbyError
 	}
-	if m.StartResponse != nil {
-		return m.StartResponse, nil
+	if m.StartAsStandbyResponse != nil {
+		return m.StartAsStandbyResponse, nil
 	}
-	return &pb.StartResponse{Pid: 12345, Message: "Mock server started"}, nil
+	return &pb.StartAsStandbyResponse{Result: pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED, Pid: 12345}, nil
 }
 
 func (m *MockPgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {

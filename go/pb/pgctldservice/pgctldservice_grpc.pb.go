@@ -33,14 +33,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PgCtld_Start_FullMethodName        = "/pgctldservice.PgCtld/Start"
-	PgCtld_Stop_FullMethodName         = "/pgctldservice.PgCtld/Stop"
-	PgCtld_Restart_FullMethodName      = "/pgctldservice.PgCtld/Restart"
-	PgCtld_ReloadConfig_FullMethodName = "/pgctldservice.PgCtld/ReloadConfig"
-	PgCtld_Status_FullMethodName       = "/pgctldservice.PgCtld/Status"
-	PgCtld_Version_FullMethodName      = "/pgctldservice.PgCtld/Version"
-	PgCtld_InitDataDir_FullMethodName  = "/pgctldservice.PgCtld/InitDataDir"
-	PgCtld_PgRewind_FullMethodName     = "/pgctldservice.PgCtld/PgRewind"
+	PgCtld_StartAsStandby_FullMethodName = "/pgctldservice.PgCtld/StartAsStandby"
+	PgCtld_Stop_FullMethodName           = "/pgctldservice.PgCtld/Stop"
+	PgCtld_Restart_FullMethodName        = "/pgctldservice.PgCtld/Restart"
+	PgCtld_ReloadConfig_FullMethodName   = "/pgctldservice.PgCtld/ReloadConfig"
+	PgCtld_Status_FullMethodName         = "/pgctldservice.PgCtld/Status"
+	PgCtld_Version_FullMethodName        = "/pgctldservice.PgCtld/Version"
+	PgCtld_InitDataDir_FullMethodName    = "/pgctldservice.PgCtld/InitDataDir"
+	PgCtld_PgRewind_FullMethodName       = "/pgctldservice.PgCtld/PgRewind"
 )
 
 // PgCtldClient is the client API for PgCtld service.
@@ -49,8 +49,11 @@ const (
 //
 // PostgreSQL Control Service
 type PgCtldClient interface {
-	// Start PostgreSQL server
-	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
+	// StartAsStandby starts PostgreSQL in standby (recovery) mode.
+	// Always writes standby.signal before starting, ensuring postgres never starts as primary.
+	// If the data directory was not cleanly shut down, PostgreSQL performs crash recovery
+	// automatically as part of startup (before accepting connections).
+	StartAsStandby(ctx context.Context, in *StartAsStandbyRequest, opts ...grpc.CallOption) (*StartAsStandbyResponse, error)
 	// Stop PostgreSQL server
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// Restart PostgreSQL server
@@ -76,10 +79,10 @@ func NewPgCtldClient(cc grpc.ClientConnInterface) PgCtldClient {
 	return &pgCtldClient{cc}
 }
 
-func (c *pgCtldClient) Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error) {
+func (c *pgCtldClient) StartAsStandby(ctx context.Context, in *StartAsStandbyRequest, opts ...grpc.CallOption) (*StartAsStandbyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StartResponse)
-	err := c.cc.Invoke(ctx, PgCtld_Start_FullMethodName, in, out, cOpts...)
+	out := new(StartAsStandbyResponse)
+	err := c.cc.Invoke(ctx, PgCtld_StartAsStandby_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +165,11 @@ func (c *pgCtldClient) PgRewind(ctx context.Context, in *PgRewindRequest, opts .
 //
 // PostgreSQL Control Service
 type PgCtldServer interface {
-	// Start PostgreSQL server
-	Start(context.Context, *StartRequest) (*StartResponse, error)
+	// StartAsStandby starts PostgreSQL in standby (recovery) mode.
+	// Always writes standby.signal before starting, ensuring postgres never starts as primary.
+	// If the data directory was not cleanly shut down, PostgreSQL performs crash recovery
+	// automatically as part of startup (before accepting connections).
+	StartAsStandby(context.Context, *StartAsStandbyRequest) (*StartAsStandbyResponse, error)
 	// Stop PostgreSQL server
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
 	// Restart PostgreSQL server
@@ -189,8 +195,8 @@ type PgCtldServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPgCtldServer struct{}
 
-func (UnimplementedPgCtldServer) Start(context.Context, *StartRequest) (*StartResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Start not implemented")
+func (UnimplementedPgCtldServer) StartAsStandby(context.Context, *StartAsStandbyRequest) (*StartAsStandbyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartAsStandby not implemented")
 }
 func (UnimplementedPgCtldServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
@@ -234,20 +240,20 @@ func RegisterPgCtldServer(s grpc.ServiceRegistrar, srv PgCtldServer) {
 	s.RegisterService(&PgCtld_ServiceDesc, srv)
 }
 
-func _PgCtld_Start_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StartRequest)
+func _PgCtld_StartAsStandby_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartAsStandbyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PgCtldServer).Start(ctx, in)
+		return srv.(PgCtldServer).StartAsStandby(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: PgCtld_Start_FullMethodName,
+		FullMethod: PgCtld_StartAsStandby_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PgCtldServer).Start(ctx, req.(*StartRequest))
+		return srv.(PgCtldServer).StartAsStandby(ctx, req.(*StartAsStandbyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -386,8 +392,8 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*PgCtldServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Start",
-			Handler:    _PgCtld_Start_Handler,
+			MethodName: "StartAsStandby",
+			Handler:    _PgCtld_StartAsStandby_Handler,
 		},
 		{
 			MethodName: "Stop",

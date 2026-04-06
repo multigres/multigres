@@ -636,14 +636,14 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
-	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
+	assert.True(t, mockPgctld.startAsStandbyCalled, "Should have called Start()")
 }
 
 func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{
-		startError: assert.AnError,
+		startAsStandbyError: assert.AnError,
 	}
 
 	pm := &MultiPoolerManager{
@@ -662,7 +662,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	// Should handle error gracefully
 	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
 
-	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
+	assert.True(t, mockPgctld.startAsStandbyCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
 }
 
@@ -800,7 +800,7 @@ func TestStartPostgres_Success(t *testing.T) {
 	err := pm.startPostgres(ctx)
 
 	require.NoError(t, err)
-	assert.True(t, mockPgctld.startCalled)
+	assert.True(t, mockPgctld.startAsStandbyCalled)
 }
 
 func TestStartPostgres_PgctldUnavailable(t *testing.T) {
@@ -821,7 +821,7 @@ func TestStartPostgres_StartFails(t *testing.T) {
 	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{
-		startError: assert.AnError,
+		startAsStandbyError: assert.AnError,
 	}
 
 	pm := &MultiPoolerManager{
@@ -833,7 +833,7 @@ func TestStartPostgres_StartFails(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to start PostgreSQL")
-	assert.True(t, mockPgctld.startCalled)
+	assert.True(t, mockPgctld.startAsStandbyCalled)
 }
 
 // Integration Tests for MonitorPostgres
@@ -859,7 +859,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 
 	// Call iteration when not ready - should return early without calling pgctld
 	pm.monitorPostgresIteration(ctx)
-	assert.False(t, mockPgctld.startCalled, "Should not attempt to start when not ready")
+	assert.False(t, mockPgctld.startAsStandbyCalled, "Should not attempt to start when not ready")
 
 	// Set state to ready
 	pm.mu.Lock()
@@ -869,7 +869,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 
 	// Call iteration again when ready - should proceed and attempt to start
 	pm.monitorPostgresIteration(ctx)
-	assert.True(t, mockPgctld.startCalled, "Should attempt to start when ready")
+	assert.True(t, mockPgctld.startAsStandbyCalled, "Should attempt to start when ready")
 }
 
 func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
@@ -899,7 +899,7 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 	pm.monitorPostgresIteration(ctx)
 
 	// Should not have called Start (postgres already running)
-	assert.False(t, mockPgctld.startCalled, "Should not call Start when postgres is already running")
+	assert.False(t, mockPgctld.startAsStandbyCalled, "Should not call Start when postgres is already running")
 }
 
 func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
@@ -926,7 +926,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 	pm.monitorPostgresIteration(ctx)
 
 	// Should have attempted to start postgres
-	assert.True(t, mockPgctld.startCalled, "Should attempt to start stopped postgres")
+	assert.True(t, mockPgctld.startAsStandbyCalled, "Should attempt to start stopped postgres")
 }
 
 func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
@@ -940,7 +940,7 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 			statusResponse: &pgctldpb.StatusResponse{
 				Status: pgctldpb.ServerStatus_STOPPED,
 			},
-			startError: assert.AnError,
+			startAsStandbyError: assert.AnError,
 		},
 	}
 
@@ -963,12 +963,12 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 
 // Mock pgctld client for testing
 type mockPgctldClient struct {
-	statusResponse *pgctldpb.StatusResponse
-	statusError    error
-	startCalled    bool
-	startError     error
-	restartCalled  bool
-	restartError   error
+	statusResponse        *pgctldpb.StatusResponse
+	statusError           error
+	startAsStandbyCalled  bool
+	startAsStandbyError   error
+	restartCalled         bool
+	restartAsStandbyError error
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
@@ -983,12 +983,14 @@ func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusReque
 	}, nil
 }
 
-func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
-	m.startCalled = true
-	if m.startError != nil {
-		return nil, m.startError
+func (m *mockPgctldClient) StartAsStandby(ctx context.Context, req *pgctldpb.StartAsStandbyRequest, opts ...grpc.CallOption) (*pgctldpb.StartAsStandbyResponse, error) {
+	m.startAsStandbyCalled = true
+	if m.startAsStandbyError != nil {
+		return nil, m.startAsStandbyError
 	}
-	return &pgctldpb.StartResponse{}, nil
+	return &pgctldpb.StartAsStandbyResponse{
+		Result: pgctldpb.StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED,
+	}, nil
 }
 
 func (m *mockPgctldClient) Stop(ctx context.Context, req *pgctldpb.StopRequest, opts ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
@@ -997,8 +999,8 @@ func (m *mockPgctldClient) Stop(ctx context.Context, req *pgctldpb.StopRequest, 
 
 func (m *mockPgctldClient) Restart(ctx context.Context, req *pgctldpb.RestartRequest, opts ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
 	m.restartCalled = true
-	if m.restartError != nil {
-		return nil, m.restartError
+	if m.restartAsStandbyError != nil {
+		return nil, m.restartAsStandbyError
 	}
 	return &pgctldpb.RestartResponse{}, nil
 }
@@ -1025,7 +1027,7 @@ type mockPgctldClientWithCounter struct {
 	startCallCount int
 }
 
-func (m *mockPgctldClientWithCounter) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+func (m *mockPgctldClientWithCounter) StartAsStandby(ctx context.Context, req *pgctldpb.StartAsStandbyRequest, opts ...grpc.CallOption) (*pgctldpb.StartAsStandbyResponse, error) {
 	m.startCallCount++
-	return m.mockPgctldClient.Start(ctx, req, opts...)
+	return m.mockPgctldClient.StartAsStandby(ctx, req, opts...)
 }

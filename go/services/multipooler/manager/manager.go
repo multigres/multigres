@@ -1745,15 +1745,17 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 	return false
 }
 
-// startPostgres starts PostgreSQL via pgctld
+// startPostgres starts PostgreSQL as a standby via pgctld.
+// Crash recovery is not permitted — it requires consensus awareness and must be
+// explicitly requested. If crash recovery is needed, an error is returned and
+// MonitorPostgres will log it and retry next cycle.
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to start PostgreSQL as standby")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
 
-	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
-	if err != nil {
+	if _, err := pm.pgctldClient.StartAsStandby(ctx, &pgctldpb.StartAsStandbyRequest{}); err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}
 

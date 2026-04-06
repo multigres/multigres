@@ -111,8 +111,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 		}
 
-		startReq := &pgctldpb.StartRequest{}
-		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
+		if _, err := pm.pgctldClient.StartAsStandby(ctx, &pgctldpb.StartAsStandbyRequest{}); err != nil {
 			return nil, mterrors.Wrap(err, "failed to start PostgreSQL")
 		}
 	}

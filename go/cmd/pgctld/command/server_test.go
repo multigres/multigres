@@ -87,19 +87,19 @@ func TestIntToInt32(t *testing.T) {
 	}
 }
 
-func TestPgCtldServiceStart(t *testing.T) {
+func TestPgCtldServiceStartAsStandby(t *testing.T) {
 	tests := []struct {
 		name          string
-		request       *pb.StartRequest
+		request       *pb.StartAsStandbyRequest
 		setupDataDir  func(string) string
 		setupBinaries bool
 		expectError   bool
 		errorContains string
-		checkResponse func(*testing.T, *pb.StartResponse)
+		checkResponse func(*testing.T, *pb.StartAsStandbyResponse)
 	}{
 		{
 			name: "start with uninitialized data dir should fail",
-			request: &pb.StartRequest{
+			request: &pb.StartAsStandbyRequest{
 				Port:      5432,
 				ExtraArgs: []string{},
 			},
@@ -112,7 +112,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 		},
 		{
 			name: "start already running server",
-			request: &pb.StartRequest{
+			request: &pb.StartAsStandbyRequest{
 				Port: 5432,
 			},
 			setupDataDir: func(baseDir string) string {
@@ -122,11 +122,44 @@ func TestPgCtldServiceStart(t *testing.T) {
 			},
 			setupBinaries: true,
 			expectError:   false,
-			checkResponse: func(t *testing.T, resp *pb.StartResponse) {
-				assert.Contains(t, resp.Message, "already running")
+			checkResponse: func(t *testing.T, resp *pb.StartAsStandbyResponse) {
+				assert.Equal(t, pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING, resp.GetResult())
 			},
 		},
 	}
+
+	t.Run("writes standby.signal before starting postgres", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_standby_signal_test")
+		defer cleanup()
+
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		_ = dataDir
+
+		// Mock postgres binary that records what files exist at startup time.
+		// We verify standby.signal is present when postgres is called.
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+		// The mock postgres checks for standby.signal in the data dir and exits 0.
+		// If standby.signal is missing, it exits 1.
+		pgDataDir := filepath.Join(baseDir, "pg_data")
+		testutil.MockBinary(t, binDir, "postgres", `
+[ -f "`+pgDataDir+`/standby.signal" ] && exit 0
+exit 1
+`)
+		testutil.MockBinary(t, binDir, "pg_isready", "exit 0")
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StartAsStandby(context.Background(), &pb.StartAsStandbyRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED, resp.GetResult())
+
+		// standby.signal should still be present after startup
+		assert.FileExists(t, filepath.Join(pgDataDir, "standby.signal"))
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,7 +182,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 			require.NoError(t, err)
 
-			resp, err := service.Start(context.Background(), tt.request)
+			resp, err := service.StartAsStandby(context.Background(), tt.request)
 
 			if tt.expectError {
 				fmt.Println(resp)

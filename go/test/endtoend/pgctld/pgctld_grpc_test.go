@@ -77,9 +77,9 @@ func TestGRPCServerIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Step 3: Start PostgreSQL
-		startResp, err := client.Start(ctx, &pb.StartRequest{})
+		startResp, err := client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 		require.NoError(t, err)
-		assert.NotEmpty(t, startResp.Message)
+		assert.NotZero(t, startResp.GetPid())
 
 		// Step 4: Check status - should be running
 		statusResp, err = client.Status(ctx, &pb.StatusRequest{})
@@ -154,18 +154,13 @@ func TestGRPCErrorHandling(t *testing.T) {
 		_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{})
 		require.NoError(t, err)
 
-		_, err = client.Start(ctx, &pb.StartRequest{})
+		_, err = client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 		require.NoError(t, err)
 
-		// Try to start again - should handle gracefully
-		startResp, err := client.Start(ctx, &pb.StartRequest{})
-		if err != nil {
-			// Error is acceptable
-			t.Logf("Expected error on duplicate start: %v", err)
-		} else {
-			// Or success with appropriate message
-			assert.Contains(t, startResp.Message, "already")
-		}
+		// Try to start again - should handle gracefully (already running)
+		startResp, err := client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING, startResp.GetResult())
 
 		// Clean up
 		_, _ = client.Stop(ctx, &pb.StopRequest{Mode: "fast"})
@@ -366,7 +361,7 @@ func TestGRPCUninitializedDatabase(t *testing.T) {
 		assert.Equal(t, "Data directory is not initialized", statusResp.GetMessage())
 
 		// Step 2: Try to start without initialization - should fail with proper error
-		_, err = client.Start(ctx, &pb.StartRequest{})
+		_, err = client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "data directory not initialized")
 		assert.Contains(t, err.Error(), "Run 'pgctld init' first")
