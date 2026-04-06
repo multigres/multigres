@@ -110,12 +110,14 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
 
-	// If the target database is not the default "postgres" (always created by initdb),
-	// start PostgreSQL transiently and create it — same as docker-library/postgres does.
-	if cfg.Database != constants.DefaultPostgresDatabase {
-		if err := setupDatabase(logger, cfg); err != nil {
-			return nil, fmt.Errorf("failed to create database %q: %w", cfg.Database, err)
-		}
+	// Start PostgreSQL transiently and stop it. This updates pg_control with GUC values from
+	// our postgresql.conf (e.g. max_connections, max_worker_processes). initdb initializes
+	// pg_control with PostgreSQL's built-in defaults, but StartAsStandby (recovery mode)
+	// requires these GUCs to be >= the values recorded in pg_control. Running postgres once
+	// here ensures pg_control reflects our config before we switch to standby-only operation.
+	// This also creates cfg.Database if it doesn't already exist (initdb always creates "postgres").
+	if err := setupDatabase(logger, cfg); err != nil {
+		return nil, fmt.Errorf("failed to setup database %q: %w", cfg.Database, err)
 	}
 
 	result.AlreadyInitialized = false
