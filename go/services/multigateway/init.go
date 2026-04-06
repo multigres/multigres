@@ -132,7 +132,7 @@ func NewMultiGateway() *MultiGateway {
 			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
 		}),
 		planCacheMemory: viperutil.Configure(reg, "plan-cache-memory", viperutil.Options[int]{
-			Default:  32 * 1024 * 1024, // 32 MB
+			Default:  4 * 1024 * 1024, // 4 MB
 			FlagName: "plan-cache-memory",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},

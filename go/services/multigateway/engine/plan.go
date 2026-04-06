@@ -84,12 +84,27 @@ func (p *Plan) GetTableGroup() string {
 	return p.Primitive.GetTableGroup()
 }
 
-// CachedSize returns the approximate memory cost of this plan for cache sizing.
+// CachedSize returns the approximate memory cost of this plan in bytes.
 // Used by the theine cache to enforce memory-based capacity limits.
-// Currently returns 1 (count-based); can be refined to return actual byte size.
+// Can be refined to return actual byte size.
 // TODO: Generate cached size
 func (p *Plan) CachedSize(_ bool) int64 {
-	return 1
+	// Plan struct overhead + pointer/interface/slice headers.
+	size := int64(256)
+	size += int64(len(p.Original))
+	size += int64(len(p.Type))
+	for _, t := range p.TablesUsed {
+		size += int64(len(t)) + 16 // string header + content
+	}
+	if r, ok := p.Primitive.(*Route); ok {
+		size += int64(len(r.Query)) + int64(len(r.TableGroup)) + int64(len(r.Shard))
+		// NormalizedAST is a cloned AST tree. Rough estimate: ~10x the query
+		// string length accounts for node structs, pointers, and metadata.
+		if r.NormalizedAST != nil {
+			size += int64(len(r.Query)) * 10
+		}
+	}
+	return size
 }
 
 // String returns a string representation of the plan for debugging.
