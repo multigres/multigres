@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ShardNeedsBootstrapAnalyzer detects when all nodes in a shard are uninitialized.
@@ -42,7 +41,11 @@ func (a *ShardNeedsBootstrapAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewBootstrapShardAction()
 }
 
-func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *ShardNeedsBootstrapAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *ShardNeedsBootstrapAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
 	// PrimaryIsDead analyzer will handle dead primaries.

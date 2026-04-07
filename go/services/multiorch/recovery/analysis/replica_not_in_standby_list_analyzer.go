@@ -21,7 +21,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotInStandbyListAnalyzer detects when a replica is not in the primary's
@@ -45,7 +44,11 @@ func (a *ReplicaNotInStandbyListAnalyzer) RecoveryAction() types.RecoveryAction 
 	return a.factory.NewFixReplicationAction()
 }
 
-func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotInStandbyListAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
