@@ -30,6 +30,7 @@ go.work.sum
 .vscode/
 .swp
 .zed/
+.superset/
 
 # Dependencies
 node_modules
