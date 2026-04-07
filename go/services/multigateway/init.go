@@ -76,9 +76,12 @@ type MultiGateway struct {
 	pgReplicaPort viperutil.Value[int]
 	// pgReplicaListener is the optional replica-reads listener
 	pgReplicaListener *server.Listener
-	// pgReplicaMaxLagSecs is the maximum acceptable replication lag for replica reads,
-	// in seconds. 0 means no lag filtering.
-	pgReplicaMaxLagSecs viperutil.Value[int]
+	// pgReplicaLowLagSecs is the preferred replication lag threshold for replicas.
+	// Replicas at or below this lag are considered "healthy" and preferred.
+	pgReplicaLowLagSecs viperutil.Value[int]
+	// pgReplicaHighLagToleranceSecs is the absolute maximum replication lag.
+	// Replicas above this are never selected. 0 means no upper bound.
+	pgReplicaHighLagToleranceSecs viperutil.Value[int]
 	// cancelManager handles cross-gateway query cancellation
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
@@ -155,11 +158,17 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_REPLICA_PORT"},
 		}),
-		pgReplicaMaxLagSecs: viperutil.Configure(reg, "max-replica-lag-secs", viperutil.Options[int]{
-			Default:  0,
-			FlagName: "max-replica-lag-secs",
+		pgReplicaLowLagSecs: viperutil.Configure(reg, "low-replication-lag-secs", viperutil.Options[int]{
+			Default:  30,
+			FlagName: "low-replication-lag-secs",
 			Dynamic:  false,
-			EnvVars:  []string{"MT_MAX_REPLICA_LAG_SECS"},
+			EnvVars:  []string{"MT_LOW_REPLICATION_LAG_SECS"},
+		}),
+		pgReplicaHighLagToleranceSecs: viperutil.Configure(reg, "high-replication-lag-tolerance-secs", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "high-replication-lag-tolerance-secs",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_SECS"},
 		}),
 		bufferConfig: buffer.NewConfig(reg),
 		grpcServer:   servenv.NewGrpcServer(reg),
@@ -198,7 +207,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
-	fs.Int("max-replica-lag-secs", mg.pgReplicaMaxLagSecs.Default(), "maximum acceptable replication lag in seconds for replica reads; 0 disables lag filtering")
+	fs.Int("low-replication-lag-secs", mg.pgReplicaLowLagSecs.Default(), "replicas at or below this lag (seconds) are preferred; 0 treats all replicas equally")
+	fs.Int("high-replication-lag-tolerance-secs", mg.pgReplicaHighLagToleranceSecs.Default(), "absolute max lag (seconds) for replicas; 0 means no upper bound")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -208,7 +218,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 		mg.pgReplicaPort,
-		mg.pgReplicaMaxLagSecs,
+		mg.pgReplicaLowLagSecs,
+		mg.pgReplicaHighLagToleranceSecs,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
@@ -256,9 +267,15 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Create LoadBalancer and register with discovery for real-time updates
 	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
-	if lagSecs := mg.pgReplicaMaxLagSecs.Get(); lagSecs > 0 {
-		loadBalancer.SetMaxReplicationLag(time.Duration(lagSecs) * time.Second)
-		logger.InfoContext(ctx, "replica read lag filter configured", "max_lag_secs", lagSecs)
+	lowLag := mg.pgReplicaLowLagSecs.Get()
+	highTolerance := mg.pgReplicaHighLagToleranceSecs.Get()
+	if lowLag > 0 || highTolerance > 0 {
+		loadBalancer.SetReplicationLagThresholds(
+			time.Duration(lowLag)*time.Second,
+			time.Duration(highTolerance)*time.Second,
+		)
+		logger.InfoContext(ctx, "replica replication lag thresholds configured",
+			"low_lag_secs", lowLag, "high_tolerance_secs", highTolerance)
 	}
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")

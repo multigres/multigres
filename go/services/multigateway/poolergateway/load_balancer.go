@@ -73,10 +73,16 @@ type LoadBalancer struct {
 	// Used to stop failover buffering for the shard. May be nil.
 	onPrimaryServing func(tableGroup, shard string)
 
-	// maxReplicationLagNs is the maximum acceptable replication lag for replica reads,
-	// in nanoseconds. Replicas with a higher measured lag are excluded from selection.
-	// Zero means no lag filtering (any replica is acceptable).
-	maxReplicationLagNs int64
+	// lowReplicationLagNs is the preferred replication lag threshold in nanoseconds.
+	// Replicas at or below this lag are considered "healthy" and preferred.
+	// If all replicas exceed this but are under highReplicationLagToleranceNs,
+	// they are still eligible. Zero disables the preferred tier (all replicas equal).
+	lowReplicationLagNs int64
+
+	// highReplicationLagToleranceNs is the absolute maximum replication lag in
+	// nanoseconds. Replicas above this are never selected. Zero means no upper
+	// bound — any replica is eligible regardless of lag.
+	highReplicationLagToleranceNs int64
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
@@ -98,12 +104,16 @@ func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
 	lb.onPrimaryServing = fn
 }
 
-// SetMaxReplicationLag sets the maximum acceptable replication lag for replica reads.
-// Replicas with a measured lag above this threshold are excluded from selection;
-// if all replicas exceed the threshold the PoolerGateway silently falls back to primary.
-// Zero (the default) disables lag filtering — any replica is acceptable.
-func (lb *LoadBalancer) SetMaxReplicationLag(d time.Duration) {
-	lb.maxReplicationLagNs = d.Nanoseconds()
+// SetReplicationLagThresholds configures two-tier replication lag filtering.
+//
+//   - lowLag: replicas at or below this lag are preferred ("healthy" tier).
+//     If all replicas exceed this but are under highTolerance, they are still used.
+//     Zero disables the preferred tier — all replicas are treated equally.
+//   - highTolerance: absolute maximum lag. Replicas above this are never selected.
+//     Zero means no upper bound.
+func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.Duration) {
+	lb.lowReplicationLagNs = lowLag.Nanoseconds()
+	lb.highReplicationLagToleranceNs = highTolerance.Nanoseconds()
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
@@ -275,33 +285,52 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 	return conn, nil
 }
 
-// selectReplicaConnection chooses the best replica connection from candidates.
-// Prefers serving connections in local cell, with randomization within each tier
-// to distribute load across replicas (following Vitess pattern).
+// selectReplicaConnection chooses the best replica connection from candidates
+// using two-tier replication lag filtering (following the Vitess pattern):
 //
-// When a max replication lag threshold is configured, replicas exceeding it are
-// excluded. Returns nil if all candidates fail the lag check, signalling the caller
-// to fall back to the primary.
+//  1. Exclude replicas above highReplicationLagToleranceNs (absolute max).
+//  2. Prefer replicas at or below lowReplicationLagNs ("healthy" tier).
+//  3. If no healthy replicas, fall back to any that passed the high tolerance.
+//  4. If none pass either threshold, return nil (error to client).
+//
+// Within each tier, selection prefers local-cell serving replicas with
+// randomization to distribute load.
 func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
-	// Filter by replication lag if a threshold is configured.
-	if lb.maxReplicationLagNs > 0 {
-		var withinLag []*PoolerConnection
+	lowThreshold := lb.lowReplicationLagNs
+	highThreshold := lb.highReplicationLagToleranceNs
+
+	// Two-tier lag filtering when at least one threshold is configured.
+	if lowThreshold > 0 || highThreshold > 0 {
+		var healthy, tolerable []*PoolerConnection
 		for _, conn := range candidates {
 			health := conn.Health()
 			lagNs := int64(0)
 			if health != nil {
 				lagNs = health.ReplicationLagNs
 			}
-			// Include replicas where lag is unknown (0) or within threshold.
-			if lagNs == 0 || lagNs <= lb.maxReplicationLagNs {
-				withinLag = append(withinLag, conn)
+
+			// Exclude replicas above the absolute maximum.
+			if highThreshold > 0 && lagNs > 0 && lagNs > highThreshold {
+				continue
+			}
+
+			// Lag unknown (0) or within the low threshold → healthy.
+			if lowThreshold == 0 || lagNs == 0 || lagNs <= lowThreshold {
+				healthy = append(healthy, conn)
+			} else {
+				// Between low and high thresholds → tolerable fallback.
+				tolerable = append(tolerable, conn)
 			}
 		}
-		if len(withinLag) == 0 {
-			// All replicas exceed the lag threshold — signal caller to fall back to primary.
+
+		if len(healthy) > 0 {
+			candidates = healthy
+		} else if len(tolerable) > 0 {
+			candidates = tolerable
+		} else {
+			// All replicas exceed the high tolerance threshold.
 			return nil
 		}
-		candidates = withinLag
 	}
 
 	// Categorize by locality and serving status.
