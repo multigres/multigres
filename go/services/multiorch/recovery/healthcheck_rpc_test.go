@@ -282,6 +282,145 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 	require.WithinDuration(t, lastSeenTime, updated.LastSeen.AsTime(), 1*time.Second, "LastSeen should not be updated on failure")
 }
 
+// TestPollPooler_ConcurrentWatcherUpdate tests that a topology update written by the
+// PoolerWatcher while the Status RPC is in-flight is not overwritten by the health check.
+// This is the core race condition the DoUpdate pattern was introduced to prevent.
+func TestPollPooler_ConcurrentWatcherUpdate(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+	// Use a delay so there is a window to simulate a concurrent watcher update.
+	fakeClient.SetStatusResponseWithDelay("multipooler-zone1-pooler1", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType:      clustermetadata.PoolerType_REPLICA,
+			PostgresRunning: true,
+		},
+	}, 50*time.Millisecond)
+
+	re := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+		fakeClient,
+		newTestCoordinator(ts, fakeClient, "zone1"),
+	)
+
+	poolerID := &clustermetadata.ID{
+		Component: clustermetadata.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "pooler1",
+	}
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_REPLICA,
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+		IsUpToDate:       false,
+		IsLastCheckValid: false,
+	}
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
+	re.poolerStore.Set(poolerKey, pooler)
+
+	// Simulate the watcher promoting the pooler to PRIMARY while the RPC is in-flight.
+	go func() {
+		time.Sleep(10 * time.Millisecond) // after RPC starts, before it completes
+		updated, ok := re.poolerStore.Get(poolerKey)
+		if !ok {
+			return
+		}
+		updated.MultiPooler.Type = clustermetadata.PoolerType_PRIMARY
+		re.poolerStore.Set(poolerKey, updated)
+	}()
+
+	re.pollPooler(ctx, poolerID, pooler, false /* forceDiscovery */)
+
+	result, ok := re.poolerStore.Get(poolerKey)
+	require.True(t, ok)
+	// The watcher's topology update must be preserved — not overwritten by the health check.
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, result.MultiPooler.Type,
+		"watcher's topology update should not be overwritten by health check")
+	// Health fields from the RPC should still be applied.
+	require.True(t, result.IsLastCheckValid)
+	require.True(t, result.IsUpToDate)
+}
+
+// TestPollPooler_DeletedDuringPoll tests that a pooler deleted from the store while the
+// Status RPC is in-flight is not resurrected by the health check update.
+func TestPollPooler_DeletedDuringPoll(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetStatusResponseWithDelay("multipooler-zone1-pooler1", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType:      clustermetadata.PoolerType_PRIMARY,
+			PostgresRunning: true,
+		},
+	}, 50*time.Millisecond)
+
+	re := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+		fakeClient,
+		newTestCoordinator(ts, fakeClient, "zone1"),
+	)
+
+	poolerID := &clustermetadata.ID{
+		Component: clustermetadata.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "pooler1",
+	}
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_PRIMARY,
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+	}
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
+	re.poolerStore.Set(poolerKey, pooler)
+
+	// Delete the pooler while the RPC is in-flight.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		re.poolerStore.Delete(poolerKey)
+	}()
+
+	re.pollPooler(ctx, poolerID, pooler, false /* forceDiscovery */)
+
+	_, ok := re.poolerStore.Get(poolerKey)
+	require.False(t, ok, "deleted pooler should not be resurrected by health check")
+}
+
 // TestPollPooler_TypeMismatch tests behavior when reported type differs from topology type
 func TestPollPooler_TypeMismatch(t *testing.T) {
 	ctx := context.Background()
