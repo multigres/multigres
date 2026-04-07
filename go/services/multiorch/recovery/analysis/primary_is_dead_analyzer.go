@@ -77,7 +77,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, err
 	return []types.Problem{{
 		Code:           types.ProblemPrimaryIsDead,
 		CheckName:      "PrimaryIsDead",
-		PoolerID:       nil,
+		PoolerID:       sa.HighestTermDiscoveredPrimaryID,
 		ShardKey:       sa.ShardKey,
 		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable", sa.ShardKey),
 		Priority:       types.PriorityEmergency,

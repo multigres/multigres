@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -34,7 +33,7 @@ const (
 
 // gracePeriodKey uniquely identifies a grace period tracking entry.
 // entityID is either a pooler ID string (for pooler-scoped problems) or a
-// shard key string (for shard-scoped problems where PoolerID is nil).
+// shard key string (for shard-scoped problems).
 type gracePeriodKey struct {
 	code     types.ProblemCode
 	entityID string
@@ -163,13 +162,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 		return true
 	}
 
-	// Resolve entity ID: pooler-scoped problems use pooler ID; shard-scoped use shard key.
-	var entityID string
-	if problem.PoolerID != nil {
-		entityID = topoclient.MultiPoolerIDString(problem.PoolerID)
-	} else {
-		entityID = problem.ShardKey.String()
-	}
+	entityID := problem.EntityID()
 
 	key := gracePeriodKey{code: problem.Code, entityID: entityID}
 	deadline, exists := dt.deadlines[key]
