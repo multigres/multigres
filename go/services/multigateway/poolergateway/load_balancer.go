@@ -286,7 +286,7 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 }
 
 // selectReplicaConnection chooses the best replica connection from candidates
-// using two-tier replication lag filtering (following the Vitess pattern):
+// using two-tier replication lag filtering:
 //
 //  1. Exclude replicas above highReplicationLagToleranceNs (absolute max).
 //  2. Prefer replicas at or below lowReplicationLagNs ("healthy" tier).

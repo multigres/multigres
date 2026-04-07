@@ -66,6 +66,9 @@ type ProcessInstance struct {
 	TLSCertFile string // TLS certificate file (multigateway)
 	TLSKeyFile  string // TLS private key file (multigateway)
 
+	// ReplicaPgPort is the optional PostgreSQL replica-reads listener port (multigateway).
+	ReplicaPgPort int
+
 	// ExtraArgs holds additional command-line flags appended to the process args.
 	// Used by multigateway for buffer config, etc.
 	ExtraArgs []string
@@ -282,6 +285,11 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
 		"--log-level", "debug",
+	}
+
+	// Add replica port flag if configured
+	if p.ReplicaPgPort > 0 {
+		args = append(args, "--pg-replica-port", strconv.Itoa(p.ReplicaPgPort))
 	}
 
 	// Add TLS certificate flags if configured

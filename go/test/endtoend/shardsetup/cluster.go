@@ -76,8 +76,9 @@ type ShardSetup struct {
 	MultiOrchInstances map[string]*ProcessInstance
 
 	// Multigateway instance (optional, enabled via WithMultigateway)
-	Multigateway       *ProcessInstance
-	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
+	Multigateway              *ProcessInstance
+	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
+	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
