@@ -619,11 +619,8 @@ message InitializeEmptyPrimaryRequest {
   // Consensus term to set for this primary
   int64 consensus_term = 1;
 
-  reserved 2;
-  reserved "durability_policy";
-
   // ID of the multiorch coordinator performing the bootstrap
-  clustermetadata.ID coordinator_id = 4;
+  clustermetadata.ID coordinator_id = 2;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -754,9 +751,6 @@ message GetDurabilityPolicyResponse {
 // CreateDurabilityPolicyRequest creates a new durability policy
 message CreateDurabilityPolicyRequest {
   clustermetadata.DurabilityPolicy durability_policy = 1;
-
-  reserved 2;
-  reserved "quorum_rule";
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation

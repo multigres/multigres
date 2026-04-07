@@ -66,15 +66,12 @@ message Database {
   // Backup location configuration
   BackupLocation backup_location = 2;
 
-  reserved 3;
-  reserved "durability_policy";
-
   // List of cell identifiers where this database should be deployed
-  repeated string cells = 4;
+  repeated string cells = 3;
 
   // bootstrap_durability_policy is the durability policy applied when
   // initializing this database for the first time. Set at database creation.
-  DurabilityPolicy bootstrap_durability_policy = 5;
+  DurabilityPolicy bootstrap_durability_policy = 4;
 }
 
 // BackupLocation specifies where backups are stored
