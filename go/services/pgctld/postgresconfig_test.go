@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 // configSettings contains all the PostgreSQL configuration settings we want to test.
@@ -335,6 +337,7 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	// Test the complete round-trip: generate config using template, then read it back
 	// and validate that all required template fields are populated correctly
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
 	// Generate config using the template
 	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, 5433, "postgres")
