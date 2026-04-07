@@ -55,10 +55,10 @@ naturally.
 
 Replica selection uses a two-tier replication lag model:
 
-| Threshold | Flag | Default | Behavior |
-| --- | --- | --- | --- |
-| Low (preferred) | `--low-replication-lag-secs` | 30 | Replicas at or below this lag are preferred |
-| High (absolute max) | `--high-replication-lag-tolerance-secs` | 0 (disabled) | Replicas above this are never selected |
+| Threshold           | Flag                                    | Default      | Behavior                                    |
+| ------------------- | --------------------------------------- | ------------ | ------------------------------------------- |
+| Low (preferred)     | `--low-replication-lag-secs`            | 30           | Replicas at or below this lag are preferred |
+| High (absolute max) | `--high-replication-lag-tolerance-secs` | 0 (disabled) | Replicas above this are never selected      |
 
 ### Selection Algorithm
 
@@ -92,11 +92,11 @@ Within each tier, a random replica is selected to distribute load evenly.
 
 ## Configuration
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--pg-replica-port` | 0 (disabled) | Port for replica-reads connections |
-| `--low-replication-lag-secs` | 30 | Preferred lag threshold (seconds) |
-| `--high-replication-lag-tolerance-secs` | 0 (no limit) | Absolute max lag (seconds) |
+| Flag                                    | Default      | Description                        |
+| --------------------------------------- | ------------ | ---------------------------------- |
+| `--pg-replica-port`                     | 0 (disabled) | Port for replica-reads connections |
+| `--low-replication-lag-secs`            | 30           | Preferred lag threshold (seconds)  |
+| `--high-replication-lag-tolerance-secs` | 0 (no limit) | Absolute max lag (seconds)         |
 
 Environment variables: `MT_PG_REPLICA_PORT`, `MT_LOW_REPLICATION_LAG_SECS`,
 `MT_HIGH_REPLICATION_LAG_TOLERANCE_SECS`.
@@ -108,7 +108,7 @@ Environment variables: `MT_PG_REPLICA_PORT`, `MT_LOW_REPLICATION_LAG_SECS`,
   by connecting to the primary port.
 - **All replicas too lagged**: Same behavior as no replica available.
 - **Write on replica port**: PostgreSQL returns `SQLSTATE 25006
-  (read_only_sql_transaction)` — the gateway does not intercept this.
+(read_only_sql_transaction)` — the gateway does not intercept this.
 - **No buffering for replicas**: Failover buffering only applies to primary targets.
   Replica errors are returned immediately without retry.
 
