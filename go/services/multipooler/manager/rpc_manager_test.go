@@ -1464,8 +1464,11 @@ func TestReplicationStatus(t *testing.T) {
 					"pg_last_xact_replay_timestamp",
 					"primary_conninfo",
 					"wal_receiver_status",
+					"last_msg_receive_time",
+					"wal_receiver_status_interval",
+					"wal_receiver_timeout",
 				},
-				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming"}}))
+				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 
@@ -1543,8 +1546,11 @@ func TestReplicationStatus(t *testing.T) {
 					"pg_last_xact_replay_timestamp",
 					"primary_conninfo",
 					"wal_receiver_status",
+					"last_msg_receive_time",
+					"wal_receiver_status_interval",
+					"wal_receiver_timeout",
 				},
-				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming"}}))
+				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 

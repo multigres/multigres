@@ -27,6 +27,22 @@ import (
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
+// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
+const DefaultReplicaLagThreshold = 10 * time.Second
+
+// replicationHeartbeatStalenessMultiplier is applied to wal_receiver_status_interval
+// to compute the heartbeat staleness threshold. The replica sends a status message
+// to the primary every wal_receiver_status_interval; the primary echoes a keepalive
+// reply. Three missed intervals means the primary has gone silent well before the
+// wal_receiver_timeout (60s) would disconnect the WAL receiver.
+const replicationHeartbeatStalenessMultiplier = 3
+
+// defaultReplicationHeartbeatStalenessThreshold is the fallback threshold used
+// when wal_receiver_status_interval is not available in the replica's health
+// state. Equals replicationHeartbeatStalenessMultiplier × the default
+// wal_receiver_status_interval (10s).
+const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
+
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
 type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState
@@ -35,6 +51,7 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 type AnalysisGenerator struct {
 	poolerStore    *store.PoolerStore
 	poolersByShard PoolersByShard
+	now            func() time.Time
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
@@ -42,6 +59,7 @@ type AnalysisGenerator struct {
 func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore: poolerStore,
+		now:         time.Now,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	return g
@@ -153,6 +171,31 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	}
 
 	return poolerIDs, nil
+}
+
+// GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
+// the given pooler ID. Used primarily in tests to inspect shard-level fields like
+// ReplicasConnectedToPrimary without running the full analysis loop.
+func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*ShardAnalysis, error) {
+	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	if !ok {
+		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
+	}
+	if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
+	}
+
+	database := pooler.MultiPooler.Database
+	tableGroup := pooler.MultiPooler.TableGroup
+	shard := pooler.MultiPooler.Shard
+
+	poolers, ok := g.poolersByShard[database][tableGroup][shard]
+	if !ok || len(poolers) == 0 {
+		return nil, fmt.Errorf("shard not found for pooler: %s", poolerIDStr)
+	}
+
+	shardKey := commontypes.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
+	return g.buildShardAnalysis(shardKey, poolers), nil
 }
 
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
@@ -297,12 +340,9 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 	return replicaCount > 0 && connectedCount == replicaCount
 }
 
-// isReplicaConnectedToPrimary checks if a single replica is connected to the primary.
-//
-// TODO: Check heartbeat data timestamp to verify writes are actively flowing through replication.
-// The multigres.heartbeat table is updated periodically on the primary, so checking if the
-// replica's heartbeat timestamp is recent would prove the replication connection is active.
-// Currently we check that LastReceiveLsn is non-empty, but this doesn't prove active connectivity.
+// isReplicaConnectedToPrimary checks if a single replica is actively connected to the primary.
+// It verifies both that the connection is configured correctly and that the WAL receiver is
+// actively exchanging keepalives with the primary via pg_stat_wal_receiver.
 func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	replica *multiorchdatapb.PoolerHealthState,
 	primaryHost string,
@@ -324,7 +364,11 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 		return false
 	}
 
-	// Verify the replica is pointing to the correct primary
+	// Verify the replica is pointing to the correct primary. Note: if this is
+	// not the case, there is a more fundamental problem (e.g., misconfiguration
+	// or split-brain). This is not correctly indicated by a simple "false"
+	// return value, but we still want to return false here to avoid falsely
+	// triggering failover analyzers that rely on this method.
 	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
 		return false
 	}
@@ -332,6 +376,34 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	// Replica must have received WAL (indicates connection was established)
 	if replica.ReplicationStatus.LastReceiveLsn == "" {
 		return false
+	}
+
+	// WAL receiver must be in streaming state
+	if replica.ReplicationStatus.WalReceiverStatus != "streaming" {
+		return false
+	}
+
+	// If last_msg_receive_time is available, verify the primary is still
+	// sending keepalives. The threshold is
+	// replicationHeartbeatStalenessMultiplier × wal_receiver_status_interval,
+	// falling back to defaultReplicationHeartbeatStalenessThreshold when the
+	// interval is unknown.
+	//
+	// If the last heartbeat is older than WAL receiver timeout, the connection
+	// is effectively dead even if the replica hasn't noticed yet, so we check
+	// that as well.
+	if ts := replica.ReplicationStatus.LastMsgReceiveTime; ts != nil {
+		threshold := defaultReplicationHeartbeatStalenessThreshold
+		delay := g.now().Sub(ts.AsTime())
+		if d := replica.ReplicationStatus.WalReceiverTimeout; d != nil && delay > d.AsDuration() {
+			return false
+		}
+		if d := replica.ReplicationStatus.WalReceiverStatusInterval; d != nil && d.AsDuration() > 0 {
+			threshold = replicationHeartbeatStalenessMultiplier * d.AsDuration()
+		}
+		if delay > threshold {
+			return false
+		}
 	}
 
 	return true

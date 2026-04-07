@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1246,8 +1247,8 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1285,8 +1286,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1338,13 +1339,13 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				// Second query for waitForReplicationPause
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1362,8 +1363,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
@@ -1400,8 +1401,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", errors.New("pause failed"))
 			},
 			expectError:   true,
@@ -1563,8 +1564,8 @@ func TestQueryReplicationStatus(t *testing.T) {
 			name: "All fields with valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", "2025-01-15 10:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1576,14 +1577,19 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.NotNil(t, status.PrimaryConnInfo)
 				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.LastMsgReceiveTime)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "NULL LSN values (primary server case)",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"", "", "f", "not paused", "", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"", "", "f", "not paused", "", "", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1593,14 +1599,17 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "not paused", status.WalReplayPauseState)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus, "WalReceiverStatus should be empty on primary")
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{
 			name: "Paused replication with valid LSNs",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming", "2025-01-15 11:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1615,14 +1624,18 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "replicator", status.PrimaryConnInfo.User)
 				assert.Equal(t, "standby1", status.PrimaryConnInfo.ApplicationName)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "Mixed NULL and valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1631,6 +1644,9 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.False(t, status.IsWalReplayPaused)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus)
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{

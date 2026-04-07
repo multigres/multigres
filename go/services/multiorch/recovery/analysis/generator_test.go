@@ -681,6 +681,8 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsPostgresReady:  false,
 		})
 
+		now := time.Now()
+
 		// Replica 1 - connected to primary
 		ps.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -696,7 +698,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:     "0/1234567",
+				WalReceiverStatus:  "streaming",
+				LastMsgReceiveTime: timestamppb.New(now.Add(-5 * time.Second)),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -719,7 +723,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:     "0/1234567",
+				WalReceiverStatus:  "streaming",
+				LastMsgReceiveTime: timestamppb.New(now.Add(-5 * time.Second)),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -774,7 +780,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:     "0/1234567",
+				WalReceiverStatus:  "streaming",
+				LastMsgReceiveTime: timestamppb.New(time.Now().Add(-5 * time.Second)),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -926,7 +934,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:     "0/1234567",
+				WalReceiverStatus:  "streaming",
+				LastMsgReceiveTime: timestamppb.New(time.Now().Add(-5 * time.Second)),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "different-host", // Wrong host!
 					Port: 5432,
@@ -939,6 +949,261 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
+	})
+
+	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		})
+
+		for _, status := range []string{"", "starting", "waiting", "stopping"} {
+			ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+				MultiPooler: &clustermetadatapb.MultiPooler{
+					Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+				IsLastCheckValid: true,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					LastReceiveLsn:     "0/1234567",
+					WalReceiverStatus:  status, // not "streaming"
+					LastMsgReceiveTime: timestamppb.New(time.Now().Add(-5 * time.Second)),
+					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+						Host: "primary-host",
+						Port: 5432,
+					},
+				},
+			})
+
+			gen := NewAnalysisGenerator(ps)
+			analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+			require.NoError(t, err)
+			assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when wal_receiver_status=%q", status)
+		}
+	})
+
+	t.Run("returns false when last_msg_receive_time is stale (default threshold)", func(t *testing.T) {
+		// No WalReceiverStatusInterval supplied — falls back to defaultReplicationHeartbeatStalenessThreshold.
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		})
+
+		fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+		staleTime := fixedNow.Add(-(defaultReplicationHeartbeatStalenessThreshold + time.Second))
+
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:     "0/1234567",
+				WalReceiverStatus:  "streaming",
+				LastMsgReceiveTime: timestamppb.New(staleTime),
+				// WalReceiverStatusInterval intentionally nil — exercises fallback path
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(ps)
+		gen.now = func() time.Time { return fixedNow }
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when last_msg_receive_time is stale")
+	})
+
+	t.Run("returns false when last_msg_receive_time is stale (dynamic threshold)", func(t *testing.T) {
+		// WalReceiverStatusInterval supplied — threshold is multiplier × interval.
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		})
+
+		fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+		interval := 5 * time.Second
+		dynamicThreshold := replicationHeartbeatStalenessMultiplier * interval // 15s
+		staleTime := fixedNow.Add(-(dynamicThreshold + time.Second))
+
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:            "0/1234567",
+				WalReceiverStatus:         "streaming",
+				LastMsgReceiveTime:        timestamppb.New(staleTime),
+				WalReceiverStatusInterval: durationpb.New(interval),
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(ps)
+		gen.now = func() time.Time { return fixedNow }
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when last_msg_receive_time exceeds dynamic threshold")
+	})
+
+	t.Run("returns false when last_msg_receive_time exceeds wal_receiver_timeout", func(t *testing.T) {
+		// Even if the delay is below the staleness threshold, if it exceeds the
+		// WAL receiver timeout the connection is effectively dead.
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		})
+
+		fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+		walReceiverTimeout := 60 * time.Second
+		// last_msg_receive_time is 61s ago — exceeds wal_receiver_timeout (60s) but
+		// is still within the staleness threshold (3×10s = 30s would be fine, but
+		// the hard deadline fires first).
+		lastMsgReceiveTime := fixedNow.Add(-(walReceiverTimeout + time.Second))
+
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:            "0/1234567",
+				WalReceiverStatus:         "streaming",
+				LastMsgReceiveTime:        timestamppb.New(lastMsgReceiveTime),
+				WalReceiverStatusInterval: durationpb.New(10 * time.Second),
+				WalReceiverTimeout:        durationpb.New(walReceiverTimeout),
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(ps)
+		gen.now = func() time.Time { return fixedNow }
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when delay exceeds wal_receiver_timeout")
+	})
+
+	t.Run("returns true when last_msg_receive_time is nil", func(t *testing.T) {
+		// Backward compatibility: replicas that don't report last_msg_receive_time
+		// (e.g. running an older version) should still be considered connected if
+		// the WAL receiver is streaming.
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		})
+
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "streaming",
+				// LastMsgReceiveTime intentionally nil
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(ps)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when last_msg_receive_time is nil")
 	})
 }
 
