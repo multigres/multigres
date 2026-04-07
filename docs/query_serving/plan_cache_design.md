@@ -46,7 +46,7 @@ out and replace them with positional parameter markers.
 
 **Example**:
 
-```
+```sql
 Input:  SELECT * FROM users WHERE id = 42 AND region = 'us-east'
 Output: SELECT * FROM users WHERE id = $1 AND region = $2
 Bind:   [42, 'us-east']
@@ -183,7 +183,7 @@ Statements that bypass the cache:
 
 ### Simple Protocol Path (`StreamExecute`)
 
-```
+```text
 Client sends: SELECT * FROM orders WHERE id = 7
                           │
                      Parse → AST
@@ -234,7 +234,7 @@ evicted by the W-TinyLFU policy, useful for tuning the memory limit.
 
 ## Data Flow Summary
 
-```
+```text
                    ┌──────────────┐
 Client query ─────►│   Executor   │
                    └──────┬───────┘
