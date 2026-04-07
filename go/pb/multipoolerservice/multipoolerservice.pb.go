@@ -1730,8 +1730,14 @@ type StreamPoolerHealthResponse struct {
 	// to detect a stale/dead health stream. If no message is received within
 	// this duration, clients should mark the pooler as unhealthy.
 	RecommendedStalenessTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=recommended_staleness_timeout,json=recommendedStalenessTimeout,proto3" json:"recommended_staleness_timeout,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// schema_version is a monotonically increasing counter that is incremented
+	// each time the multipooler detects a schema change (DDL). It is present in
+	// every heartbeat so consumers can detect missed changes even after a health
+	// stream reconnect. When a consumer sees this value increase it should
+	// invalidate any cached query plans for this shard.
+	SchemaVersion int64 `protobuf:"varint,6,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -1797,6 +1803,13 @@ func (x *StreamPoolerHealthResponse) GetRecommendedStalenessTimeout() *durationp
 		return x.RecommendedStalenessTimeout
 	}
 	return nil
+}
+
+func (x *StreamPoolerHealthResponse) GetSchemaVersion() int64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.
@@ -2067,13 +2080,14 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"#\n" +
 	"!ReleaseReservedConnectionResponse\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xfa\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xa1\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12W\n" +
 	"\x13primary_observation\x18\x04 \x01(\v2&.multipoolerservice.PrimaryObservationR\x12primaryObservation\x12]\n" +
-	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\"k\n" +
+	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12%\n" +
+	"\x0eschema_version\x18\x06 \x01(\x03R\rschemaVersion\"k\n" +
 	"\x12PrimaryObservation\x122\n" +
 	"\n" +
 	"primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12!\n" +
