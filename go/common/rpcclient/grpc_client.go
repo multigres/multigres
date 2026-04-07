@@ -118,23 +118,6 @@ func (c *Client) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.
 }
 
 //
-// Manager Service Methods - Initialization
-//
-
-// InitializeEmptyPrimary initializes the multipooler as an empty primary.
-func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializeEmptyPrimary(ctx, request)
-}
-
-//
 // Manager Service Methods - Status and Monitoring
 //
 

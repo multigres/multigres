@@ -614,33 +614,11 @@ message ConsensusTerm {
   clustermetadata.ID leader_id = 4;
 
   // The term for which this pooler was promoted to primary.
-  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Set during promotion (Promote).
   // Preserved when consensus term increases (new elections).
   // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
   // 0 if never primary.
   int64 primary_term = 5;
-}
-
-// InitializeEmptyPrimary initializes this pooler as an empty primary
-// Used during bootstrap initialization of a new shard
-message InitializeEmptyPrimaryRequest {
-  // Consensus term to set for this primary
-  int64 consensus_term = 1;
-
-  // ID of the multiorch coordinator performing the bootstrap
-  clustermetadata.ID coordinator_id = 2;
-}
-
-message InitializeEmptyPrimaryResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Backup ID of the initial backup created during initialization
-  // This can be used by standbys to restore from the same backup
-  string backup_id = 3;
 }
 
 // Backup operations

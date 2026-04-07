@@ -15,9 +15,7 @@
 package manager
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,15 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
@@ -47,116 +40,6 @@ func NewTestMultiPoolerManager(t *testing.T, multiPooler *clustermetadatapb.Mult
 	require.NoError(t, err)
 
 	return pm
-}
-
-func TestInitializeEmptyPrimary(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupFunc     func(t *testing.T, pm *MultiPoolerManager, poolerDir string)
-		term          int64
-		expectSuccess bool // true: must succeed (nil err, Success=true); false: must fail
-		errorContains string
-	}{
-		{
-			// The marker file exists → isInitialized() returns true → early return.
-			// pgctld is never called, so this succeeds without real postgres.
-			name: "idempotent - already has a backup",
-			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				dataDir := filepath.Join(poolerDir, "pg_data")
-				markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
-				require.NoError(t, os.MkdirAll(markerDir, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-				require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
-			},
-			term:          1,
-			expectSuccess: true,
-		},
-		{
-			// Term validation happens before any I/O, so pgctld is never called.
-			name:          "rejects invalid consensus term",
-			term:          2,
-			expectSuccess: false,
-			errorContains: "consensus term must be 1",
-		},
-		{
-			// A fresh (uninitialized) pooler passes term and idempotency checks,
-			// then reaches the first pgctld call (InitDataDir). Unit tests stop
-			// here because real pgctld/postgres are not available; the full success
-			// path is covered by the integration test.
-			name:          "initialize fresh pooler",
-			term:          1,
-			expectSuccess: false,
-			errorContains: "pgctld",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := t.Context()
-			poolerDir := t.TempDir()
-			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-
-			// Create test config with topology store that has backup location
-			database := "postgres"
-			backupLocation := "/tmp/test-backups"
-			store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-			defer store.Close()
-
-			// Create database in topology with backup location
-			err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-				Name:           database,
-				BackupLocation: utils.FilesystemBackupLocation(backupLocation),
-			})
-			require.NoError(t, err)
-
-			serviceID := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "test-cell",
-				Name:      "test-pooler",
-			}
-
-			multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-			multiPooler.Shard = constants.DefaultShard
-			multiPooler.PoolerDir = poolerDir
-			multiPooler.PortMap = map[string]int32{"postgres": 5432}
-			multiPooler.Database = database
-
-			pm := NewTestMultiPoolerManager(t, multiPooler, &Config{TopoClient: store})
-
-			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err = pm.consensusState.Load()
-			require.NoError(t, err)
-
-			backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
-			require.NoError(t, err)
-
-			pm.mu.Lock()
-			pm.state = ManagerStateReady
-			pm.backupConfig = backupConfig
-			pm.topoLoaded = true
-			pm.mu.Unlock()
-
-			if tt.setupFunc != nil {
-				tt.setupFunc(t, pm, poolerDir)
-			}
-
-			resp, err := pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-				ConsensusTerm: tt.term,
-			})
-
-			if tt.expectSuccess {
-				require.NoError(t, err)
-				require.NotNil(t, resp)
-				assert.True(t, resp.Success)
-			} else {
-				require.Error(t, err)
-				assert.Nil(t, resp)
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			}
-		})
-	}
 }
 
 // TestIsInitialized verifies that isInitialized requires both the marker file and
@@ -293,71 +176,6 @@ func TestHelperMethods(t *testing.T) {
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
 	})
-}
-
-// TestInitializeEmptyPrimary_EventPoolerName verifies that primary.init events emitted
-// by MultiPoolerManager include the pooler_name attribute from the logger (set via
-// logger.With in NewMultiPoolerManager), not as an explicit struct field.
-func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
-	ctx := t.Context()
-	poolerDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-
-	database := "postgres"
-	backupLocation := t.TempDir()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-	defer store.Close()
-
-	err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-		Name:           database,
-		BackupLocation: utils.FilesystemBackupLocation(backupLocation),
-	})
-	require.NoError(t, err)
-
-	multiPooler := topoclient.NewMultiPooler("pooler-7", "test-cell", "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
-	multiPooler.PoolerDir = poolerDir
-	multiPooler.PortMap = map[string]int32{"postgres": 5432}
-	multiPooler.Database = database
-
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-
-	pm, err := NewMultiPoolerManager(logger, multiPooler, &Config{TopoClient: store})
-	require.NoError(t, err)
-
-	serviceID := multiPooler.Id
-	pm.consensusState = NewConsensusState(poolerDir, serviceID)
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err)
-
-	backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
-	require.NoError(t, err)
-
-	pm.mu.Lock()
-	pm.state = ManagerStateReady
-	pm.backupConfig = backupConfig
-	pm.topoLoaded = true
-	pm.mu.Unlock()
-
-	// InitializeEmptyPrimary will fail (no pgctld client), but both Started and Failed
-	// primary.init events are emitted before the pgctld call and via the defer, respectively.
-	_, _ = pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: 1,
-	})
-
-	var foundEvents int
-	dec := json.NewDecoder(&buf)
-	for dec.More() {
-		var m map[string]any
-		require.NoError(t, dec.Decode(&m))
-		if m["msg"] != "multigres.event" || m["event_type"] != "primary.init" {
-			continue
-		}
-		assert.Equal(t, "pooler-7", m["pooler_name"], "primary.init event must carry pooler_name from logger")
-		foundEvents++
-	}
-	assert.Equal(t, 2, foundEvents, "expected started and failed primary.init events")
 }
 
 // MonitorPostgres Tests

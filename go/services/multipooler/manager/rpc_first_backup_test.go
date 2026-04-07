@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -71,61 +72,29 @@ func (s *stubPgctldClient) PgRewind(_ context.Context, _ *pgctldpb.PgRewindReque
 
 var _ pgctldpb.PgCtldClient = (*stubPgctldClient)(nil)
 
-// TestParseDurabilityPolicyName tests all valid policy names and the error case.
-func TestParseDurabilityPolicyName(t *testing.T) {
-	tests := []struct {
-		name          string
-		policyName    string
-		expectedType  clustermetadatapb.QuorumType
-		expectedCount int32
-		expectError   bool
-	}{
-		{
-			name:          "AT_LEAST_2",
-			policyName:    "AT_LEAST_2",
-			expectedType:  clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			expectedCount: 2,
-		},
-		{
-			name:          "MULTI_CELL_AT_LEAST_2",
-			policyName:    "MULTI_CELL_AT_LEAST_2",
-			expectedType:  clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			expectedCount: 2,
-		},
-		{
-			name:          "ANY_2 (deprecated)",
-			policyName:    "ANY_2",
-			expectedType:  clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, //nolint:staticcheck // deprecated
-			expectedCount: 2,
-		},
-		{
-			name:          "MULTI_CELL_ANY_2 (deprecated)",
-			policyName:    "MULTI_CELL_ANY_2",
-			expectedType:  clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, //nolint:staticcheck // deprecated
-			expectedCount: 2,
-		},
-		{
-			name:        "unknown policy returns INVALID_ARGUMENT",
-			policyName:  "UNKNOWN_POLICY",
-			expectError: true,
-		},
+// TestLoadDurabilityPolicy verifies that loadDurabilityPolicy returns the
+// bootstrap_durability_policy from the topology database record.
+func TestLoadDurabilityPolicy(t *testing.T) {
+	ctx := t.Context()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	pm := &MultiPoolerManager{
+		topoClient:  store,
+		multipooler: &clustermetadatapb.MultiPooler{Database: dbName},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rule, err := parseDurabilityPolicyName(tt.policyName)
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
-				assert.Nil(t, rule)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, rule)
-				assert.Equal(t, tt.expectedType, rule.QuorumType)
-				assert.Equal(t, tt.expectedCount, rule.RequiredCount)
-			}
-		})
-	}
+	got, err := pm.loadDurabilityPolicy(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N, got.QuorumType)
+	assert.Equal(t, int32(2), got.RequiredCount)
 }
 
 // TestLoadDurabilityPolicy_NoPolicyConfigured verifies that a database without a
@@ -148,7 +117,7 @@ func TestLoadDurabilityPolicy_NoPolicyConfigured(t *testing.T) {
 		multipooler: &clustermetadatapb.MultiPooler{Database: dbName},
 	}
 
-	_, _, err = pm.loadDurabilityPolicy(ctx)
+	_, err = pm.loadDurabilityPolicy(ctx)
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "no durability_policy configured")

@@ -80,8 +80,9 @@ func (pm *MultiPoolerManager) createFirstBackupLocked(ctx context.Context) error
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast,
 	// before initdb, starting postgres, or schema creation.
-	policyName, quorumRule, err := pm.loadDurabilityPolicy(ctx)
-	if err != nil {
+	// TODO: Once pooler health status carries the durability policy, include it in the
+	// initial leadership_history record so replicas can verify quorum requirements on startup.
+	if _, err := pm.loadDurabilityPolicy(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy")
 	}
 
@@ -130,10 +131,6 @@ func (pm *MultiPoolerManager) createFirstBackupLocked(ctx context.Context) error
 
 	if err := pm.initializeMultischemaData(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to initialize multischema data")
-	}
-
-	if err := pm.createDurabilityPolicyLocked(ctx, policyName, quorumRule); err != nil {
-		return mterrors.Wrap(err, "failed to create durability policy")
 	}
 
 	// Get WAL position for the history record.
@@ -216,60 +213,17 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 	return nil
 }
 
-// loadDurabilityPolicy reads the durability policy name and quorum rule from
-// the topology. The policy must be configured on the database record.
-func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (string, *clustermetadatapb.QuorumRule, error) {
+// loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
+func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
 	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.Database)
 	if err != nil {
-		return "", nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
 	}
 
-	if db.DurabilityPolicy == "" {
-		return "", nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+	if db.BootstrapDurabilityPolicy == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"database %s has no durability_policy configured", pm.multipooler.Database)
 	}
 
-	quorumRule, err := parseDurabilityPolicyName(db.DurabilityPolicy)
-	if err != nil {
-		return "", nil, err
-	}
-
-	return db.DurabilityPolicy, quorumRule, nil
-}
-
-// parseDurabilityPolicyName converts a durability policy name into a QuorumRule.
-func parseDurabilityPolicyName(policyName string) (*clustermetadatapb.QuorumRule, error) {
-	switch policyName {
-	case "AT_LEAST_2":
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 2 nodes must acknowledge",
-		}, nil
-
-	case "MULTI_CELL_AT_LEAST_2":
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 2 nodes from different cells must acknowledge",
-		}, nil
-
-	case "ANY_2": // deprecated: use AT_LEAST_2
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, //nolint:staticcheck // deprecated
-			RequiredCount: 2,
-			Description:   "Any 2 nodes must acknowledge",
-		}, nil
-
-	case "MULTI_CELL_ANY_2": // deprecated: use MULTI_CELL_AT_LEAST_2
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, //nolint:staticcheck // deprecated
-			RequiredCount: 2,
-			Description:   "At least 2 nodes from different cells must acknowledge",
-		}, nil
-
-	default:
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unsupported durability policy: %s (must be AT_LEAST_2 or MULTI_CELL_AT_LEAST_2)", policyName)
-	}
+	return db.BootstrapDurabilityPolicy, nil
 }

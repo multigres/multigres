@@ -56,7 +56,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	defer cleanup()
 
 	// Verify nodes are completely uninitialized (no data directory, no postgres running)
-	// Multiorch will detect these as needing bootstrap and call InitializeEmptyPrimary
+	// Multiorch will detect these as needing bootstrap
 	for name, inst := range setup.Multipoolers {
 		func() {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -106,9 +106,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.True(t, shardsetup.HasEvent(events, "primary.init", "success"))
 		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
 		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "success"))
-		// Note: term.begin is NOT emitted during initial bootstrap because multiorch uses
-		// InitializeEmptyPrimary which sets the consensus term directly without going through
-		// the BeginTerm RPC. term.begin is only emitted during failover (AppointLeaderAction).
+		// Note: term.begin IS emitted during initial bootstrap because AppointInitialLeader
+		// calls BeginTerm directly. term.begin is also emitted during failover (AppointLeaderAction).
 	})
 
 	t.Run("verify restore.attempt events in standby logs", func(t *testing.T) {
