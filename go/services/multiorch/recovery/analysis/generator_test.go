@@ -33,7 +33,7 @@ import (
 )
 
 func TestAnalysisGenerator_GenerateShardAnalyses_EmptyStore(t *testing.T) {
-	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()))
+	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()), nil)
 
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
@@ -69,7 +69,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-primary-1", primary)
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
 	require.Len(t, analyses, 1, "should generate one analysis")
@@ -165,7 +165,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	}
 	ps.Set("multipooler-cell1-replica-2", replica2)
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
 	require.Len(t, analyses, 3, "should generate three analyses")
@@ -236,7 +236,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-replica-1", replica)
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -298,7 +298,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 	}
 	ps.Set("multipooler-cell1-tg2-primary", tg2Primary)
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -336,7 +336,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 		IsLastCheckValid: true,
 	})
 
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 	analyses := flattenShardAnalyses(gen.GenerateShardAnalyses())
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
@@ -367,7 +367,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -419,7 +419,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -541,7 +541,7 @@ func TestIsInStandbyList(t *testing.T) {
 				PrimaryStatus:     tt.primaryStatus,
 			})
 
-			generator := NewAnalysisGenerator(ps)
+			generator := NewAnalysisGenerator(ps, nil)
 
 			primary, _ := ps.Get("multipooler-cell1-primary-1")
 			result := generator.isInStandbyList(tt.replicaID, primary)
@@ -592,7 +592,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -641,7 +641,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -723,7 +723,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -797,7 +797,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -844,7 +844,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsLastCheckValid: false, // Replica unreachable
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -875,7 +875,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsPostgresRunning: true,
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 		require.NoError(t, err)
 
@@ -931,7 +931,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps)
+		gen := NewAnalysisGenerator(ps, nil)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -1021,7 +1021,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		},
 	})
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 
 	t.Run("replica in standby list", func(t *testing.T) {
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
@@ -1098,7 +1098,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		LastSeen:         timestamppb.Now(),
 	})
 
-	generator := NewAnalysisGenerator(ps)
+	generator := NewAnalysisGenerator(ps, nil)
 	analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
 	require.NoError(t, err)
 
@@ -1119,7 +1119,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-2", primaryTerm: 6, consensusTerm: 11},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1142,7 +1142,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-2", primaryTerm: 4, consensusTerm: 10},
 			{id: "primary-3", primaryTerm: 6, consensusTerm: 9},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1171,7 +1171,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-2", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-3", primaryTerm: 6, consensusTerm: 11},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1190,7 +1190,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-2", primaryTerm: 5, consensusTerm: 11}, // Same PrimaryTerm
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1210,7 +1210,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-1", primaryTerm: 0, consensusTerm: 10},
 			{id: "primary-2", primaryTerm: 0, consensusTerm: 11},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1228,7 +1228,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-2", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-3", primaryTerm: 0, consensusTerm: 11},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1246,7 +1246,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		store := setupMultiplePrimariesStore(t, []primaryConfig{
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1265,7 +1265,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{primaryConfig: primaryConfig{id: "primary-1", primaryTerm: 5, consensusTerm: 10}, reachable: true},
 			{primaryConfig: primaryConfig{id: "primary-2", primaryTerm: 6, consensusTerm: 11}, reachable: false},
 		})
-		generator := NewAnalysisGenerator(store)
+		generator := NewAnalysisGenerator(store, nil)
 
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
 		require.NoError(t, err)
@@ -1360,7 +1360,7 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 	ps.Set("multipooler-c1-p0b", makePooler("p0b", "db", "tg", "0", clustermetadatapb.PoolerType_REPLICA))
 	ps.Set("multipooler-c1-p1a", makePooler("p1a", "db", "tg", "1", clustermetadatapb.PoolerType_PRIMARY))
 
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 	shards := gen.GenerateShardAnalyses()
 
 	require.Len(t, shards, 2, "should produce one ShardAnalysis per shard")
@@ -1375,7 +1375,7 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 
 func TestGenerateShardAnalysis_ErrorOnMissingShard(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 
 	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	_, err := gen.GenerateShardAnalysis(shardKey)
@@ -1403,7 +1403,7 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	})
 
-	gen := NewAnalysisGenerator(ps)
+	gen := NewAnalysisGenerator(ps, nil)
 	sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
 	require.NoError(t, err)
 	assert.Len(t, sa.Analyses, 2)

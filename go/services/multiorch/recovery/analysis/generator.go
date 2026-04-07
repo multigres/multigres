@@ -33,13 +33,18 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 type AnalysisGenerator struct {
 	poolerStore    *store.PoolerStore
 	poolersByShard PoolersByShard
+	// policyLookup returns the bootstrap durability policy for a database name.
+	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
+	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
-func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
+// policyLookup is optional; pass nil if the bootstrap policy is unavailable.
+func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
-		poolerStore: poolerStore,
+		poolerStore:  poolerStore,
+		policyLookup: policyLookup,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	return g
@@ -69,9 +74,23 @@ func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 
 	result := make([]*ShardAnalysis, 0, len(byKey))
 	for _, entry := range byKey {
+		var policy *clustermetadatapb.DurabilityPolicy
+		if g.policyLookup != nil {
+			policy = g.policyLookup(entry.key.Database)
+		}
+
+		numInitialized := 0
+		for _, pa := range entry.analyses {
+			if pa.LastCheckValid && pa.IsInitialized {
+				numInitialized++
+			}
+		}
+
 		result = append(result, &ShardAnalysis{
-			ShardKey: entry.key,
-			Analyses: entry.analyses,
+			ShardKey:                  entry.key,
+			Analyses:                  entry.analyses,
+			NumInitialized:            numInitialized,
+			BootstrapDurabilityPolicy: policy,
 		})
 	}
 	return result
@@ -89,7 +108,25 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey commontypes.ShardKey)
 	for _, pooler := range poolers {
 		analyses = append(analyses, g.generateAnalysisForPooler(pooler, shardKey))
 	}
-	return &ShardAnalysis{ShardKey: shardKey, Analyses: analyses}, nil
+
+	var policy *clustermetadatapb.DurabilityPolicy
+	if g.policyLookup != nil {
+		policy = g.policyLookup(shardKey.Database)
+	}
+
+	numInitialized := 0
+	for _, pa := range analyses {
+		if pa.LastCheckValid && pa.IsInitialized {
+			numInitialized++
+		}
+	}
+
+	return &ShardAnalysis{
+		ShardKey:                  shardKey,
+		Analyses:                  analyses,
+		NumInitialized:            numInitialized,
+		BootstrapDurabilityPolicy: policy,
+	}, nil
 }
 
 // buildPoolersByShard creates a structured map by iterating the store once.
@@ -202,6 +239,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
 		HasDataDirectory: pooler.HasDataDirectory,
+		CohortMembers:    pooler.CohortMembers,
 		AnalyzedAt:       time.Now(),
 	}
 
