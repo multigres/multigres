@@ -17,11 +17,11 @@ package topoclient
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path"
 	"sort"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/types"
 )
 
@@ -52,12 +52,12 @@ func (ts *store) ClaimInitialCohort(ctx context.Context, shardKey types.ShardKey
 	}
 
 	if !errors.Is(err, &TopoError{Code: NodeExists}) {
-		return nil, fmt.Errorf("failed to claim initial cohort for shard %s: %w", shardKey, err)
+		return nil, mterrors.Wrapf(err, "failed to claim initial cohort for shard %s", shardKey)
 	}
 
 	data, _, err := ts.globalTopo.Get(ctx, filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read committed initial cohort for shard %s: %w", shardKey, err)
+		return nil, mterrors.Wrapf(err, "failed to read committed initial cohort for shard %s", shardKey)
 	}
 
 	var committed []string

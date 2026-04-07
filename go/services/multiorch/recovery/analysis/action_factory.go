@@ -60,7 +60,7 @@ func NewRecoveryActionFactory(
 
 // NewInitialCohortAction creates an initial cohort action.
 func (f *RecoveryActionFactory) NewInitialCohortAction() types.RecoveryAction {
-	return actions.NewInitialCohortAction(f.config, f.coordinator, f.poolerStore, f.rpcClient, f.topoStore, f.logger)
+	return actions.NewInitialCohortAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.

@@ -184,6 +184,8 @@ func (pm *MultiPoolerManager) createFirstBackupLocked(ctx context.Context) error
 }
 
 // runStanzaCreate runs pgbackrest stanza-create. Caller must hold the backup lease.
+// stanza-create is idempotent: if a previous lease holder ran it and then crashed
+// before completing the backup, the next holder can safely re-run it.
 func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 	if err := topoclient.AssertBackupLockHeld(ctx, pm.shardKey()); err != nil {
 		return mterrors.Wrap(err, "backup lease not held")

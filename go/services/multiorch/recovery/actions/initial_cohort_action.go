@@ -16,39 +16,41 @@ package actions
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
+
+// initialCohortCoordinator is the subset of consensus.Coordinator used by InitialCohortAction.
+type initialCohortCoordinator interface {
+	GetBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error)
+	AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error
+}
 
 // Compile-time assertion that InitialCohortAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*InitialCohortAction)(nil)
 
 // InitialCohortAction handles Phase 2 of shard bootstrap: the first backup has already
 // been created and all poolers have restored from it. This action:
-//  1. Fetches the cohort from the pooler store
-//  2. Re-verifies the shard still needs initial cohort establishment via fresh RPCs
-//  3. Waits for enough initialized poolers to satisfy quorum
-//  4. CAS-claims the initial cohort via topoStore.ClaimInitialCohort
-//  5. Calls coordinator.AppointInitialLeader with the committed cohort
+//  1. Reads the pooler store (already refreshed by the recovery loop recheck) to collect
+//     initialized poolers and verify no cohort is established yet
+//  2. Ensures enough initialized poolers are available to satisfy the durability policy
+//  3. CAS-claims the initial cohort via topoStore.ClaimInitialCohort
+//  4. Calls coordinator.AppointInitialLeader with the committed cohort
 type InitialCohortAction struct {
 	config      *config.Config
-	coordinator *consensus.Coordinator
+	coordinator initialCohortCoordinator
 	poolerStore *store.PoolerStore
-	rpcClient   rpcclient.MultiPoolerClient
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -56,9 +58,8 @@ type InitialCohortAction struct {
 // NewInitialCohortAction creates a new InitialCohortAction.
 func NewInitialCohortAction(
 	cfg *config.Config,
-	coordinator *consensus.Coordinator,
+	coordinator initialCohortCoordinator,
 	poolerStore *store.PoolerStore,
-	rpcClient rpcclient.MultiPoolerClient,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *InitialCohortAction {
@@ -66,7 +67,6 @@ func NewInitialCohortAction(
 		config:      cfg,
 		coordinator: coordinator,
 		poolerStore: poolerStore,
-		rpcClient:   rpcClient,
 		topoStore:   topoStore,
 		logger:      logger,
 	}
@@ -79,9 +79,18 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
 
-	cohort := a.getCohort(problem.ShardKey)
-	if len(cohort) == 0 {
-		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
+	// The recovery loop force-polls all poolers before calling Execute, so the pooler
+	// store holds fresh state. getInitializedPoolers reads that state: it returns nil
+	// if the cohort is already established, or the list of initialized poolers otherwise.
+	initializedPoolers, cohortEstablished := a.getInitializedPoolers(problem.ShardKey)
+	if cohortEstablished {
+		a.logger.InfoContext(ctx, "cohort already established, skipping",
+			"shard_key", problem.ShardKey.String())
+		return nil
+	}
+	if len(initializedPoolers) == 0 {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no initialized poolers found for shard %s", problem.ShardKey)
 	}
 
 	// Load the bootstrap durability policy from topology (not from nodes) because poolers
@@ -90,17 +99,6 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 	policy, err := a.coordinator.GetBootstrapPolicy(ctx, problem.ShardKey.Database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
-	}
-
-	// Verify via fresh RPCs that the shard still needs initial cohort establishment.
-	initialCohortNeeded, initializedPoolers, err := a.verifyAndCollectInitialized(ctx, cohort)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to verify initial cohort needed")
-	}
-	if !initialCohortNeeded {
-		a.logger.InfoContext(ctx, "shard no longer needs initial cohort, already established",
-			"shard_key", problem.ShardKey.String())
-		return nil
 	}
 
 	// Ensure enough initialized poolers are available to satisfy the durability policy.
@@ -134,10 +132,15 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 
 	// Build the committed cohort from the topology-committed IDs. Use the pooler store
 	// entries so that each PoolerHealthState includes address/port information.
-	committedCohort := a.buildCohortFromIDs(cohort, committedIDs)
-	if len(committedCohort) == 0 {
+	committedCohort := a.buildCohortFromIDs(initializedPoolers, committedIDs)
+
+	// The cohort may have been committed to etcd by a different multiorch instance; we may not
+	// yet have all committed poolers in our store. Retry next cycle if reachable poolers
+	// are insufficient to satisfy the durability policy.
+	if !commonconsensus.IsDurabilityPolicyAchievable(policy, len(committedCohort)) {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"none of the committed cohort poolers are known to this multiorch instance: %v", committedIDs)
+			"insufficient initial cohort poolers reachable: have %d of %v, need %d for quorum",
+			len(committedCohort), committedIDs, policy.RequiredCount)
 	}
 
 	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
@@ -149,42 +152,30 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 	return nil
 }
 
-// verifyAndCollectInitialized makes fresh Status RPCs to verify the shard still needs
-// initial cohort establishment and collects all initialized poolers.
-//
-// Returns (false, nil, nil) if any pooler reports a cohort is already established.
-// Returns (true, initializedList, nil) if no cohort is established.
-func (a *InitialCohortAction) verifyAndCollectInitialized(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (bool, []*multiorchdatapb.PoolerHealthState, error) {
-	var initialized []*multiorchdatapb.PoolerHealthState
-
-	for _, pooler := range cohort {
-		req := &multipoolermanagerdatapb.StatusRequest{}
-		resp, err := a.rpcClient.Status(ctx, pooler.MultiPooler, req)
-		if err != nil {
-			a.logger.WarnContext(ctx, "pooler unreachable during initial cohort recheck",
-				"pooler", pooler.MultiPooler.Id.Name,
-				"error", err)
-			continue
+// getInitializedPoolers reads fresh pooler state from the store (already refreshed by the
+// recovery loop before Execute is called). It returns the list of initialized poolers, plus
+// a bool indicating whether the cohort is already established (any pooler has CohortMembers).
+// If cohortEstablished is true the returned slice is nil and the caller should no-op.
+func (a *InitialCohortAction) getInitializedPoolers(shardKey commontypes.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
+	a.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+			return true
 		}
-
-		if resp.Status == nil {
-			continue
+		if pooler.MultiPooler.Database != shardKey.Database ||
+			pooler.MultiPooler.TableGroup != shardKey.TableGroup ||
+			pooler.MultiPooler.Shard != shardKey.Shard {
+			return true
 		}
-
-		// If any pooler already has cohort members, the cohort is established.
-		if len(resp.Status.CohortMembers) > 0 {
-			a.logger.InfoContext(ctx, "cohort already established (fresh RPC check), skipping",
-				"pooler", pooler.MultiPooler.Id.Name,
-				"cohort_size", len(resp.Status.CohortMembers))
-			return false, nil, nil
+		if len(pooler.CohortMembers) > 0 {
+			cohortEstablished = true
+			return false // stop iteration
 		}
-
-		if resp.Status.IsInitialized {
+		if pooler.IsInitialized {
 			initialized = append(initialized, pooler)
 		}
-	}
-
-	return true, initialized, nil
+		return true
+	})
+	return initialized, cohortEstablished
 }
 
 // buildCohortFromIDs returns the subset of cohort poolers whose names are in committedIDs.
@@ -201,27 +192,6 @@ func (a *InitialCohortAction) buildCohortFromIDs(cohort []*multiorchdatapb.Poole
 		}
 	}
 	return result
-}
-
-// getCohort fetches all poolers in the shard from the pooler store.
-func (a *InitialCohortAction) getCohort(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
-	var cohort []*multiorchdatapb.PoolerHealthState
-
-	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true
-		}
-
-		if pooler.MultiPooler.Database == shardKey.Database &&
-			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
-			pooler.MultiPooler.Shard == shardKey.Shard {
-			cohort = append(cohort, pooler)
-		}
-
-		return true
-	})
-
-	return cohort
 }
 
 // RecoveryAction interface implementation
