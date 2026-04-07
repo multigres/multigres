@@ -27,8 +27,12 @@ import (
 )
 
 // getReplicaSetup returns the shared setup that has the replica port enabled.
+// Skips the test in short mode since integration tests require PostgreSQL.
 func getReplicaSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	return replicaSetupManager.Get(t)
 }
 

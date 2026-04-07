@@ -10,7 +10,7 @@ the standby enforces read-only semantics — write attempts receive the standard
 
 ## Architecture
 
-```
+```text
                         Primary Port (:5432)
                        ┌──────────────────────┐
     Client (r/w) ─────►│    MultiGateway      │──── ScatterConn ──► PRIMARY multipooler ──► PG Primary
@@ -56,7 +56,7 @@ naturally.
 Replica selection uses a two-tier replication lag model:
 
 | Threshold | Flag | Default | Behavior |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Low (preferred) | `--low-replication-lag-secs` | 30 | Replicas at or below this lag are preferred |
 | High (absolute max) | `--high-replication-lag-tolerance-secs` | 0 (disabled) | Replicas above this are never selected |
 
@@ -93,7 +93,7 @@ Within each tier, a random replica is selected to distribute load evenly.
 ## Configuration
 
 | Flag | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `--pg-replica-port` | 0 (disabled) | Port for replica-reads connections |
 | `--low-replication-lag-secs` | 30 | Preferred lag threshold (seconds) |
 | `--high-replication-lag-tolerance-secs` | 0 (no limit) | Absolute max lag (seconds) |
