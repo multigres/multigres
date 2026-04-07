@@ -474,10 +474,10 @@ type Database struct {
 	// Backup location configuration
 	BackupLocation *BackupLocation `protobuf:"bytes,2,opt,name=backup_location,json=backupLocation,proto3" json:"backup_location,omitempty"`
 	// List of cell identifiers where this database should be deployed
-	Cells []string `protobuf:"bytes,4,rep,name=cells,proto3" json:"cells,omitempty"`
+	Cells []string `protobuf:"bytes,3,rep,name=cells,proto3" json:"cells,omitempty"`
 	// bootstrap_durability_policy is the durability policy applied when
 	// initializing this database for the first time. Set at database creation.
-	BootstrapDurabilityPolicy *DurabilityPolicy `protobuf:"bytes,5,opt,name=bootstrap_durability_policy,json=bootstrapDurabilityPolicy,proto3" json:"bootstrap_durability_policy,omitempty"`
+	BootstrapDurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=bootstrap_durability_policy,json=bootstrapDurabilityPolicy,proto3" json:"bootstrap_durability_policy,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1688,12 +1688,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"\xfa\x01\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"\xe1\x01\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
 	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\x12a\n" +
-	"\x1bbootstrap_durability_policy\x18\x05 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicyJ\x04\b\x03\x10\x04R\x11durability_policy\"\x8e\x01\n" +
+	"\x05cells\x18\x03 \x03(\tR\x05cells\x12a\n" +
+	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\"\x8e\x01\n" +
 	"\x0eBackupLocation\x12C\n" +
 	"\n" +
 	"filesystem\x18\x01 \x01(\v2!.clustermetadata.FilesystemBackupH\x00R\n" +

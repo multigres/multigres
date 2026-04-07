@@ -3129,7 +3129,7 @@ type InitializeEmptyPrimaryRequest struct {
 	// Consensus term to set for this primary
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// ID of the multiorch coordinator performing the bootstrap
-	CoordinatorId *clustermetadata.ID `protobuf:"bytes,4,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	CoordinatorId *clustermetadata.ID `protobuf:"bytes,2,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4301,10 +4301,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12!\n" +
-	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\x9b\x01\n" +
+	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\x82\x01\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12:\n" +
-	"\x0ecoordinator_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorIdJ\x04\b\x02\x10\x03R\x11durability_policy\"|\n" +
+	"\x0ecoordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"|\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
@@ -4352,9 +4352,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\bCOMPLETE\x10\x02\"\x1c\n" +
 	"\x1aGetDurabilityPolicyRequest\"X\n" +
 	"\x1bGetDurabilityPolicyResponse\x129\n" +
-	"\x06policy\x18\x01 \x01(\v2!.clustermetadata.DurabilityPolicyR\x06policy\"\x82\x01\n" +
+	"\x06policy\x18\x01 \x01(\v2!.clustermetadata.DurabilityPolicyR\x06policy\"o\n" +
 	"\x1dCreateDurabilityPolicyRequest\x12N\n" +
-	"\x11durability_policy\x18\x01 \x01(\v2!.clustermetadata.DurabilityPolicyR\x10durabilityPolicyJ\x04\b\x02\x10\x03R\vquorum_rule\" \n" +
+	"\x11durability_policy\x18\x01 \x01(\v2!.clustermetadata.DurabilityPolicyR\x10durabilityPolicy\" \n" +
 	"\x1eCreateDurabilityPolicyResponse\"M\n" +
 	"\x15RewindToSourceRequest\x124\n" +
 	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\"\x82\x01\n" +
