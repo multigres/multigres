@@ -162,14 +162,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		PrimaryTerm: req.ConsensusTerm,
 	})
 
-	// Create durability policy if requested
-	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
-		if err := pm.createDurabilityPolicyLocked(ctx, req.DurabilityPolicyName, req.DurabilityQuorumRule); err != nil {
-			return nil, mterrors.Wrap(err, "failed to create durability policy")
-		}
-		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
-	}
-
 	// Get final LSN position for leadership history
 	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {

@@ -139,34 +139,28 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
 	}
 
-	// Get the durability policy name from the Database proto in topology
-	policyName, err := a.getDurabilityPolicyName(ctx, problem.ShardKey.Database)
+	// Get the bootstrap durability policy from the Database proto in topology
+	policy, err := a.getBootstrapPolicy(ctx, problem.ShardKey.Database)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to get durability policy name from topology")
+		return mterrors.Wrap(err, "failed to get bootstrap durability policy from topology")
 	}
 
 	a.logger.InfoContext(ctx, "using durability policy",
 		"shard_key", problem.ShardKey.String(),
-		"policy_name", policyName)
-
-	// Parse policy to get required count for quorum check
-	quorumRule, err := a.parsePolicy(policyName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to parse policy")
-	}
+		"policy_name", policy.PolicyName)
 
 	// Check that enough poolers are reachable to satisfy quorum before attempting bootstrap
 	reachableCount := a.countReachablePoolers(ctx, cohort)
-	if reachableCount < int(quorumRule.RequiredCount) {
+	if reachableCount < int(policy.RequiredCount) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"insufficient reachable poolers for bootstrap: have %d, need %d for quorum",
-			reachableCount, quorumRule.RequiredCount)
+			reachableCount, policy.RequiredCount)
 	}
 
 	a.logger.InfoContext(ctx, "quorum check passed",
 		"shard_key", problem.ShardKey.String(),
 		"reachable_poolers", reachableCount,
-		"required_count", quorumRule.RequiredCount)
+		"required_count", policy.RequiredCount)
 
 	// Revalidate that bootstrap is still needed after acquiring lock.
 	// Make fresh RPC calls to verify all nodes are still uninitialized.
@@ -212,12 +206,9 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 	}()
 
 	// Initialize the candidate as an empty primary with term=1
-	// This now also sets the pooler type to PRIMARY and creates the durability policy
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm:        1,
-		DurabilityPolicyName: policyName,
-		DurabilityQuorumRule: quorumRule,
-		CoordinatorId:        a.coordinator.GetCoordinatorID(),
+		ConsensusTerm: 1,
+		CoordinatorId: a.coordinator.GetCoordinatorID(),
 	}
 	var resp *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
 	if err := telemetry.WithSpan(ctx, "bootstrap/initialize-primary", func(ctx context.Context) error {
@@ -240,7 +231,7 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId,
-		"policy_name", policyName)
+		"policy_name", policy.PolicyName)
 
 	// Configure synchronous replication. We still add the standby nodes, even if they are not wired up yet,
 	// because synchronous replication requires at least one standby configured.
@@ -256,7 +247,7 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 	// Configure synchronous replication on primary based on durability policy.
 	// This must be done AFTER standbys are initialized so they can receive WAL.
 	// Only include successfully initialized standbys in the sync replication config.
-	if err := a.configureSynchronousReplication(ctx, candidate, standbys, quorumRule); err != nil {
+	if err := a.configureSynchronousReplication(ctx, candidate, standbys, policy); err != nil {
 		return mterrors.Wrap(err, "failed to configure synchronous replication")
 	}
 
@@ -322,10 +313,10 @@ func (a *BootstrapShardAction) configureSynchronousReplication(
 	ctx context.Context,
 	primary *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
-	quorumRule *clustermetadatapb.QuorumRule,
+	policy *clustermetadatapb.DurabilityPolicy,
 ) error {
 	// Build sync replication config using shared function
-	syncConfig, err := consensus.BuildSyncReplicationConfig(a.logger, quorumRule, standbys, primary)
+	syncConfig, err := consensus.BuildSyncReplicationConfig(a.logger, policy, standbys, primary)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build sync replication config")
 	}
@@ -389,64 +380,19 @@ func (a *BootstrapShardAction) getCohort(shardKey commontypes.ShardKey) []*multi
 	return cohort
 }
 
-// getDurabilityPolicyName retrieves the durability policy name from the Database proto in topology
-func (a *BootstrapShardAction) getDurabilityPolicyName(ctx context.Context, database string) (string, error) {
+// getBootstrapPolicy retrieves the bootstrap durability policy from the Database proto in topology.
+func (a *BootstrapShardAction) getBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error) {
 	db, err := a.topoStore.GetDatabase(ctx, database)
 	if err != nil {
-		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", database)
 	}
 
-	if db.DurabilityPolicy == "" {
-		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", database)
+	if db.BootstrapDurabilityPolicy == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s has no bootstrap_durability_policy configured", database)
 	}
 
-	// Validate that the policy name is supported
-	switch db.DurabilityPolicy {
-	case "AT_LEAST_2", "MULTI_CELL_AT_LEAST_2",
-		"ANY_2", "MULTI_CELL_ANY_2": // deprecated: use AT_LEAST_2 / MULTI_CELL_AT_LEAST_2
-		return db.DurabilityPolicy, nil
-	default:
-		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unsupported durability policy: %s (must be AT_LEAST_2 or MULTI_CELL_AT_LEAST_2)", db.DurabilityPolicy)
-	}
-}
-
-// parsePolicy converts a policy name into a QuorumRule
-func (a *BootstrapShardAction) parsePolicy(policyName string) (*clustermetadatapb.QuorumRule, error) {
-	switch policyName {
-	case "AT_LEAST_2":
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 2 nodes must acknowledge",
-		}, nil
-
-	case "MULTI_CELL_AT_LEAST_2":
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 2 nodes from different cells must acknowledge",
-		}, nil
-
-	case "ANY_2": // deprecated: use AT_LEAST_2
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, //nolint:staticcheck // deprecated
-			RequiredCount: 2,
-			Description:   "Any 2 nodes must acknowledge",
-		}, nil
-
-	case "MULTI_CELL_ANY_2": // deprecated: use MULTI_CELL_AT_LEAST_2
-		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, //nolint:staticcheck // deprecated
-			RequiredCount: 2,
-			Description:   "Any 2 nodes from different cells must acknowledge",
-		}, nil
-
-	default:
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unsupported policy name: %s", policyName)
-	}
+	return db.BootstrapDurabilityPolicy, nil
 }
 
 // RecoveryAction interface implementation

@@ -310,15 +310,6 @@ func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multip
 	return resp, nil
 }
 
-// CreateDurabilityPolicy creates a new durability policy in the local database
-func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
-	resp, err := s.manager.CreateDurabilityPolicy(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)

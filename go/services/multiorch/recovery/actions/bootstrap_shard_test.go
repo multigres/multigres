@@ -101,71 +101,6 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	assert.Contains(t, err.Error(), "no poolers found for shard")
 }
 
-func TestBootstrapShardAction_ParsePolicyAT_LEAST_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("AT_LEAST_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N, rule.QuorumType)
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "At least 2 nodes must acknowledge", rule.Description)
-}
-
-func TestBootstrapShardAction_ParsePolicyMULTI_CELL_AT_LEAST_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("MULTI_CELL_AT_LEAST_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N, rule.QuorumType)
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "At least 2 nodes from different cells must acknowledge", rule.Description)
-}
-
-// TestBootstrapShardAction_ParsePolicyANY_2 verifies the deprecated ANY_2 policy name is still accepted.
-func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("ANY_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, rule.QuorumType) //nolint:staticcheck // deprecated
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "Any 2 nodes must acknowledge", rule.Description)
-}
-
-// TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2 verifies the deprecated MULTI_CELL_ANY_2 policy name is still accepted.
-func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("MULTI_CELL_ANY_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, rule.QuorumType) //nolint:staticcheck // deprecated
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "Any 2 nodes from different cells must acknowledge", rule.Description)
-}
-
-func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
-
-	rule, err := action.parsePolicy("INVALID_POLICY")
-	assert.Error(t, err)
-	assert.Nil(t, rule)
-	assert.Contains(t, err.Error(), "unsupported policy name")
-}
-
 func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -362,8 +297,8 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 
 	// Create database in topology with AT_LEAST_2 policy
 	err := ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
-		Name:             "testdb",
-		DurabilityPolicy: "AT_LEAST_2",
+		Name:                      "testdb",
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 	})
 	require.NoError(t, err)
 
@@ -423,12 +358,12 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 		"Primary %s should not be in standby list", primaryName)
 }
 
-// setupTestDatabase creates the database in topology with the given durability policy
-func setupTestDatabase(ctx context.Context, t *testing.T, ts topoclient.Store, dbName, durabilityPolicy string) {
+// setupTestDatabase creates the database in topology with the AT_LEAST_2 durability policy.
+func setupTestDatabase(ctx context.Context, t *testing.T, ts topoclient.Store, dbName string) {
 	t.Helper()
 	err := ts.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
-		Name:             dbName,
-		DurabilityPolicy: durabilityPolicy,
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 	})
 	require.NoError(t, err)
 }
@@ -444,7 +379,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy (requires 2 nodes)
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - only pooler1 is reachable
 	fakeClient := rpcclient.NewFakeClient()
@@ -520,7 +455,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy (requires 2 nodes)
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - both poolers are reachable
 	fakeClient := rpcclient.NewFakeClient()
@@ -617,7 +552,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - all 3 poolers are reachable and uninitialized
 	fakeClient := rpcclient.NewFakeClient()
@@ -705,7 +640,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - pooler1 is already initialized
 	fakeClient := rpcclient.NewFakeClient()

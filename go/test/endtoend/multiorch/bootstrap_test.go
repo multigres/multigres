@@ -157,55 +157,6 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp.Rows, 1)
 		assert.Equal(t, "t", string(resp.Rows[0].Values[0]), "multigres schema should exist")
-
-		// Verify durability_policy table exists
-		resp, err = primaryClient.Pooler.ExecuteQuery(ctx,
-			"SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')", 1)
-		require.NoError(t, err)
-		require.Len(t, resp.Rows, 1)
-		assert.Equal(t, "t", string(resp.Rows[0].Values[0]), "durability_policy table should exist")
-
-		// Query the durability policy
-		resp, err = primaryClient.Pooler.ExecuteQuery(ctx, `
-			SELECT policy_name, policy_version, quorum_rule::text, is_active
-			FROM multigres.durability_policy
-			WHERE policy_name = 'AT_LEAST_2'
-		`, 4)
-		require.NoError(t, err, "Should find AT_LEAST_2 policy")
-		require.Len(t, resp.Rows, 1)
-
-		policyName := string(resp.Rows[0].Values[0])
-		policyVersion := string(resp.Rows[0].Values[1])
-		quorumRuleJSON := string(resp.Rows[0].Values[2])
-		isActive := string(resp.Rows[0].Values[3])
-
-		// Verify policy fields
-		assert.Equal(t, "AT_LEAST_2", policyName)
-		assert.Equal(t, "1", policyVersion)
-		assert.Equal(t, "t", isActive)
-
-		// Parse and verify JSONB structure
-		var quorumRule map[string]any
-		err = json.Unmarshal([]byte(quorumRuleJSON), &quorumRule)
-		require.NoError(t, err, "Should parse quorum_rule JSON")
-
-		// Verify QuorumType (protojson uses camelCase field names)
-		quorumType, ok := quorumRule["quorumType"].(float64)
-		require.True(t, ok, "quorumType should be a number")
-		assert.Equal(t, float64(clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N), quorumType)
-
-		// Verify RequiredCount
-		requiredCount, ok := quorumRule["requiredCount"].(float64)
-		require.True(t, ok, "requiredCount should be a number")
-		assert.Equal(t, float64(2), requiredCount)
-
-		// Verify Description
-		description, ok := quorumRule["description"].(string)
-		require.True(t, ok, "description should be a string")
-		assert.Equal(t, "At least 2 nodes must acknowledge", description)
-
-		t.Logf("Verified durability policy: policy_name=%s, quorum_type=AT_LEAST_N, required_count=%d",
-			policyName, int(requiredCount))
 	})
 
 	t.Run("verify standbys initialized", func(t *testing.T) {
@@ -483,21 +434,6 @@ func verifyMultigresTables(t *testing.T, name string, grpcPort int) {
 	}
 	if string(resp.Rows[0].Values[0]) != "t" {
 		t.Errorf("Heartbeat table should exist on %s", name)
-	}
-
-	// Check durability_policy table exists
-	resp, err = client.Pooler.ExecuteQuery(ctx, `
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres' AND table_name = 'durability_policy'
-		)
-	`, 1)
-	if err != nil {
-		t.Errorf("Failed to query durability_policy table on %s: %v", name, err)
-		return
-	}
-	if string(resp.Rows[0].Values[0]) != "t" {
-		t.Errorf("Durability policy table should exist on %s", name)
 	}
 
 	t.Logf("Verified multigres tables exist on %s (pooler_type=%s)", name, status.Status.PoolerType)
