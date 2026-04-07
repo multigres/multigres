@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -71,6 +72,11 @@ type LoadBalancer struct {
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
 	onPrimaryServing func(tableGroup, shard string)
+
+	// maxReplicationLagNs is the maximum acceptable replication lag for replica reads,
+	// in nanoseconds. Replicas with a higher measured lag are excluded from selection.
+	// Zero means no lag filtering (any replica is acceptable).
+	maxReplicationLagNs int64
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
@@ -90,6 +96,14 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger)
 // Must be called before any poolers are added.
 func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
 	lb.onPrimaryServing = fn
+}
+
+// SetMaxReplicationLag sets the maximum acceptable replication lag for replica reads.
+// Replicas with a measured lag above this threshold are excluded from selection;
+// if all replicas exceed the threshold the PoolerGateway silently falls back to primary.
+// Zero (the default) disables lag filtering — any replica is acceptable.
+func (lb *LoadBalancer) SetMaxReplicationLag(d time.Duration) {
+	lb.maxReplicationLagNs = d.Nanoseconds()
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
@@ -228,7 +242,14 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
-	return lb.selectReplicaConnection(candidates), nil
+	selected := lb.selectReplicaConnection(candidates)
+	if selected == nil {
+		// All replicas exceeded the replication lag threshold.
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no replica with acceptable replication lag for target: tablegroup=%s, shard=%s",
+			target.TableGroup, target.Shard)
+	}
+	return selected, nil
 }
 
 // GetConnectionByID returns a PoolerConnection for a specific pooler ID.
@@ -257,8 +278,33 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 // selectReplicaConnection chooses the best replica connection from candidates.
 // Prefers serving connections in local cell, with randomization within each tier
 // to distribute load across replicas (following Vitess pattern).
+//
+// When a max replication lag threshold is configured, replicas exceeding it are
+// excluded. Returns nil if all candidates fail the lag check, signalling the caller
+// to fall back to the primary.
 func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
-	// Categorize by locality and serving status
+	// Filter by replication lag if a threshold is configured.
+	if lb.maxReplicationLagNs > 0 {
+		var withinLag []*PoolerConnection
+		for _, conn := range candidates {
+			health := conn.Health()
+			lagNs := int64(0)
+			if health != nil {
+				lagNs = health.ReplicationLagNs
+			}
+			// Include replicas where lag is unknown (0) or within threshold.
+			if lagNs == 0 || lagNs <= lb.maxReplicationLagNs {
+				withinLag = append(withinLag, conn)
+			}
+		}
+		if len(withinLag) == 0 {
+			// All replicas exceed the lag threshold — signal caller to fall back to primary.
+			return nil
+		}
+		candidates = withinLag
+	}
+
+	// Categorize by locality and serving status.
 	var localServing, remoteServing, localNotServing []*PoolerConnection
 	for _, conn := range candidates {
 		isLocal := conn.Cell() == lb.localCell
@@ -274,7 +320,7 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 		}
 	}
 
-	// Select from tiers in preference order, with randomization within each tier
+	// Select from tiers in preference order, with randomization within each tier.
 	if len(localServing) > 0 {
 		return localServing[rand.IntN(len(localServing))]
 	}
@@ -284,7 +330,7 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 	if len(localNotServing) > 0 {
 		return localNotServing[rand.IntN(len(localNotServing))]
 	}
-	// Fall back to any candidate
+	// Fall back to any remaining candidate.
 	return candidates[rand.IntN(len(candidates))]
 }
 

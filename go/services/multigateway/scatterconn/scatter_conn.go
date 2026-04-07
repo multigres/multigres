@@ -72,6 +72,21 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	}
 }
 
+// buildTarget constructs a routing target from the given tableGroup and shard.
+// When the connection arrived on the replica-reads port (state.TargetReplica()),
+// the target's PoolerType is set to REPLICA; otherwise PRIMARY.
+func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.MultiGatewayConnectionState) *querypb.Target {
+	poolerType := clustermetadatapb.PoolerType_PRIMARY
+	if state.TargetReplica() {
+		poolerType = clustermetadatapb.PoolerType_REPLICA
+	}
+	return &querypb.Target{
+		TableGroup: tableGroup,
+		Shard:      shard,
+		PoolerType: poolerType,
+	}
+}
+
 // applyReservedState replaces independent bookkeeping with the authoritative reservation
 // state from the multipooler. If the reserved connection ID is zero, the connection was
 // destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
@@ -132,14 +147,7 @@ func (sc *ScatterConn) StreamExecute(
 		"connection_id", conn.ConnectionID(),
 		"in_transaction", conn.IsInTransaction())
 
-	// Create target for routing
-	// TODO: Add query analysis to determine if this is a read or write query
-	// For now, always route to PRIMARY (safe default)
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),

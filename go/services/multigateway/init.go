@@ -71,6 +71,14 @@ type MultiGateway struct {
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
 	pgHandler *handler.MultiGatewayHandler
+	// pgReplicaPort is the optional port for replica-reads connections.
+	// When set, a second listener accepts connections that are allowed to read from replicas.
+	pgReplicaPort viperutil.Value[int]
+	// pgReplicaListener is the optional replica-reads listener
+	pgReplicaListener *server.Listener
+	// pgReplicaMaxLagSecs is the maximum acceptable replication lag for replica reads,
+	// in seconds. 0 means no lag filtering.
+	pgReplicaMaxLagSecs viperutil.Value[int]
 	// cancelManager handles cross-gateway query cancellation
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
@@ -141,6 +149,18 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
 		}),
+		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "pg-replica-port",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_REPLICA_PORT"},
+		}),
+		pgReplicaMaxLagSecs: viperutil.Configure(reg, "max-replica-lag-secs", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "max-replica-lag-secs",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_MAX_REPLICA_LAG_SECS"},
+		}),
 		bufferConfig: buffer.NewConfig(reg),
 		grpcServer:   servenv.NewGrpcServer(reg),
 		senv:         servenv.NewServEnv(reg),
@@ -177,6 +197,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
+	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
+	fs.Int("max-replica-lag-secs", mg.pgReplicaMaxLagSecs.Default(), "maximum acceptable replication lag in seconds for replica reads; 0 disables lag filtering")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -185,6 +207,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.statementTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
+		mg.pgReplicaPort,
+		mg.pgReplicaMaxLagSecs,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
@@ -232,6 +256,10 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Create LoadBalancer and register with discovery for real-time updates
 	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
+	if lagSecs := mg.pgReplicaMaxLagSecs.Get(); lagSecs > 0 {
+		loadBalancer.SetMaxReplicationLag(time.Duration(lagSecs) * time.Second)
+		logger.InfoContext(ctx, "replica read lag filter configured", "max_lag_secs", lagSecs)
+	}
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
 
@@ -283,6 +311,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
+	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
+	}
 
 	// Reuse existing PID prefix on re-registration.
 	existingGW, err := mg.ts.GetMultiGateway(context.TODO(), multigateway.Id)
@@ -384,12 +415,38 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 	}()
 
+	// Optionally start a second listener for replica-reads connections.
+	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+		replicaHandler.SetTargetReplica(true)
+		replicaHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
+		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
+		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
+			Address:      replicaAddr,
+			Handler:      replicaHandler,
+			GatewayID:    pidPrefix,
+			HashProvider: hashProvider,
+			TLSConfig:    pgTLSConfig,
+			Logger:       logger,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
+		}
+		go func() {
+			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
+			if err := mg.pgReplicaListener.Serve(); err != nil {
+				logger.Error("replica PostgreSQL listener error", "error", err)
+			}
+		}()
+	}
+
 	logger.InfoContext(ctx, "multigateway starting up",
 		"cell", mg.cell.Get(),
 		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),
+		"pg_replica_port", mg.pgReplicaPort.Get(),
 		"pid_prefix", pidPrefix,
 	)
 
@@ -426,6 +483,15 @@ func (mg *MultiGateway) Shutdown() {
 			mg.senv.GetLogger().Error("error closing PostgreSQL listener", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("PostgreSQL listener stopped")
+		}
+	}
+
+	// Stop replica PostgreSQL listener (if running)
+	if mg.pgReplicaListener != nil {
+		if err := mg.pgReplicaListener.Close(); err != nil {
+			mg.senv.GetLogger().Error("error closing replica PostgreSQL listener", "error", err)
+		} else {
+			mg.senv.GetLogger().Info("replica PostgreSQL listener stopped")
 		}
 	}
 
