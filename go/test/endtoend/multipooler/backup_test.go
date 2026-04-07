@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -743,6 +744,181 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Logf("✓ Backup ID: %s", statusFromPooler.BackupId)
 				t.Logf("✓ Status: %s", statusFromPooler.Status)
 			})
+		})
+	}
+}
+
+// overrideRetentionInConfig rewrites the pgbackrest.conf to use a custom retention-full value.
+// It registers a cleanup function to restore the original config when the test completes.
+func overrideRetentionInConfig(t *testing.T, poolerDir string, retentionFull string) {
+	t.Helper()
+	configPath := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
+	original, err := os.ReadFile(configPath)
+	require.NoError(t, err, "Should be able to read pgbackrest.conf at %s", configPath)
+
+	updated := strings.Replace(string(original), "repo1-retention-full=7", "repo1-retention-full="+retentionFull, 1)
+	require.NotEqual(t, string(original), updated, "Should have replaced repo1-retention-full=7 in config")
+	err = os.WriteFile(configPath, []byte(updated), 0o644)
+	require.NoError(t, err, "Should be able to write updated pgbackrest.conf")
+	t.Logf("Updated retention-full to %s in %s", retentionFull, configPath)
+
+	t.Cleanup(func() {
+		_ = os.WriteFile(configPath, original, 0o644)
+	})
+}
+
+func TestExpireAuto(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	backends := availableBackends
+	for _, backend := range backends {
+		t.Run(backend, func(t *testing.T) {
+			setup := getSetupForBackend(t, backend)
+			setupPoolerTest(t, setup)
+
+			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+			waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+			// Override retention in pgbackrest.conf to keep only 1 full backup
+			overrideRetentionInConfig(t, setup.PrimaryMultipooler.PoolerDir, "1")
+			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
+
+			logger := slog.Default()
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			defer adminServer.Stop()
+
+			backupReq := &multiadminpb.BackupRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Type:       "full",
+			}
+			getBackupsReq := &multiadminpb.GetBackupsRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Limit:      100,
+			}
+
+			t.Log("Step 1: Creating first full backup...")
+			backupResp1, err := adminServer.Backup(t.Context(), backupReq)
+			require.NoError(t, err)
+			status1 := waitForJobCompletion(t, adminServer, backupResp1.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status1.Status)
+			backupID1 := status1.BackupId
+			t.Logf("First backup completed: %s", backupID1)
+
+			t.Log("Step 2: Verifying first backup exists...")
+			getResp, err := adminServer.GetBackups(t.Context(), getBackupsReq)
+			require.NoError(t, err)
+			require.Len(t, getResp.Backups, 1, "Should have exactly one backup")
+
+			t.Log("Step 3: Creating second full backup (should auto-expire first)...")
+			backupResp2, err := adminServer.Backup(t.Context(), backupReq)
+			require.NoError(t, err)
+			status2 := waitForJobCompletion(t, adminServer, backupResp2.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status2.Status)
+			backupID2 := status2.BackupId
+			t.Logf("Second backup completed: %s", backupID2)
+
+			t.Log("Step 4: Verifying expire-auto removed first backup...")
+			getResp, err = adminServer.GetBackups(t.Context(), getBackupsReq)
+			require.NoError(t, err)
+			var foundIDs []string
+			for _, b := range getResp.Backups {
+				foundIDs = append(foundIDs, b.BackupId)
+			}
+			assert.NotContains(t, foundIDs, backupID1, "First backup should have been auto-expired")
+			assert.Contains(t, foundIDs, backupID2, "Second backup should still exist")
+			t.Logf("After auto-expiration, remaining backups: %v", foundIDs)
+		})
+	}
+}
+
+func TestExpireBackups(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	backends := availableBackends
+	for _, backend := range backends {
+		t.Run(backend, func(t *testing.T) {
+			setup := getSetupForBackend(t, backend)
+			setupPoolerTest(t, setup)
+
+			// Wait for managers to be ready
+			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+			waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+			// Create a MultiAdminServer for testing
+			logger := slog.Default()
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			defer adminServer.Stop()
+
+			backupReq := &multiadminpb.BackupRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Type:       "full",
+			}
+			getBackupsReq := &multiadminpb.GetBackupsRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Limit:      100,
+			}
+
+			t.Log("Step 1: Creating first full backup...")
+			backupResp1, err := adminServer.Backup(t.Context(), backupReq)
+			require.NoError(t, err, "First backup request should succeed")
+			status1 := waitForJobCompletion(t, adminServer, backupResp1.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status1.Status)
+			backupID1 := status1.BackupId
+			t.Logf("First backup completed: %s", backupID1)
+
+			t.Log("Step 2: Creating second full backup...")
+			backupResp2, err := adminServer.Backup(t.Context(), backupReq)
+			require.NoError(t, err, "Second backup request should succeed")
+			status2 := waitForJobCompletion(t, adminServer, backupResp2.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status2.Status)
+			backupID2 := status2.BackupId
+			t.Logf("Second backup completed: %s", backupID2)
+
+			t.Log("Step 3: Verifying both backups exist...")
+			getResp, err := adminServer.GetBackups(t.Context(), getBackupsReq)
+			require.NoError(t, err)
+			var foundIDs []string
+			for _, b := range getResp.Backups {
+				foundIDs = append(foundIDs, b.BackupId)
+			}
+			assert.Contains(t, foundIDs, backupID1, "First backup should exist before expire")
+			assert.Contains(t, foundIDs, backupID2, "Second backup should exist before expire")
+			t.Logf("Both backups present: %v", foundIDs)
+
+			t.Log("Step 4: Expiring with count-based retention of 1...")
+			_, err = adminServer.ExpireBackups(t.Context(), &multiadminpb.ExpireBackupsRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Overrides: map[string]string{
+					"repo1_retention_full":      "1",
+					"repo1_retention_full_type": "count",
+				},
+			})
+			require.NoError(t, err, "ExpireBackups should succeed")
+
+			t.Log("Step 5: Verifying first backup was expired...")
+			getResp, err = adminServer.GetBackups(t.Context(), getBackupsReq)
+			require.NoError(t, err)
+			foundIDs = nil
+			for _, b := range getResp.Backups {
+				foundIDs = append(foundIDs, b.BackupId)
+			}
+			assert.NotContains(t, foundIDs, backupID1, "First backup should have been expired")
+			assert.Contains(t, foundIDs, backupID2, "Second backup should still exist")
+			t.Logf("After expiration, remaining backups: %v", foundIDs)
 		})
 	}
 }

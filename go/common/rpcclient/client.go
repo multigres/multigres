@@ -253,6 +253,9 @@ type MultiPoolerClient interface {
 	// GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
 	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
 
+	// ExpireBackups removes old backups according to retention policy.
+	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
+
 	//
 	// Manager Service Methods - Timeline Repair
 	//

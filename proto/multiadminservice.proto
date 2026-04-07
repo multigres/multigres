@@ -86,6 +86,14 @@ service MultiAdminService {
     option (google.api.http) = {get: "/api/v1/backups"};
   }
 
+  // ExpireBackups removes old backups according to retention policy
+  rpc ExpireBackups(ExpireBackupsRequest) returns (ExpireBackupsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups/expire"
+      body: "*"
+    };
+  }
+
   //
   // Pooler Status (proxy methods)
   //
@@ -313,6 +321,22 @@ message GetBackupsRequest {
 message GetBackupsResponse {
   // backups is the list of backup information
   repeated BackupInfo backups = 1;
+}
+
+// ExpireBackupsRequest requests expiration of old backups
+message ExpireBackupsRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+  // Optional overrides for pgbackrest expire command-line flags.
+  map<string, string> overrides = 4;
+}
+
+// ExpireBackupsResponse contains the result of backup expiration
+message ExpireBackupsResponse {
 }
 
 // BackupInfo contains information about a single backup artifact
