@@ -226,6 +226,25 @@ type QueryService interface {
 		conclusion multipoolerpb.TransactionConclusion,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
+	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes
+	// the temp table reservation reason. The connection may remain reserved if
+	// there are other reasons (e.g., active transaction). The returned
+	// ReservedState indicates whether the connection is still reserved:
+	//   - ReservedConnectionId == 0: Connection released, clear tracking
+	//   - ReservedConnectionId != 0: Connection still reserved, keep tracking it
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   options: Execute options including reserved connection ID
+	//
+	// Returns the result of the DISCARD command and the authoritative reservation state.
+	DiscardTempTables(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
+	) (*sqltypes.Result, *query.ReservedState, error)
+
 	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 	// Used during client disconnect cleanup. The multipooler handles all cleanup internally:
 	// transaction rollback, COPY abort, portal release. If any cleanup step fails,

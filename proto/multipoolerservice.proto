@@ -68,6 +68,11 @@ service MultiPoolerService {
   // Returns the reserved state - if non-empty, the connection is still reserved.
   rpc ConcludeTransaction(ConcludeTransactionRequest) returns (ConcludeTransactionResponse);
 
+  // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+  // The connection may remain reserved if there are other reasons to keep it (e.g., active transaction).
+  // Returns the reserved state - if non-empty, the connection is still reserved.
+  rpc DiscardTempTables(DiscardTempTablesRequest) returns (DiscardTempTablesResponse);
+
   // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
   // Used during client disconnect to clean up all reserved connections on the multipooler.
   // If the connection has a transaction, ROLLBACK is executed.
@@ -382,6 +387,30 @@ message ConcludeTransactionRequest {
 // ConcludeTransactionResponse represents the response from concluding a transaction.
 message ConcludeTransactionResponse {
   // result contains the result of the COMMIT or ROLLBACK command
+  query.QueryResult result = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // If reserved_connection_id is zero, the connection was released and ScatterConn should clear its state.
+  query.ReservedState reserved_state = 5;
+}
+
+// DiscardTempTablesRequest represents a request to discard temp tables on a reserved connection.
+// The connection may or may not be released back to the pool depending on whether there are
+// other reasons to keep it reserved (e.g., active transaction).
+message DiscardTempTablesRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+}
+
+// DiscardTempTablesResponse represents the response from discarding temp tables.
+message DiscardTempTablesResponse {
+  // result contains the result of the DISCARD TEMP command
   query.QueryResult result = 1;
 
   // reserved_state contains the authoritative reservation state from multipooler.

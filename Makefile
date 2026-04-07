@@ -25,7 +25,7 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 
 # List of all commands to build
-CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
+CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
 .PHONY: all build build-all clean images install test test-coverage proto tools parser help
@@ -128,7 +128,10 @@ install: ## Install binaries to GOPATH/bin.
 
 # Run tests
 test: pb build ## Run all tests.
-	go test ./...
+	bin/portpoolserver --socket /tmp/multigres-port-pool.sock & \
+	PORT_POOL_PID=$$!; \
+	trap "kill $$PORT_POOL_PID" EXIT; \
+	MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock go test ./...
 
 test-short: ## Run short tests.
 	go test -short -v ./...
@@ -137,7 +140,10 @@ test-race: ## Run tests with race detection.
 	go test -short -v -race ./...
 
 test-coverage: build-coverage ## Run tests with comprehensive coverage.
-	./scripts/go_test_coverage.sh ./...
+	bin/cov/portpoolserver --socket /tmp/multigres-port-pool.sock & \
+	PORT_POOL_PID=$$!; \
+	trap "kill $$PORT_POOL_PID" EXIT; \
+	MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock ./scripts/go_test_coverage.sh ./...
 
 ##@ Maintenance
 

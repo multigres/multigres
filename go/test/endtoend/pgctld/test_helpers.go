@@ -22,6 +22,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -36,6 +38,8 @@ import (
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
@@ -308,4 +312,80 @@ func getPgBackRestStatus(t *testing.T, client pgctldservice.PgCtldClient) *pgctl
 	require.NotNil(t, resp.PgbackrestStatus, "PgbackrestStatus should not be nil")
 
 	return resp.PgbackrestStatus
+}
+
+// setupTestEnv sets common environment variables for pgctld subprocesses.
+func setupTestEnv(cmd *executil.Cmd, poolerDir string) {
+	cmd.AddEnv(
+		"PGCONNECT_TIMEOUT=5",
+		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+	)
+	if runtime.GOOS == "darwin" {
+		// Required to avoid "postmaster became multithreaded during startup" on macOS.
+		cmd.AddEnv("LC_ALL=en_US.UTF-8")
+	}
+}
+
+// pgCtldServer holds the ports and process handle for a running pgctld server.
+type pgCtldServer struct {
+	GrpcPort int
+	HttpPort int
+	PgPort   int
+	Cmd      *executil.Cmd
+}
+
+// startPgCtldServer starts a pgctld server subprocess and waits until its gRPC
+// port is accepting connections. poolerDir is passed as --pooler-dir.
+// configFile is optional; if non-empty it is passed as --config-file.
+// extraEnv may be used to inject additional environment variables such as
+// POSTGRES_PASSWORD or a custom PATH.
+//
+// The server is stopped automatically when the test ends via t.Cleanup.
+// The returned Cmd may also be used directly (e.g. to kill the process
+// mid-test for orphan-detection tests).
+func startPgCtldServer(t *testing.T, poolerDir, configFile string, extraEnv ...string) *pgCtldServer {
+	t.Helper()
+
+	grpcPort := utils.GetFreePort(t)
+	httpPort := utils.GetFreePort(t)
+	pgPort := utils.GetFreePort(t)
+
+	args := []string{
+		"server",
+		"--pooler-dir", poolerDir,
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--pg-port", strconv.Itoa(pgPort),
+		"--timeout", "30",
+	}
+	if configFile != "" {
+		args = append(args, "--config-file", configFile)
+	}
+
+	cmd := executil.Command(t.Context(), "pgctld", args...)
+	cmd.AddEnv("MULTIGRES_TESTDATA_DIR=" + poolerDir)
+	setupTestEnv(cmd, poolerDir)
+	for _, e := range extraEnv {
+		cmd.AddEnv(e)
+	}
+
+	require.NoError(t, cmd.Start(), "pgctld server should start")
+	t.Cleanup(func() { _ = cmd.Wait() })
+
+	// Wait for gRPC port to accept connections.
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		conn.Close()
+		return true
+	}, 20*time.Second, 100*time.Millisecond, "pgctld gRPC server should be ready on port %d", grpcPort)
+
+	return &pgCtldServer{
+		GrpcPort: grpcPort,
+		HttpPort: httpPort,
+		PgPort:   pgPort,
+		Cmd:      cmd,
+	}
 }

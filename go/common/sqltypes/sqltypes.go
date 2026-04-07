@@ -151,6 +151,7 @@ func (r *Result) ToProto() *query.QueryResult {
 	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
+		HasFields:    r.Fields != nil,
 		RowsAffected: r.RowsAffected,
 		Rows:         protoRows,
 		CommandTag:   r.CommandTag,
@@ -166,8 +167,15 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	for i, row := range pr.Rows {
 		rows[i] = RowFromProto(row)
 	}
+	// Restore nil vs empty Fields distinction lost in protobuf serialization.
+	// Protobuf encodes both nil and empty repeated fields identically (as absent),
+	// so we use HasFields to distinguish "no result set" from "zero-column result".
+	fields := pr.Fields
+	if pr.HasFields && fields == nil {
+		fields = []*query.Field{}
+	}
 	return &Result{
-		Fields:       pr.Fields,
+		Fields:       fields,
 		RowsAffected: pr.RowsAffected,
 		Rows:         rows,
 		CommandTag:   pr.CommandTag,

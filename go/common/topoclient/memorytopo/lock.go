@@ -203,7 +203,8 @@ func (c *conn) lockWithTTL(ctx context.Context, dirPath, contents string, named 
 		}
 
 		// No one has the lock, grab it.
-		n.lock = make(chan struct{})
+		lockCh := make(chan struct{})
+		n.lock = lockCh
 		n.lockContents = contents
 
 		// Set up TTL expiration if specified
@@ -228,7 +229,7 @@ func (c *conn) lockWithTTL(ctx context.Context, dirPath, contents string, named 
 		return &memoryTopoLockDescriptor{
 			c:       c,
 			dirPath: dirPath,
-			lockCh:  n.lock,
+			lockCh:  lockCh,
 		}, nil
 	}
 }

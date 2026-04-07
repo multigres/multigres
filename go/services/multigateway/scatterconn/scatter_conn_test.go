@@ -148,6 +148,10 @@ func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, 
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
+func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Target, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
+	return nil, nil, nil
+}
+
 // newTestConn creates a test server.Conn for ScatterConn tests.
 func newTestConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn

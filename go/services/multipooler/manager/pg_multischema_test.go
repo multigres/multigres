@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
@@ -46,7 +47,9 @@ func (m *mockPoolerController) IsServing() bool            { return true }
 func (m *mockPoolerController) OnStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
 	return nil
 }
-func (m *mockPoolerController) StartRequest(bool) error                      { return nil }
+func (m *mockPoolerController) StartRequest(*query.Target, bool) error { return nil }
+func (m *mockPoolerController) AwaitStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) {
+}
 func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
 	return m.queryService

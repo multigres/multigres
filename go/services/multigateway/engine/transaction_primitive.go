@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -82,8 +83,11 @@ func (t *TransactionPrimitive) StreamExecute(
 	case ast.TRANS_STMT_ROLLBACK:
 		return t.executeRollback(ctx, exec, conn, state, callback)
 
+	case ast.TRANS_STMT_ROLLBACK_TO:
+		return t.executeRollbackToSavepoint(ctx, exec, conn, state, callback)
+
 	default:
-		// For other transaction statements (SAVEPOINT, etc.), pass through to backend
+		// For other transaction statements (SAVEPOINT, RELEASE SAVEPOINT), pass through to backend
 		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
 	}
 }
@@ -132,9 +136,17 @@ func (t *TransactionPrimitive) executeCommit(
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
 
-	// If no reserved connections, just return synthetic result
-	// (empty transaction or deferred BEGIN that was never used)
-	if len(state.ShardStates) == 0 {
+	// If no reserved connections, or if the reserved connections don't have
+	// an active transaction (e.g., temp-table-reserved session where BEGIN
+	// was deferred but never sent to PG), return synthetic result.
+	hasActiveTransaction := false
+	for _, ss := range state.ShardStates {
+		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
+			hasActiveTransaction = true
+			break
+		}
+	}
+	if len(state.ShardStates) == 0 || !hasActiveTransaction {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 		syncPendingSubscriptions(conn, state)
 		return callback(ctx, &sqltypes.Result{
@@ -194,8 +206,16 @@ func (t *TransactionPrimitive) executeRollback(
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
 
-	// If no reserved connections, just return synthetic result
-	if len(state.ShardStates) == 0 {
+	// If no reserved connections, or if the reserved connections don't have
+	// an active transaction, return synthetic result.
+	hasActiveRbTransaction := false
+	for _, ss := range state.ShardStates {
+		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
+			hasActiveRbTransaction = true
+			break
+		}
+	}
+	if len(state.ShardStates) == 0 || !hasActiveRbTransaction {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: "ROLLBACK",
@@ -213,6 +233,35 @@ func (t *TransactionPrimitive) executeRollback(
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
+}
+
+// executeRollbackToSavepoint handles ROLLBACK TO SAVEPOINT by passing through
+// to the backend. On success, transitions TxnStatus from Failed back to InBlock
+// so subsequent statements can execute normally. This matches PostgreSQL's
+// behavior where ROLLBACK TO SAVEPOINT is the primary mechanism for recovering
+// from errors within a transaction.
+func (t *TransactionPrimitive) executeRollbackToSavepoint(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
+
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+	if err != nil {
+		return err
+	}
+
+	// On success, restore transaction state if we were in the aborted state.
+	// The backend has rolled back to the savepoint and is now in a normal
+	// in-transaction state.
+	if wasFailed {
+		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	}
+
+	return nil
 }
 
 // recordTxnMetrics records transaction duration and count if TxnStartTime
