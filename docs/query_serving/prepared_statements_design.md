@@ -216,7 +216,7 @@ When the planner sees a wrapped EXECUTE, it:
 3. Regenerates the wrapper SQL via `SqlString()`. The result references the
    canonical name, e.g. `EXPLAIN (COSTS OFF) EXECUTE stmt42`.
 4. Builds a `Route` (or `TempTableRoute` for `CREATE TEMP TABLE ... AS
-   EXECUTE`) that carries the `PreparedStatement` metadata (the
+EXECUTE`) that carries the `PreparedStatement` metadata (the
    **gateway-assigned** canonical name, plus the query body and param types).
 
 ### Multipooler-Side ensurePreparedWithName
