@@ -3702,9 +3702,11 @@ func (x *ExpireBackupsRequest) GetOverrides() map[string]string {
 
 // ExpireBackupsResponse contains the result of backup expiration.
 type ExpireBackupsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// IDs of backups that were removed by the expiration.
+	ExpiredBackupIds []string `protobuf:"bytes,1,rep,name=expired_backup_ids,json=expiredBackupIds,proto3" json:"expired_backup_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ExpireBackupsResponse) Reset() {
@@ -3735,6 +3737,13 @@ func (x *ExpireBackupsResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExpireBackupsResponse.ProtoReflect.Descriptor instead.
 func (*ExpireBackupsResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *ExpireBackupsResponse) GetExpiredBackupIds() []string {
+	if x != nil {
+		return x.ExpiredBackupIds
+	}
+	return nil
 }
 
 // BackupMetadata contains metadata about a backup
@@ -4449,8 +4458,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\toverrides\x18\x01 \x03(\v2;.multipoolermanagerdata.ExpireBackupsRequest.OverridesEntryR\toverrides\x1a<\n" +
 	"\x0eOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x17\n" +
-	"\x15ExpireBackupsResponse\"\xb9\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"E\n" +
+	"\x15ExpireBackupsResponse\x12,\n" +
+	"\x12expired_backup_ids\x18\x01 \x03(\tR\x10expiredBackupIds\"\xb9\x03\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +

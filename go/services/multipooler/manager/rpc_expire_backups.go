@@ -25,16 +25,17 @@ import (
 
 // ExpireBackups runs pgbackrest expire to remove backups that exceed the
 // configured retention policy. This is safe to call at any time.
-func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[string]string) error {
+// Returns the IDs of backups that were removed.
+func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[string]string) ([]string, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "ExpireBackups")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
 
@@ -42,20 +43,35 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	// Expire must not run concurrently with backup/stanza-create on any node.
 	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
 	// not preempt an in-progress backup — it can wait or fail fast.
-	return pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "expire", pm.logger, func(ctx context.Context) error {
-		return pm.expireBackupsLocked(ctx, overrides)
+	var expiredIDs []string
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "expire", pm.logger, func(ctx context.Context) error {
+		var expireErr error
+		expiredIDs, expireErr = pm.expireBackupsLocked(ctx, overrides)
+		return expireErr
 	})
+	return expiredIDs, err
 }
 
 // expireBackupsLocked runs pgbackrest expire. Caller must hold the action lock.
-func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides map[string]string) error {
+// Returns the IDs of backups that were removed.
+func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides map[string]string) ([]string, error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
-		return err
+		return nil, err
 	}
 
 	configPath, err := pm.pgBackRestConfig()
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	// List backups before expiration to detect what gets removed
+	beforeBackups, err := pm.listBackups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list backups before expire: %w", err)
+	}
+	beforeIDs := make(map[string]struct{}, len(beforeBackups))
+	for _, b := range beforeBackups {
+		beforeIDs[b.BackupId] = struct{}{}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, backup.ExpireTimeout)
@@ -78,9 +94,29 @@ func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides
 		return runErr
 	})
 	if err != nil {
-		return fmt.Errorf("pgbackrest expire failed: %w\nOutput: %s", err, string(output))
+		return nil, fmt.Errorf("pgbackrest expire failed: %w\nOutput: %s", err, string(output))
 	}
 
-	pm.logger.InfoContext(ctx, "Backup expiration completed")
-	return nil
+	// List backups after expiration to determine what was removed
+	afterBackups, err := pm.listBackups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list backups after expire: %w", err)
+	}
+	afterIDs := make(map[string]struct{}, len(afterBackups))
+	for _, b := range afterBackups {
+		afterIDs[b.BackupId] = struct{}{}
+	}
+
+	// Compute expired IDs: in before but not in after
+	var expiredIDs []string
+	for id := range beforeIDs {
+		if _, ok := afterIDs[id]; !ok {
+			expiredIDs = append(expiredIDs, id)
+		}
+	}
+
+	pm.logger.InfoContext(ctx, "Backup expiration completed",
+		"expired_backup_ids", expiredIDs,
+		"expired_count", len(expiredIDs))
+	return expiredIDs, nil
 }

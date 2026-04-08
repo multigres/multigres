@@ -715,6 +715,8 @@ message ExpireBackupsRequest {
 
 // ExpireBackupsResponse contains the result of backup expiration.
 message ExpireBackupsResponse {
+  // IDs of backups that were removed by the expiration.
+  repeated string expired_backup_ids = 1;
 }
 
 // BackupMetadata contains metadata about a backup

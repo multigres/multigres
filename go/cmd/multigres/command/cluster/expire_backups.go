@@ -80,7 +80,7 @@ func (ecmd *expireBackupsCmd) runExpireBackups(cmd *cobra.Command, args []string
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 
-	_, err = client.ExpireBackups(ctx, &multiadminpb.ExpireBackupsRequest{
+	resp, err := client.ExpireBackups(ctx, &multiadminpb.ExpireBackupsRequest{
 		Database:   database,
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,
@@ -89,6 +89,13 @@ func (ecmd *expireBackupsCmd) runExpireBackups(cmd *cobra.Command, args []string
 		return fmt.Errorf("failed to expire backups: %w", err)
 	}
 
-	cmd.Println("Backup expiration completed successfully.")
+	if len(resp.ExpiredBackupIds) > 0 {
+		cmd.Printf("Expired %d backup(s):\n", len(resp.ExpiredBackupIds))
+		for _, id := range resp.ExpiredBackupIds {
+			cmd.Printf("  - %s\n", id)
+		}
+	} else {
+		cmd.Println("No backups were expired.")
+	}
 	return nil
 }

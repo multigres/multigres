@@ -303,11 +303,14 @@ func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolerm
 
 // ExpireBackups removes backups that exceed the configured retention policy
 func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
-	if err := s.manager.ExpireBackups(ctx, req.Overrides); err != nil {
+	expiredIDs, err := s.manager.ExpireBackups(ctx, req.Overrides)
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &multipoolermanagerdatapb.ExpireBackupsResponse{}, nil
+	return &multipoolermanagerdatapb.ExpireBackupsResponse{
+		ExpiredBackupIds: expiredIDs,
+	}, nil
 }
 
 // InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary

@@ -422,7 +422,7 @@ func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
 	}
 
-	_, err = s.rpcClient.ExpireBackups(ctx, pooler, &multipoolermanagerdata.ExpireBackupsRequest{
+	resp, err := s.rpcClient.ExpireBackups(ctx, pooler, &multipoolermanagerdata.ExpireBackupsRequest{
 		Overrides: req.Overrides,
 	})
 	if err != nil {
@@ -432,7 +432,10 @@ func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 	s.logger.InfoContext(ctx, "ExpireBackups completed",
 		"database", req.Database,
 		"table_group", req.TableGroup,
-		"shard", req.Shard)
+		"shard", req.Shard,
+		"expired_backup_ids", resp.ExpiredBackupIds)
 
-	return &multiadminpb.ExpireBackupsResponse{}, nil
+	return &multiadminpb.ExpireBackupsResponse{
+		ExpiredBackupIds: resp.ExpiredBackupIds,
+	}, nil
 }
