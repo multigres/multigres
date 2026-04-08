@@ -66,11 +66,12 @@ message Database {
   // Backup location configuration
   BackupLocation backup_location = 2;
 
-  // Durability policy used for consensus
-  string durability_policy = 3;
-
   // List of cell identifiers where this database should be deployed
-  repeated string cells = 4;
+  repeated string cells = 3;
+
+  // bootstrap_durability_policy is the durability policy applied when
+  // initializing this database for the first time. Set at database creation.
+  DurabilityPolicy bootstrap_durability_policy = 4;
 }
 
 // BackupLocation specifies where backups are stored
@@ -268,40 +269,27 @@ enum PoolerServingStatus {
 // These policies are stored locally in each shard's postgres database
 // and replicated via postgres streaming replication.
 message DurabilityPolicy {
-  // policy_name references Database.durability_policy (e.g., "any-two")
+  // policy_name is a human-readable identifier (e.g., "AT_LEAST_2")
   string policy_name = 1;
 
   // policy_version allows policy evolution over time
   int64 policy_version = 2;
 
-  // quorum_rule defines the actual quorum requirements
-  QuorumRule quorum_rule = 3;
-
-  // is_active indicates if this is the current active policy
-  bool is_active = 4;
-
-  // Audit timestamps
-  google.protobuf.Timestamp created_at = 5;
-  google.protobuf.Timestamp updated_at = 6;
-}
-
-// QuorumRule defines how many nodes are required for quorum
-message QuorumRule {
   // quorum_type determines which quorum algorithm to use
-  QuorumType quorum_type = 1;
+  QuorumType quorum_type = 3;
 
-  // required_count: number of nodes/cells required
+  // required_count is the number of nodes/cells required for quorum
   // - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
   // - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
   //   with at least one node from each cell
-  int32 required_count = 2;
+  int32 required_count = 4;
 
-  // Human-readable description
-  string description = 3;
+  // description is a human-readable summary of this policy
+  string description = 5;
 
   // async_fallback defines behavior when insufficient standbys are available
   // for synchronous replication. Defaults to ALLOW if unset.
-  AsyncReplicationFallbackMode async_fallback = 4;
+  AsyncReplicationFallbackMode async_fallback = 6;
 }
 
 // QuorumType enumerates supported quorum algorithms

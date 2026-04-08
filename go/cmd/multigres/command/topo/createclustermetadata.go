@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -54,8 +55,13 @@ func createClusterMetadata(cmd *cobra.Command, args []string) error {
 	globalTopoAddress, _ := cmd.Flags().GetString("global-topo-address")
 	globalTopoRoot, _ := cmd.Flags().GetString("global-topo-root")
 	cells, _ := cmd.Flags().GetStringSlice("cells")
-	durabilityPolicy, _ := cmd.Flags().GetString("durability-policy")
+	durabilityPolicyName, _ := cmd.Flags().GetString("durability-policy")
 	backupLocation, _ := cmd.Flags().GetString("backup-location")
+
+	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(durabilityPolicyName)
+	if err != nil {
+		return fmt.Errorf("invalid --durability-policy %q: %w", durabilityPolicyName, err)
+	}
 
 	// Create topology store using configured backend
 	ts, err := topoclient.OpenServer("etcd", globalTopoRoot, []string{globalTopoAddress}, topoclient.NewDefaultTopoConfig())
@@ -72,7 +78,7 @@ func createClusterMetadata(cmd *cobra.Command, args []string) error {
 	}
 
 	// Provision the database
-	if err := provisionDatabase(ctx, ts, "postgres", cells, backupLocation, durabilityPolicy); err != nil {
+	if err := provisionDatabase(ctx, ts, "postgres", cells, backupLocation, bootstrapPolicy); err != nil {
 		return fmt.Errorf("failed to provision database: %w", err)
 	}
 
@@ -116,7 +122,7 @@ func createCell(ctx context.Context, ts topoclient.Store, cellName, etcdAddress,
 }
 
 // provisionDatabase registers a database in the global topology
-func provisionDatabase(ctx context.Context, ts topoclient.Store, databaseName string, cellNames []string, backupLocation, durabilityPolicy string) error {
+func provisionDatabase(ctx context.Context, ts topoclient.Store, databaseName string, cellNames []string, backupLocation string, bootstrapPolicy *clustermetadatapb.DurabilityPolicy) error {
 	fmt.Printf("Registering database: %s\n", databaseName)
 
 	// Check if database already exists
@@ -139,8 +145,8 @@ func provisionDatabase(ctx context.Context, ts topoclient.Store, databaseName st
 					},
 				},
 			},
-			DurabilityPolicy: durabilityPolicy,
-			Cells:            cellNames,
+			BootstrapDurabilityPolicy: bootstrapPolicy,
+			Cells:                     cellNames,
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {

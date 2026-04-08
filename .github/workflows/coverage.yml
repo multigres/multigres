@@ -49,14 +49,14 @@ jobs:
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
       - name: Upload direct coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-direct
           path: coverage-direct.txt
           retention-days: 7
       - name: Test Report
-        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
           name: Direct Coverage Tests
@@ -97,14 +97,14 @@ jobs:
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
       - name: Upload subprocess coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-subprocess
           path: coverage-subprocess.txt
           retention-days: 7
       - name: Test Report
-        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
           name: Subprocess Coverage Tests
@@ -146,7 +146,7 @@ jobs:
           echo "Final coverage summary:"
           go tool cover -func=coverage-merged.txt | tail -1
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-merged

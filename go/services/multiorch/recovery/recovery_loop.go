@@ -40,36 +40,44 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 
 	// Create generator - this builds the poolersByTG map once
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
-	analyses := generator.GenerateAnalyses()
+	shardAnalyses := generator.GenerateShardAnalyses()
 
 	// Run all analyzers to detect problems
 	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
-	for _, poolerAnalysis := range analyses {
+	for _, shardAnalysis := range shardAnalyses {
 		for _, analyzer := range analyzers {
-			detectedProblem, err := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(shardAnalysis)
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
 					"analyzer", analyzer.Name(),
-					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
+					"shard", shardAnalysis.ShardKey,
 					"error", err,
 				)
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
 				)
-				continue
 			}
 
-			// Observe health for this specific (pooler, analyzer) combination
-			isHealthy := detectedProblem == nil
-			poolerID := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
-			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
-
-			// Only append to problems list if detected
-			if detectedProblem != nil {
-				problems = append(problems, *detectedProblem)
+			// Observe health per-pooler: a pooler is unhealthy if it appears in the detected problems.
+			// TODO: shard-wide problems (PoolerID == nil) don't contribute to per-pooler unhealthy
+			// tracking here. Follow up by recording grace period observations under the shard key
+			// (e.g. shardAnalysis.ShardKey.String()) for analyzers that produce shard-scoped problems,
+			// so grace periods work correctly for shard-wide recoveries.
+			problematicPoolerIDs := make(map[string]bool, len(detectedProblems))
+			for _, p := range detectedProblems {
+				if p.PoolerID != nil {
+					problematicPoolerIDs[topoclient.MultiPoolerIDString(p.PoolerID)] = true
+				}
 			}
+			for _, pa := range shardAnalysis.Analyses {
+				poolerID := topoclient.MultiPoolerIDString(pa.PoolerID)
+				isHealthy := !problematicPoolerIDs[poolerID]
+				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
+			}
+
+			problems = append(problems, detectedProblems...)
 		}
 	}
 
@@ -331,10 +339,12 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 		}
 	}
 
-	// Re-generate analysis for this specific pooler using updated store data.
+	// Re-generate analysis for this shard using updated store data.
 	// A new generator is created to capture the updated store state from the re-poll above.
+	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
+	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
-	poolerAnalysis, err := generator.GenerateAnalysisForPooler(poolerIDStr)
+	shardAnalysis, err := generator.GenerateShardAnalysis(problem.ShardKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
 	}
@@ -343,7 +353,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
-			redetectedProblem, err := analyzer.Analyze(poolerAnalysis)
+			redetectedProblems, err := analyzer.Analyze(shardAnalysis)
 			if err != nil {
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
@@ -351,13 +361,19 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 				return false, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
 			}
 
-			// Check if the same problem code is still detected
-			if redetectedProblem != nil && redetectedProblem.Code == problem.Code {
-				re.logger.DebugContext(ctx, "problem still exists after re-poll",
-					"pooler_id", poolerIDStr,
-					"problem_code", problem.Code,
-				)
-				return true, nil
+			// Check if the same problem is still detected.
+			// Match by pooler ID when available; accept any pooler in shard only if PoolerID is nil.
+			for _, p := range redetectedProblems {
+				if p.Code != problem.Code {
+					continue
+				}
+				if problem.PoolerID == nil || topoclient.MultiPoolerIDString(p.PoolerID) == poolerIDStr {
+					re.logger.DebugContext(ctx, "problem still exists after re-poll",
+						"pooler_id", poolerIDStr,
+						"problem_code", problem.Code,
+					)
+					return true, nil
+				}
 			}
 
 			// Problem was not re-detected

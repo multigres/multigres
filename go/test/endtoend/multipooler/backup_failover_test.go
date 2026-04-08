@@ -80,9 +80,10 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
 	os.Unsetenv("AWS_SESSION_TOKEN") // ensure no stale session token
 
-	// Isolated shard: 2 multipoolers + 1 multiorch for failover, S3 backend
+	// Isolated shard: 3 multipoolers + 1 multiorch for failover, S3 backend.
+	// 3 nodes are required so that AT_LEAST_2 quorum can be satisfied after the primary is killed.
 	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiOrchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
