@@ -158,25 +158,25 @@ func (m *Metrics) IncRestoreFailures(ctx context.Context) {
 	}
 }
 
-func (m *Metrics) ObserveBackupDuration(ctx context.Context, seconds float64) {
+func (m *Metrics) RecordBackupDuration(ctx context.Context, seconds float64) {
 	if m != nil && m.backupDuration != nil {
 		m.backupDuration.Record(ctx, seconds)
 	}
 }
 
-func (m *Metrics) ObserveBackupVerifyDuration(ctx context.Context, seconds float64) {
+func (m *Metrics) RecordBackupVerifyDuration(ctx context.Context, seconds float64) {
 	if m != nil && m.backupVerifyDuration != nil {
 		m.backupVerifyDuration.Record(ctx, seconds)
 	}
 }
 
-func (m *Metrics) ObserveRestoreDuration(ctx context.Context, seconds float64) {
+func (m *Metrics) RecordRestoreDuration(ctx context.Context, seconds float64) {
 	if m != nil && m.restoreDuration != nil {
 		m.restoreDuration.Record(ctx, seconds)
 	}
 }
 
-func (m *Metrics) ObserveBackupLockWait(ctx context.Context, seconds float64) {
+func (m *Metrics) RecordBackupLockWait(ctx context.Context, seconds float64) {
 	if m != nil && m.backupLockWait != nil {
 		m.backupLockWait.Record(ctx, seconds)
 	}

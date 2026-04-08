@@ -61,7 +61,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	var err error
 	lockStart := time.Now()
 	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
-	pm.metrics.ObserveBackupLockWait(ctx, time.Since(lockStart).Seconds())
+	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +197,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
 	})
-	pm.metrics.ObserveBackupDuration(ctx, time.Since(backupStart).Seconds())
+	pm.metrics.RecordBackupDuration(ctx, time.Since(backupStart).Seconds())
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -233,7 +233,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		verifyOutput, runErr = pm.runLongCommand(ctx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 		return runErr
 	})
-	pm.metrics.ObserveBackupVerifyDuration(ctx, time.Since(verifyStart).Seconds())
+	pm.metrics.RecordBackupVerifyDuration(ctx, time.Since(verifyStart).Seconds())
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -297,7 +297,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	pm.metrics.IncRestoreAttempts(ctx)
 	restoreStart := time.Now()
 	defer func() {
-		pm.metrics.ObserveRestoreDuration(ctx, time.Since(restoreStart).Seconds())
+		pm.metrics.RecordRestoreDuration(ctx, time.Since(restoreStart).Seconds())
 		if retErr == nil {
 			pm.metrics.IncRestoreSuccesses(ctx)
 		} else {

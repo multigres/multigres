@@ -167,10 +167,10 @@ func TestMetrics_NilSafe(t *testing.T) {
 	assert.NotPanics(t, func() { m.IncRestoreAttempts(ctx) })
 	assert.NotPanics(t, func() { m.IncRestoreSuccesses(ctx) })
 	assert.NotPanics(t, func() { m.IncRestoreFailures(ctx) })
-	assert.NotPanics(t, func() { m.ObserveBackupDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.ObserveBackupVerifyDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.ObserveRestoreDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.ObserveBackupLockWait(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupVerifyDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordRestoreDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupLockWait(ctx, 1.0) })
 }
 
 func TestMetrics_RestoreCounters_SingleSuccess(t *testing.T) {
@@ -251,8 +251,8 @@ func TestMetrics_BackupDuration(t *testing.T) {
 	m, reader := setupMetrics(t)
 	ctx := t.Context()
 
-	m.ObserveBackupDuration(ctx, 1.5)
-	m.ObserveBackupDuration(ctx, 2.5)
+	m.RecordBackupDuration(ctx, 1.5)
+	m.RecordBackupDuration(ctx, 2.5)
 
 	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.duration")
 	require.NotNil(t, hist, "pgbackrest.backup.duration histogram not found")
@@ -263,7 +263,7 @@ func TestMetrics_BackupVerifyDuration(t *testing.T) {
 	m, reader := setupMetrics(t)
 	ctx := t.Context()
 
-	m.ObserveBackupVerifyDuration(ctx, 0.5)
+	m.RecordBackupVerifyDuration(ctx, 0.5)
 
 	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.verify.duration")
 	require.NotNil(t, hist, "pgbackrest.backup.verify.duration histogram not found")
@@ -274,7 +274,7 @@ func TestMetrics_RestoreDuration(t *testing.T) {
 	m, reader := setupMetrics(t)
 	ctx := t.Context()
 
-	m.ObserveRestoreDuration(ctx, 3.0)
+	m.RecordRestoreDuration(ctx, 3.0)
 
 	hist := getHistogramFloat64(t, reader, "pgbackrest.restore.duration")
 	require.NotNil(t, hist, "pgbackrest.restore.duration histogram not found")
@@ -285,7 +285,7 @@ func TestMetrics_BackupLockWait(t *testing.T) {
 	m, reader := setupMetrics(t)
 	ctx := t.Context()
 
-	m.ObserveBackupLockWait(ctx, 0.1)
+	m.RecordBackupLockWait(ctx, 0.1)
 
 	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.lock_wait")
 	require.NotNil(t, hist, "pgbackrest.backup.lock_wait histogram not found")

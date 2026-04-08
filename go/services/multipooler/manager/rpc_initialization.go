@@ -51,7 +51,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	var err error
 	lockStart := time.Now()
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
-	pm.metrics.ObserveBackupLockWait(ctx, time.Since(lockStart).Seconds())
+	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
