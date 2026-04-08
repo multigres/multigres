@@ -211,10 +211,11 @@ func (e *Executor) StreamExecute(
 			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
 
-		// Auto-detect transaction state from PG backend. If a BEGIN was sent
-		// inline (e.g., prepended for session-pinned connections), the reserved
-		// connection won't have ReasonTransaction set. Sync it from PG's
-		// ReadyForQuery transaction indicator.
+		// Sync our in-memory transaction tracking with PG's actual state. The SQL
+		// itself may contain transaction control statements (e.g., a simple-query
+		// payload like "BEGIN; SELECT 1; COMMIT;") that change PG's transaction
+		// status without going through ReservationReasons, so we reconcile against
+		// the ReadyForQuery transaction indicator after the query completes.
 		if reservedConn.Conn().TxnStatus() == protocol.TxnStatusInBlock && !reservedConn.IsInTransaction() {
 			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		} else if reservedConn.Conn().TxnStatus() == protocol.TxnStatusIdle && reservedConn.IsInTransaction() {

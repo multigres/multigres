@@ -214,7 +214,7 @@ func (sc *ScatterConn) StreamExecute(
 		}
 		reservedState, err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback)
 		if err != nil {
-			return fmt.Errorf("reserve stream execute failed: %w", err)
+			return fmt.Errorf("query execution failed: %w", err)
 		}
 
 		sc.applyReservedState(conn, state, target, reservedState)
