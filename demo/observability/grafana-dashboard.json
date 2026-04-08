@@ -48,7 +48,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (http_response_status_code, http_request_method) (rate(http_server_request_duration_seconds_count{job=\"multigateway\"}[$__rate_interval]))",
+          "expr": "sum by (http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=\"multigateway\"}[$__rate_interval])))",
           "legendFormat": "{{http_request_method}} [{{http_response_status_code}}]",
           "range": true,
           "refId": "A"
@@ -132,7 +132,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (rate(rpc_client_duration_milliseconds_count{job=\"multigateway\"}[$__rate_interval]))",
+          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multigateway\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
@@ -574,7 +574,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_method, rpc_grpc_status_code) (rate(rpc_server_duration_milliseconds_count{job=\"multipooler\"}[$__rate_interval]))",
+          "expr": "sum by (rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=\"multipooler\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
@@ -658,7 +658,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (rate(rpc_client_duration_milliseconds_count{job=\"multipooler\"}[$__rate_interval]))",
+          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multipooler\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
@@ -1079,7 +1079,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (rate(rpc_client_duration_milliseconds_count{job=\"multiorch\"}[$__rate_interval]))",
+          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multiorch\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
@@ -1163,7 +1163,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (action, status) (rate(multiorch_recovery_action_duration_milliseconds_count{job=\"multiorch\"}[$__rate_interval]))",
+          "expr": "sum by (action, status) (histogram_count(rate(multiorch_recovery_action_duration_milliseconds{job=\"multiorch\"}[$__rate_interval])))",
           "legendFormat": "{{action}} [{{status}}]",
           "range": true,
           "refId": "A"
@@ -1449,7 +1449,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (operation, result, resource_type) (rate(topoclient_lock_duration_seconds_count[$__rate_interval]))",
+          "expr": "sum by (operation, result, resource_type) (histogram_count(rate(topoclient_lock_duration_seconds[$__rate_interval])))",
           "legendFormat": "{{operation}} on {{resource_type}} [{{result}}]",
           "range": true,
           "refId": "A"
