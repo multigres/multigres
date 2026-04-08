@@ -59,10 +59,17 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 
 // buildReservedState constructs a ReservedState from the current state of a reserved connection.
 func (e *Executor) buildReservedState(reservedConn *reserved.Conn) *query.ReservedState {
+	return e.buildReservedStateFromAPI(reservedConn)
+}
+
+// buildReservedStateFromAPI constructs a ReservedState from any value satisfying
+// reservedConnAPI. Used by streamExecuteOnReservedConn so the helper can be exercised
+// in unit tests with a mock conn instead of a real *reserved.Conn.
+func (e *Executor) buildReservedStateFromAPI(rc reservedConnAPI) *query.ReservedState {
 	return &query.ReservedState{
-		ReservedConnectionId: uint64(reservedConn.ConnID),
+		ReservedConnectionId: uint64(rc.ConnID()),
 		PoolerId:             e.poolerID,
-		ReservationReasons:   reservedConn.RemainingReasons(),
+		ReservationReasons:   rc.RemainingReasons(),
 	}
 }
 
@@ -183,52 +190,15 @@ func (e *Executor) StreamExecute(
 
 		// Apply settings if they changed (e.g., SET inside a transaction).
 		// Reserved connections bypass the pool's normal ApplySettings mechanism,
-		// so we must explicitly apply settings changes here.
+		// so we must explicitly apply settings changes here. This step depends
+		// on the underlying *regular.Conn so it stays out of the helper.
 		if options.SessionSettings != nil {
 			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
 
-		// If the caller is adding reservation reasons (e.g., promoting a temp-table
-		// reservation to also hold a transaction), apply them now.
-		if reasons != 0 {
-			// If the new reasons include transaction and the connection is not
-			// already in a transaction, execute BEGIN before the query.
-			if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
-				beginQuery := "BEGIN"
-				if reservationOptions.GetBeginQuery() != "" {
-					beginQuery = reservationOptions.GetBeginQuery()
-				}
-				if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
-					return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
-				}
-			}
-			// Add all requested non-transaction reasons to the reservation
-			// (BeginWithQuery already added ReasonTransaction internally).
-			if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
-				reservedConn.AddReservationReason(nonBeginReasons)
-			}
-		}
-
-		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			// Query failed but connection still exists — return current state
-			return e.buildReservedState(reservedConn), wrapQueryError(err)
-		}
-
-		// Sync our in-memory transaction tracking with PG's actual state. The SQL
-		// itself may contain transaction control statements (e.g., a simple-query
-		// payload like "BEGIN; SELECT 1; COMMIT;") that change PG's transaction
-		// status without going through ReservationOptions, so we reconcile against
-		// the ReadyForQuery transaction indicator after the query completes.
-		if reservedConn.Conn().TxnStatus() == protocol.TxnStatusInBlock && !reservedConn.IsInTransaction() {
-			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
-		} else if reservedConn.Conn().TxnStatus() == protocol.TxnStatusIdle && reservedConn.IsInTransaction() {
-			// Transaction ended via inline COMMIT/ROLLBACK — remove the reason.
-			reservedConn.RemoveReservationReason(protoutil.ReasonTransaction)
-		}
-
-		return e.buildReservedState(reservedConn), nil
+		return e.streamExecuteOnReservedConn(ctx, reservedConn, sql, reservationOptions, callback)
 	}
 
 	// Case 2: Create a new reserved connection
@@ -328,6 +298,64 @@ func (e *Executor) reserveAndStreamExecute(
 		"reserved_conn_id", reservedState.ReservedConnectionId)
 
 	return reservedState, nil
+}
+
+// streamExecuteOnReservedConn executes a query on an existing reserved
+// connection. It optionally promotes the reservation by adding new reasons
+// (e.g., starting a transaction on a temp-table-reserved connection) before
+// running the query, and reconciles the in-memory transaction tracking against
+// PG's actual transaction status afterwards.
+//
+// Defined over reservedConnAPI rather than *reserved.Conn so that unit tests
+// can substitute a mock and exercise this path without a live PG connection.
+func (e *Executor) streamExecuteOnReservedConn(
+	ctx context.Context,
+	rc reservedConnAPI,
+	sql string,
+	reservationOptions *query.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (*query.ReservedState, error) {
+	reasons := protoutil.GetReasons(reservationOptions)
+
+	// If the caller is adding reservation reasons (e.g., promoting a temp-table
+	// reservation to also hold a transaction), apply them now.
+	if reasons != 0 {
+		// If the new reasons include transaction and the connection is not
+		// already in a transaction, execute BEGIN before the query.
+		if protoutil.RequiresBegin(reasons) && !rc.IsInTransaction() {
+			beginQuery := "BEGIN"
+			if reservationOptions.GetBeginQuery() != "" {
+				beginQuery = reservationOptions.GetBeginQuery()
+			}
+			if err := rc.BeginWithQuery(ctx, beginQuery); err != nil {
+				return e.buildReservedStateFromAPI(rc), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+			}
+		}
+		// Add all requested non-transaction reasons to the reservation
+		// (BeginWithQuery already added ReasonTransaction internally).
+		if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+			rc.AddReservationReason(nonBeginReasons)
+		}
+	}
+
+	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
+		// Query failed but connection still exists — return current state
+		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
+	}
+
+	// Sync our in-memory transaction tracking with PG's actual state. The SQL
+	// itself may contain transaction control statements (e.g., a simple-query
+	// payload like "BEGIN; SELECT 1; COMMIT;") that change PG's transaction
+	// status without going through ReservationOptions, so we reconcile against
+	// the ReadyForQuery transaction indicator after the query completes.
+	if rc.TxnStatus() == protocol.TxnStatusInBlock && !rc.IsInTransaction() {
+		rc.AddReservationReason(protoutil.ReasonTransaction)
+	} else if rc.TxnStatus() == protocol.TxnStatusIdle && rc.IsInTransaction() {
+		// Transaction ended via inline COMMIT/ROLLBACK — remove the reason.
+		rc.RemoveReservationReason(protoutil.ReasonTransaction)
+	}
+
+	return e.buildReservedStateFromAPI(rc), nil
 }
 
 // Close closes the executor and releases resources.
@@ -645,7 +673,7 @@ func (e *Executor) CopyReady(
 		}
 	}
 
-	connID := reservedConn.ConnID
+	connID := reservedConn.ConnID()
 
 	// Get the pooled connection for COPY operations
 	conn := reservedConn.Conn()
