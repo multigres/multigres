@@ -204,7 +204,10 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
 func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	var poolerIDStr string
+	if problem.PoolerID != nil {
+		poolerIDStr = topoclient.MultiPoolerIDString(problem.PoolerID)
+	}
 	actionName := problem.RecoveryAction.Metadata().Name
 
 	ctx, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
@@ -300,7 +303,10 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 //
 // Returns (stillExists bool, error).
 func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bool, error) {
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	var poolerIDStr string
+	if problem.PoolerID != nil {
+		poolerIDStr = topoclient.MultiPoolerIDString(problem.PoolerID)
+	}
 	isShardWide := problem.Scope == types.ScopeShard
 
 	re.logger.DebugContext(ctx, "validating problem still exists",
