@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -139,7 +140,7 @@ func setupStreamingTestWithCallback(
 	}
 
 	logger := slog.Default()
-	conn, err := NewPoolerConnection(ctx, pooler, logger, onHealthUpdate)
+	conn, err := NewPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Close()

@@ -17,8 +17,12 @@ package queryserving
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +32,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -210,4 +219,183 @@ func TestMultiGateway_QueryCancel(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestMultiGateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TLS cancel forwarding test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping query cancel tests")
+	}
+
+	caCert, serverCert, serverKey := generateGatewayGRPCTLSFiles(t)
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultigateway(),
+		func(c *shardsetup.SetupConfig) {
+			// Gateway that owns query execution: enable gRPC server TLS.
+			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs,
+				"--grpc-cert", serverCert,
+				"--grpc-key", serverKey,
+			)
+		},
+	)
+	defer cleanup()
+
+	targetGateway := setup.Multigateway
+	require.NotNil(t, targetGateway)
+	targetPGPort := setup.MultigatewayPgPort
+
+	// Create a second gateway that receives CancelRequest and forwards to target over gRPC TLS.
+	sourceGateway := setup.CreateMultigatewayInstance(
+		t,
+		"multigateway-source",
+		utils.GetFreePort(t),
+		utils.GetFreePort(t),
+		utils.GetFreePort(t),
+	)
+	sourceGateway.ExtraArgs = []string{
+		"--multipooler-grpc-ca", caCert,
+		"--multipooler-grpc-server-name", "localhost",
+		"--multipooler-grpc-require-tls",
+	}
+
+	// Restore canonical setup pointers so shardsetup cleanup continues to manage the target gateway.
+	setup.Multigateway = targetGateway
+	setup.MultigatewayPgPort = targetPGPort
+
+	require.NoError(t, sourceGateway.Start(setup.Context(), t), "failed to start source gateway")
+	defer sourceGateway.TerminateGracefully(t, 5*time.Second)
+
+	prefixes := waitForGatewayPrefixes(t, setup, targetGateway.ServiceID, sourceGateway.ServiceID)
+	targetPrefix := prefixes[targetGateway.ServiceID]
+	sourcePrefix := prefixes[sourceGateway.ServiceID]
+	require.NotEqual(t, targetPrefix, sourcePrefix, "gateways must have different PID prefixes")
+
+	ctx := utils.WithTimeout(t, 120*time.Second)
+	conn := connectClientToGateway(t, ctx, targetPGPort)
+	defer conn.Close()
+
+	processID := conn.ProcessID()
+	secretKey := conn.SecretKey()
+	require.NotZero(t, processID)
+	require.NotZero(t, secretKey)
+
+	queryPrefix, _ := pid.DecodePID(processID)
+	require.Equal(t, targetPrefix, queryPrefix, "query connection PID should belong to target gateway")
+
+	errCh := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		_, err := conn.Query(ctx, "SELECT pg_sleep(10)")
+		errCh <- err
+	}()
+
+	// Give the query time to start on the target backend.
+	time.Sleep(250 * time.Millisecond)
+	require.NoError(t, sendCancelRequest("127.0.0.1", sourceGateway.PgPort, processID, secretKey))
+
+	select {
+	case err := <-errCh:
+		require.Error(t, err, "query should be cancelled by forwarded CancelRequest")
+		var pgDiag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &pgDiag), "expected PgDiagnostic, got %T: %v", err, err)
+		assert.Equal(t, "57014", pgDiag.Code, "should be query_canceled")
+		assert.Less(t, time.Since(start), 5*time.Second, "cancel should return well before pg_sleep(10) completes")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for forwarded cancel")
+	}
+
+	// Verify the target gateway connection is still usable after cancel.
+	_, err := conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+}
+
+func connectClientToGateway(t *testing.T, ctx context.Context, pgPort int) *client.Conn {
+	t.Helper()
+
+	conn, err := client.Connect(ctx, ctx, &client.Config{
+		Host:        "localhost",
+		Port:        pgPort,
+		User:        shardsetup.DefaultTestUser,
+		Password:    shardsetup.TestPostgresPassword,
+		Database:    "postgres",
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	return conn
+}
+
+func sendCancelRequest(host string, port int, processID, secretKey uint32) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("dial cancel endpoint %s: %w", addr, err)
+	}
+	defer conn.Close()
+
+	packet := make([]byte, 16)
+	binary.BigEndian.PutUint32(packet[0:4], 16)
+	binary.BigEndian.PutUint32(packet[4:8], protocol.CancelRequestCode)
+	binary.BigEndian.PutUint32(packet[8:12], processID)
+	binary.BigEndian.PutUint32(packet[12:16], secretKey)
+
+	n, err := conn.Write(packet)
+	if err != nil {
+		return fmt.Errorf("write cancel packet: %w", err)
+	}
+	if n != len(packet) {
+		return fmt.Errorf("short write for cancel packet: wrote %d, want %d", n, len(packet))
+	}
+	return nil
+}
+
+func waitForGatewayPrefixes(t *testing.T, setup *shardsetup.ShardSetup, serviceIDs ...string) map[string]uint32 {
+	t.Helper()
+
+	expected := make(map[string]struct{}, len(serviceIDs))
+	for _, id := range serviceIDs {
+		expected[id] = struct{}{}
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		gateways, err := setup.TopoServer.GetMultiGatewaysByCell(context.Background(), setup.CellName)
+		if err == nil {
+			prefixes := make(map[string]uint32, len(serviceIDs))
+			for _, gw := range gateways {
+				if gw.GetId() == nil {
+					continue
+				}
+				name := gw.GetId().GetName()
+				if _, ok := expected[name]; ok {
+					prefixes[name] = gw.GetPidPrefix()
+				}
+			}
+			if len(prefixes) == len(serviceIDs) {
+				return prefixes
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for gateways in topo: %v", serviceIDs)
+	return nil
+}
+
+func generateGatewayGRPCTLSFiles(t *testing.T) (caCert, serverCert, serverKey string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	caCert = filepath.Join(dir, "ca.crt")
+	caKey := filepath.Join(dir, "ca.key")
+	serverCert = filepath.Join(dir, "server.crt")
+	serverKey = filepath.Join(dir, "server.key")
+
+	require.NoError(t, local.GenerateCA(caCert, caKey))
+	require.NoError(t, local.GenerateCert(caCert, caKey, serverCert, serverKey, "localhost", []string{"localhost"}))
+
+	return caCert, serverCert, serverKey
 }

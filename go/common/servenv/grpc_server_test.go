@@ -20,7 +20,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestEmpty(t *testing.T) {
@@ -74,4 +78,37 @@ func (fake *FakeInterceptor) StreamServerInterceptor(value any, stream grpc.Serv
 func (fake *FakeInterceptor) UnaryServerInterceptor(ctx context.Context, value any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 	fake.unarySeen = value
 	return handler(ctx, value)
+}
+
+func newEnabledGRPCServerForTest() *GrpcServer {
+	reg := viperutil.NewRegistry()
+	g := NewGrpcServer(reg)
+	g.port.Set(12345)
+	return g
+}
+
+func TestGrpcServerCreate_SucceedsWithoutTLS(t *testing.T) {
+	g := newEnabledGRPCServerForTest()
+
+	err := g.Create()
+	require.NoError(t, err)
+	require.NotNil(t, g.Server)
+}
+
+func TestGrpcServerCreate_FailsWhenCRLSet(t *testing.T) {
+	g := newEnabledGRPCServerForTest()
+	g.crl.Set("/tmp/test.crl")
+
+	err := g.Create()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--grpc-crl is not implemented yet")
+}
+
+func TestGrpcServerCreate_FailsWhenOptionalTLSEnabled(t *testing.T) {
+	g := newEnabledGRPCServerForTest()
+	g.enableOptionalTLS.Set(true)
+
+	err := g.Create()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--grpc-enable-optional-tls is not implemented yet")
 }

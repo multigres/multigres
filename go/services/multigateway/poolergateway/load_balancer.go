@@ -22,6 +22,8 @@ import (
 	"math/rand/v2"
 	"sync"
 
+	"google.golang.org/grpc"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -71,16 +73,21 @@ type LoadBalancer struct {
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
 	onPrimaryServing func(tableGroup, shard string)
+
+	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
+	grpcDialOpt grpc.DialOption
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
-func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger) *LoadBalancer {
+// The grpcDialOpt configures transport credentials for gRPC connections to poolers.
+func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger, grpcDialOpt grpc.DialOption) *LoadBalancer {
 	return &LoadBalancer{
 		localCell:       localCell,
 		logger:          logger,
 		ctx:             ctx,
 		connections:     make(map[string]*PoolerConnection),
 		cachedPrimaries: make(map[shardKey]*cachedPrimary),
+		grpcDialOpt:     grpcDialOpt,
 	}
 }
 
@@ -130,7 +137,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 		return nil
 	}
 
-	conn, err := NewPoolerConnection(lb.ctx, pooler, lb.logger, lb.onPoolerHealthUpdate)
+	conn, err := NewPoolerConnection(lb.ctx, pooler, lb.logger, lb.grpcDialOpt, lb.onPoolerHealthUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to create connection to pooler %s: %w", poolerID, err)
 	}

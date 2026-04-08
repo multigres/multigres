@@ -17,6 +17,8 @@ package rpcclient
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -41,9 +43,10 @@ type Client struct {
 // The capacity parameter determines the maximum number of simultaneous connections
 // to distinct multipoolers. When the cache is full, least-recently-used unreferenced
 // connections are evicted to make room for new connections.
-func NewClient(capacity int) *Client {
+// The transportCreds dial option configures TLS or insecure transport.
+func NewClient(capacity int, transportCreds grpc.DialOption) *Client {
 	return &Client{
-		cache: newConnCacheWithCapacity(capacity),
+		cache: newConnCacheWithCapacity(capacity, transportCreds),
 	}
 }
 
