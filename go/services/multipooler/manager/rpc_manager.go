@@ -1363,6 +1363,10 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 	defer pm.actionLock.Release(ctx)
 
+	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+	}
+
 	// Pause monitoring during this operation to prevent interference
 	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
 	if err != nil {

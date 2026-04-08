@@ -249,6 +249,8 @@ enum PostgresAction {
   POSTGRES_ACTION_STARTING = 1;
   // A pgBackRest restore is running to initialize the data directory.
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
+  // A pg_rewind operation is running to re-sync this server with the primary.
+  POSTGRES_ACTION_REWIND = 3;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers

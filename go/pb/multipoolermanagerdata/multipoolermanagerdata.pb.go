@@ -48,6 +48,8 @@ const (
 	PostgresAction_POSTGRES_ACTION_STARTING PostgresAction = 1
 	// A pgBackRest restore is running to initialize the data directory.
 	PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP PostgresAction = 2
+	// A pg_rewind operation is running to re-sync this server with the primary.
+	PostgresAction_POSTGRES_ACTION_REWIND PostgresAction = 3
 )
 
 // Enum value maps for PostgresAction.
@@ -56,11 +58,13 @@ var (
 		0: "POSTGRES_ACTION_UNSPECIFIED",
 		1: "POSTGRES_ACTION_STARTING",
 		2: "POSTGRES_ACTION_RESTORING_FROM_BACKUP",
+		3: "POSTGRES_ACTION_REWIND",
 	}
 	PostgresAction_value = map[string]int32{
 		"POSTGRES_ACTION_UNSPECIFIED":           0,
 		"POSTGRES_ACTION_STARTING":              1,
 		"POSTGRES_ACTION_RESTORING_FROM_BACKUP": 2,
+		"POSTGRES_ACTION_REWIND":                3,
 	}
 )
 
@@ -4364,11 +4368,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"-\n" +
 	"\x11SetMonitorRequest\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\"\x14\n" +
-	"\x12SetMonitorResponse*z\n" +
+	"\x12SetMonitorResponse*\x96\x01\n" +
 	"\x0ePostgresAction\x12\x1f\n" +
 	"\x1bPOSTGRES_ACTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_ACTION_STARTING\x10\x01\x12)\n" +
-	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02*\x98\x01\n" +
+	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02\x12\x1a\n" +
+	"\x16POSTGRES_ACTION_REWIND\x10\x03*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
