@@ -701,6 +701,20 @@ message GetBackupByJobIdResponse {
   BackupMetadata backup = 1;
 }
 
+// ExpireBackupsRequest requests expiration of old backups according to retention policy.
+message ExpireBackupsRequest {
+  // Optional overrides for pgbackrest expire command-line flags.
+  // Keys use underscores (e.g., "repo1_retention_full") and are converted to
+  // CLI flags (e.g., "--repo1-retention-full=<value>").
+  map<string, string> overrides = 1;
+}
+
+// ExpireBackupsResponse contains the result of backup expiration.
+message ExpireBackupsResponse {
+  // IDs of backups that were removed by the expiration.
+  repeated string expired_backup_ids = 1;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;

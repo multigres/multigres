@@ -492,6 +492,19 @@ func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb
 	return conn.managerClient.GetBackupByJobId(ctx, request)
 }
 
+// ExpireBackups removes old backups according to retention policy.
+func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ExpireBackups(ctx, request)
+}
+
 //
 // Manager Service Methods - Timeline Repair
 //

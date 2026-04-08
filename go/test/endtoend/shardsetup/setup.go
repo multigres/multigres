@@ -547,9 +547,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("DisableRecovery: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "DisableRecovery: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -580,9 +578,7 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("EnableRecovery: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "EnableRecovery: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -696,9 +692,7 @@ func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.Cli
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "connectToMultiOrch: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
