@@ -57,10 +57,10 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
-// When ExecuteOptions.ReservationReasons is set, creates or extends a reserved connection.
+// When req.ReservationOptions has non-zero reasons, creates or extends a reserved connection.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
 	// Allow during shutdown if using an existing reserved connection.
-	// For new reservations (ReservationReasons != 0, no ReservedConnectionId),
+	// For new reservations (ReservationOptions has reasons but no ReservedConnectionId),
 	// block during shutdown since new reservations should not be created.
 	isExistingReserved := req.Options.GetReservedConnectionId() > 0
 	if err := s.pooler.StartRequest(req.Target, isExistingReserved); err != nil {
@@ -68,8 +68,8 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Validate reservation reasons at the gRPC trust boundary.
-	if req.Options.GetReservationReasons() != 0 {
-		if err := protoutil.ValidateReasons(req.Options.GetReservationReasons()); err != nil {
+	if reasons := req.GetReservationOptions().GetReasons(); reasons != 0 {
+		if err := protoutil.ValidateReasons(reasons); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid reservation reasons: %v", err)
 		}
 	}
@@ -81,7 +81,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	reservedState, err := executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, func(ctx context.Context, result *sqltypes.Result) error {
+	reservedState, err := executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, req.GetReservationOptions(), func(ctx context.Context, result *sqltypes.Result) error {
 		// Send notices first (if any) as separate diagnostic messages
 		for _, notice := range result.Notices {
 			noticePayload := &query.QueryResultPayload{

@@ -143,12 +143,12 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 // StreamExecute executes a query and streams results back via callback.
 // This implements the queryservice.QueryService interface.
 //
-// Handles three cases based on ExecuteOptions:
-//   - ReservedConnectionId > 0: use existing reserved connection
-//   - ReservationReasons != 0 && ReservedConnectionId == 0: create new reserved connection
+// Handles three cases based on the request:
+//   - options.ReservedConnectionId > 0: use existing reserved connection
+//   - reservationOptions has non-zero reasons && ReservedConnectionId == 0: create new reserved connection
 //   - Neither: use regular pooled connection
 //
-// When ReservationReasons is set on an existing reserved connection, the reasons are
+// When reservationOptions is set on an existing reserved connection, the reasons are
 // OR'd into the reservation (e.g., adding ReasonTransaction to a temp-table-reserved conn).
 //
 // Returns ReservedState with the authoritative reservation state from the multipooler.
@@ -157,6 +157,7 @@ func (e *Executor) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	if target == nil {
@@ -164,6 +165,7 @@ func (e *Executor) StreamExecute(
 	}
 
 	user := e.getUserFromOptions(options)
+	reasons := protoutil.GetReasons(reservationOptions)
 	e.logger.DebugContext(ctx, "stream executing query",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
@@ -188,20 +190,23 @@ func (e *Executor) StreamExecute(
 			}
 		}
 
-		// If reservation_reasons includes transaction and the connection is not
-		// already in a transaction, execute BEGIN before the query.
-		if options.ReservationReasons != 0 {
-			if protoutil.RequiresBegin(options.ReservationReasons) && !reservedConn.IsInTransaction() {
+		// If the caller is adding reservation reasons (e.g., promoting a temp-table
+		// reservation to also hold a transaction), apply them now.
+		if reasons != 0 {
+			// If the new reasons include transaction and the connection is not
+			// already in a transaction, execute BEGIN before the query.
+			if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
 				beginQuery := "BEGIN"
-				if options.ReservationBeginQuery != "" {
-					beginQuery = options.ReservationBeginQuery
+				if reservationOptions.GetBeginQuery() != "" {
+					beginQuery = reservationOptions.GetBeginQuery()
 				}
 				if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 					return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
 				}
 			}
-			// Add all requested reasons to the reservation.
-			if nonBeginReasons := options.ReservationReasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+			// Add all requested non-transaction reasons to the reservation
+			// (BeginWithQuery already added ReasonTransaction internally).
+			if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
 				reservedConn.AddReservationReason(nonBeginReasons)
 			}
 		}
@@ -214,7 +219,7 @@ func (e *Executor) StreamExecute(
 		// Sync our in-memory transaction tracking with PG's actual state. The SQL
 		// itself may contain transaction control statements (e.g., a simple-query
 		// payload like "BEGIN; SELECT 1; COMMIT;") that change PG's transaction
-		// status without going through ReservationReasons, so we reconcile against
+		// status without going through ReservationOptions, so we reconcile against
 		// the ReadyForQuery transaction indicator after the query completes.
 		if reservedConn.Conn().TxnStatus() == protocol.TxnStatusInBlock && !reservedConn.IsInTransaction() {
 			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
@@ -227,8 +232,8 @@ func (e *Executor) StreamExecute(
 	}
 
 	// Case 2: Create a new reserved connection
-	if options != nil && options.ReservationReasons != 0 {
-		return e.reserveAndStreamExecute(ctx, sql, options, callback)
+	if reasons != 0 {
+		return e.reserveAndStreamExecute(ctx, sql, options, reservationOptions, callback)
 	}
 
 	// Case 3: Use regular pooled connection
@@ -253,11 +258,12 @@ func (e *Executor) StreamExecute(
 }
 
 // reserveAndStreamExecute creates a new reserved connection and executes a query.
-// Based on options.ReservationReasons bitmask, it may execute setup commands (e.g., BEGIN for transactions).
+// Based on reservationOptions.Reasons, it may execute setup commands (e.g., BEGIN for transactions).
 func (e *Executor) reserveAndStreamExecute(
 	ctx context.Context,
 	sql string,
 	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	user := e.getUserFromOptions(options)
@@ -267,7 +273,7 @@ func (e *Executor) reserveAndStreamExecute(
 	}
 
 	// Get the reasons bitmask and determine if we need to execute BEGIN
-	reasons := options.ReservationReasons
+	reasons := reservationOptions.GetReasons()
 	beginTx := protoutil.RequiresBegin(reasons)
 
 	e.logger.DebugContext(ctx, "reserve stream execute",
@@ -296,8 +302,8 @@ func (e *Executor) reserveAndStreamExecute(
 	// Use the original BEGIN query if provided to preserve isolation level and access mode.
 	if beginTx {
 		beginQuery := "BEGIN"
-		if options.ReservationBeginQuery != "" {
-			beginQuery = options.ReservationBeginQuery
+		if reservationOptions.GetBeginQuery() != "" {
+			beginQuery = reservationOptions.GetBeginQuery()
 		}
 		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
@@ -596,7 +602,7 @@ func (e *Executor) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
-	reservationOptions *multipoolerpb.ReservationOptions,
+	reservationOptions *query.ReservationOptions,
 ) (int16, []int16, *query.ReservedState, error) {
 	user := e.getUserFromOptions(options)
 	var settings map[string]string

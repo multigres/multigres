@@ -77,6 +77,7 @@ func (g *grpcQueryService) StreamExecute(
 	target *querypb.Target,
 	sql string,
 	options *querypb.ExecuteOptions,
+	reservationOptions *querypb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "streaming query execution",
@@ -88,9 +89,10 @@ func (g *grpcQueryService) StreamExecute(
 
 	// Create the request
 	req := &multipoolerservice.StreamExecuteRequest{
-		Query:   sql,
-		Target:  target,
-		Options: options,
+		Query:              sql,
+		Target:             target,
+		Options:            options,
+		ReservationOptions: reservationOptions,
 		// TODO: Add caller_id when we have authentication
 	}
 
@@ -315,7 +317,7 @@ func (g *grpcQueryService) CopyReady(
 	target *querypb.Target,
 	copyQuery string,
 	options *querypb.ExecuteOptions,
-	reservationOptions *multipoolerservice.ReservationOptions,
+	reservationOptions *querypb.ReservationOptions,
 ) (int16, []int16, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "initiating COPY",
 		"pooler_id", g.poolerID,

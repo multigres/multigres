@@ -1071,17 +1071,8 @@ type ExecuteOptions struct {
 	// Used for connection pinning - this tells the multipooler which specific
 	// connection to use for executing this query.
 	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// reservation_reasons is a bitmask of ReservationReason values. When non-zero and
-	// reserved_connection_id is 0, StreamExecute creates a new reserved connection.
-	// When non-zero and reserved_connection_id is set, the reasons are OR'd into
-	// the existing reservation.
-	ReservationReasons uint32 `protobuf:"varint,6,opt,name=reservation_reasons,json=reservationReasons,proto3" json:"reservation_reasons,omitempty"`
-	// reservation_begin_query is the original BEGIN statement text to use when
-	// creating a transaction reservation (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE").
-	// If empty and the transaction reason is set, defaults to "BEGIN".
-	ReservationBeginQuery string `protobuf:"bytes,7,opt,name=reservation_begin_query,json=reservationBeginQuery,proto3" json:"reservation_begin_query,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1142,16 +1133,69 @@ func (x *ExecuteOptions) GetReservedConnectionId() uint64 {
 	return 0
 }
 
-func (x *ExecuteOptions) GetReservationReasons() uint32 {
+// ReservationOptions specifies options when creating or extending a reserved connection.
+// This is passed alongside ExecuteOptions on requests that may need to create or modify
+// a connection reservation. It is extensible for future options (e.g., isolation level,
+// read-only mode).
+type ReservationOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// reasons is a bitmask of multipoolerservice.ReservationReason values indicating why
+	// the connection is being reserved. Multiple reasons can be ORed together (e.g.,
+	// TRANSACTION | TEMP_TABLE).
+	//
+	// When non-zero and reserved_connection_id is 0, StreamExecute creates a new reserved
+	// connection. When non-zero and reserved_connection_id is set, the reasons are OR'd
+	// into the existing reservation.
+	Reasons uint32 `protobuf:"varint,1,opt,name=reasons,proto3" json:"reasons,omitempty"`
+	// begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
+	// or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
+	// multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
+	// If empty and transaction reason is set, defaults to "BEGIN".
+	BeginQuery    string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReservationOptions) Reset() {
+	*x = ReservationOptions{}
+	mi := &file_query_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReservationOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReservationOptions) ProtoMessage() {}
+
+func (x *ReservationOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[13]
 	if x != nil {
-		return x.ReservationReasons
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReservationOptions.ProtoReflect.Descriptor instead.
+func (*ReservationOptions) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ReservationOptions) GetReasons() uint32 {
+	if x != nil {
+		return x.Reasons
 	}
 	return 0
 }
 
-func (x *ExecuteOptions) GetReservationBeginQuery() string {
+func (x *ReservationOptions) GetBeginQuery() string {
 	if x != nil {
-		return x.ReservationBeginQuery
+		return x.BeginQuery
 	}
 	return ""
 }
@@ -1241,17 +1285,19 @@ const file_query_proto_rawDesc = "" +
 	"\rReservedState\x124\n" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
-	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\xf9\x02\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x90\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
-	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12/\n" +
-	"\x13reservation_reasons\x18\x06 \x01(\rR\x12reservationReasons\x126\n" +
-	"\x17reservation_begin_query\x18\a \x01(\tR\x15reservationBeginQuery\x1aB\n" +
+	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"O\n" +
+	"\x12ReservationOptions\x12\x18\n" +
+	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
+	"\vbegin_query\x18\x02 \x01(\tR\n" +
+	"beginQueryB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once
@@ -1265,7 +1311,7 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_query_proto_goTypes = []any{
 	(*QueryResultPayload)(nil),      // 0: query.QueryResultPayload
 	(*QueryResult)(nil),             // 1: query.QueryResult
@@ -1280,9 +1326,10 @@ var file_query_proto_goTypes = []any{
 	(*Portal)(nil),                  // 10: query.Portal
 	(*ReservedState)(nil),           // 11: query.ReservedState
 	(*ExecuteOptions)(nil),          // 12: query.ExecuteOptions
-	nil,                             // 13: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 14: clustermetadata.PoolerType
-	(*clustermetadata.ID)(nil),      // 15: clustermetadata.ID
+	(*ReservationOptions)(nil),      // 13: query.ReservationOptions
+	nil,                             // 14: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 15: clustermetadata.PoolerType
+	(*clustermetadata.ID)(nil),      // 16: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1292,9 +1339,9 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 4: query.QueryResult.rows:type_name -> query.Row
 	7,  // 5: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	2,  // 6: query.StatementDescription.fields:type_name -> query.Field
-	14, // 7: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	15, // 8: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	13, // 9: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	15, // 7: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	16, // 8: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	14, // 9: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
@@ -1318,7 +1365,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

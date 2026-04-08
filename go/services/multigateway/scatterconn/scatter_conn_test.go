@@ -37,11 +37,12 @@ import (
 // mockGateway is a mock implementation of poolergateway.Gateway for testing.
 type mockGateway struct {
 	// StreamExecute tracking
-	streamExecuteCalled      bool
-	streamExecuteSQL         string
-	streamExecuteOpts        *querypb.ExecuteOptions
-	streamExecuteErr         error
-	streamExecuteReturnState *querypb.ReservedState
+	streamExecuteCalled         bool
+	streamExecuteSQL            string
+	streamExecuteOpts           *querypb.ExecuteOptions
+	streamExecuteReservationOps *querypb.ReservationOptions
+	streamExecuteErr            error
+	streamExecuteReturnState    *querypb.ReservedState
 
 	// QueryServiceByID tracking
 	queryServiceByIDCalled bool
@@ -66,10 +67,11 @@ type mockGateway struct {
 }
 
 // StreamExecute implements queryservice.QueryService.
-func (m *mockGateway) StreamExecute(_ context.Context, _ *querypb.Target, sql string, opts *querypb.ExecuteOptions, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
+func (m *mockGateway) StreamExecute(_ context.Context, _ *querypb.Target, sql string, opts *querypb.ExecuteOptions, reservationOpts *querypb.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
 	m.streamExecuteCalled = true
 	m.streamExecuteSQL = sql
 	m.streamExecuteOpts = opts
+	m.streamExecuteReservationOps = reservationOpts
 	if m.streamExecuteErr != nil {
 		return m.streamExecuteReturnState, m.streamExecuteErr
 	}
@@ -105,7 +107,7 @@ func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.Prepar
 
 func (m *mockGateway) Close() error { return nil }
 
-func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *multipoolerpb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
 	return 0, nil, nil, nil
 }
 
@@ -186,7 +188,8 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, gw.streamExecuteCalled, "should call StreamExecute")
 	require.Equal(t, "SELECT 1", gw.streamExecuteSQL)
-	require.NotEqual(t, uint32(0), gw.streamExecuteOpts.ReservationReasons, "should set ReservationReasons")
+	require.NotNil(t, gw.streamExecuteReservationOps, "should pass ReservationOptions")
+	require.NotEqual(t, uint32(0), gw.streamExecuteReservationOps.GetReasons(), "should set reasons")
 	require.False(t, gw.queryServiceByIDCalled)
 
 	// Verify state was updated with the reserved connection
@@ -214,7 +217,8 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reserve failed")
 	require.True(t, gw.streamExecuteCalled, "should call StreamExecute")
-	require.NotEqual(t, uint32(0), gw.streamExecuteOpts.ReservationReasons, "should set ReservationReasons")
+	require.NotNil(t, gw.streamExecuteReservationOps, "should pass ReservationOptions")
+	require.NotEqual(t, uint32(0), gw.streamExecuteReservationOps.GetReasons(), "should set reasons")
 	// State should not be updated
 	target := &querypb.Target{
 		TableGroup: "tg1",
