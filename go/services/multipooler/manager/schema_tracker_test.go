@@ -370,15 +370,13 @@ func TestOnStateChange_StartsOnPrimaryServing(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Nil(t, st.cancel, "tracker should be stopped after REPLICA+SERVING")
-	assert.True(t, stub.unsubscribed, "should have unsubscribed from schema change channel")
 }
 
 // stubPubSubListener is a minimal stand-in for *pubsub.Listener that records
-// Subscribe/Unsubscribe calls without requiring a real PostgreSQL connection.
+// Subscribe calls without requiring a real PostgreSQL connection.
 type stubPubSubListener struct {
-	startedCh    chan struct{}
-	subscribed   bool
-	unsubscribed bool
+	startedCh  chan struct{}
+	subscribed bool
 }
 
 func (s *stubPubSubListener) AwaitRunning(ctx context.Context) {
@@ -390,8 +388,4 @@ func (s *stubPubSubListener) AwaitRunning(ctx context.Context) {
 
 func (s *stubPubSubListener) SubscribeCh(_ string, _ chan *sqltypes.Notification) {
 	s.subscribed = true
-}
-
-func (s *stubPubSubListener) Unsubscribe(_ string, _ chan *sqltypes.Notification) {
-	s.unsubscribed = true
 }

@@ -34,7 +34,6 @@ import (
 type pubsubSubscriber interface {
 	AwaitRunning(ctx context.Context)
 	SubscribeCh(channel string, notifCh chan *sqltypes.Notification)
-	Unsubscribe(channel string, subCh chan *sqltypes.Notification)
 }
 
 // schemaTrackingQuery returns all user-visible tables and views with a
@@ -186,7 +185,11 @@ func (st *schemaTracker) OnStateChange(
 		st.logger.InfoContext(ctx, "schema tracking started")
 	} else {
 		st.stop()
-		st.pubsubListener.Unsubscribe(constants.SchemaChangedChannel, st.notifCh)
+		// No need to Unsubscribe — the pubsub listener's run() drops all
+		// subscription state when it stops, and it only runs on PRIMARY+SERVING
+		// (same as this tracker). Calling Unsubscribe on a stopped listener
+		// can deadlock: the buffered requests channel may accept the send,
+		// but nobody processes it so <-req.done blocks forever.
 		st.logger.InfoContext(ctx, "schema tracking stopped")
 	}
 	return nil
