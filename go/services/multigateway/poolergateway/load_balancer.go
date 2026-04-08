@@ -156,9 +156,10 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	return nil
 }
 
-// RemovePooler closes and removes the PoolerConnection for the given pooler ID.
+// RemovePooler closes and removes the PoolerConnection for the given pooler.
 // If no connection exists for this pooler, it is a no-op.
-func (lb *LoadBalancer) RemovePooler(poolerID string) {
+func (lb *LoadBalancer) RemovePooler(id *clustermetadatapb.ID) {
+	poolerID := poolerIDString(id)
 	lb.mu.Lock()
 	conn, exists := lb.connections[poolerID]
 	if !exists {
@@ -200,10 +201,11 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 
 	targetType := target.PoolerType
 
-	if targetType == clustermetadatapb.PoolerType_PRIMARY {
+	if targetType == clustermetadatapb.PoolerType_PRIMARY || targetType == clustermetadatapb.PoolerType_UNKNOWN {
 		// Use cached primary (populated by health stream callbacks).
 		// The health stream's PrimaryObservation is the authoritative source
 		// for primary identity — no type-based fallback.
+		// UNKNOWN target type defaults to the primary.
 		key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
 		if cached, ok := lb.cachedPrimaries[key]; ok {
 			return cached.conn, nil
@@ -430,6 +432,40 @@ func (lb *LoadBalancer) Close() error {
 	return lastErr
 }
 
+// evictStalePrimaries removes any existing PRIMARY connections for the same
+// TableGroup and Shard that are not the incoming pooler. This handles the
+// failover case where a new PRIMARY appears but the old crashed PRIMARY's
+// record is still in the topology.
+func (lb *LoadBalancer) evictStalePrimaries(newPrimary *clustermetadatapb.MultiPooler) {
+	newID := topoclient.MultiPoolerIDString(newPrimary.Id)
+
+	lb.mu.Lock()
+	var toEvict []*PoolerConnection
+	for _, conn := range lb.connections {
+		info := conn.PoolerInfo()
+		if topoclient.MultiPoolerIDString(info.Id) != newID &&
+			info.Type == clustermetadatapb.PoolerType_PRIMARY &&
+			info.TableGroup == newPrimary.TableGroup &&
+			info.Shard == newPrimary.Shard {
+			toEvict = append(toEvict, conn)
+			delete(lb.connections, topoclient.MultiPoolerIDString(info.Id))
+		}
+	}
+	lb.mu.Unlock()
+
+	for _, conn := range toEvict {
+		lb.logger.Info("evicting stale PRIMARY connection",
+			"evicted_id", conn.ID(),
+			"new_primary_id", newID,
+			"tableGroup", newPrimary.TableGroup,
+			"shard", newPrimary.Shard)
+		if err := conn.Close(); err != nil {
+			lb.logger.Error("error closing evicted pooler connection",
+				"pooler_id", conn.ID(), "error", err)
+		}
+	}
+}
+
 // LoadBalancerListener wraps a LoadBalancer to implement multigateway.PoolerChangeListener.
 type LoadBalancerListener struct {
 	lb *LoadBalancer
@@ -441,7 +477,13 @@ func NewLoadBalancerListener(lb *LoadBalancer) *LoadBalancerListener {
 }
 
 // OnPoolerChanged implements multigateway.PoolerChangeListener.
+// When a new PRIMARY arrives, any existing PRIMARY connections for the same
+// TableGroup/Shard are evicted first, handling the failover case where a new
+// PRIMARY comes up before the old crashed PRIMARY's record is cleaned up.
 func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		l.lb.evictStalePrimaries(pooler)
+	}
 	if err := l.lb.AddPooler(pooler); err != nil {
 		l.lb.logger.Error("failed to add pooler on change event",
 			"pooler_id", poolerIDString(pooler.Id),
@@ -451,5 +493,5 @@ func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPo
 
 // OnPoolerRemoved implements multigateway.PoolerChangeListener.
 func (l *LoadBalancerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
-	l.lb.RemovePooler(poolerIDString(pooler.Id))
+	l.lb.RemovePooler(pooler.Id)
 }
