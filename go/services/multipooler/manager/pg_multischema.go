@@ -79,6 +79,10 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
+	if err := pm.createSchemaChangeTrigger(ctx); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "Successfully created multigres sidecar schema")
 	return nil
 }
@@ -410,6 +414,52 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 
 	if err := pm.exec(execCtx, insert); err != nil {
 		return mterrors.Wrap(err, "failed to insert history record")
+	}
+
+	return nil
+}
+
+// ----------------------------------------------------------------------------
+// Schema Change Notification
+// ----------------------------------------------------------------------------
+
+// createSchemaChangeTrigger installs the DDL event trigger that fires on every
+// ddl_command_end and sends a pg_notify on schemaChangedChannel. The schema
+// tracker in the multipooler subscribes to this channel via the pubsub listener
+// so it can detect schema changes immediately instead of waiting for the next
+// polling cycle.
+//
+// The trigger uses OR REPLACE / IF NOT EXISTS so it is safe to call on an
+// already-initialised database.
+func (pm *MultiPoolerManager) createSchemaChangeTrigger(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Create the notify function inside the multigres schema.
+	createFn := fmt.Sprintf(`
+CREATE OR REPLACE FUNCTION multigres.notify_schema_change()
+RETURNS event_trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_notify(%s, TG_TAG);
+END;
+$$`, ast.QuoteStringLiteral(constants.SchemaChangedChannel))
+	if err := pm.exec(execCtx, createFn); err != nil {
+		return mterrors.Wrap(err, "failed to create schema change notify function")
+	}
+
+	// Create the event trigger. Event triggers cannot use IF NOT EXISTS so we
+	// drop and recreate idempotently.
+	dropTrigger := `DROP EVENT TRIGGER IF EXISTS multigres_schema_change`
+	if err := pm.exec(execCtx, dropTrigger); err != nil {
+		return mterrors.Wrap(err, "failed to drop existing schema change event trigger")
+	}
+
+	createTrigger := `
+CREATE EVENT TRIGGER multigres_schema_change
+  ON ddl_command_end
+  EXECUTE FUNCTION multigres.notify_schema_change()`
+	if err := pm.exec(execCtx, createTrigger); err != nil {
+		return mterrors.Wrap(err, "failed to create schema change event trigger")
 	}
 
 	return nil

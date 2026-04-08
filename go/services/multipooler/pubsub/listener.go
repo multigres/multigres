@@ -66,6 +66,9 @@ type Listener struct {
 	// requests is the serialized command channel for the event loop.
 	requests chan request
 
+	// mu protects startedCh.
+	mu sync.Mutex
+
 	// cancel stops the background goroutines.
 	cancel context.CancelFunc
 
@@ -75,6 +78,12 @@ type Listener struct {
 	// stopped is closed when the event loop exits. Public methods select on this
 	// to avoid blocking forever when the Listener is not running.
 	stopped chan struct{}
+
+	// startedCh is closed when the listener is running and accepting subscriptions.
+	// Re-created (open) each time the listener stops, so waiters on the previous
+	// channel are not falsely unblocked after a restart.
+	// Callers use AwaitRunning to block until the listener is started.
+	startedCh chan struct{}
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
@@ -87,6 +96,7 @@ func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, m
 		metrics:     metrics,
 		requests:    make(chan request, 64),
 		stopped:     stopped,
+		startedCh:   make(chan struct{}), // initially open (not yet running)
 	}
 }
 
@@ -98,6 +108,11 @@ func (l *Listener) Start(ctx context.Context) {
 	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
+	// Signal waiters before starting the goroutine so that AwaitRunning callers
+	// unblock as soon as the event loop is guaranteed to start accepting requests.
+	l.mu.Lock()
+	close(l.startedCh)
+	l.mu.Unlock()
 	go l.run(ctx)
 }
 
@@ -109,6 +124,24 @@ func (l *Listener) Stop() {
 	l.cancel()
 	l.wg.Wait()
 	l.cancel = nil
+	// Re-create startedCh so future AwaitRunning calls block until the next Start.
+	l.mu.Lock()
+	l.startedCh = make(chan struct{})
+	l.mu.Unlock()
+}
+
+// AwaitRunning blocks until the listener has been started or ctx is cancelled.
+// This is used by components that must subscribe to channels only after the
+// listener is running (e.g. schemaTracker), encoding the dependency in the
+// component itself rather than relying on registration order.
+func (l *Listener) AwaitRunning(ctx context.Context) {
+	l.mu.Lock()
+	ch := l.startedCh
+	l.mu.Unlock()
+	select {
+	case <-ch:
+	case <-ctx.Done():
+	}
 }
 
 // OnStateChange implements manager.StateAware. The listener runs only when the

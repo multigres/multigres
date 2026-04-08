@@ -58,6 +58,13 @@ type PoolerHealth struct {
 	// Used for term-based primary reconciliation.
 	PrimaryObservation *multipoolerservice.PrimaryObservation
 
+	// SchemaVersion is the last schema version received from the pooler's health
+	// stream. The multigateway tracks this per connection and calls
+	// onSchemaVersionChanged when it increases, allowing the plan cache to be
+	// invalidated. A value of -1 means the connection just reconnected and the
+	// next received version should always be treated as a change.
+	SchemaVersion int64
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -87,6 +94,7 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 		PoolerID:           h.PoolerID,
 		ServingStatus:      h.ServingStatus,
 		PrimaryObservation: h.PrimaryObservation,
+		SchemaVersion:      h.SchemaVersion,
 		LastError:          h.LastError,
 		LastResponse:       h.LastResponse,
 	}
@@ -349,6 +357,20 @@ func (pc *PoolerConnection) streamHealth(
 
 	pc.logger.DebugContext(streamCtx, "health stream opened", "pooler_id", poolerID)
 
+	// Reset the schema version to the sentinel value -1 to mark the start of a
+	// new stream. The LoadBalancer compares incoming SchemaVersion against the
+	// last-seen value per connection; by resetting to -1 here, the very first
+	// message of this stream will always appear as an increase (version 0 > -1),
+	// which triggers a plan cache invalidation. This ensures we never silently
+	// skip schema changes that occurred while the stream was disconnected.
+	pc.healthMu.Lock()
+	if pc.health != nil {
+		updated := pc.health.SimpleCopy()
+		updated.SchemaVersion = -1
+		pc.health = updated
+	}
+	pc.healthMu.Unlock()
+
 	// Set up staleness timer. If no message is received within the timeout,
 	// the timer cancels the stream context to unblock stream.Recv().
 	stalenessTimeout := constants.DefaultHealthCheckTimeout
@@ -411,6 +433,7 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 		PoolerID:           response.PoolerId,
 		ServingStatus:      response.ServingStatus,
 		PrimaryObservation: response.PrimaryObservation,
+		SchemaVersion:      response.SchemaVersion,
 		LastError:          nil,
 		LastResponse:       time.Now(),
 	}

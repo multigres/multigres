@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -41,16 +42,17 @@ import (
 
 // MultiPooler represents the main multipooler instance with all configuration and state
 type MultiPooler struct {
-	pgctldAddr          viperutil.Value[string]
-	cell                viperutil.Value[string]
-	database            viperutil.Value[string]
-	tableGroup          viperutil.Value[string]
-	shard               viperutil.Value[string]
-	serviceID           viperutil.Value[string]
-	socketFilePath      viperutil.Value[string]
-	poolerDir           viperutil.Value[string]
-	pgPort              viperutil.Value[int]
-	heartbeatIntervalMs viperutil.Value[int]
+	pgctldAddr               viperutil.Value[string]
+	cell                     viperutil.Value[string]
+	database                 viperutil.Value[string]
+	tableGroup               viperutil.Value[string]
+	shard                    viperutil.Value[string]
+	serviceID                viperutil.Value[string]
+	socketFilePath           viperutil.Value[string]
+	poolerDir                viperutil.Value[string]
+	pgPort                   viperutil.Value[int]
+	heartbeatIntervalMs      viperutil.Value[int]
+	schemaTrackingIntervalMs viperutil.Value[int]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile viperutil.Value[string]
 	pgBackRestKeyFile  viperutil.Value[string]
@@ -132,6 +134,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		schemaTrackingIntervalMs: viperutil.Configure(reg, "schema-tracking-interval-milliseconds", viperutil.Options[int]{
+			Default:  int(constants.DefaultSchemaTrackingInterval.Milliseconds()),
+			FlagName: "schema-tracking-interval-milliseconds",
+			Dynamic:  false,
+		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -183,6 +190,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
+	flags.Int("schema-tracking-interval-milliseconds", mp.schemaTrackingIntervalMs.Default(), "interval in milliseconds between schema tracking polls (0 to disable)")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
@@ -199,6 +207,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
+		mp.schemaTrackingIntervalMs,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -294,12 +303,13 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:      mp.socketFilePath.Get(),
-		TopoClient:          mp.ts,
-		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:          mp.pgctldAddr.Get(),
-		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
-		ConnPoolConfig:      mp.connPoolConfig,
+		SocketFilePath:         mp.socketFilePath.Get(),
+		TopoClient:             mp.ts,
+		HeartbeatIntervalMs:    mp.heartbeatIntervalMs.Get(),
+		PgctldAddr:             mp.pgctldAddr.Get(),
+		ConsensusEnabled:       mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:         mp.connPoolConfig,
+		SchemaTrackingInterval: time.Duration(mp.schemaTrackingIntervalMs.Get()) * time.Millisecond,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),

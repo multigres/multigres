@@ -41,6 +41,11 @@ type HealthState struct {
 	// RecommendedStalenessTimeout is the duration clients should use
 	// to detect a stale/dead health stream.
 	RecommendedStalenessTimeout time.Duration
+
+	// SchemaVersion is a monotonically increasing counter that is incremented
+	// each time a schema change is detected. Present in every health message so
+	// consumers can detect missed changes across health stream reconnects.
+	SchemaVersion int64
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.

@@ -154,6 +154,12 @@ type MultiPoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// schemaTracker detects DDL changes and increments schemaVersion in the
+	// health stream so multigateway clients can invalidate their plan caches.
+	// It manages its own goroutine lifecycle via OnStateChange — it only runs
+	// when this pooler is PRIMARY+SERVING.
+	schemaTracker *schemaTracker
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -343,8 +349,9 @@ func (pm *MultiPoolerManager) Open() {
 
 	pm.isOpen = true
 
-	// Start health heartbeat goroutine and transition to SERVING.
-	// SetState notifies all components (query service, heartbeat, health streamer).
+	// Start health heartbeat goroutine, then transition to SERVING.
+	// SetState notifies all components (query service, heartbeat, health streamer,
+	// schema tracker).
 	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
 	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		pm.logger.ErrorContext(pm.ctx, "Failed to transition to SERVING on open", "error", err)
@@ -438,6 +445,25 @@ func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
 	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
 }
 
+// startSchemaTracker creates the schema tracker and registers it with the
+// state manager. Must be called after startPubSubListener since the tracker
+// subscribes to NOTIFY via the pubsub listener. The tracker manages its own
+// goroutine lifecycle — it only runs when PRIMARY+SERVING.
+func (pm *MultiPoolerManager) startSchemaTracker(ctx context.Context) error {
+	if pm.pubsubListener == nil {
+		return nil
+	}
+	pm.schemaTracker = newSchemaTracker(
+		pm.ctx,
+		pm.logger,
+		pm.internalQueryService,
+		pm.pubsubListener,
+		pm.healthStreamer.UpdateSchemaVersion,
+		pm.config.SchemaTrackingInterval,
+	)
+	return pm.servingState.RegisterAndSync(ctx, pm.schemaTracker)
+}
+
 // QueryServiceControl returns the query service controller.
 // This follows the TabletManager pattern of exposing the controller.
 func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
@@ -487,6 +513,13 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 	if pm.pubsubListener == nil {
 		if err := pm.startPubSubListener(context.TODO()); err != nil {
 			pm.logger.Error("Failed to start PubSub listener", "error", err)
+		}
+	}
+
+	// Start schema tracker for DDL change detection.
+	if pm.schemaTracker == nil {
+		if err := pm.startSchemaTracker(pm.ctx); err != nil {
+			pm.logger.Error("Failed to start schema tracker", "error", err)
 		}
 	}
 }

@@ -71,16 +71,28 @@ type LoadBalancer struct {
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
 	onPrimaryServing func(tableGroup, shard string)
+
+	// onSchemaVersionChanged is called when the schema version increases for a
+	// shard, indicating that one or more DDL statements have been executed.
+	// Consumers (e.g. plan cache) should invalidate cached plans for the shard.
+	// May be nil.
+	onSchemaVersionChanged func(tableGroup, shard string)
+
+	// lastSchemaVersions tracks the most recently seen SchemaVersion per pooler
+	// connection ID. Used to detect version increases across health messages.
+	// Protected by mu.
+	lastSchemaVersions map[string]int64
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
 func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger) *LoadBalancer {
 	return &LoadBalancer{
-		localCell:       localCell,
-		logger:          logger,
-		ctx:             ctx,
-		connections:     make(map[string]*PoolerConnection),
-		cachedPrimaries: make(map[shardKey]*cachedPrimary),
+		localCell:          localCell,
+		logger:             logger,
+		ctx:                ctx,
+		connections:        make(map[string]*PoolerConnection),
+		cachedPrimaries:    make(map[shardKey]*cachedPrimary),
+		lastSchemaVersions: make(map[string]int64),
 	}
 }
 
@@ -90,6 +102,14 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger)
 // Must be called before any poolers are added.
 func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
 	lb.onPrimaryServing = fn
+}
+
+// SetOnSchemaVersionChanged sets a callback that is invoked whenever the schema
+// version for a shard increases. Consumers such as the plan cache should
+// invalidate cached plans for the affected shard when this fires.
+// Must be called before any poolers are added.
+func (lb *LoadBalancer) SetOnSchemaVersionChanged(fn func(tableGroup, shard string)) {
+	lb.onSchemaVersionChanged = fn
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
@@ -166,6 +186,7 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 		return
 	}
 	delete(lb.connections, poolerID)
+	delete(lb.lastSchemaVersions, poolerID)
 	// Invalidate cached primary if the removed pooler was the cached primary.
 	for key, cached := range lb.cachedPrimaries {
 		if cached.conn == conn {
@@ -343,6 +364,26 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	default:
 		// Stale term — ignore.
 		return
+	}
+
+	// Check for schema version changes from the primary. Only the primary
+	// multipooler runs schema tracking, so replicas always report version 0
+	// and can be ignored.
+	//
+	// On the first message from a given primary (!seen) we record a baseline
+	// without firing — the gateway has no cached plans to invalidate yet.
+	// On subsequent messages we fire if the version differs in either direction:
+	//   - increased: schema changed normally
+	//   - decreased: multipooler restarted and its in-memory counter reset;
+	//     treat conservatively as a possible schema change
+	if lb.onSchemaVersionChanged != nil &&
+		health.Target.GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+		connID := poolerIDString(health.PoolerID)
+		lastVersion, seen := lb.lastSchemaVersions[connID]
+		if seen && health.SchemaVersion != lastVersion {
+			lb.onSchemaVersionChanged(key.tableGroup, key.shard)
+		}
+		lb.lastSchemaVersions[connID] = health.SchemaVersion
 	}
 }
 

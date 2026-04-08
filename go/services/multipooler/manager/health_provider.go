@@ -62,6 +62,7 @@ type healthStreamer struct {
 	servingStatus      clustermetadatapb.PoolerServingStatus
 	poolerType         clustermetadatapb.PoolerType
 	primaryObservation *poolerserver.PrimaryObservation
+	schemaVersion      int64
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -87,6 +88,19 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 // broadcasting SERVING transitions. Must be called before any state transitions.
 func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
 	hs.queryServer = qs
+}
+
+// UpdateSchemaVersion sets the schema version and broadcasts to clients.
+// The version is a monotonically increasing counter incremented by the schema
+// tracker each time it detects a DDL change. Unlike one-shot fields, this value
+// persists across heartbeats so consumers that reconnect always receive the
+// current version.
+func (hs *healthStreamer) UpdateSchemaVersion(version int64) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hs.schemaVersion = version
+	hs.broadcastLocked()
 }
 
 // UpdatePrimaryObservation updates the primary observation (term + primary ID)
@@ -143,6 +157,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		ServingStatus:               hs.servingStatus,
 		PrimaryObservation:          hs.primaryObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
+		SchemaVersion:               hs.schemaVersion,
 	}
 }
 

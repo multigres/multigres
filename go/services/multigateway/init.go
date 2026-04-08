@@ -235,6 +235,15 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
 
+	// Log schema version changes from the health stream. The plan cache (implemented
+	// in a separate PR) will hook here to invalidate cached plans for the shard.
+	loadBalancer.SetOnSchemaVersionChanged(func(tableGroup, shard string) {
+		logger.InfoContext(ctx, "schema version changed, plan cache invalidation needed",
+			"tablegroup", tableGroup,
+			"shard", shard)
+		// TODO(plan-cache): invalidate plan cache entries for this shard
+	})
+
 	// Create failover buffer if enabled.
 	if err := mg.bufferConfig.Validate(); err != nil {
 		return fmt.Errorf("buffer config: %w", err)
