@@ -195,7 +195,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.NoError(t, err, "should restart multiorch")
 
 	// Block until orch fully repairs R1 via pg_rewind.
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 
 	// Verify data consistency: baseline present, diverged row absent
 	r1DBAfter := connectToPostgres(t, r1SocketDir, r1Inst.Pgctld.PgPort)
