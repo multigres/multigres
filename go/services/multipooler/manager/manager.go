@@ -453,6 +453,10 @@ func (pm *MultiPoolerManager) startSchemaTracker(ctx context.Context) error {
 	if pm.pubsubListener == nil {
 		return nil
 	}
+	if pm.config.SchemaTrackingInterval <= 0 {
+		pm.logger.InfoContext(ctx, "schema tracking disabled (interval <= 0)")
+		return nil
+	}
 	pm.schemaTracker = newSchemaTracker(
 		pm.ctx,
 		pm.logger,

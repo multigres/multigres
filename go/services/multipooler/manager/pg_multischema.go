@@ -432,17 +432,29 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 // The trigger uses OR REPLACE / IF NOT EXISTS so it is safe to call on an
 // already-initialised database.
 func (pm *MultiPoolerManager) createSchemaChangeTrigger(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-
 	// Create the notify function inside the multigres schema.
+	// The function skips notifications for DDL on the multigres sidecar schema
+	// itself (e.g. heartbeat table creation) to avoid spurious invalidations.
 	createFn := fmt.Sprintf(`
 CREATE OR REPLACE FUNCTION multigres.notify_schema_change()
 RETURNS event_trigger LANGUAGE plpgsql AS $$
+DECLARE
+  obj record;
 BEGIN
-  PERFORM pg_notify(%s, TG_TAG);
+  FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()
+  LOOP
+    IF obj.schema_name IS NOT NULL AND obj.schema_name = 'multigres' THEN
+      CONTINUE;
+    END IF;
+    PERFORM pg_notify(%s, TG_TAG);
+    RETURN;
+  END LOOP;
 END;
 $$`, ast.QuoteStringLiteral(constants.SchemaChangedChannel))
+
+	execCtx, cancel := context.WithTimeout(ctx, 3*500*time.Millisecond)
+	defer cancel()
+
 	if err := pm.exec(execCtx, createFn); err != nil {
 		return mterrors.Wrap(err, "failed to create schema change notify function")
 	}

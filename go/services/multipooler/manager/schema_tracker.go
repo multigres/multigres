@@ -27,8 +27,15 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
-	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 )
+
+// pubsubSubscriber is the subset of *pubsub.Listener used by schemaTracker.
+// Extracted as an interface to allow testing without a real PostgreSQL connection.
+type pubsubSubscriber interface {
+	AwaitRunning(ctx context.Context)
+	SubscribeCh(channel string, notifCh chan *sqltypes.Notification)
+	Unsubscribe(channel string, subCh chan *sqltypes.Notification)
+}
 
 // schemaTrackingQuery returns all user-visible tables and views with a
 // definition fingerprint so the tracker can detect structural changes.
@@ -89,7 +96,7 @@ type tableSignature struct {
 type schemaTracker struct {
 	logger          *slog.Logger
 	getQueryService func() executor.InternalQueryService
-	pubsubListener  *pubsub.Listener
+	pubsubListener  pubsubSubscriber
 	notifyVersion   func(int64) // → healthStreamer.UpdateSchemaVersion
 	pollInterval    time.Duration
 
@@ -118,7 +125,7 @@ func newSchemaTracker(
 	ctx context.Context,
 	logger *slog.Logger,
 	getQueryService func() executor.InternalQueryService,
-	pubsubListener *pubsub.Listener,
+	pubsubListener pubsubSubscriber,
 	notifyVersion func(int64),
 	pollInterval time.Duration,
 ) *schemaTracker {
@@ -192,6 +199,10 @@ func (st *schemaTracker) run(ctx context.Context) {
 	ticker := time.NewTicker(st.pollInterval)
 	defer ticker.Stop()
 
+	// snapshot is intentionally local — on stop/restart cycles (e.g. failover
+	// PRIMARY→REPLICA→PRIMARY) it resets to nil, establishing a fresh baseline.
+	// This is safe because the gateway side resets SchemaVersion to -1 on health
+	// stream reconnect, which forces a plan cache invalidation regardless.
 	var snapshot map[int64]*tableSignature // nil until first successful poll
 
 	doPoll := func() {
