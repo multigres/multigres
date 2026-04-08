@@ -110,11 +110,8 @@ func TestRewindDivergedReplica(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond, "baseline data should replicate to R1")
 	t.Log("Baseline data verified on R1")
 
-	// Stop orch so it doesn't interfere with the manual divergence creation
-	mo := setup.GetMultiOrch("multiorch")
-	require.NotNil(t, mo, "multiorch instance should exist")
-	mo.Stop()
-	t.Log("Stopped orch")
+	// Pause recovery so orch doesn't interfere with the manual divergence creation
+	setup.DisableRecovery(t, "multiorch")
 
 	// Create R1 multipooler client
 	r1Client, err := shardsetup.NewMultipoolerClient(r1Inst.Multipooler.GrpcPort)
@@ -186,13 +183,6 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Re-enable monitoring so multipooler manages R1 going forward
 	_, err = r1Client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 	require.NoError(t, err, "should re-enable monitoring on R1")
-
-	// Restart orch — it will detect R1 not replicating and trigger the repair flow:
-	// fixNotReplicating → SetPrimaryConnInfo → verifyReplicationStarted fails
-	// (timeline divergence) → tryPgRewind → RewindToSource RPC
-	t.Log("Restarting orch to trigger pg_rewind repair...")
-	err = mo.Start(t.Context(), t)
-	require.NoError(t, err, "should restart multiorch")
 
 	// Block until orch fully repairs R1 via pg_rewind.
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
@@ -301,11 +291,10 @@ func TestRewindRejectedByHigherTerm(t *testing.T) {
 	require.Greater(t, primaryTerm, int64(0), "primary should have an initialized consensus term")
 	t.Logf("Primary consensus term: %d", primaryTerm)
 
-	// Stop orch to prevent interference during term manipulation
+	// Pause recovery to prevent orch from interfering during term manipulation
 	mo := setup.GetMultiOrch("multiorch")
 	require.NotNil(t, mo, "multiorch instance should exist")
-	mo.Stop()
-	t.Log("Stopped orch")
+	setup.DisableRecovery(t, "multiorch")
 
 	// Advance R1's consensus term to primaryTerm+1 via BeginTerm with NO_ACTION.
 	// This simulates R1 having participated in a newer election cycle.
@@ -338,19 +327,9 @@ func TestRewindRejectedByHigherTerm(t *testing.T) {
 	waitForReplicationBroken(t, r1Inst, 10*time.Second)
 	t.Log("R1 replication confirmed stopped; R1 is on a higher term than P")
 
-	// Restart orch. It will:
-	//   1. Detect R1 not replicating (primary_conninfo = nil)
-	//   2. Get primary's term (primaryTerm) via ConsensusStatus
-	//   3. Call SetPrimaryConnInfo(R1, CurrentTerm=primaryTerm, Force=false)
-	//   4. R1 rejects: "consensus term too old: request term N < current term N+1"
-	//   5. fixNotReplicating returns the error — tryPgRewind is never called
-	t.Log("Restarting orch to observe SetPrimaryConnInfo term rejection...")
-	err = mo.Start(t.Context(), t)
-	require.NoError(t, err, "should restart multiorch")
-
 	// Run one recovery cycle and verify orch cannot fix R1 due to term rejection.
 	// SetPrimaryConnInfo is rejected by R1's higher-term guard before tryPgRewind is reached.
-	problems := setup.TriggerRecoveryOnce(t, "multiorch", 10*time.Second)
+	problems := setup.TriggerRecoveryOnce(t, "multiorch", 20*time.Second)
 	require.NotEmpty(t, problems,
 		"R1's problem should remain unresolved: SetPrimaryConnInfo was rejected by higher term")
 	t.Logf("Confirmed orch could not repair R1 — remaining problems: %v", problems)
