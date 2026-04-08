@@ -61,7 +61,7 @@ type SetupConfig struct {
 	TableGroup                          string
 	Shard                               string
 	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "ANY_2")
+	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
