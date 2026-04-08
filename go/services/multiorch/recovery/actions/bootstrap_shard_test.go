@@ -101,41 +101,62 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	assert.Contains(t, err.Error(), "no poolers found for shard")
 }
 
-func TestBootstrapShardAction_ParsePolicyAT_LEAST_2(t *testing.T) {
+func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
 	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
+	ps := store.NewPoolerStore(nil, logger)
 
-	rule, err := action.parsePolicy("AT_LEAST_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N, rule.QuorumType)
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "At least 2 nodes must acknowledge", rule.Description)
-}
+	// Add a pooler to the store so we get past the "no poolers found" check
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "pooler1",
+	}
+	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         poolerID,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+	})
 
-func TestBootstrapShardAction_ParsePolicyMULTI_CELL_AT_LEAST_2(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
+	// Acquire lock manually to simulate another multiorch already bootstrapping this shard.
+	// LockShard uses path: databases/<db>/<tg>/<shard>
+	lockPath := "databases/testdb/default/0"
+	conn, err := ts.ConnForCell(ctx, "global")
+	require.NoError(t, err)
+	lock1, err := conn.LockName(ctx, lockPath, "test lock")
+	require.NoError(t, err)
+	defer func() {
+		err := lock1.Unlock(ctx)
+		require.NoError(t, err)
+	}()
 
-	rule, err := action.parsePolicy("MULTI_CELL_AT_LEAST_2")
-	assert.NoError(t, err)
-	assert.NotNil(t, rule)
-	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N, rule.QuorumType)
-	assert.Equal(t, int32(2), rule.RequiredCount)
-	assert.Equal(t, "At least 2 nodes from different cells must acknowledge", rule.Description)
-}
+	// Now try to execute bootstrap — should fail to acquire the shard lock
+	coord := newTestCoordinator(ts, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, ps, ts, coord, logger)
+	problem := types.Problem{
+		Code: types.ProblemShardNeedsBootstrap,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+	}
 
-func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
-	logger := slog.Default()
-	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
+	// Short timeout so the test doesn't wait the full lock TTL
+	shortCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
 
-	rule, err := action.parsePolicy("INVALID_POLICY")
+	err = action.Execute(shortCtx, problem)
+
+	// Should fail because lock is already held (times out trying to acquire)
 	assert.Error(t, err)
-	assert.Nil(t, rule)
-	assert.Contains(t, err.Error(), "unsupported policy name")
+	assert.Contains(t, err.Error(), "deadline exceeded")
 }
 
 func TestBootstrapShardAction_Metadata(t *testing.T) {
@@ -276,8 +297,8 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 
 	// Create database in topology with AT_LEAST_2 policy
 	err := ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
-		Name:             "testdb",
-		DurabilityPolicy: "AT_LEAST_2",
+		Name:                      "testdb",
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 	})
 	require.NoError(t, err)
 
@@ -337,12 +358,12 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 		"Primary %s should not be in standby list", primaryName)
 }
 
-// setupTestDatabase creates the database in topology with the given durability policy
-func setupTestDatabase(ctx context.Context, t *testing.T, ts topoclient.Store, dbName, durabilityPolicy string) {
+// setupTestDatabase creates the database in topology with the AT_LEAST_2 durability policy.
+func setupTestDatabase(ctx context.Context, t *testing.T, ts topoclient.Store, dbName string) {
 	t.Helper()
 	err := ts.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
-		Name:             dbName,
-		DurabilityPolicy: durabilityPolicy,
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 	})
 	require.NoError(t, err)
 }
@@ -358,7 +379,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy (requires 2 nodes)
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - only pooler1 is reachable
 	fakeClient := rpcclient.NewFakeClient()
@@ -434,7 +455,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy (requires 2 nodes)
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - both poolers are reachable
 	fakeClient := rpcclient.NewFakeClient()
@@ -531,7 +552,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - all 3 poolers are reachable and uninitialized
 	fakeClient := rpcclient.NewFakeClient()
@@ -619,7 +640,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with AT_LEAST_2 policy
-	setupTestDatabase(ctx, t, ts, "testdb", "AT_LEAST_2")
+	setupTestDatabase(ctx, t, ts, "testdb")
 
 	// Create fake RPC client - pooler1 is already initialized
 	fakeClient := rpcclient.NewFakeClient()

@@ -1369,7 +1369,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// Setup test ports (only need 1 zone for port conflict test)
 		testPorts := getTestPortConfig(t, 1)
 
-		// Intentionally occupy the multipooler gRPC port to create a conflict
+		// Intentionally occupy the multipooler gRPC port to create a conflict.
 		conflictPort := testPorts.Zones[0].MultipoolerGRPCPort
 		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)

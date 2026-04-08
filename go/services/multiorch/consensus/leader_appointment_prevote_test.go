@@ -73,20 +73,6 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	}
 }
 
-// setupDurabilityPolicyForPreVote sets up durability policy response for FakeClient
-func setupDurabilityPolicyForPreVote(fakeClient *rpcclient.FakeClient, poolerKey string, requiredCount int32) {
-	fakeClient.GetDurabilityPolicyResponses[poolerKey] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
-		Policy: &clustermetadatapb.DurabilityPolicy{
-			PolicyName: "AT_LEAST_2",
-			QuorumRule: &clustermetadatapb.QuorumRule{
-				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-				RequiredCount: requiredCount,
-				Description:   "Any 2 poolers",
-			},
-		},
-	}
-}
-
 func TestPreVote(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	ctx := context.Background()
@@ -109,17 +95,10 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp3", true /* isHealthy */, 5 /* termNumber */, &oldTime, coordID),
 		}
 
-		// Setup durability policy
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(6)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.True(t, canProceed, "should allow election when no recent acceptances")
 		require.Empty(t, reason)
@@ -143,17 +122,10 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp3", true /* isHealthy */, 8 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */),
 		}
 
-		// Setup durability policy
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(11)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.False(t, canProceed, "should back off when recent acceptance detected")
 		require.Contains(t, reason, "another coordinator started election recently")
@@ -170,17 +142,10 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp3", false /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */),
 		}
 
-		// Setup durability policy requiring 2 poolers
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(6)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.False(t, canProceed, "should fail when insufficient healthy poolers")
 		require.Contains(t, reason, "insufficient healthy initialized poolers for quorum")
@@ -197,17 +162,10 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp3", true /* isHealthy */, 0 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */),
 		}
 
-		// Setup durability policy
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(1)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.False(t, canProceed, "should block election for uninitialized poolers")
 		require.Contains(t, reason, "insufficient healthy initialized poolers for quorum")
@@ -231,17 +189,10 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp3", false /* isHealthy */, 10 /* termNumber */, &recentTime, otherCoordID), // unhealthy with recent acceptance
 		}
 
-		// Setup durability policy
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(6)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.True(t, canProceed, "should ignore unhealthy poolers with recent acceptances")
 		require.Empty(t, reason)
@@ -256,15 +207,12 @@ func TestPreVote(t *testing.T) {
 			createPoolerForPreVote("mp2", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */),
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(6)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
-		require.True(t, canProceed, "should proceed with valid quorum rule")
+		require.True(t, canProceed, "should proceed with valid policy")
 		require.Empty(t, reason)
 	})
 
@@ -284,17 +232,10 @@ func TestPreVote(t *testing.T) {
 
 		cohort := []*multiorchdatapb.PoolerHealthState{pooler1, pooler2, pooler3}
 
-		// Setup durability policy requiring 2 poolers
-		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
-		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
-
-		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-		}
+		policy := topoclient.AtLeastN(2)
 		proposedTerm := int64(6)
 
-		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+		canProceed, reason := coord.preVote(ctx, cohort, policy, proposedTerm)
 
 		require.False(t, canProceed, "should fail when insufficient poolers have postgres running")
 		require.Contains(t, reason, "insufficient healthy initialized poolers for quorum")

@@ -73,6 +73,19 @@ func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHea
 	s.health.rangeHealth(fn)
 }
 
+// DoUpdate performs an atomic read-modify-write on a pooler's health state.
+//
+// The provided function receives the current value (or nil if not present) and
+// returns the new value to store. This is useful for safely updating state
+// based on the existing state without needing to do multiple Get/Set calls.
+//
+// Note that the function should not do any expensive or blocking calls since it
+// is executed while holding the store lock.
+func (s *PoolerStore) DoUpdate(key string, fn func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState) {
+	s.health.doUpdate(key, fn)
+}
+
+// IsInitialized returns true if the pooler has been initialized.
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState

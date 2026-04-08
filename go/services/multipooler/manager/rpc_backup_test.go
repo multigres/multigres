@@ -79,9 +79,8 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		ctx := context.Background()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-			Name:             database,
-			BackupLocation:   utils.FilesystemBackupLocation(backupLocation),
-			DurabilityPolicy: "AT_LEAST_2",
+			Name:           database,
+			BackupLocation: utils.FilesystemBackupLocation(backupLocation),
 		})
 		if err == nil {
 			topoClient = ts

@@ -42,6 +42,23 @@ func IsRollbackStatement(stmt Stmt) bool {
 	return txStmt.Kind == TRANS_STMT_ROLLBACK
 }
 
+// IsAllowedInAbortedTransaction returns true if the statement may proceed when
+// the transaction is in the aborted (failed) state. PostgreSQL allows ROLLBACK,
+// ROLLBACK TO SAVEPOINT, and COMMIT (which it converts to ROLLBACK with a
+// WARNING) in this state. All other statements are rejected with SQLSTATE 25P02.
+func IsAllowedInAbortedTransaction(stmt Stmt) bool {
+	txStmt, ok := stmt.(*TransactionStmt)
+	if !ok {
+		return false
+	}
+	switch txStmt.Kind {
+	case TRANS_STMT_ROLLBACK, TRANS_STMT_ROLLBACK_TO, TRANS_STMT_COMMIT:
+		return true
+	default:
+		return false
+	}
+}
+
 // ExtractTablesUsed walks the AST and returns deduplicated, schema-qualified
 // table names from all RangeVar nodes. CTE names are excluded since they are
 // virtual tables, not real ones. Returns nil for statements that don't

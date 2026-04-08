@@ -32,14 +32,16 @@ type WriterValidator struct {
 	tableName     string
 	workerCount   int
 	writeInterval time.Duration
+	queryTimeout  time.Duration
 
 	db *sql.DB
 
 	nextID atomic.Int64
 
-	mu         sync.Mutex
-	successful []int64
-	failed     []int64
+	mu           sync.Mutex
+	successful   []int64
+	failed       []int64
+	failedErrors []string // error messages for each failed write (parallel to failed slice)
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -65,6 +67,15 @@ func WithWriteInterval(interval time.Duration) WriterValidatorOption {
 	}
 }
 
+// WithQueryTimeout sets the per-query timeout (default: 5s). When buffering is
+// enabled on the gateway, this should be at least as long as the buffer window
+// so that the buffer can drain before the client gives up.
+func WithQueryTimeout(timeout time.Duration) WriterValidatorOption {
+	return func(w *WriterValidator) {
+		w.queryTimeout = timeout
+	}
+}
+
 // NewWriterValidator creates a new WriterValidator for the given sql.DB connection.
 // It creates the test table immediately and returns a cleanup function that drops it.
 func NewWriterValidator(t *testing.T, db *sql.DB, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
@@ -73,6 +84,7 @@ func NewWriterValidator(t *testing.T, db *sql.DB, opts ...WriterValidatorOption)
 		tableName:     fmt.Sprintf("writer_validator_%d", time.Now().UnixNano()),
 		workerCount:   4,
 		writeInterval: 10 * time.Millisecond,
+		queryTimeout:  5 * time.Second,
 		db:            db,
 	}
 
@@ -173,7 +185,7 @@ func (w *WriterValidator) worker() {
 			return
 		case <-ticker.C:
 			id := w.nextID.Add(1)
-			ctx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(w.ctx, w.queryTimeout)
 			// #nosec G202 -- tableName is a constant from test setup, not user-controlled.
 			query := "INSERT INTO " + w.tableName + " (id) VALUES ($1)"
 			_, err := w.db.ExecContext(ctx, query, id)
@@ -192,6 +204,7 @@ func (w *WriterValidator) recordResult(id int64, err error) {
 		w.successful = append(w.successful, id)
 	} else {
 		w.failed = append(w.failed, id)
+		w.failedErrors = append(w.failedErrors, err.Error())
 	}
 }
 
@@ -213,6 +226,19 @@ func (w *WriterValidator) FailedWrites() []int64 {
 	result := make([]int64, len(w.failed))
 	copy(result, w.failed)
 	return result
+}
+
+// FailedErrors returns a summary of all failed write errors. It deduplicates
+// error messages and returns a map of error message → count.
+func (w *WriterValidator) FailedErrors() map[string]int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	counts := make(map[string]int, len(w.failedErrors))
+	for _, msg := range w.failedErrors {
+		counts[msg]++
+	}
+	return counts
 }
 
 // Stats returns the count of successful and failed writes.

@@ -21,23 +21,23 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// ValidateQuorum checks if the recruited nodes satisfy the quorum rule
-func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
-	switch rule.QuorumType {
+// ValidateQuorum checks if the recruited nodes satisfy the durability policy
+func (c *Coordinator) ValidateQuorum(policy *clustermetadatapb.DurabilityPolicy, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
+	switch policy.QuorumType {
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N:
-		return c.validateAtLeastNQuorum(rule, cohort, recruited)
+		return c.validateAtLeastNQuorum(policy, cohort, recruited)
 
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
-		return c.validateMultiCellQuorum(rule, recruited)
+		return c.validateMultiCellQuorum(policy, recruited)
 
 	default:
-		return fmt.Errorf("unknown quorum type: %v", rule.QuorumType)
+		return fmt.Errorf("unknown quorum type: %v", policy.QuorumType)
 	}
 }
 
 // validateAtLeastNQuorum validates that we have at least N nodes recruited
-func (c *Coordinator) validateAtLeastNQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
-	required := int(rule.RequiredCount)
+func (c *Coordinator) validateAtLeastNQuorum(policy *clustermetadatapb.DurabilityPolicy, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
+	required := int(policy.RequiredCount)
 	recruitedCount := len(recruited)
 
 	c.logger.Debug("validating AT_LEAST_N quorum",
@@ -47,7 +47,7 @@ func (c *Coordinator) validateAtLeastNQuorum(rule *clustermetadatapb.QuorumRule,
 
 	if recruitedCount < required {
 		return fmt.Errorf("quorum not satisfied: recruited %d nodes, required %d (%s)",
-			recruitedCount, required, rule.Description)
+			recruitedCount, required, policy.Description)
 	}
 
 	c.logger.Info("AT_LEAST_N quorum satisfied",
@@ -58,7 +58,7 @@ func (c *Coordinator) validateAtLeastNQuorum(rule *clustermetadatapb.QuorumRule,
 }
 
 // validateMultiCellQuorum validates that we have at least one node from required_count distinct cells
-func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule, recruited []*multiorchdatapb.PoolerHealthState) error {
+func (c *Coordinator) validateMultiCellQuorum(policy *clustermetadatapb.DurabilityPolicy, recruited []*multiorchdatapb.PoolerHealthState) error {
 	// Group recruited nodes by cell
 	nodesByCell := make(map[string][]*multiorchdatapb.PoolerHealthState)
 	for _, node := range recruited {
@@ -66,7 +66,7 @@ func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule
 		nodesByCell[cell] = append(nodesByCell[cell], node)
 	}
 
-	requiredCells := int(rule.RequiredCount)
+	requiredCells := int(policy.RequiredCount)
 	recruitedCells := len(nodesByCell)
 
 	c.logger.Debug("validating MULTI_CELL_AT_LEAST_N quorum",
@@ -76,7 +76,7 @@ func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule
 
 	if recruitedCells < requiredCells {
 		return fmt.Errorf("quorum not satisfied: recruited nodes from %d cells, required %d cells (%s)",
-			recruitedCells, requiredCells, rule.Description)
+			recruitedCells, requiredCells, policy.Description)
 	}
 
 	c.logger.Info("MULTI_CELL_AT_LEAST_N quorum satisfied",

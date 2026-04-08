@@ -19,6 +19,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 )
@@ -51,9 +52,16 @@ type PoolerController interface {
 	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 
 	// StartRequest checks whether a new request should be admitted.
-	// During graceful shutdown, allowOnShutdown=true permits requests on
-	// existing reserved connections so in-flight transactions can complete.
-	StartRequest(allowOnShutdown bool) error
+	// It validates that the target's pooler type matches this pooler's actual type
+	// (returning MTF01 on mismatch to trigger gateway buffering), and checks
+	// serving status. During graceful shutdown, allowOnShutdown=true permits
+	// requests on existing reserved connections so in-flight transactions can complete.
+	StartRequest(target *query.Target, allowOnShutdown bool) error
+
+	// AwaitStateChange blocks until the pooler's type and serving status match
+	// the given targets, or ctx is cancelled. Used by the health streamer to
+	// ensure the query server is ready before broadcasting the new state.
+	AwaitStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus)
 
 	// IsServing returns true if the query service is currently serving requests.
 	IsServing() bool

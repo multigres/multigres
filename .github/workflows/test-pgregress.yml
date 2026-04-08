@@ -60,12 +60,21 @@ jobs:
           key: pgregress-baseline-dummy
           restore-keys: pgregress-baseline-
 
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
       - name: Run PostgreSQL compatibility tests
         env:
           RUN_PGREGRESS: "1"
           RUN_PGISOLATION: "1"
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        run: kill "$PORT_POOL_PID" || true
 
       - name: Find results.json
         id: results
@@ -102,7 +111,7 @@ jobs:
           fi
 
       - name: Upload compatibility results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: ${{ !cancelled() }}
         with:
           name: postgres-compatibility-results

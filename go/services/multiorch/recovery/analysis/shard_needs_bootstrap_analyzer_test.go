@@ -48,7 +48,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	analyzer := &ShardNeedsBootstrapAnalyzer{factory: factory}
 
 	t.Run("detects uninitialized shard", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			LastCheckValid:   true,
@@ -57,7 +57,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
@@ -67,29 +67,29 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores initialized pooler", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsInitialized:   true,
 			PrimaryPoolerID: nil,
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
 
 	t.Run("ignores uninitialized pooler if primary exists", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			IsInitialized:   false,
 			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
 
 	t.Run("detects bootstrap needed for REPLICA type without data directory", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
@@ -99,14 +99,14 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
 	})
 
 	t.Run("skips REPLICA type with data directory", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
+		analysis := &PoolerAnalysis{
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
@@ -115,7 +115,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problem, err := analyzeOne(analyzer, analysis)
 		require.NoError(t, err)
 		require.Nil(t, problem)
 	})
