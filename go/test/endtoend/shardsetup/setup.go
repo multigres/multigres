@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
@@ -393,10 +394,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(config.DurabilityPolicy)
+	if err != nil {
+		cancel()
+		t.Fatalf("invalid durability policy %q: %v", config.DurabilityPolicy, err)
+	}
+
 	err = ts.CreateDatabase(context.Background(), config.Database, &clustermetadatapb.Database{
-		Name:             config.Database,
-		BackupLocation:   backupLocation,
-		DurabilityPolicy: config.DurabilityPolicy,
+		Name:                      config.Database,
+		BackupLocation:            backupLocation,
+		BootstrapDurabilityPolicy: bootstrapPolicy,
 	})
 	if err != nil {
 		cancel()

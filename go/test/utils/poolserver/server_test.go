@@ -88,14 +88,28 @@ func TestConcurrentAlloc(t *testing.T) {
 	socket, _ := startTestServer(t)
 
 	const goroutines = 20
+
+	// Pre-create all connections and keep them open until after the uniqueness
+	// check. If a connection closes before we verify results, the server
+	// reclaims that connection's ports and may re-issue the same number to
+	// another goroutine, producing a spurious duplicate.
+	clients := make([]*poolserver.Client, goroutines)
+	for i := range goroutines {
+		c, err := poolserver.Connect(socket)
+		require.NoError(t, err)
+		clients[i] = c
+	}
+	t.Cleanup(func() {
+		for _, c := range clients {
+			c.Close()
+		}
+	})
+
 	results := make(chan int, goroutines)
 	var wg sync.WaitGroup
-	for range goroutines {
+	for i := range goroutines {
 		wg.Go(func() {
-			c, err := poolserver.Connect(socket)
-			require.NoError(t, err)
-			defer c.Close()
-			port, err := c.AllocPort()
+			port, err := clients[i].AllocPort()
 			require.NoError(t, err)
 			results <- port
 		})

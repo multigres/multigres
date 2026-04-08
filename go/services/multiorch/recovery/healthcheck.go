@@ -42,9 +42,16 @@ import (
 // then updates the in-memory store with the health metrics.
 //
 // Parameters:
+//
 //   - ctx: Context for cancellation and timeout control
+//
 //   - poolerID: The pooler's ID
-//   - pooler: The pooler's health info from the store
+//
+//   - pooler: The pooler's health info from the store.
+//
+//     This is a snapshot and may be stale, so the function performs up-to-date
+//     checks and updates the store with new health info after polling.
+//
 //   - forceDiscovery: If true, bypass cache and up-to-date checks (force poll)
 func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, pooler *multiorchdatapb.PoolerHealthState, forceDiscovery bool) {
 	poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
@@ -120,12 +127,14 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	}
 
 	// Note: Poll attempts are now tracked via the poll.duration histogram with status attribute
+	now := timestamppb.New(time.Now())
 
-	// Mark attempt timestamp
-	// Note: pooler is already a clone from store.Get(), safe to mutate directly
-	now := time.Now()
-	pooler.LastCheckAttempted = timestamppb.New(now)
-	re.poolerStore.Set(poolerIDStr, pooler)
+	// Mark attempt timestamp. Use DoUpdate to avoid race conditions with
+	// concurrent updates from the PoolerWatcher.
+	re.poolerStore.DoUpdate(poolerIDStr, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		existing.LastCheckAttempted = now
+		return existing
+	})
 
 	// Call Status RPC which works for both PRIMARY and REPLICA poolers
 	// Use provided context with 5 second timeout to prevent blocking forever
@@ -150,43 +159,44 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			PoolerPollStatusFailure,
 		)
 
-		// Re-read from store to pick up any topology updates (e.g. type change from
-		// PRIMARY→REPLICA or vice versa) that the PoolerWatcher may have written
-		// concurrently while the RPC was in-flight.
-		if fresh, ok := re.poolerStore.Get(poolerIDStr); ok {
-			fresh.LastCheckAttempted = pooler.LastCheckAttempted
-			fresh.IsUpToDate = true // We tried, don't retry immediately
-			fresh.IsLastCheckValid = false
-			re.poolerStore.Set(poolerIDStr, fresh)
-		}
+		// Use DoUpdate since the PoolerWatcher may have written concurrently while the RPC was in-flight.
+		re.poolerStore.DoUpdate(poolerIDStr, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+			existing.LastCheckAttempted = now
+			existing.IsUpToDate = true // We tried, don't retry immediately
+			existing.IsLastCheckValid = false
+			return existing
+		})
 		return
 	}
 
 	// Success! Extract health metrics from status response and update store.
-	// Re-read from store to pick up any topology updates (e.g. type change) that
-	// the PoolerWatcher may have written concurrently while the RPC was in-flight.
-	if fresh, ok := re.poolerStore.Get(poolerIDStr); ok {
-		pooler.MultiPooler = fresh.MultiPooler
-	}
-	successTime := time.Now()
-	pooler.LastCheckSuccessful = timestamppb.New(successTime)
-	pooler.LastSeen = timestamppb.New(successTime)
-	pooler.IsUpToDate = true
-	pooler.IsLastCheckValid = true
 
-	// Status RPC now includes initialization fields and works without db connection
+	// Fetch consensus status for stale primary detection and timeline
+	// divergence This is a separate RPC call that gives us the consensus term
+	// and timeline info and we do that outside the update to avoid blocking the
+	// health update if consensus status fails (non-critical) or the functions
+	// are blocking for other reasons.
+	consensusState := re.fetchConsensusStatus(ctx, poolerID, pooler)
 	status := statusResp.Status
-	pooler.IsPostgresRunning = status.PostgresRunning
-	pooler.PoolerType = status.PoolerType
-	pooler.PrimaryStatus = status.PrimaryStatus
-	pooler.ReplicationStatus = status.ReplicationStatus
-	pooler.IsInitialized = status.IsInitialized
-	pooler.HasDataDirectory = status.HasDataDirectory
-	pooler.ConsensusTerm = status.ConsensusTerm
+	successTime := timestamppb.New(time.Now())
+	re.poolerStore.DoUpdate(poolerIDStr, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		existing.LastCheckSuccessful = successTime
+		existing.LastSeen = successTime
+		existing.IsUpToDate = true
+		existing.IsLastCheckValid = true
 
-	// Fetch consensus status for stale primary detection and timeline divergence
-	// This is a separate RPC call that gives us the consensus term and timeline info
-	pooler.ConsensusStatus = re.fetchConsensusStatus(ctx, poolerID, pooler)
+		// Status RPC now includes initialization fields and works without db connection
+		existing.IsPostgresRunning = status.PostgresRunning
+		existing.PoolerType = status.PoolerType
+		existing.PrimaryStatus = status.PrimaryStatus
+		existing.ReplicationStatus = status.ReplicationStatus
+		existing.IsInitialized = status.IsInitialized
+		existing.HasDataDirectory = status.HasDataDirectory
+		existing.ConsensusTerm = status.ConsensusTerm
+
+		existing.ConsensusStatus = consensusState
+		return existing
+	})
 
 	re.logger.DebugContext(ctx, "pooler poll successful",
 		"pooler_id", poolerIDStr,
@@ -196,8 +206,6 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		"postgres_running", status.PostgresRunning,
 		"latency", time.Since(totalStart),
 	)
-
-	re.poolerStore.Set(poolerIDStr, pooler)
 }
 
 // poolerStatusResult wraps a Status RPC response.

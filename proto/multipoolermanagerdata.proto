@@ -619,12 +619,8 @@ message InitializeEmptyPrimaryRequest {
   // Consensus term to set for this primary
   int64 consensus_term = 1;
 
-  // Optional: Create durability policy after initialization
-  string durability_policy_name = 2;
-  clustermetadata.QuorumRule durability_quorum_rule = 3;
-
   // ID of the multiorch coordinator performing the bootstrap
-  clustermetadata.ID coordinator_id = 4;
+  clustermetadata.ID coordinator_id = 2;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -768,11 +764,7 @@ message GetDurabilityPolicyResponse {
 
 // CreateDurabilityPolicyRequest creates a new durability policy
 message CreateDurabilityPolicyRequest {
-  // The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
-  string policy_name = 1;
-
-  // The quorum rule defining the policy behavior
-  clustermetadata.QuorumRule quorum_rule = 2;
+  clustermetadata.DurabilityPolicy durability_policy = 1;
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation

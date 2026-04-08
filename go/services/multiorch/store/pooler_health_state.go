@@ -58,6 +58,12 @@ func (s *poolerHealthStore) rangeHealth(fn func(key string, value *multiorchdata
 	s.proto.Range(fn)
 }
 
+// doUpdate performs an atomic read-modify-write on a pooler's health state.
+func (s *poolerHealthStore) doUpdate(key string, fn func(value *multiorchdata.PoolerHealthState) *multiorchdata.PoolerHealthState) {
+	s.proto.DoUpdate(key, fn)
+}
+
+// findPoolersInShard returns all poolers belonging to the given shard.
 // IsInitialized returns true if the pooler has been initialized.
 // A pooler is considered initialized based on the IsInitialized field from
 // the Status RPC, which is determined by the data directory state (not LSN).
