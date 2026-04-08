@@ -119,6 +119,23 @@ type IExecute interface {
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
+	// DiscardTempTables sends DISCARD TEMP on reserved connections with the temp table
+	// reason set. Iterates over shard states and calls DiscardTempTables on each.
+	// Clears shard state entries where the connection was fully released (remainingReasons == 0)
+	// and keeps entries where the connection is still reserved for other reasons.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   conn: Client connection (for user/session info)
+	//   state: Connection state containing reserved connections to discard temp tables on
+	//   callback: Function called with the result of the DISCARD command
+	DiscardTempTables(
+		ctx context.Context,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		callback func(context.Context, *sqltypes.Result) error,
+	) error
+
 	// ReleaseAllReservedConnections forcefully releases ALL reserved connections,
 	// regardless of reservation reason. Iterates all shard states and calls
 	// ReleaseReservedConnection on the multipooler for each one, then clears

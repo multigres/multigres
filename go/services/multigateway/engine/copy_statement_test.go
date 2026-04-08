@@ -149,6 +149,10 @@ func (m *mockIExecute) ConcludeTransaction(
 	return nil
 }
 
+func (m *mockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+	return nil
+}
+
 func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
 	return nil
 }

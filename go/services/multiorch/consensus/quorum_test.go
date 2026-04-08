@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -30,11 +31,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 	c := &Coordinator{logger: logger}
 
 	t.Run("success - exact count", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "Any 2 nodes",
-		}
+		rule := topoclient.AtLeastN(2)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
@@ -52,11 +49,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 	})
 
 	t.Run("success - more than required", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "Any 2 nodes",
-		}
+		rule := topoclient.AtLeastN(2)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
@@ -71,11 +64,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 	})
 
 	t.Run("error - insufficient nodes", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 3,
-			Description:   "Any 3 nodes",
-		}
+		rule := topoclient.AtLeastN(3)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
@@ -95,11 +84,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 	})
 
 	t.Run("success - single node quorum", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 1,
-			Description:   "Any 1 node",
-		}
+		rule := topoclient.AtLeastN(1)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
@@ -117,11 +102,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	c := &Coordinator{logger: logger}
 
 	t.Run("success - exactly required cells", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 1 node from 2 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(2)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -133,11 +114,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	})
 
 	t.Run("success - more than required cells", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 1 node from 2 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(2)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -150,11 +127,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	})
 
 	t.Run("success - multiple nodes from same cell", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 1 node from 2 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(2)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -167,11 +140,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	})
 
 	t.Run("error - insufficient cells", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 3,
-			Description:   "At least 1 node from 3 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(3)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -185,11 +154,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	})
 
 	t.Run("error - all nodes from same cell", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 1 node from 2 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(2)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -204,11 +169,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 	})
 
 	t.Run("success - single cell requirement", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 1,
-			Description:   "At least 1 node from 1 cell",
-		}
+		rule := topoclient.MultiCellAtLeastN(1)
 
 		recruited := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -224,11 +185,7 @@ func TestValidateQuorum(t *testing.T) {
 	c := &Coordinator{logger: logger}
 
 	t.Run("ANY_N - delegates to validateAnyNQuorum", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "Any 2 nodes",
-		}
+		rule := topoclient.AtLeastN(2)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
@@ -242,11 +199,7 @@ func TestValidateQuorum(t *testing.T) {
 	})
 
 	t.Run("MULTI_CELL_ANY_N - delegates to validateMultiCellQuorum", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: 2,
-			Description:   "At least 1 node from 2 cells",
-		}
+		rule := topoclient.MultiCellAtLeastN(2)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
@@ -260,7 +213,7 @@ func TestValidateQuorum(t *testing.T) {
 	})
 
 	t.Run("error - unknown quorum type", func(t *testing.T) {
-		rule := &clustermetadatapb.QuorumRule{
+		rule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN,
 			RequiredCount: 2,
 			Description:   "Unknown quorum type",

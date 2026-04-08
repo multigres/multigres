@@ -57,6 +57,10 @@ type QueryService interface {
 	// The callback will be called for each Result. If the callback returns
 	// an error, streaming stops and that error is returned.
 	//
+	// reservationOptions controls connection reservation behavior. When non-nil with
+	// non-zero reasons, StreamExecute creates a new reserved connection (or extends
+	// the reasons on an existing one if options.ReservedConnectionId is set).
+	//
 	// Returns ReservedState with the authoritative reservation state from the multipooler.
 	// If ReservedConnectionId is zero, the connection was destroyed or not reserved.
 	// The context can be used to cancel the stream.
@@ -65,6 +69,7 @@ type QueryService interface {
 		target *query.Target,
 		sql string,
 		options *query.ExecuteOptions,
+		reservationOptions *query.ReservationOptions,
 		callback func(context.Context, *sqltypes.Result) error,
 	) (*query.ReservedState, error)
 
@@ -125,7 +130,7 @@ type QueryService interface {
 		target *query.Target,
 		copyQuery string,
 		options *query.ExecuteOptions,
-		reservationOptions *multipoolerpb.ReservationOptions,
+		reservationOptions *query.ReservationOptions,
 	) (format int16, columnFormats []int16, reservedState *query.ReservedState, err error)
 
 	// CopySendData sends a chunk of data for an active COPY operation.
@@ -179,30 +184,6 @@ type QueryService interface {
 		options *query.ExecuteOptions,
 	) (*query.ReservedState, error)
 
-	// ReserveStreamExecute creates a reserved connection and executes a query.
-	// Based on ReservationOptions.Reason, it may execute setup commands:
-	//   - RESERVATION_REASON_TRANSACTION: Execute BEGIN before the query
-	//   - RESERVATION_REASON_TEMP_TABLE: Just reserve, no BEGIN
-	//   - RESERVATION_REASON_PORTAL: Incorrect usage, use PortalStreamExecute instead.
-	//
-	// Parameters:
-	//   ctx: Context for cancellation and timeouts
-	//   target: Target specifying tablegroup, shard, and pooler type
-	//   sql: The SQL query to execute
-	//   options: Execute options including user and session settings
-	//   reservationOptions: Specifies why the connection is being reserved
-	//   callback: Function called for each result chunk
-	//
-	// Returns ReservedState containing the reserved connection ID for subsequent queries.
-	ReserveStreamExecute(
-		ctx context.Context,
-		target *query.Target,
-		sql string,
-		options *query.ExecuteOptions,
-		reservationOptions *multipoolerpb.ReservationOptions,
-		callback func(context.Context, *sqltypes.Result) error,
-	) (*query.ReservedState, error)
-
 	// ConcludeTransaction concludes a transaction on a reserved connection.
 	// Executes COMMIT or ROLLBACK based on the conclusion parameter.
 	//
@@ -224,6 +205,25 @@ type QueryService interface {
 		target *query.Target,
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
+	) (*sqltypes.Result, *query.ReservedState, error)
+
+	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes
+	// the temp table reservation reason. The connection may remain reserved if
+	// there are other reasons (e.g., active transaction). The returned
+	// ReservedState indicates whether the connection is still reserved:
+	//   - ReservedConnectionId == 0: Connection released, clear tracking
+	//   - ReservedConnectionId != 0: Connection still reserved, keep tracking it
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   options: Execute options including reserved connection ID
+	//
+	// Returns the result of the DISCARD command and the authoritative reservation state.
+	DiscardTempTables(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.

@@ -21,7 +21,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
@@ -43,7 +42,11 @@ func (a *PrimaryIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
-func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *PrimaryIsDeadAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}

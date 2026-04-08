@@ -52,9 +52,11 @@ message QueryResult {
   // Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
   string command_tag = 4;
 
-  // Field 5 removed - use QueryResultPayload.diagnostic instead
-  reserved 5;
-  reserved "notices";
+  // has_fields distinguishes "no result set" (false, fields is nil) from
+  // "zero-column result set" (true, fields is empty). Protobuf cannot
+  // distinguish a nil repeated field from an empty one, so this bool
+  // preserves the distinction across the gRPC boundary.
+  bool has_fields = 5;
 }
 
 // Field represents metadata about a column in the result set.
@@ -286,4 +288,25 @@ message ExecuteOptions {
   // Used for connection pinning - this tells the multipooler which specific
   // connection to use for executing this query.
   uint64 reserved_connection_id = 5;
+}
+
+// ReservationOptions specifies options when creating or extending a reserved connection.
+// This is passed alongside ExecuteOptions on requests that may need to create or modify
+// a connection reservation. It is extensible for future options (e.g., isolation level,
+// read-only mode).
+message ReservationOptions {
+  // reasons is a bitmask of multipoolerservice.ReservationReason values indicating why
+  // the connection is being reserved. Multiple reasons can be ORed together (e.g.,
+  // TRANSACTION | TEMP_TABLE).
+  //
+  // When non-zero and reserved_connection_id is 0, StreamExecute creates a new reserved
+  // connection. When non-zero and reserved_connection_id is set, the reasons are OR'd
+  // into the existing reservation.
+  uint32 reasons = 1;
+
+  // begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  // or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
+  // multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
+  // If empty and transaction reason is set, defaults to "BEGIN".
+  string begin_query = 2;
 }

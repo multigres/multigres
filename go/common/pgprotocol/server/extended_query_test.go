@@ -692,23 +692,26 @@ func TestHandleDescribe(t *testing.T) {
 				return
 			}
 
-			// ParameterDescription is always sent (even with 0 parameters).
-			msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
-			assert.Equal(t, byte(protocol.MsgParameterDescription), msgType)
+			// ParameterDescription is only sent for statement describes ('S'),
+			// not portal describes ('P') — per PostgreSQL protocol spec.
+			if tt.describeType == 'S' {
+				msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
+				assert.Equal(t, byte(protocol.MsgParameterDescription), msgType)
 
-			// Parse parameter count (first 2 bytes of body).
-			paramCount := binary.BigEndian.Uint16(body[0:2])
-			assert.Equal(t, uint16(len(tt.paramTypes)), paramCount)
+				// Parse parameter count (first 2 bytes of body).
+				paramCount := binary.BigEndian.Uint16(body[0:2])
+				assert.Equal(t, uint16(len(tt.paramTypes)), paramCount)
 
-			// Verify each parameter OID.
-			for i, expectedOid := range tt.paramTypes {
-				offset := 2 + (i * 4)
-				actualOid := binary.BigEndian.Uint32(body[offset : offset+4])
-				assert.Equal(t, expectedOid, actualOid)
+				// Verify each parameter OID.
+				for i, expectedOid := range tt.paramTypes {
+					offset := 2 + (i * 4)
+					actualOid := binary.BigEndian.Uint32(body[offset : offset+4])
+					assert.Equal(t, expectedOid, actualOid)
+				}
 			}
 
 			// NoData message should follow (since we don't return field descriptions yet).
-			msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+			msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
 			assert.Equal(t, byte(protocol.MsgNoData), msgType)
 		})
 	}

@@ -39,6 +39,7 @@ import (
 type GRPCNotificationManager struct {
 	getClient func() multipoolerpb.MultiPoolerServiceClient
 	logger    *slog.Logger
+	metrics   *NotificationMetrics
 
 	mu sync.Mutex
 	// channels tracks: pgChannel -> list of subscriber notifCh
@@ -51,10 +52,12 @@ type GRPCNotificationManager struct {
 func NewGRPCNotificationManager(
 	getClient func() multipoolerpb.MultiPoolerServiceClient,
 	logger *slog.Logger,
+	metrics *NotificationMetrics,
 ) *GRPCNotificationManager {
 	return &GRPCNotificationManager{
 		getClient: getClient,
 		logger:    logger,
+		metrics:   metrics,
 		channels:  make(map[string][]chan *sqltypes.Notification),
 		streams:   make(map[string]context.CancelFunc),
 	}
@@ -72,6 +75,7 @@ func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqlt
 		//nolint:gocritic // Long-lived gRPC stream for notification fan-out, not tied to any request.
 		ctx, cancel := context.WithCancel(context.Background())
 		m.streams[pgChannel] = cancel
+		m.metrics.StreamAdd(ctx)
 		ready = make(chan struct{})
 		go m.streamNotifications(ctx, pgChannel, ready)
 	}
@@ -104,6 +108,8 @@ func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sq
 		if cancel, ok := m.streams[pgChannel]; ok {
 			cancel()
 			delete(m.streams, pgChannel)
+			//nolint:gocritic // Metric recording at unsubscribe time, no request context available.
+			m.metrics.StreamRemove(context.Background())
 		}
 	}
 }
@@ -125,6 +131,8 @@ func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notifica
 			if cancel, ok := m.streams[pgChannel]; ok {
 				cancel()
 				delete(m.streams, pgChannel)
+				//nolint:gocritic // Metric recording at unsubscribe time, no request context available.
+				m.metrics.StreamRemove(context.Background())
 			}
 		}
 	}
@@ -218,6 +226,7 @@ func (m *GRPCNotificationManager) runStream(
 			case ch <- notif:
 			default:
 				m.logger.WarnContext(ctx, "notification channel full", "channel", pgChannel)
+				m.metrics.NotificationDropped(ctx)
 			}
 		}
 		m.mu.Unlock()

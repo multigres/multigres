@@ -28,6 +28,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 )
 
@@ -35,7 +36,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Creating with nil pool manager should work but executor will be nil
-	pooler := NewQueryPoolerServer(logger, nil, nil, nil, 0)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -48,7 +49,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, nil, 0)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
 
 	// IsHealthy should fail since the pool manager is not initialized
 	err := pooler.IsHealthy()
@@ -65,7 +66,7 @@ func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	mockMgr := &mockPoolManager{}
-	pooler := NewQueryPoolerServer(logger, mockMgr, nil, nil, 0)
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil, "", "", nil, 0)
 
 	require.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -82,6 +83,7 @@ func newStartRequestTestServer() *QueryPoolerServer {
 		logger:        logger,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		gracePeriod:   3 * time.Second,
+		stateChanged:  make(chan struct{}),
 	}
 }
 
@@ -90,10 +92,10 @@ func TestStartRequest_Serving(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 
 	// Both allowOnShutdown=true and false should succeed when serving
-	err := s.StartRequest(false)
+	err := s.StartRequest(nil, false)
 	require.NoError(t, err)
 
-	err = s.StartRequest(true)
+	err = s.StartRequest(nil, true)
 	require.NoError(t, err)
 }
 
@@ -102,11 +104,11 @@ func TestStartRequest_NotServing(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
 	// Both should fail when not serving with MTF01 (triggers gateway buffering)
-	err := s.StartRequest(false)
+	err := s.StartRequest(nil, false)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 
-	err = s.StartRequest(true)
+	err = s.StartRequest(nil, true)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 }
@@ -117,7 +119,7 @@ func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {
 	s.shuttingDown = true
 
 	// New requests (allowOnShutdown=false) should be rejected
-	err := s.StartRequest(false)
+	err := s.StartRequest(nil, false)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 }
@@ -128,7 +130,105 @@ func TestStartRequest_ShuttingDown_ExistingReservedAllowed(t *testing.T) {
 	s.shuttingDown = true
 
 	// Existing reserved connections (allowOnShutdown=true) should be allowed
-	err := s.StartRequest(true)
+	err := s.StartRequest(nil, true)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+
+	// PRIMARY query hitting a REPLICA pooler should be rejected with MTF01
+	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	err := s.StartRequest(target, false)
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
+}
+
+func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+
+	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	err := s.StartRequest(target, false)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+
+	// PRIMARY pooler can serve REPLICA traffic
+	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_REPLICA}
+	err := s.StartRequest(target, false)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_NilTarget_Skipped(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+
+	// Nil target should skip validation (e.g., GetAuthCredentials)
+	err := s.StartRequest(nil, false)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.tableGroup = "tg1"
+	s.shard = "0"
+
+	// Tablegroup mismatch is a routing bug (MTD01)
+	target := &query.Target{
+		TableGroup: "tg2",
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	err := s.StartRequest(target, false)
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
+	assert.Contains(t, err.Error(), "tg2")
+	assert.Contains(t, err.Error(), "tg1")
+}
+
+func TestStartRequest_ShardMismatch_Bug(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.tableGroup = "tg1"
+	s.shard = "0"
+
+	// Shard mismatch is a routing bug (MTD01)
+	target := &query.Target{
+		TableGroup: "tg1",
+		Shard:      "1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	err := s.StartRequest(target, false)
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
+	assert.Contains(t, err.Error(), "shard")
+}
+
+func TestStartRequest_FullTargetMatch_Allowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.tableGroup = "tg1"
+	s.shard = "0"
+
+	target := &query.Target{
+		TableGroup: "tg1",
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	err := s.StartRequest(target, false)
 	require.NoError(t, err)
 }
 
@@ -190,6 +290,7 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 		poolManager:   mock,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		gracePeriod:   3 * time.Second,
+		stateChanged:  make(chan struct{}),
 	}
 }
 
@@ -223,11 +324,11 @@ func TestStartRequest_ShuttingDown_WithDrain(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 
 	// allowOnShutdown=false should fail during shutdown
-	err := pooler.StartRequest(false)
+	err := pooler.StartRequest(nil, false)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 
 	// allowOnShutdown=true should succeed during shutdown
-	err = pooler.StartRequest(true)
+	err = pooler.StartRequest(nil, true)
 	assert.NoError(t, err)
 
 	// Return the in-flight connection to let drain complete
@@ -337,7 +438,7 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 	assert.True(t, pooler.IsServing())
 
 	// Requests should work again
-	err := pooler.StartRequest(false)
+	err := pooler.StartRequest(nil, false)
 	require.NoError(t, err)
 }
 
@@ -359,7 +460,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	for range numRequests {
 		go func() {
 			defer wg.Done()
-			if err := pooler.StartRequest(false); err != nil {
+			if err := pooler.StartRequest(nil, false); err != nil {
 				return
 			}
 			mock.lentAdd(1)
@@ -387,4 +488,80 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	}
 
 	assert.False(t, pooler.IsServing())
+}
+
+func TestAwaitStateChange_AlreadyMatches(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx := t.Context()
+
+	// Transition to PRIMARY/SERVING
+	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// AwaitStateChange should return immediately when state already matches
+	done := make(chan struct{})
+	go func() {
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should return immediately when state matches")
+	}
+}
+
+func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx := t.Context()
+
+	// Start as NOT_SERVING (default)
+	done := make(chan struct{})
+	go func() {
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	// Should still be blocking
+	select {
+	case <-done:
+		t.Fatal("AwaitStateChange should block until state matches")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Transition to the awaited state
+	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should unblock after OnStateChange")
+	}
+}
+
+func TestAwaitStateChange_RespectsContextCancellation(t *testing.T) {
+	s := newStartRequestTestServer()
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		// Wait for a state that will never happen
+		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		close(done)
+	}()
+
+	// Should be blocking
+	select {
+	case <-done:
+		t.Fatal("AwaitStateChange should block")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitStateChange should return on context cancellation")
+	}
 }

@@ -105,7 +105,23 @@ type WALPosition struct {
 	// For primary: empty
 	LastReplayLsn string `protobuf:"bytes,3,opt,name=last_replay_lsn,json=lastReplayLsn,proto3" json:"last_replay_lsn,omitempty"`
 	// Timestamp when this position was recorded
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// PostgreSQL timeline ID from pg_control_checkpoint().
+	// Retained for observability and as a secondary safety check during candidate
+	// selection (see leadership_term).
+	TimelineId int64 `protobuf:"varint,5,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
+	// Term number from the most recent multigres.leadership_history record, read
+	// after WAL replay stabilizes during revoke. Used as the primary criterion for
+	// candidate selection: a node that has replicated a higher consensus term has
+	// applied more of the agreed WAL history, regardless of LSN.
+	// LSN is used as a tiebreaker only when both term and timeline are equal.
+	// 0 if the leadership_history table is empty (e.g. pre-bootstrap).
+	LeadershipTerm int64 `protobuf:"varint,6,opt,name=leadership_term,json=leadershipTerm,proto3" json:"leadership_term,omitempty"`
+	// Cohort members from the most recent multigres.leadership_history record
+	// (application-name strings, same encoding as the table's cohort_members JSONB
+	// column). Empty if the table is empty. Allows the coordinator to see which
+	// cohort was active on each standby at the time of its last leadership event.
+	CohortMembers []string `protobuf:"bytes,7,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -164,6 +180,27 @@ func (x *WALPosition) GetLastReplayLsn() string {
 func (x *WALPosition) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *WALPosition) GetTimelineId() int64 {
+	if x != nil {
+		return x.TimelineId
+	}
+	return 0
+}
+
+func (x *WALPosition) GetLeadershipTerm() int64 {
+	if x != nil {
+		return x.LeadershipTerm
+	}
+	return 0
+}
+
+func (x *WALPosition) GetCohortMembers() []string {
+	if x != nil {
+		return x.CohortMembers
 	}
 	return nil
 }
@@ -767,13 +804,17 @@ var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x01\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xab\x02\n" +
 	"\vWALPosition\x12\x1f\n" +
 	"\vcurrent_lsn\x18\x01 \x01(\tR\n" +
 	"currentLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12&\n" +
 	"\x0flast_replay_lsn\x18\x03 \x01(\tR\rlastReplayLsn\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\xd8\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x1f\n" +
+	"\vtimeline_id\x18\x05 \x01(\x03R\n" +
+	"timelineId\x12'\n" +
+	"\x0fleadership_term\x18\x06 \x01(\x03R\x0eleadershipTerm\x12%\n" +
+	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\"\xd8\x01\n" +
 	"\x10BeginTermRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +

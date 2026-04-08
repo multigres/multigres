@@ -135,10 +135,9 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 	t.Run("existing database returns database data", func(t *testing.T) {
 		// First create a database
 		testDatabase := &clustermetadatapb.Database{
-			Name:             "testdb",
-			BackupLocation:   utils.S3BackupLocation("backup-bucket", "us-east-1"),
-			DurabilityPolicy: "none",
-			Cells:            []string{"cell1", "cell2"},
+			Name:           "testdb",
+			BackupLocation: utils.S3BackupLocation("backup-bucket", "us-east-1"),
+			Cells:          []string{"cell1", "cell2"},
 		}
 
 		err := ts.CreateDatabase(ctx, "testdb", testDatabase)
@@ -153,7 +152,6 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 		require.NotNil(t, resp.Database)
 		assert.Equal(t, "testdb", resp.Database.Name)
 		prototest.AssertEqual(t, testDatabase.BackupLocation, resp.Database.BackupLocation)
-		assert.Equal(t, "none", resp.Database.DurabilityPolicy)
 		assert.Equal(t, []string{"cell1", "cell2"}, resp.Database.Cells)
 	})
 }
@@ -212,8 +210,8 @@ func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
 	t.Run("returns all database names", func(t *testing.T) {
 		// Create test databases
 		databases := []*clustermetadatapb.Database{
-			{Name: "db1", DurabilityPolicy: "none", Cells: []string{"cell1"}},
-			{Name: "db2", DurabilityPolicy: "none", Cells: []string{"cell1"}},
+			{Name: "db1", Cells: []string{"cell1"}},
+			{Name: "db2", Cells: []string{"cell1"}},
 		}
 
 		for _, db := range databases {

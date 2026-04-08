@@ -37,17 +37,26 @@ jobs:
         run: .github/scripts/setup-test-environment.sh
       - name: Build
         run: make build
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
       - name: Run tests with direct coverage
         run: go test -json -v -skip TestPostgreSQLRegression -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        run: kill "$PORT_POOL_PID" || true
       - name: Upload direct coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-direct
           path: coverage-direct.txt
           retention-days: 7
       - name: Test Report
-        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
           name: Direct Coverage Tests
@@ -71,22 +80,31 @@ jobs:
         run: .github/scripts/setup-test-environment.sh
       - name: Build coverage binaries
         run: make build-coverage
+      - name: Start port pool server
+        run: |
+          ./bin/cov/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
       - name: Run tests with subprocess coverage
         run: |
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
           go test -json -v -skip TestPostgreSQLRegression ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        run: kill "$PORT_POOL_PID" || true
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
       - name: Upload subprocess coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-subprocess
           path: coverage-subprocess.txt
           retention-days: 7
       - name: Test Report
-        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
           name: Subprocess Coverage Tests
@@ -128,7 +146,7 @@ jobs:
           echo "Final coverage summary:"
           go tool cover -func=coverage-merged.txt | tail -1
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
           name: coverage-merged

@@ -77,6 +77,7 @@ type MultiGatewayHandler struct {
 	metrics          *HandlerMetrics
 	slowThreshold    time.Duration
 	notifMgr         NotificationManager
+	onNotifDropped   func(ctx context.Context) // called when async notification delivery drops
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -151,13 +152,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	st := h.getConnectionState(conn)
 
 	// If the transaction is in an aborted state, reject all queries unless the
-	// first statement is ROLLBACK. This matches PostgreSQL's behavior: after an
-	// error in a transaction block, commands are rejected until ROLLBACK.
-	// Multi-statement batches starting with ROLLBACK are allowed (e.g.,
-	// "ROLLBACK; SELECT 1;") — ROLLBACK clears the aborted state and the
-	// remaining statements execute normally.
+	// first statement can recover from the aborted state. PostgreSQL allows
+	// ROLLBACK, ROLLBACK TO SAVEPOINT, and COMMIT (converted to ROLLBACK) in
+	// this state. Multi-statement batches are permitted as long as the first
+	// statement is one of these (e.g., "ROLLBACK TO sp1; SELECT 1;").
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		if !h.startsWithRollback(asts) {
+		if !h.startsWithAbortRecovery(asts) {
 			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
@@ -176,18 +176,41 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	execStart := time.Now()
 
 	// For multi-statement batches, use implicit transaction handling.
-	// This handles cases where transactions start/end mid-batch and ensures
-	// proper auto-rollback for implicit transaction segments on failure.
+	// Exception: sessions with temp table reservations iterate and plan each
+	// statement individually so that DISCARD TEMP and other special statements
+	// get proper primitives. The PG backend handles auto-commit natively on
+	// the reserved connection.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
 	// For multi-statement batches, per-table metrics, span attributes, and query log
 	// enrichment are handled per-statement inside executeWithImplicitTransaction.
 	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
 	var result *ExecuteResult
 	if len(asts) > 1 {
-		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
-			"statement_count", len(asts),
-			"already_in_transaction", conn.IsInTransaction())
-		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		if st.HasTempTableReservation() {
+			h.logger.DebugContext(ctx, "executing multi-statement batch on temp-table-reserved session",
+				"statement_count", len(asts))
+			var allTablesUsed []string
+			for _, stmt := range asts {
+				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
+				var stmtResult *ExecuteResult
+				stmtResult, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
+				cancel()
+				if stmtResult != nil {
+					allTablesUsed = append(allTablesUsed, stmtResult.TablesUsed...)
+				}
+				if err != nil {
+					break
+				}
+			}
+			if len(allTablesUsed) > 0 {
+				result = &ExecuteResult{TablesUsed: allTablesUsed}
+			}
+		} else {
+			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+				"statement_count", len(asts),
+				"already_in_transaction", conn.IsInTransaction())
+			err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		}
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
@@ -216,12 +239,11 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	return err
 }
 
-// startsWithRollback returns true if the first statement is ROLLBACK,
-// allowing the client to exit an aborted transaction. Multi-statement
-// batches are permitted as long as the first statement is ROLLBACK
-// (matching PostgreSQL behavior).
-func (h *MultiGatewayHandler) startsWithRollback(asts []ast.Stmt) bool {
-	return len(asts) > 0 && ast.IsRollbackStatement(asts[0])
+// startsWithAbortRecovery returns true if the first statement can recover
+// from an aborted transaction. PostgreSQL allows ROLLBACK, ROLLBACK TO
+// SAVEPOINT, and COMMIT in aborted state.
+func (h *MultiGatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
+	return len(asts) > 0 && ast.IsAllowedInAbortedTransaction(asts[0])
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
@@ -247,8 +269,9 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		newState.InitStatementTimeout(stDefault)
 
 		newState.SubSync = &handlerSubSync{
-			notifMgr: h.notifMgr,
-			logger:   h.logger,
+			notifMgr:       h.notifMgr,
+			logger:         h.logger,
+			onNotifDropped: h.onNotifDropped,
 		}
 
 		conn.SetConnectionState(newState)
@@ -317,10 +340,10 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	ctx, span := startQuerySpan(ctx, operationName, "extended", conn.Database(), conn.User())
 	defer span.End()
 
-	// Reject queries in aborted transaction state, except ROLLBACK which is the
-	// only statement that can recover from an aborted transaction.
+	// Reject queries in aborted transaction state, except statements that can
+	// recover: ROLLBACK, ROLLBACK TO SAVEPOINT, and COMMIT (converted to ROLLBACK).
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
+		if !ast.IsAllowedInAbortedTransaction(portalInfo.AstStmt()) {
 			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
@@ -538,8 +561,11 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 var _ server.Handler = (*MultiGatewayHandler)(nil)
 
 // SetNotificationManager sets the notification manager for LISTEN/NOTIFY support.
-func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
+// The optional onDropped callback is invoked when a notification is dropped due to
+// a full async delivery channel (for metrics recording).
+func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager, onDropped func(ctx context.Context)) {
 	h.notifMgr = mgr
+	h.onNotifDropped = onDropped
 }
 
 // flushNotifications delivers any pending notifications to the client.

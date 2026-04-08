@@ -59,10 +59,13 @@ func TestBufferPlannedFailover(t *testing.T) {
 	gatewayDB := openGatewayDB(t, setup)
 	defer gatewayDB.Close()
 
-	// Start continuous writes.
+	// Start continuous writes. The query timeout must exceed the buffer window (10s)
+	// so that buffered requests survive the failover instead of timing out on the
+	// client side.
 	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, gatewayDB,
 		shardsetup.WithWorkerCount(4),
 		shardsetup.WithWriteInterval(10*time.Millisecond),
+		shardsetup.WithQueryTimeout(15*time.Second),
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
@@ -85,6 +88,11 @@ func TestBufferPlannedFailover(t *testing.T) {
 	validator.Stop()
 	successfulWrites, failedWrites := validator.Stats()
 	t.Logf("Final writes: %d successful, %d failed", successfulWrites, failedWrites)
+	if failedWrites > 0 {
+		for msg, count := range validator.FailedErrors() {
+			t.Logf("  error (%dx): %s", count, msg)
+		}
+	}
 
 	assert.Zero(t, failedWrites,
 		"buffering should absorb the planned failover with zero failed writes")
@@ -132,6 +140,10 @@ func TestBufferTransactionsAndPreparedStatements(t *testing.T) {
 		stop        = make(chan struct{})
 		txnNextID   atomic.Int64
 		prepNextID  atomic.Int64
+
+		errMu    sync.Mutex
+		txnErrs  = make(map[string]int)
+		prepErrs = make(map[string]int)
 	)
 
 	// Worker: continuous transactions (BEGIN → INSERT → COMMIT).
@@ -147,6 +159,9 @@ func TestBufferTransactionsAndPreparedStatements(t *testing.T) {
 				id := txnNextID.Add(1)
 				if err := execTransaction(gatewayDB, id); err != nil {
 					txnFailed.Add(1)
+					errMu.Lock()
+					txnErrs[err.Error()]++
+					errMu.Unlock()
 				} else {
 					txnSuccess.Add(1)
 				}
@@ -168,6 +183,9 @@ func TestBufferTransactionsAndPreparedStatements(t *testing.T) {
 				id := prepNextID.Add(1)
 				if err := execPrepared(gatewayDB, id); err != nil {
 					prepFailed.Add(1)
+					errMu.Lock()
+					prepErrs[err.Error()]++
+					errMu.Unlock()
 				} else {
 					prepSuccess.Add(1)
 				}
@@ -206,6 +224,18 @@ func TestBufferTransactionsAndPreparedStatements(t *testing.T) {
 
 	t.Logf("Final: txn=%d/%d prep=%d/%d (success/failed)",
 		txnSuccess.Load(), txnFailed.Load(), prepSuccess.Load(), prepFailed.Load())
+	errMu.Lock()
+	if txnFailed.Load() > 0 {
+		for msg, count := range txnErrs {
+			t.Logf("  txn error (%dx): %s", count, msg)
+		}
+	}
+	if prepFailed.Load() > 0 {
+		for msg, count := range prepErrs {
+			t.Logf("  prep error (%dx): %s", count, msg)
+		}
+	}
+	errMu.Unlock()
 
 	assert.Zero(t, txnFailed.Load(),
 		"transactions should be buffered with zero failures during planned failover")
@@ -243,10 +273,13 @@ func TestBufferMultipleFailovers(t *testing.T) {
 	gatewayDB := openGatewayDB(t, setup)
 	defer gatewayDB.Close()
 
-	// Start continuous writes.
+	// Start continuous writes. The query timeout must be at least as long as the
+	// buffer window so that buffered requests survive slow failovers instead of
+	// timing out on the client side.
 	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, gatewayDB,
 		shardsetup.WithWorkerCount(4),
 		shardsetup.WithWriteInterval(10*time.Millisecond),
+		shardsetup.WithQueryTimeout(35*time.Second),
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
@@ -271,6 +304,11 @@ func TestBufferMultipleFailovers(t *testing.T) {
 	validator.Stop()
 	successfulWrites, failedWrites := validator.Stats()
 	t.Logf("Final after %d failovers: %d successful, %d failed", numFailovers, successfulWrites, failedWrites)
+	if failedWrites > 0 {
+		for msg, count := range validator.FailedErrors() {
+			t.Logf("  error (%dx): %s", count, msg)
+		}
+	}
 
 	assert.Zero(t, failedWrites,
 		"buffering should absorb all %d planned failovers with zero failed writes", numFailovers)
@@ -375,7 +413,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 
 // execTransaction runs a single INSERT inside a BEGIN/COMMIT transaction.
 func execTransaction(db *sql.DB, id int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -392,7 +430,7 @@ func execTransaction(db *sql.DB, id int64) error {
 // execPrepared runs a single INSERT using a prepared statement.
 // database/sql automatically uses the extended query protocol with $1 params.
 func execPrepared(db *sql.DB, id int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	stmt, err := db.PrepareContext(ctx, "INSERT INTO buf_prep_test (id, val) VALUES ($1, $2)")

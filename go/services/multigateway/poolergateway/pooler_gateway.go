@@ -206,12 +206,13 @@ func (pg *PoolerGateway) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
+		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
 		return err
 	})
 	return state, err
@@ -273,7 +274,7 @@ func (pg *PoolerGateway) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
-	reservationOptions *multipoolerpb.ReservationOptions,
+	reservationOptions *query.ReservationOptions,
 ) (int16, []int16, *query.ReservedState, error) {
 	var (
 		format     int16
@@ -286,25 +287,6 @@ func (pg *PoolerGateway) CopyReady(
 		return err
 	})
 	return format, colFormats, state, err
-}
-
-// ReserveStreamExecute implements queryservice.QueryService.
-// It creates a reserved connection and executes the query.
-func (pg *PoolerGateway) ReserveStreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-	reservationOptions *multipoolerpb.ReservationOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) (*query.ReservedState, error) {
-	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
-		var err error
-		state, err = conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
-		return err
-	})
-	return state, err
 }
 
 // Close implements queryservice.QueryService.
@@ -437,6 +419,29 @@ func (pg *PoolerGateway) ConcludeTransaction(
 
 	// Delegate to the pooler's QueryService
 	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+}
+
+// DiscardTempTables implements queryservice.QueryService.
+// It sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+func (pg *PoolerGateway) DiscardTempTables(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().DiscardTempTables(ctx, target, options)
 }
 
 // ReleaseReservedConnection implements queryservice.QueryService.

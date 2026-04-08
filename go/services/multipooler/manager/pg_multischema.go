@@ -60,10 +60,6 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.createDurabilityPolicyTable(ctx); err != nil {
-		return err
-	}
-
 	if err := pm.createLeadershipHistoryTable(ctx); err != nil {
 		return err
 	}
@@ -149,37 +145,6 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
-	return nil
-}
-
-// createDurabilityPolicyTable creates the durability_policy table and its indexes
-func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.durability_policy (
-		id BIGSERIAL PRIMARY KEY,
-		policy_name TEXT NOT NULL,
-		policy_version BIGINT NOT NULL,
-		quorum_rule JSONB NOT NULL,
-		is_active BOOLEAN NOT NULL DEFAULT true,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		UNIQUE (policy_name, policy_version),
-		CONSTRAINT quorum_rule_required_count_check CHECK (
-			(quorum_rule->>'required_count')::int >= 1
-		)
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create durability_policy table")
-	}
-	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	// Create index on is_active for efficient active policy lookups
-	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_durability_policy_active
-		ON multigres.durability_policy(is_active)
-		WHERE is_active = true`); err != nil {
-		return mterrors.Wrap(err, "failed to create durability_policy index")
-	}
-
 	return nil
 }
 
@@ -315,22 +280,86 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 	return nil
 }
 
-// insertDurabilityPolicy inserts a durability policy into the durability_policy table.
-// Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
-func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policyName string, quorumRuleJSON []byte) error {
-	pm.logger.InfoContext(ctx, "Inserting durability policy", "policy_name", policyName)
+// LeadershipHistoryRecord represents a row in the multigres.leadership_history table.
+type LeadershipHistoryRecord struct {
+	ID              int64
+	TermNumber      int64
+	EventType       string
+	LeaderID        *string
+	CoordinatorID   *string
+	WALPosition     *string
+	Operation       *string
+	Reason          string
+	CohortMembers   []string
+	AcceptedMembers []string
+	CreatedAt       time.Time
+}
 
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+// queryLeadershipHistory returns the most recent leadership history records ordered
+// by term number descending (newest first). limit controls the maximum number of
+// records returned.
+func (pm *MultiPoolerManager) queryLeadershipHistory(ctx context.Context, limit int) ([]LeadershipHistoryRecord, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	err := pm.execArgs(execCtx, `INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING`, policyName, quorumRuleJSON)
+
+	result, err := pm.queryArgs(queryCtx, `
+		SELECT id, term_number, event_type, leader_id, coordinator_id,
+		       wal_position, operation, reason, cohort_members, accepted_members, created_at
+		FROM multigres.leadership_history
+		ORDER BY term_number DESC, id DESC
+		LIMIT $1`, limit)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to insert durability policy")
+		return nil, mterrors.Wrap(err, "failed to query leadership history")
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully inserted durability policy", "policy_name", policyName)
-	return nil
+	records := make([]LeadershipHistoryRecord, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		var rec LeadershipHistoryRecord
+		var cohortJSON string
+		var acceptedJSONPtr *string
+		if err := executor.ScanRow(row,
+			&rec.ID,
+			&rec.TermNumber,
+			&rec.EventType,
+			&rec.LeaderID,
+			&rec.CoordinatorID,
+			&rec.WALPosition,
+			&rec.Operation,
+			&rec.Reason,
+			&cohortJSON,
+			&acceptedJSONPtr,
+			&rec.CreatedAt,
+		); err != nil {
+			return nil, mterrors.Wrap(err, "failed to scan leadership history row")
+		}
+
+		if err := json.Unmarshal([]byte(cohortJSON), &rec.CohortMembers); err != nil {
+			return nil, mterrors.Wrap(err, "failed to unmarshal cohort_members")
+		}
+		if acceptedJSONPtr != nil {
+			if err := json.Unmarshal([]byte(*acceptedJSONPtr), &rec.AcceptedMembers); err != nil {
+				return nil, mterrors.Wrap(err, "failed to unmarshal accepted_members")
+			}
+		}
+
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// currentLeadershipRecord returns the single most recent record in
+// multigres.leadership_history, determined by the highest term_number.
+// Returns nil if the table is empty.
+func (pm *MultiPoolerManager) currentLeadershipRecord(ctx context.Context) (*LeadershipHistoryRecord, error) {
+	records, err := pm.queryLeadershipHistory(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return &records[0], nil
 }
 
 // insertHistoryRecord inserts a record into the leadership_history table.

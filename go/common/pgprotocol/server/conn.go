@@ -558,7 +558,9 @@ func (c *Conn) handleQuery() error {
 		}
 
 		// On first callback with fields for this result set, send RowDescription.
-		if !sentRowDescription && len(result.Fields) > 0 {
+		// Use nil check (not len > 0) because zero-column results (e.g., "select union select")
+		// have a non-nil empty Fields slice and still require a RowDescription message.
+		if !sentRowDescription && result.Fields != nil {
 			if err := c.writeRowDescription(result.Fields); err != nil {
 				return fmt.Errorf("writing row description: %w", err)
 			}
@@ -822,7 +824,8 @@ func (c *Conn) handleExecute() error {
 		}
 
 		// On first callback with fields, send RowDescription.
-		if !sentRowDescription && len(result.Fields) > 0 {
+		// Use nil check (not len > 0) because zero-column results still require RowDescription.
+		if !sentRowDescription && result.Fields != nil {
 			if err := c.writeRowDescription(result.Fields); err != nil {
 				return fmt.Errorf("writing row description: %w", err)
 			}
@@ -898,21 +901,24 @@ func (c *Conn) handleDescribe() error {
 		return c.flush()
 	}
 
-	// Always send ParameterDescription — PostgreSQL protocol requires it after
-	// Describe of type 'S', even when there are zero parameters. Skipping it
-	// would cause pgx (and other clients) to read the subsequent RowDescription
-	// or NoData message as ParameterDescription, desynchronizing the protocol.
-	if err := c.writeParameterDescription(desc.Parameters); err != nil {
-		return fmt.Errorf("failed to write parameter description: %w", err)
+	// Send ParameterDescription only for statement describes ('S').
+	// PostgreSQL protocol: Describe('S') returns ParameterDescription + RowDescription/NoData,
+	// but Describe('P') returns only RowDescription/NoData — no ParameterDescription.
+	if typ == 'S' {
+		if err := c.writeParameterDescription(desc.Parameters); err != nil {
+			return fmt.Errorf("failed to write parameter description: %w", err)
+		}
 	}
 
 	// Send RowDescription or NoData based on whether we have field info.
-	if len(desc.Fields) > 0 {
+	// Use nil check (not len > 0) because zero-column results (e.g., "SELECT FROM foo")
+	// have a non-nil empty Fields slice and still require a RowDescription message.
+	if desc.Fields != nil {
 		if err := c.writeRowDescription(desc.Fields); err != nil {
 			return fmt.Errorf("failed to write row description: %w", err)
 		}
 	} else {
-		// Send NoData when there are no fields.
+		// Send NoData when there are no fields (e.g., DML statements).
 		if err := c.writeMessage(protocol.MsgNoData, nil); err != nil {
 			return fmt.Errorf("failed to write NoData: %w", err)
 		}

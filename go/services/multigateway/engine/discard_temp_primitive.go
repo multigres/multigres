@@ -1,0 +1,88 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package engine
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
+)
+
+// DiscardTempPrimitive handles DISCARD TEMP statements.
+//
+// When the session has a temp table reservation, it uses the dedicated
+// DiscardTempTables RPC to remove the temp table reservation reason on
+// the multipooler side and sends the original SQL to PostgreSQL.
+// When no temp table reservation exists, it falls through to a regular
+// StreamExecute since DISCARD TEMP on an unreserved session is harmless.
+type DiscardTempPrimitive struct {
+	// Query is the original SQL string (e.g., "DISCARD TEMP").
+	Query string
+
+	// TableGroup is the target tablegroup for routing.
+	TableGroup string
+}
+
+// NewDiscardTempPrimitive creates a new DiscardTempPrimitive.
+func NewDiscardTempPrimitive(sql, tableGroup string) *DiscardTempPrimitive {
+	return &DiscardTempPrimitive{
+		Query:      sql,
+		TableGroup: tableGroup,
+	}
+}
+
+// StreamExecute executes the discard temp primitive.
+func (d *DiscardTempPrimitive) StreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// If the session has a temp table reservation, use the dedicated RPC
+	// to remove the temp table reason on the multipooler side.
+	if state.HasTempTableReservation() {
+		// Clear any deferred BEGIN — DISCARD TEMP cannot run inside a
+		// transaction (PG rejects it), so a pending BEGIN that was never
+		// sent to PG should be discarded.
+		state.PendingBeginQuery = ""
+		return exec.DiscardTempTables(ctx, conn, state, callback)
+	}
+
+	// No temp table reservation — return synthetic result.
+	// DISCARD TEMP on a session with no temp tables is a no-op in PG.
+	return callback(ctx, &sqltypes.Result{CommandTag: "DISCARD"})
+}
+
+// GetTableGroup returns the target tablegroup.
+func (d *DiscardTempPrimitive) GetTableGroup() string {
+	return d.TableGroup
+}
+
+// GetQuery returns the SQL query.
+func (d *DiscardTempPrimitive) GetQuery() string {
+	return d.Query
+}
+
+// String returns a description of the primitive for debugging.
+func (d *DiscardTempPrimitive) String() string {
+	return fmt.Sprintf("DiscardTemp(%s)", d.Query)
+}
+
+// Ensure DiscardTempPrimitive implements Primitive interface.
+var _ Primitive = (*DiscardTempPrimitive)(nil)

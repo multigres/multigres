@@ -25,9 +25,10 @@ import (
 // handlerSubSync implements SubscriptionSync by delegating to a NotificationManager
 // and managing the async notification delivery pipeline (notifCh → asyncCh → client).
 type handlerSubSync struct {
-	notifMgr      NotificationManager
-	logger        *slog.Logger
-	forwardCancel context.CancelFunc
+	notifMgr       NotificationManager
+	logger         *slog.Logger
+	forwardCancel  context.CancelFunc
+	onNotifDropped func(ctx context.Context) // called when a notification is dropped due to full channel
 }
 
 // SyncSubscriptions applies subscription changes to the notification manager and
@@ -105,6 +106,9 @@ func (s *handlerSubSync) forwardNotifications(
 			default:
 				s.logger.WarnContext(ctx, "async notification channel full, dropping notification",
 					"channel", notif.Channel)
+				if s.onNotifDropped != nil {
+					s.onNotifDropped(ctx)
+				}
 			}
 		}
 	}

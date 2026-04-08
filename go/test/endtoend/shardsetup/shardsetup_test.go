@@ -38,6 +38,25 @@ func skipIfShort(t *testing.T) {
 	}
 }
 
+// openMultigatewayConn opens a single *sql.Conn to the multigateway PG port.
+// Forces a single underlying connection so every query goes through the same
+// multigateway session (TCP connection).
+func openMultigatewayConn(t *testing.T, setup *ShardSetup) *sql.Conn {
+	t.Helper()
+	connStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	conn, err := db.Conn(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
+
 // TestShardSetup_ThreeNodeCluster validates that a 3-node cluster is created correctly
 // with proper wiring: one primary and two standbys all replicating.
 func TestShardSetup_ThreeNodeCluster(t *testing.T) {

@@ -202,6 +202,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 		if _, err := builder.WriteMarkdownSummary(t, suites); err != nil {
 			t.Logf("Warning: Failed to write markdown summary: %v", err)
 		}
+		if _, err := builder.WriteJSONResults(t, suites); err != nil {
+			t.Logf("Warning: Failed to write JSON results: %v", err)
+		}
 	}
 }
 
