@@ -11919,6 +11919,7 @@ schema_stmt:
 			| IndexStmt
 			| CreateSeqStmt
 			| CreateTrigStmt
+			| GrantStmt
 			| ViewStmt
 		;
 
