@@ -931,21 +931,32 @@ func TestExpireBackups_Differential(t *testing.T) {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
 
+	// Tests that after expiring with retention_full=1, only the latest
+	// full backup and its differential survive. Older fulls and any
+	// differentials (whether auto-expired by pgbackrest or explicitly
+	// expired) are gone.
+
 	backends := availableBackends
 	for _, backend := range backends {
 		t.Run(backend, func(t *testing.T) {
 			setup := getSetupForBackend(t, backend)
 			setupPoolerTest(t, setup)
 
-			// Wait for managers to be ready
 			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-			// Create a MultiAdminServer for testing
 			logger := slog.Default()
 			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
 			defer adminServer.Stop()
 
+			backupReq := func(backupType string) *multiadminpb.BackupRequest {
+				return &multiadminpb.BackupRequest{
+					Database:   "postgres",
+					TableGroup: "default",
+					Shard:      "0-inf",
+					Type:       backupType,
+				}
+			}
 			getBackupsReq := &multiadminpb.GetBackupsRequest{
 				Database:   "postgres",
 				TableGroup: "default",
@@ -953,58 +964,48 @@ func TestExpireBackups_Differential(t *testing.T) {
 				Limit:      100,
 			}
 
-			t.Log("Step 1: Creating full backup (required base for differential)...")
-			fullResp, err := adminServer.Backup(t.Context(), &multiadminpb.BackupRequest{
-				Database:   "postgres",
-				TableGroup: "default",
-				Shard:      "0-inf",
-				Type:       "full",
-			})
-			require.NoError(t, err, "Full backup request should succeed")
-			fullStatus := waitForJobCompletion(t, adminServer, fullResp.JobId, 5*time.Minute)
-			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, fullStatus.Status)
-			fullBackupID := fullStatus.BackupId
-			t.Logf("Full backup completed: %s", fullBackupID)
+			t.Log("Step 1: Creating full1...")
+			full1Resp, err := adminServer.Backup(t.Context(), backupReq("full"))
+			require.NoError(t, err)
+			full1Status := waitForJobCompletion(t, adminServer, full1Resp.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, full1Status.Status)
+			t.Logf("full1: %s", full1Status.BackupId)
 
-			t.Log("Step 2: Creating first differential backup...")
-			diff1Resp, err := adminServer.Backup(t.Context(), &multiadminpb.BackupRequest{
-				Database:   "postgres",
-				TableGroup: "default",
-				Shard:      "0-inf",
-				Type:       "differential",
-			})
-			require.NoError(t, err, "First differential backup request should succeed")
+			t.Log("Step 2: Creating diff1 on full1...")
+			diff1Resp, err := adminServer.Backup(t.Context(), backupReq("differential"))
+			require.NoError(t, err)
 			diff1Status := waitForJobCompletion(t, adminServer, diff1Resp.JobId, 5*time.Minute)
 			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, diff1Status.Status)
-			diffBackupID1 := diff1Status.BackupId
-			t.Logf("First differential backup completed: %s", diffBackupID1)
+			t.Logf("diff1: %s", diff1Status.BackupId)
 
-			t.Log("Step 3: Creating second differential backup...")
-			diff2Resp, err := adminServer.Backup(t.Context(), &multiadminpb.BackupRequest{
-				Database:   "postgres",
-				TableGroup: "default",
-				Shard:      "0-inf",
-				Type:       "differential",
-			})
-			require.NoError(t, err, "Second differential backup request should succeed")
+			t.Log("Step 3: Creating full2...")
+			full2Resp, err := adminServer.Backup(t.Context(), backupReq("full"))
+			require.NoError(t, err)
+			full2Status := waitForJobCompletion(t, adminServer, full2Resp.JobId, 5*time.Minute)
+			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, full2Status.Status)
+			full2ID := full2Status.BackupId
+			t.Logf("full2: %s", full2ID)
+
+			t.Log("Step 4: Creating diff2 on full2...")
+			diff2Resp, err := adminServer.Backup(t.Context(), backupReq("differential"))
+			require.NoError(t, err)
 			diff2Status := waitForJobCompletion(t, adminServer, diff2Resp.JobId, 5*time.Minute)
 			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, diff2Status.Status)
-			diffBackupID2 := diff2Status.BackupId
-			t.Logf("Second differential backup completed: %s", diffBackupID2)
+			diff2ID := diff2Status.BackupId
+			t.Logf("diff2: %s", diff2ID)
 
-			t.Log("Step 4: Verifying all three backups exist...")
+			t.Log("Step 5: Listing backups before explicit expire...")
 			getResp, err := adminServer.GetBackups(t.Context(), getBackupsReq)
 			require.NoError(t, err)
-			var foundIDs []string
+			var beforeIDs []string
 			for _, b := range getResp.Backups {
-				foundIDs = append(foundIDs, b.BackupId)
+				beforeIDs = append(beforeIDs, b.BackupId)
 			}
-			assert.Contains(t, foundIDs, fullBackupID, "Full backup should exist")
-			assert.Contains(t, foundIDs, diffBackupID1, "First diff backup should exist")
-			assert.Contains(t, foundIDs, diffBackupID2, "Second diff backup should exist")
-			t.Logf("All backups present: %v", foundIDs)
+			require.Contains(t, beforeIDs, full2ID, "full2 should exist")
+			require.Contains(t, beforeIDs, diff2ID, "diff2 should exist")
+			t.Logf("Backups before expire: %v", beforeIDs)
 
-			t.Log("Step 5: Expiring with differential retention of 1...")
+			t.Log("Step 6: Expiring with retention_full=1...")
 			expireResp, err := adminServer.ExpireBackups(t.Context(), &multiadminpb.ExpireBackupsRequest{
 				Database:   "postgres",
 				TableGroup: "default",
@@ -1012,26 +1013,23 @@ func TestExpireBackups_Differential(t *testing.T) {
 				Overrides: map[string]string{
 					"repo1_retention_full":      "1",
 					"repo1_retention_full_type": "count",
-					"repo1_retention_diff":      "1",
 				},
 			})
 			require.NoError(t, err, "ExpireBackups should succeed")
 			t.Logf("Expired backup IDs: %v", expireResp.ExpiredBackupIds)
 
-			t.Log("Step 6: Verifying first differential was expired...")
+			t.Log("Step 7: Verifying only full2 + diff2 remain...")
 			getResp, err = adminServer.GetBackups(t.Context(), getBackupsReq)
 			require.NoError(t, err)
-			foundIDs = nil
+			var afterIDs []string
 			for _, b := range getResp.Backups {
-				foundIDs = append(foundIDs, b.BackupId)
+				afterIDs = append(afterIDs, b.BackupId)
 			}
-			assert.Contains(t, foundIDs, fullBackupID, "Full backup should still exist")
-			assert.NotContains(t, foundIDs, diffBackupID1, "First diff backup should have been expired")
-			assert.Contains(t, foundIDs, diffBackupID2, "Second diff backup should still exist")
-			assert.Contains(t, expireResp.ExpiredBackupIds, diffBackupID1, "Expired IDs should contain first diff backup")
-			assert.NotContains(t, expireResp.ExpiredBackupIds, fullBackupID, "Expired IDs should not contain full backup")
-			assert.NotContains(t, expireResp.ExpiredBackupIds, diffBackupID2, "Expired IDs should not contain second diff backup")
-			t.Logf("After expiration, remaining backups: %v", foundIDs)
+			assert.Equal(t, []string{full2ID, diff2ID}, afterIDs,
+				"Only full2 and diff2 should remain after expire")
+			assert.NotContains(t, expireResp.ExpiredBackupIds, full2ID, "full2 should not be expired")
+			assert.NotContains(t, expireResp.ExpiredBackupIds, diff2ID, "diff2 should not be expired")
+			t.Logf("After expiration, remaining: %v, expired: %v", afterIDs, expireResp.ExpiredBackupIds)
 		})
 	}
 }
