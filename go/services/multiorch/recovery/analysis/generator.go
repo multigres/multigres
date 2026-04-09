@@ -357,7 +357,12 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	if topologyPrimary != nil {
 		sa.HighestTermDiscoveredPrimaryID = topologyPrimary.MultiPooler.Id
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresRunning
+		sa.PrimaryPostgresReady = topologyPrimary.IsPostgresReady
+		sa.PrimaryPostgresRunning = topologyPrimary.IsPostgresRunning
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady
+		if topologyPrimary.LastPostgresReadyTime != nil {
+			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
+		}
 
 		// Populate the standby list from the topology primary (used by IsInStandbyList).
 		if topologyPrimary.PrimaryStatus != nil && topologyPrimary.PrimaryStatus.SyncReplicationConfig != nil {

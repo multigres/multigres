@@ -1869,7 +1869,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.Reachable && h.PostgresRunning {
+		if h.Reachable && h.PostgresReady {
 			status = "up"
 		}
 

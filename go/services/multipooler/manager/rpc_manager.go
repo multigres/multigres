@@ -284,6 +284,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		PoolerType:       pm.getPoolerType(),
 		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
+		PostgresReady:    pm.isPostgresReady(ctx),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		PostgresRole:     pm.getRole(ctx),
 		ShardId:          pm.getShardID(),
