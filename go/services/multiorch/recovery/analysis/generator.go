@@ -221,6 +221,9 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 // findHighestTermRawPooler returns the raw PoolerHealthState with the highest PrimaryTerm
 // among all PRIMARY-typed poolers, regardless of reachability. Returns nil if none found.
 func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	// TODO: If multiple poolers claim to be primary at the same term, we should surface an error that
+	// manual intervention is needed.
+
 	var best *multiorchdatapb.PoolerHealthState
 	var bestTerm int64
 	for _, pooler := range poolers {
