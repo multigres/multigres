@@ -300,8 +300,34 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 	return err == nil
 }
 
-// isPostgresRunning checks if PostgreSQL is currently running
+// isPostgresRunning checks if the PostgreSQL process exists, regardless of
+// whether it accepts connections. Returns true if the process is running (even if
+// suspended via SIGSTOP). Returns false if the process is dead (e.g. after SIGKILL).
+//
+// When pgctld is not available, falls back to isPostgresReady (which requires
+// both process existence and connection acceptance).
 func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
+	if pm.pgctldClient == nil {
+		// No pgctld client — fall back to connection-based check.
+		// Without pgctld we can't distinguish a stopped-but-alive process from a dead one.
+		_, err := pm.query(ctx, "SELECT 1")
+		return err == nil
+	}
+
+	statusReq := &pgctldpb.StatusRequest{}
+	statusResp, err := pm.pgctldClient.Status(ctx, statusReq)
+	if err != nil {
+		return false
+	}
+
+	// Only check if the process is running; do NOT require pg_isready (statusResp.Ready).
+	return statusResp.Status == pgctldpb.ServerStatus_RUNNING
+}
+
+// isPostgresReady checks if PostgreSQL is currently running and accepting connections.
+// Returns true only if the process is running AND pg_isready succeeds.
+// Use isPostgresRunning to check only if the process exists.
+func (pm *MultiPoolerManager) isPostgresReady(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
 		// No pgctld client, try a simple query to check if PostgreSQL is responding
 		_, err := pm.query(ctx, "SELECT 1")
@@ -314,7 +340,7 @@ func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 		return false
 	}
 
-	return statusResp.Status == pgctldpb.ServerStatus_RUNNING
+	return statusResp.Status == pgctldpb.ServerStatus_RUNNING && statusResp.Ready
 }
 
 // getRole returns the current role of this pooler ("primary", "standby", or "unknown")

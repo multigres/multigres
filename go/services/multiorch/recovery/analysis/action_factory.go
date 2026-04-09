@@ -82,3 +82,8 @@ func (f *RecoveryActionFactory) NewDemoteStalePrimaryAction() types.RecoveryActi
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger
 }
+
+// Config returns the factory's config for use by analyzers.
+func (f *RecoveryActionFactory) Config() *config.Config {
+	return f.config
+}
