@@ -240,7 +240,7 @@ func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, par
 // QueryArgs executes a parameterized query using the extended query protocol.
 // This is a convenience method that accepts Go values as arguments and converts
 // them to the appropriate text format for PostgreSQL.
-// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 // float32, float64, bool, and time.Time.
 func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*sqltypes.Result, error) {
 	// Convert args to [][]byte
@@ -339,6 +339,11 @@ func argToParam(arg any) ([]byte, error) {
 		return []byte(strconv.FormatInt(int64(v), 10)), nil
 	case int64:
 		return []byte(strconv.FormatInt(v, 10)), nil
+	case *int64:
+		if v == nil {
+			return nil, nil // NULL
+		}
+		return []byte(strconv.FormatInt(*v, 10)), nil
 	case uint32:
 		return []byte(strconv.FormatUint(uint64(v), 10)), nil
 	case uint64:
