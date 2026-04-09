@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -354,9 +355,55 @@ func argToParam(arg any) ([]byte, error) {
 	case time.Time:
 		// Use RFC3339 format which PostgreSQL understands.
 		return []byte(v.Format(time.RFC3339Nano)), nil
+	case []string:
+		// Encode as PostgreSQL array literal: {elem1,elem2,...}
+		// Elements containing commas, braces, backslashes, or whitespace are double-quoted.
+		return []byte(encodeStringArray(v)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", arg)
 	}
+}
+
+// encodeStringArray encodes a []string as a PostgreSQL text-format array literal (e.g. {foo,bar}).
+// Elements that require quoting (containing braces, commas, backslashes, double-quotes, or whitespace)
+// are enclosed in double-quotes with internal double-quotes and backslashes escaped.
+func encodeStringArray(elems []string) string {
+	if len(elems) == 0 {
+		return "{}"
+	}
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, e := range elems {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		if needsQuoting(e) {
+			b.WriteByte('"')
+			for _, c := range e {
+				if c == '"' || c == '\\' {
+					b.WriteByte('\\')
+				}
+				b.WriteRune(c)
+			}
+			b.WriteByte('"')
+		} else {
+			b.WriteString(e)
+		}
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func needsQuoting(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, c := range s {
+		if c == '{' || c == '}' || c == ',' || c == '"' || c == '\\' || c == ' ' || c == '\t' || c == '\n' {
+			return true
+		}
+	}
+	return false
 }
 
 // processExecuteResponses processes responses to an Execute command.
