@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/prototest"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -359,12 +360,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 }
 
-// expectLeadershipHistoryInsert adds a mock expectation for successful leadership history insertion.
-// This is required for Promote to succeed since leadership history insertion failure now fails the promotion.
-func expectLeadershipHistoryInsert(m *mock.QueryService) {
-	m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
-}
-
 // createPgDataDir creates the pg_data directory with PG_VERSION file.
 // This is needed for setInitialized() to work since it writes a marker file to pg_data.
 func createPgDataDir(t *testing.T, poolerDir string) {
@@ -376,7 +371,7 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
-func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
+func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -431,8 +426,10 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	err = pm.setInitialized()
 	require.NoError(t, err)
 
-	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
+	// Assign mock pooler controller and rule store BEFORE starting the manager
+	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = rules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
@@ -481,10 +478,8 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
 
-	// Mock: insertLeadershipHistory - required for promotion success
-	expectLeadershipHistoryInsert(mockQueryService)
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	fakeRules := &fakeRuleStore{}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	// Topology is still REPLICA (this is what the guard rail checks)
 	pm.mu.Lock()
@@ -504,6 +499,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type, "Topology should be updated to PRIMARY")
 	pm.mu.Unlock()
+	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
@@ -528,7 +524,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Topology is already PRIMARY
 	pm.mu.Lock()
@@ -562,7 +558,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
@@ -616,7 +612,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
@@ -674,10 +670,8 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/5678ABC"}}))
 
-	// Mock: insertLeadershipHistory - required for promotion success
-	expectLeadershipHistoryInsert(mockQueryService)
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	fakeRules := &fakeRuleStore{}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	// Topology is REPLICA
 	pm.mu.Lock()
@@ -696,6 +690,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
+	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
@@ -714,7 +709,7 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/9999999", "t"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -734,7 +729,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	// Create mock - only startup expectations needed because term validation happens before test DB queries
 	mockQueryService := mock.NewQueryService()
 
-	pm, tmpDir := setupPromoteTestManager(t, mockQueryService)
+	pm, tmpDir := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
@@ -787,11 +782,8 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
 
-	// Mock: insertLeadershipHistory - required for first promotion call success
-	// Note: second call returns early (WasAlreadyPrimary) so doesn't need this
-	expectLeadershipHistoryInsert(mockQueryService)
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	fakeRules := &fakeRuleStore{}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -806,6 +798,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
+	fakeRules.assertPromoteRecorded(t)
 
 	// Second call should SUCCEED - topology is PRIMARY and everything is consistent (idempotent)
 	// The pg_is_in_recovery pattern already returns "f" (false) since the first call consumed the "t" patterns
@@ -846,10 +839,8 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
 
-	// Mock: insertLeadershipHistory - required for promotion success
-	expectLeadershipHistoryInsert(mockQueryService)
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	fakeRules := &fakeRuleStore{}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -862,6 +853,7 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 
 	assert.False(t, resp.WasAlreadyPrimary)
 	assert.Equal(t, "0/BBBBBBB", resp.LsnPosition)
+	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
@@ -891,16 +883,14 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1234567"}}))
 
-	// Mock: insertLeadershipHistory - required for promotion success
-	expectLeadershipHistoryInsert(mockQueryService)
-
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	fakeRules := &fakeRuleStore{}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	// Topology is REPLICA
 	pm.mu.Lock()
@@ -932,18 +922,19 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 
-	// Note: We don't directly test that insertLeadershipHistory is called with the correct metadata
-	// because that would require mocking the database layer. The leadership history functionality
-	// will be tested by the actual implementation. This test verifies that the Promote method
-	// accepts the new parameters without error and completes successfully.
+	update := fakeRules.assertPromoteRecorded(t)
+	assert.Equal(t, "dead_primary", update.reason)
+	prototest.AssertEqual(t, coordinatorID, update.coordinatorID)
+	prototest.RequireElementsMatch(t, cohortMembers, update.cohortMembers)
+	prototest.RequireElementsMatch(t, acceptedMembers, update.acceptedMembers)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-// TestPromote_LeadershipHistoryErrorFailsPromotion tests that an error in insertLeadershipHistory
+// TestPromote_RuleHistoryErrorFailsPromotion tests that an error in updateRule
 // fails the entire Promote operation. This ensures sync replication is functioning before
 // accepting the promotion - better to have no primary than one that violates durability policy.
-func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
+func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mock and set ALL expectations BEFORE starting the manager
@@ -968,17 +959,15 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/9876543"}}))
 
-	// Mock: Clear primary_conninfo after promotion (executed before insertLeadershipHistory)
+	// Mock: Clear primary_conninfo after promotion (executed before updateRule)
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
-	// Mock: insertLeadershipHistory fails with database error (e.g., sync replication timeout)
-	mockQueryService.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history",
-		mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for synchronous replication"))
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	// updateRule fails (e.g., sync replication timeout)
+	fakeRules := &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for synchronous replication")}
+	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	// Topology is REPLICA
 	pm.mu.Lock()
@@ -990,13 +979,13 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be 0 before promotion")
 
-	// Call Promote - should FAIL because leadership history insertion fails
+	// Call Promote - should FAIL because rule history write fails
 	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", nil, nil, nil)
-	require.Error(t, err, "Promote should fail when leadership history insertion fails")
+	require.Error(t, err, "Promote should fail when rule history write fails")
 	require.Nil(t, resp)
 
-	// Error message should indicate the leadership history failure
-	assert.Contains(t, err.Error(), "leadership history")
+	// Error message should indicate the rule history failure
+	assert.Contains(t, err.Error(), "rule history")
 
 	// CRITICAL: Verify that primary_term WAS set even though promotion failed.
 	// This is intentional - we set primary_term (local state) before writing to history table
@@ -1010,7 +999,6 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
 	// The coordinator should handle this partial promotion state (e.g., retry or repair).
-	// The mock expectations should still be met (all queries were executed).
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
@@ -1045,9 +1033,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	// Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
-
-	// insertLeadershipHistory
-	expectLeadershipHistoryInsert(mockQueryService)
 
 	// Inline setup (like setupPromoteTestManager but capturing factory)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -1096,7 +1081,9 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	err = pm.setInitialized()
 	require.NoError(t, err)
 
+	fakeRules := &fakeRuleStore{}
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = fakeRules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
@@ -1138,6 +1125,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	assert.Equal(t, serviceID, healthState.PrimaryObservation.PrimaryID, "primary observation should point to self")
 	assert.Equal(t, int64(10), healthState.PrimaryObservation.PrimaryTerm, "primary observation term should match consensus term")
 
+	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
@@ -2150,9 +2138,9 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 }
 
 func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *testing.T) {
-	// This test verifies that if insertReplicationConfigHistory fails,
+	// This test verifies that if updateRule fails,
 	// the synchronous_commit and synchronous_standby_names GUCs are NOT updated.
-	// This ensures, that we only update the GUC, if the insert succeeds
+	// This ensures that we only update GUCs if the rule update succeeds.
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -2215,6 +2203,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
 
 	// Mark as initialized
 	err = manager.setInitialized()
@@ -2226,12 +2215,6 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	require.Eventually(t, func() bool {
 		return manager.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond)
-
-	// CRITICAL: Mock the INSERT INTO leadership_history to FAIL
-	// This should prevent any subsequent GUC updates from happening
-	mockQueryService.AddQueryPatternOnceWithError(
-		"INSERT INTO multigres.leadership_history",
-		mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"))
 
 	// We do NOT add expectations for ALTER SYSTEM SET queries
 	// If they get called, ExpectationsWereMet() will fail
@@ -2263,7 +2246,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 }
 
 func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing.T) {
-	// This test verifies that if insertReplicationConfigHistory fails during
+	// This test verifies that if updateRule fails during
 	// UpdateSynchronousStandbyList, the synchronous_standby_names GUC is NOT updated.
 
 	ctx := context.Background()
@@ -2327,6 +2310,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
 
 	err = manager.setInitialized()
 	require.NoError(t, err)
@@ -2343,11 +2327,6 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 		mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{"FIRST 1 (zone1_replica-1, zone1_replica-2)"}}))
 	mockQueryService.AddQueryPattern("SHOW synchronous_commit",
 		mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"remote_write"}}))
-
-	// CRITICAL: Mock the INSERT INTO leadership_history to FAIL
-	mockQueryService.AddQueryPatternOnceWithError(
-		"INSERT INTO multigres.leadership_history",
-		mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"))
 
 	// We do NOT add expectations for ALTER SYSTEM SET synchronous_standby_names
 	// If it gets called, ExpectationsWereMet() will fail

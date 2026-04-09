@@ -51,56 +51,70 @@ func TestNewPoolerID(t *testing.T) {
 	tests := []struct {
 		name            string
 		id              *clustermetadatapb.ID
-		expectedAppName string
+		expectedAppName string // always asserted, including error cases
 		expectError     bool
 	}{
 		{
-			name: "standard ID",
-			id: &clustermetadatapb.ID{
-				Cell: "us-west",
-				Name: "replica-1",
-			},
+			name:            "standard ID",
+			id:              &clustermetadatapb.ID{Cell: "us-west", Name: "replica-1"},
 			expectedAppName: "us-west_replica-1",
 		},
 		{
-			name: "single character values",
-			id: &clustermetadatapb.ID{
-				Cell: "a",
-				Name: "b",
-			},
+			name:            "single character values",
+			id:              &clustermetadatapb.ID{Cell: "a", Name: "b"},
 			expectedAppName: "a_b",
 		},
 		{
-			name: "hyphenated names",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: "primary-db-001",
-			},
+			name:            "hyphenated names",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: "primary-db-001"},
 			expectedAppName: "us-east-1a_primary-db-001",
 		},
 		{
-			name: "numeric values",
-			id: &clustermetadatapb.ID{
-				Cell: "zone1",
-				Name: "pooler-001",
-			},
+			name:            "numeric values",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "pooler-001"},
 			expectedAppName: "zone1_pooler-001",
 		},
 		{
-			name: "exactly 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 52), // "us-east-1a_" (11) + 52 = 63
-			},
+			name:            "exactly 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 52)}, // 11+52=63
 			expectedAppName: "us-east-1a_" + strings.Repeat("x", 52),
 		},
+		// Error cases: approximate appName returned alongside the error.
 		{
-			name: "exceeds 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 53), // "us-east-1a_" (11) + 53 = 64
-			},
-			expectError: true,
+			name:            "nil ID",
+			id:              nil,
+			expectError:     true,
+			expectedAppName: "<nil>",
+		},
+		{
+			name:            "empty cell",
+			id:              &clustermetadatapb.ID{Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "<unknown>_replica-1",
+		},
+		{
+			name:            "empty name",
+			id:              &clustermetadatapb.ID{Cell: "zone1"},
+			expectError:     true,
+			expectedAppName: "zone1_<unknown>",
+		},
+		{
+			name:            "cell contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "us_west", Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "us_west_replica-1",
+		},
+		{
+			name:            "name contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "replica_1"},
+			expectError:     true,
+			expectedAppName: "zone1_replica_1",
+		},
+		{
+			name:            "exceeds 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // 11+53=64
+			expectError:     true,
+			expectedAppName: "us-east-1a_" + strings.Repeat("x", 53), // full string returned, not truncated
 		},
 	}
 
@@ -112,11 +126,60 @@ func TestNewPoolerID(t *testing.T) {
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedAppName, result.appName)
 				assert.Equal(t, tt.id, result.id)
 			}
+			assert.Equal(t, tt.expectedAppName, result.appName)
 		})
 	}
+}
+
+func TestToPoolerIDs(t *testing.T) {
+	t.Run("all valid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			{Cell: "zone2", Name: "replica-2"},
+		}
+		result, err := toPoolerIDs(ids)
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "zone2_replica-2", result[1].appName)
+	})
+
+	t.Run("nil slice", func(t *testing.T) {
+		result, err := toPoolerIDs(nil)
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("invalid entry returns approximate value and error", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[1]")
+		// Full slice returned despite the error.
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "<nil>", result[1].appName)
+	})
+
+	t.Run("first error is reported when multiple entries are invalid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			nil,
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[0]") // first error, not ids[2]
+		require.Len(t, result, 3)
+		assert.Equal(t, "<nil>", result[0].appName)
+		assert.Equal(t, "zone1_replica-1", result[1].appName)
+		assert.Equal(t, "<nil>", result[2].appName)
+	})
 }
 
 func TestFormatStandbyList(t *testing.T) {
@@ -272,7 +335,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name: "empty cell returns error",
@@ -280,7 +343,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "", Name: "replica-1"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name: "empty name returns error",
@@ -288,7 +351,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone1", Name: ""},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 		{
 			name: "underscore in cell returns error",
@@ -329,7 +392,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone2", Name: "replica_2"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: name contains underscore",
+			errorMsg:    "ids[1]: name contains underscore",
 		},
 		{
 			name: "exceeds 63 character limit",
@@ -337,7 +400,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // "us-east-1a_" (11) + 53 = 64
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: application name",
+			errorMsg:    "ids[0]: application name",
 		},
 	}
 
@@ -1182,7 +1245,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name:    "Invalid empty cell",
@@ -1195,7 +1258,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name:    "Invalid empty name",
@@ -1208,7 +1271,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 	}
 
