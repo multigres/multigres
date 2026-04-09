@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -67,6 +68,19 @@ func extractClusterState(output string) string {
 // This runs postgres --single to complete crash recovery, then exits cleanly.
 func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
+
+	// Remove standby.signal if present. Single-user mode (postgres --single)
+	// does not support standby mode — PostgreSQL exits with FATAL if
+	// standby.signal exists when running as a standalone backend. Since
+	// StartAsStandby always writes standby.signal before starting, any
+	// previously started node will have this file. The caller re-creates it
+	// via StartAsStandby after crash recovery completes.
+	standbySignalPath := filepath.Join(pgctld.PostgresDataDir(), "standby.signal")
+	if err := os.Remove(standbySignalPath); err != nil && !os.IsNotExist(err) {
+		logger.WarnContext(ctx, "Failed to remove standby.signal before crash recovery (continuing)", "error", err)
+	} else if err == nil {
+		logger.InfoContext(ctx, "Removed standby.signal before crash recovery", "path", standbySignalPath)
+	}
 
 	// Run postgres in single-user mode to perform crash recovery
 	// postgres --single starts in single-user mode, performs recovery, and exits on EOF
