@@ -42,6 +42,10 @@ func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.N
 	return f.pos, f.observeErr
 }
 
+func (f *fakeRuleStore) createRuleTables(_ context.Context) error {
+	return nil
+}
+
 func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.NodePosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

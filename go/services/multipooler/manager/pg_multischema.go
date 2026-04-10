@@ -54,15 +54,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.createCurrentRuleTable(ctx); err != nil {
-		return err
-	}
-
-	if err := pm.initializeCurrentRule(ctx); err != nil {
-		return err
-	}
-
-	if err := pm.createRuleHistoryTable(ctx); err != nil {
+	if err := pm.rules.createRuleTables(ctx); err != nil {
 		return err
 	}
 

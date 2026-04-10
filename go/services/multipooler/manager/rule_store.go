@@ -33,6 +33,10 @@ import (
 type ruleStorer interface {
 	observePosition(ctx context.Context) (*clustermetadatapb.NodePosition, error)
 	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.NodePosition, error)
+	// createRuleTables creates multigres.current_rule and multigres.rule_history
+	// if they do not already exist, and inserts the zero-state sentinel row for
+	// the default shard. It is idempotent and safe to call multiple times.
+	createRuleTables(ctx context.Context) error
 }
 
 // ruleStore manages the current shard rule in postgres.
@@ -131,8 +135,6 @@ func (b *ruleUpdateBuilder) withForce() *ruleUpdateBuilder {
 
 // withPreviousRule adds a compare-and-swap check: the update only proceeds if the
 // current rule matches the given coordinator term and subterm.
-//
-//nolint:unused // CAS support is wired into the SQL query; callers will be added soon.
 func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, ruleSubterm int64) *ruleUpdateBuilder {
 	b.previousRule = &ruleNumber{coordinatorTerm: coordinatorTerm, ruleSubterm: ruleSubterm}
 	return b
@@ -142,21 +144,20 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, ruleSubterm int64)
 // Schema Operations
 // ----------------------------------------------------------------------------
 
-// createCurrentRuleTable creates the current_rule table.
-// This table holds a single row per shard representing the current cluster rule.
-// It is used as a locking target (SELECT FOR UPDATE) and a fast read path for
-// current state, while rule_history provides the append-only audit log.
+// createRuleTables creates multigres.current_rule and multigres.rule_history if
+// they do not already exist, then inserts the zero-state sentinel row for the
+// default shard. It is idempotent and safe to call multiple times.
 //
-// Non-essential audit fields (event_type, wal_position, accepted_members, reason,
-// operation) are stored only in rule_history to keep this table focused on
-// operational state.
+// current_rule holds a single row per shard representing the current cluster rule.
+// It is used as a locking target (SELECT FOR UPDATE) to serialise concurrent
+// writes; rule_history provides the append-only audit log.
 //
-// created_at records when this particular rule was written, matching the
-// corresponding rule_history.created_at for the same (coordinator_term, rule_subterm).
-func (pm *MultiPoolerManager) createCurrentRuleTable(ctx context.Context) error {
+// coordinator_term=0 in the sentinel row means no rule has been applied yet.
+func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.current_rule (
+
+	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.current_rule (
 		shard_id                  BYTEA PRIMARY KEY,
 		coordinator_term          BIGINT NOT NULL,
 		rule_subterm              BIGINT NOT NULL,
@@ -171,37 +172,20 @@ func (pm *MultiPoolerManager) createCurrentRuleTable(ctx context.Context) error 
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create current_rule table")
 	}
-	return nil
-}
 
-// initializeCurrentRule inserts the zero-state sentinel row for the default shard.
-// This row must exist before any rule is written so that updateRule can SELECT FOR
-// UPDATE on it to serialise concurrent writes.
-// coordinator_term=0 means no rule has been applied yet.
-// Uses ON CONFLICT DO NOTHING so it is safe to call multiple times.
-func (pm *MultiPoolerManager) initializeCurrentRule(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	err := pm.execArgs(execCtx, `
+	if _, err := rs.queryService.QueryArgs(execCtx, `
 		INSERT INTO multigres.current_rule
 		  (shard_id, coordinator_term, rule_subterm, cohort_members, created_at)
 		VALUES ($1, 0, 0, '{}', now())
 		ON CONFLICT (shard_id) DO NOTHING`,
-		[]byte("0"))
-	if err != nil {
+		[]byte("0")); err != nil {
 		return mterrors.Wrap(err, "failed to initialize current_rule")
 	}
-	return nil
-}
 
-// createRuleHistoryTable creates the rule_history table.
-// Each row records a cluster state change (promotion, cohort membership, durability policy).
-// The composite primary key (coordinator_term, rule_subterm) uniquely identifies each rule;
-// rule_subterm is assigned by the application as MAX(rule_subterm)+1 within a coordinator_term.
-func (pm *MultiPoolerManager) createRuleHistoryTable(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.rule_history (
+	// Each row records a cluster state change (promotion, cohort membership, durability policy).
+	// The composite primary key (coordinator_term, rule_subterm) uniquely identifies each rule;
+	// rule_subterm is assigned by the application as MAX(rule_subterm)+1 within a coordinator_term.
+	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.rule_history (
 		coordinator_term          BIGINT NOT NULL,
 		rule_subterm              BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
@@ -379,33 +363,51 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 
 	result, err := rs.queryService.QueryArgs(execCtx, `
 		WITH
-		  locked AS (
-		    SELECT coordinator_term, rule_subterm, leader_id, coordinator_id, cohort_members,
-		           durability_policy_name, durability_quorum_type, durability_required_count,
-		           durability_async_fallback
-		    FROM multigres.current_rule
-		    WHERE shard_id = $1
-		      AND ($11::bigint IS NULL OR (coordinator_term = $11 AND rule_subterm = $12))
-		    FOR UPDATE
+		  params AS (
+		    SELECT $1::bytea        AS shard_id,
+		           $2::bigint       AS coordinator_term,
+		           $3::text         AS event_type,
+		           $4::text         AS leader_id,
+		           $5::text         AS coordinator_id,
+		           $6::text         AS wal_position,
+		           $7::text         AS operation,
+		           $8::text         AS reason,
+		           $9::text[]       AS cohort_members,
+		           $10::text[]      AS accepted_members,
+		           $11::bigint      AS cas_coordinator_term,
+		           $12::bigint      AS cas_rule_subterm,
+		           $13::timestamptz AS created_at
 		  ),
-		  next_sub AS (
-		    SELECT CASE
-		      WHEN $2 > locked.coordinator_term THEN 0
-		      ELSE locked.rule_subterm + 1
-		    END AS value
-		    FROM locked
+		  locked AS (
+		    -- FOR UPDATE serializes concurrent writes at the database level, complementing
+		    -- the action lock held by the caller.
+		    -- Returns zero rows (causing a no-op write and error return) when any condition fails.
+		    -- next_sub: 0 when starting a new coordinator term, otherwise increment within term.
+		    SELECT current_rule.coordinator_term, current_rule.rule_subterm,
+		           current_rule.leader_id, current_rule.cohort_members,
+		           CASE WHEN params.coordinator_term > current_rule.coordinator_term THEN 0
+		                ELSE current_rule.rule_subterm + 1
+		           END AS next_sub
+		    FROM multigres.current_rule, params
+		    WHERE current_rule.shard_id = params.shard_id                   -- target shard
+		      AND params.coordinator_term >= current_rule.coordinator_term  -- reject stale writes
+		      AND (params.cas_coordinator_term IS NULL                      -- optimistic CAS check
+		           OR (current_rule.coordinator_term = params.cas_coordinator_term
+		               AND current_rule.rule_subterm = params.cas_rule_subterm))
+		    FOR UPDATE
 		  ),
 		  updated AS (
 		    UPDATE multigres.current_rule
-		    SET coordinator_term = $2,
-		        rule_subterm     = next_sub.value,
-		        leader_id        = COALESCE(NULLIF($4, ''), locked.leader_id),
-		        coordinator_id   = NULLIF($5, ''),
-		        cohort_members   = COALESCE($9, locked.cohort_members),
-		        created_at       = $13
-		    FROM next_sub, locked
-		    WHERE shard_id = $1
-		      AND ($2 > locked.coordinator_term OR ($2 = locked.coordinator_term AND next_sub.value > locked.rule_subterm))
+		    SET coordinator_term = params.coordinator_term,
+		        rule_subterm     = locked.next_sub,
+		        leader_id        = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
+		        coordinator_id   = NULLIF(params.coordinator_id, ''),
+		        cohort_members   = COALESCE(params.cohort_members, locked.cohort_members),
+		        created_at       = params.created_at
+		    FROM locked, params
+		    -- Correlates the update target to the specific shard row. If locked is empty
+		    -- (any condition above failed), the cross-join produces zero rows here too.
+		    WHERE current_rule.shard_id = params.shard_id
 		    RETURNING current_rule.coordinator_term, current_rule.rule_subterm,
 		              current_rule.leader_id, current_rule.coordinator_id, current_rule.cohort_members,
 		              current_rule.durability_policy_name, current_rule.durability_quorum_type,
@@ -416,16 +418,18 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		      (coordinator_term, rule_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members, created_at)
 		    SELECT updated.coordinator_term, updated.rule_subterm,
-		           $3,
+		           params.event_type,
 		           updated.leader_id,
 		           updated.coordinator_id,
-		           NULLIF($6, ''), NULLIF($7, ''), $8,
+		           NULLIF(params.wal_position, ''), NULLIF(params.operation, ''), params.reason,
 		           updated.cohort_members,
-		           $10,
-		           $13
-		    FROM updated
+		           params.accepted_members,
+		           params.created_at
+		    FROM updated, params
 		    RETURNING coordinator_term
 		  )
+		-- Cross-joining inserted ensures a zero-row history insert (a bug) also returns zero
+		-- rows here, causing the caller to surface an error rather than silently succeeding.
 		SELECT updated.coordinator_term, updated.rule_subterm,
 		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
 		       updated.durability_policy_name, updated.durability_quorum_type,
