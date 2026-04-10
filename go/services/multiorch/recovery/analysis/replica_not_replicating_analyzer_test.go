@@ -47,104 +47,126 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	analyzer := &ReplicaNotReplicatingAnalyzer{factory: factory}
 
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
+	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       true,
-			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:    true,
-			PrimaryConnInfoHost: "", // No primary_conninfo configured
-			ReplicationStopped:  false,
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "", // No primary_conninfo configured
+				ReplicationStopped:  false,
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.NotNil(t, problem)
-		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
-		require.Equal(t, types.ScopePooler, problem.Scope)
-		require.Equal(t, types.PriorityHigh, problem.Priority)
-		require.NotNil(t, problem.RecoveryAction)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
+		require.Equal(t, types.ScopePooler, problems[0].Scope)
+		require.Equal(t, types.PriorityHigh, problems[0].Priority)
+		require.NotNil(t, problems[0].RecoveryAction)
 	})
 
 	t.Run("detects replica with replication stopped", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       true,
-			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:    true,
-			PrimaryConnInfoHost: "primary.example.com",
-			ReplicationStopped:  true, // Replication stopped
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "primary.example.com",
+				ReplicationStopped:  true, // Replication stopped
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.NotNil(t, problem)
-		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
 	})
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       true,
-			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:    true,
-			PrimaryConnInfoHost: "primary.example.com",
-			ReplicationStopped:  false,
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "primary.example.com",
+				ReplicationStopped:  false,
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem)
+		require.Empty(t, problems)
 	})
 
 	t.Run("ignores primary nodes", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           true,
-			IsInitialized:       true,
-			PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
+		sa := &ShardAnalysis{
+			ShardKey: shardKey,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            primaryID,
+				ShardKey:            shardKey,
+				IsPrimary:           true,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem)
+		require.Empty(t, problems)
 	})
 
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       false, // Not initialized
-			PrimaryConnInfoHost: "",
+		sa := &ShardAnalysis{
+			ShardKey: shardKey,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       false, // Not initialized
+				PrimaryConnInfoHost: "",
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem)
+		require.Empty(t, problems)
 	})
 
 	t.Run("ignores replica when primary is unreachable", func(t *testing.T) {
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       true,
-			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:    false, // Primary unreachable - PrimaryIsDead handles this
-			PrimaryConnInfoHost: "",
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               false, // Primary unreachable — PrimaryIsDead handles this
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "",
+			}},
 		}
 
-		problem, err := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Nil(t, problem)
+		require.Empty(t, problems)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
@@ -153,19 +175,22 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotReplicatingAnalyzer{factory: nil}
-		analysis := &store.ReplicationAnalysis{
-			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:           false,
-			IsInitialized:       true,
-			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:    true,
-			PrimaryConnInfoHost: "",
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "",
+			}},
 		}
 
-		problem, err := nilFactoryAnalyzer.Analyze(analysis)
+		problems, err := nilFactoryAnalyzer.Analyze(sa)
 		require.Error(t, err)
-		require.Nil(t, problem)
+		require.Nil(t, problems)
 		require.Contains(t, err.Error(), "factory not initialized")
 	})
 }

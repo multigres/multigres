@@ -772,8 +772,8 @@ func TestBeginTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		// Create default ANY_N quorum rule (majority: 2 of 3)
-		quorumRule := &clustermetadatapb.QuorumRule{
+		// Create default AT_LEAST_N quorum rule (majority: 2 of 3)
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test majority quorum",
@@ -835,7 +835,7 @@ func TestBeginTerm(t *testing.T) {
 			PoolerId: "mp3",
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
@@ -885,8 +885,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
-		// Create ANY_N quorum rule requiring 2 nodes
-		quorumRule := &clustermetadatapb.QuorumRule{
+		// Create AT_LEAST_N quorum rule requiring 2 nodes
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum requiring 2 nodes",
@@ -928,7 +928,7 @@ func TestBeginTerm(t *testing.T) {
 			PoolerId: "mp1",
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 3,
 			Description:   "Test quorum",
@@ -971,7 +971,7 @@ func TestBeginTerm(t *testing.T) {
 		// Set error for mp1 to simulate revoke failure
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp1ID)] = errors.New("term accepted but revoke action failed")
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
@@ -1053,7 +1053,7 @@ func TestBeginTerm(t *testing.T) {
 			},
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
@@ -1097,7 +1097,7 @@ func TestBeginTerm(t *testing.T) {
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp1ID)] = errors.New("term accepted but revoke action failed")
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp2ID)] = errors.New("term accepted but revoke action failed")
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum requiring 2 nodes",
@@ -1136,7 +1136,7 @@ func TestPropagate(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
@@ -1193,7 +1193,7 @@ func TestPropagate(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		quorumRule := &clustermetadatapb.QuorumRule{
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
@@ -1241,6 +1241,16 @@ func TestAppointLeader(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
+
+		// Register database in topology so getBootstrapPolicy can find it
+		require.NoError(t, ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+			Name: "testdb",
+			BootstrapDurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+				PolicyName:    "AT_LEAST_2",
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: 2,
+			},
+		}))
 
 		c := NewCoordinator(coordID, ts, fakeClient, logger)
 

@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -1327,78 +1326,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
 		ConsensusTerm:     consensusTerm,
 	}, nil
-}
-
-// createDurabilityPolicyLocked creates a durability policy without acquiring the action lock.
-// The caller MUST already hold the action lock.
-func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, policyName string, quorumRule *clustermetadatapb.QuorumRule) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-
-	pm.logger.InfoContext(ctx, "createDurabilityPolicyLocked called", "policy_name", policyName)
-
-	// Validate inputs
-	if policyName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "policy_name is required")
-	}
-
-	if quorumRule == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
-	}
-
-	// Marshal the quorum rule to JSON using protojson
-	marshaler := protojson.MarshalOptions{
-		UseEnumNumbers: true,
-	}
-	quorumRuleJSON, err := marshaler.Marshal(quorumRule)
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to marshal quorum rule")
-	}
-
-	// Reuse the existing insertDurabilityPolicy function which has the correct
-	// table schema and ON CONFLICT clause.
-	if err := pm.insertDurabilityPolicy(ctx, policyName, quorumRuleJSON); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// CreateDurabilityPolicy creates a new durability policy in the local database
-// Used by MultiOrch to initialize policies via gRPC instead of direct database connection
-func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	pm.logger.InfoContext(ctx, "CreateDurabilityPolicy called", "policy_name", req.PolicyName)
-
-	// Validate inputs
-	if req.PolicyName == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "policy_name is required")
-	}
-
-	if req.QuorumRule == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
-	}
-
-	// Marshal the quorum rule to JSON using protojson
-	marshaler := protojson.MarshalOptions{
-		UseEnumNumbers: true, // Encode enums as numbers, not strings
-	}
-	quorumRuleJSON, err := marshaler.Marshal(req.QuorumRule)
-	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to marshal quorum rule")
-	}
-
-	// Insert the policy into the durability_policy table
-	if err := pm.insertDurabilityPolicy(ctx, req.PolicyName, quorumRuleJSON); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
-		return nil, err
-	}
-
-	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
 }
 
 // RewindToSource performs pg_rewind to synchronize this server with a source.

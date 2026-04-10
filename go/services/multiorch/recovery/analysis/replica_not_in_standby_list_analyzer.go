@@ -21,7 +21,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotInStandbyListAnalyzer detects when a replica is not in the primary's
@@ -45,7 +44,11 @@ func (a *ReplicaNotInStandbyListAnalyzer) RecoveryAction() types.RecoveryAction 
 	return a.factory.NewFixReplicationAction()
 }
 
-func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotInStandbyListAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+	return analyzeAllPoolers(sa, a.analyzePooler)
+}
+
+func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -61,7 +64,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.Replicat
 	}
 
 	// Skip if primary is unreachable (can't update standby list anyway)
-	if poolerAnalysis.PrimaryPoolerID != nil && !poolerAnalysis.PrimaryReachable {
+	if sa.HighestTermDiscoveredPrimaryID != nil && !sa.PrimaryReachable {
 		return nil, nil
 	}
 
@@ -76,7 +79,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.Replicat
 	}
 
 	// Check if replica is already in the standby list
-	if poolerAnalysis.IsInPrimaryStandbyList {
+	if sa.IsInStandbyList(poolerAnalysis.PoolerID) {
 		return nil, nil
 	}
 

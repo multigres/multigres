@@ -60,10 +60,6 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.createDurabilityPolicyTable(ctx); err != nil {
-		return err
-	}
-
 	if err := pm.createLeadershipHistoryTable(ctx); err != nil {
 		return err
 	}
@@ -149,37 +145,6 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
-	return nil
-}
-
-// createDurabilityPolicyTable creates the durability_policy table and its indexes
-func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.durability_policy (
-		id BIGSERIAL PRIMARY KEY,
-		policy_name TEXT NOT NULL,
-		policy_version BIGINT NOT NULL,
-		quorum_rule JSONB NOT NULL,
-		is_active BOOLEAN NOT NULL DEFAULT true,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		UNIQUE (policy_name, policy_version),
-		CONSTRAINT quorum_rule_required_count_check CHECK (
-			(quorum_rule->>'required_count')::int >= 1
-		)
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create durability_policy table")
-	}
-	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	// Create index on is_active for efficient active policy lookups
-	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_durability_policy_active
-		ON multigres.durability_policy(is_active)
-		WHERE is_active = true`); err != nil {
-		return mterrors.Wrap(err, "failed to create durability_policy index")
-	}
-
 	return nil
 }
 
@@ -312,24 +277,6 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 		return mterrors.Wrap(err, "failed to insert shard")
 	}
 
-	return nil
-}
-
-// insertDurabilityPolicy inserts a durability policy into the durability_policy table.
-// Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
-func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policyName string, quorumRuleJSON []byte) error {
-	pm.logger.InfoContext(ctx, "Inserting durability policy", "policy_name", policyName)
-
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	err := pm.execArgs(execCtx, `INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING`, policyName, quorumRuleJSON)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to insert durability policy")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully inserted durability policy", "policy_name", policyName)
 	return nil
 }
 

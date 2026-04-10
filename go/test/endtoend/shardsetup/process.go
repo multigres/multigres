@@ -128,7 +128,7 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
 	}
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {
@@ -187,7 +187,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	}
 
 	// Start the multipooler server
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {
@@ -236,7 +236,7 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		args = append(args, "--verify-replication-timeout", "15s")
 	}
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 	if p.PoolerDir != "" {
 		p.Process.SetDir(p.PoolerDir)
 	}
@@ -295,7 +295,7 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 	// Append any extra args (e.g., buffer configuration flags)
 	args = append(args, p.ExtraArgs...)
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {

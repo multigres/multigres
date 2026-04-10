@@ -20,8 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pglogrepl"
-
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -29,6 +27,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -45,7 +44,7 @@ import (
 // The proposedTerm parameter is the term number to use (computed as maxTerm + 1).
 //
 // Returns the candidate pooler, standbys that accepted the term, the term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
 	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID, "term", proposedTerm)
 
 	// Recruit Nodes - Send BeginTerm RPC to all poolers in parallel
@@ -80,10 +79,10 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 	// Validate Quorum
 	c.logger.InfoContext(ctx, "Validating quorum",
 		"shard", shardID,
-		"quorum_type", quorumRule.QuorumType,
-		"required_count", quorumRule.RequiredCount)
+		"quorum_type", policy.QuorumType,
+		"required_count", policy.RequiredCount)
 
-	if err := c.ValidateQuorum(quorumRule, cohort, recruitedPoolers); err != nil {
+	if err := c.ValidateQuorum(policy, cohort, recruitedPoolers); err != nil {
 		return nil, nil, 0, mterrors.Wrapf(err, "quorum validation failed for shard %s", shardID)
 	}
 
@@ -129,7 +128,7 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 // For a primary node CurrentLsn is used; for a standby, LastReceiveLsn.
 // Returns (0, false) when pos is nil, both LSN fields are empty, or the string
 // cannot be parsed.
-func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
+func walPositionLSN(pos *consensusdatapb.WALPosition) (pgutil.LSN, bool) {
 	if pos == nil {
 		return 0, false
 	}
@@ -149,7 +148,7 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
 		return 0, false
 	}
 
-	lsn, err := pglogrepl.ParseLSN(lsnStr)
+	lsn, err := pgutil.ParseLSN(lsnStr)
 	if err != nil {
 		return 0, false
 	}
@@ -203,7 +202,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 	}
 
 	var bestRecruit *recruitmentResult
-	var bestLSN pglogrepl.LSN
+	var bestLSN pgutil.LSN
 
 	for i := range recruited {
 		r := &recruited[i]
@@ -376,7 +375,7 @@ func (c *Coordinator) EstablishLeadership(
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
 	term int64,
-	quorumRule *clustermetadatapb.QuorumRule,
+	policy *clustermetadatapb.DurabilityPolicy,
 	reason string,
 	cohort []*multiorchdatapb.PoolerHealthState,
 	recruited []*multiorchdatapb.PoolerHealthState,
@@ -480,7 +479,7 @@ func (c *Coordinator) EstablishLeadership(
 	}
 
 	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, cohort, candidate)
+	syncConfig, err := BuildSyncReplicationConfig(c.logger, policy, cohort, candidate)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
@@ -513,7 +512,7 @@ func (c *Coordinator) EstablishLeadership(
 // 2. Another coordinator recently started an election (within last 10 seconds)
 //
 // Returns (canProceed, reason) where canProceed indicates if election should proceed.
-func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule, proposedTerm int64) (bool, string) {
+func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64) (bool, string) {
 	now := time.Now()
 	const recentAcceptanceWindow = 4 * time.Second
 
@@ -532,12 +531,12 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	c.logger.InfoContext(ctx, "pre-vote health check",
 		"healthy_initialized_poolers", len(healthyInitializedPoolers),
 		"total_poolers", len(cohort),
-		"quorum_type", quorumRule.QuorumType,
-		"required_count", quorumRule.RequiredCount,
+		"quorum_type", policy.QuorumType,
+		"required_count", policy.RequiredCount,
 		"proposed_term", proposedTerm)
 
 	// Validate we have enough healthy initialized poolers to satisfy quorum
-	if err := c.ValidateQuorum(quorumRule, cohort, healthyInitializedPoolers); err != nil {
+	if err := c.ValidateQuorum(policy, cohort, healthyInitializedPoolers); err != nil {
 		return false, fmt.Sprintf("insufficient healthy initialized poolers for quorum: %v", err)
 	}
 

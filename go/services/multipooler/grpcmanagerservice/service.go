@@ -301,18 +301,21 @@ func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolerm
 	}, nil
 }
 
-// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
-func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
+// ExpireBackups removes backups that exceed the configured retention policy
+func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+	expiredIDs, err := s.manager.ExpireBackups(ctx, req.Overrides)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return resp, nil
+
+	return &multipoolermanagerdatapb.ExpireBackupsResponse{
+		ExpiredBackupIds: expiredIDs,
+	}, nil
 }
 
-// CreateDurabilityPolicy creates a new durability policy in the local database
-func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
-	resp, err := s.manager.CreateDurabilityPolicy(ctx, req)
+// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
+func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

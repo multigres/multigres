@@ -17,6 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -28,11 +29,17 @@ import (
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
+//
+// TODO: PoolerStore should be reorganized to be shard-centric rather than pooler-centric.
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topoclient.Store
 	rpcClient     rpcclient.MultiPoolerClient
 	logger        *slog.Logger
+
+	// TODO: policyCache will go away when we start reading the policy from nodes instead of etcd.
+	// This cache is a temporary way to avoid making failover depend on etcd.
+	policyCache sync.Map // database name → *clustermetadatapb.DurabilityPolicy
 }
 
 // NewCoordinator creates a new coordinator instance.
@@ -69,16 +76,21 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
 
-	quorumRule, err := c.LoadQuorumRule(ctx, cohort, database)
+	// TODO: Apply the policy from the nodes themselves instead of assuming the bootstrap policy is
+	// still the durable shard policy. To do this, add durability_policy to PoolerHealthState so
+	// the health check loop populates it, then read from the cohort here for preVote and from the
+	// BeginTerm response after revocation. Note: GetDurabilityPolicy and CreateDurabilityPolicy
+	// RPCs in multipoolermanagerdata.proto are currently unimplemented stubs in the pooler.
+	policy, err := c.getBootstrapPolicy(ctx, database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy")
 	}
 
 	c.logger.InfoContext(ctx, "Loaded durability policy",
 		"shard", shardID,
-		"quorum_type", quorumRule.QuorumType,
-		"required_count", quorumRule.RequiredCount,
-		"description", quorumRule.Description)
+		"quorum_type", policy.QuorumType,
+		"required_count", policy.RequiredCount,
+		"description", policy.Description)
 
 	// Goal 1: Obtaining a term number
 	// Discover max term from cached health state and increment to get proposed term
@@ -89,7 +101,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	proposedTerm := maxTerm + 1
 
 	// PreVote - validate that leadership change is likely to succeed
-	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
+	canProceed, preVoteReason := c.preVote(ctx, cohort, policy, proposedTerm)
 	if !canProceed {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
@@ -100,7 +112,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
 	// - Discovery: identify the most progressed node based on WAL position
 	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule, proposedTerm)
+	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, policy, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
@@ -139,7 +151,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	recruited = append(recruited, standbys...)
 
 	// Propagation and Establishment
-	if err := c.EstablishLeadership(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
+	if err := c.EstablishLeadership(ctx, candidate, standbys, term, policy, reason, cohort, recruited); err != nil {
 		return mterrors.Wrap(err, "EstablishLeadership failed")
 	}
 
@@ -182,4 +194,29 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 	}
 
 	return poolerHealths, nil
+}
+
+// getBootstrapPolicy returns the durability policy for the given database by reading
+// bootstrap_durability_policy from the topology Database record. The result is cached
+// in memory since the policy is assumed not to change for the lifetime of this process.
+//
+// TODO: Once pooler status updates carry policy information, this should be replaced
+// with a live policy loaded from the shard's nodes rather than the bootstrap record.
+func (c *Coordinator) getBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error) {
+	if cached, ok := c.policyCache.Load(database); ok {
+		return cached.(*clustermetadatapb.DurabilityPolicy), nil
+	}
+
+	db, err := c.topoStore.GetDatabase(ctx, database)
+	if err != nil {
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", database)
+	}
+
+	if db.BootstrapDurabilityPolicy == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s has no bootstrap_durability_policy configured", database)
+	}
+
+	c.policyCache.Store(database, db.BootstrapDurabilityPolicy)
+	return db.BootstrapDurabilityPolicy, nil
 }

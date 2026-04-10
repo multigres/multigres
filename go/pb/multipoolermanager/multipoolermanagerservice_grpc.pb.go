@@ -61,6 +61,7 @@ const (
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
 	MultiPoolerManager_GetBackupByJobId_FullMethodName                = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
+	MultiPoolerManager_ExpireBackups_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
 	MultiPoolerManager_RewindToSource_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/RewindToSource"
 	MultiPoolerManager_SetMonitor_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/SetMonitor"
 )
@@ -135,6 +136,8 @@ type MultiPoolerManagerClient interface {
 	// GetBackupByJobId queries a backup by its job_id annotation.
 	// Returns the backup metadata if found, or nil backup if not.
 	GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
+	// ExpireBackups removes backups that exceed the configured retention policy.
+	ExpireBackups(ctx context.Context, in *multipoolermanagerdata.ExpireBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ExpireBackupsResponse, error)
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
@@ -411,6 +414,16 @@ func (c *multiPoolerManagerClient) GetBackupByJobId(ctx context.Context, in *mul
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) ExpireBackups(ctx context.Context, in *multipoolermanagerdata.ExpireBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ExpireBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_ExpireBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiPoolerManagerClient) RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.RewindToSourceResponse)
@@ -501,6 +514,8 @@ type MultiPoolerManagerServer interface {
 	// GetBackupByJobId queries a backup by its job_id annotation.
 	// Returns the backup metadata if found, or nil backup if not.
 	GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
+	// ExpireBackups removes backups that exceed the configured retention policy.
+	ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error)
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
@@ -594,6 +609,9 @@ func (UnimplementedMultiPoolerManagerServer) GetBackups(context.Context, *multip
 }
 func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupByJobId not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExpireBackups not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
@@ -1090,6 +1108,24 @@ func _MultiPoolerManager_GetBackupByJobId_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_ExpireBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ExpireBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).ExpireBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_ExpireBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).ExpireBackups(ctx, req.(*multipoolermanagerdata.ExpireBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiPoolerManager_RewindToSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.RewindToSourceRequest)
 	if err := dec(in); err != nil {
@@ -1236,6 +1272,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBackupByJobId",
 			Handler:    _MultiPoolerManager_GetBackupByJobId_Handler,
+		},
+		{
+			MethodName: "ExpireBackups",
+			Handler:    _MultiPoolerManager_ExpireBackups_Handler,
 		},
 		{
 			MethodName: "RewindToSource",

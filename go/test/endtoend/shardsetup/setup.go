@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
@@ -60,7 +61,7 @@ type SetupConfig struct {
 	TableGroup                          string
 	Shard                               string
 	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "ANY_2")
+	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
@@ -393,10 +394,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(config.DurabilityPolicy)
+	if err != nil {
+		cancel()
+		t.Fatalf("invalid durability policy %q: %v", config.DurabilityPolicy, err)
+	}
+
 	err = ts.CreateDatabase(context.Background(), config.Database, &clustermetadatapb.Database{
-		Name:             config.Database,
-		BackupLocation:   backupLocation,
-		DurabilityPolicy: config.DurabilityPolicy,
+		Name:                      config.Database,
+		BackupLocation:            backupLocation,
+		BootstrapDurabilityPolicy: bootstrapPolicy,
 	})
 	if err != nil {
 		cancel()
@@ -540,9 +547,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("DisableRecovery: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "DisableRecovery: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -573,9 +578,7 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("EnableRecovery: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "EnableRecovery: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -689,9 +692,7 @@ func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.Cli
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "connectToMultiOrch: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
