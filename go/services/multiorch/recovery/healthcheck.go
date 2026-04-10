@@ -164,6 +164,8 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			existing.LastCheckAttempted = now
 			existing.IsUpToDate = true // We tried, don't retry immediately
 			existing.IsLastCheckValid = false
+			existing.IsPostgresReady = false   // Assume Postgres is down if we can't reach the pooler
+			existing.IsPostgresRunning = false // Unknown — assume false when pooler is unreachable
 			return existing
 		})
 		return
@@ -184,6 +186,12 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		existing.LastSeen = successTime
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
+		existing.IsPostgresReady = status.PostgresReady
+		if status.PostgresReady {
+			existing.LastPostgresReadyTime = successTime
+		}
+		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
+		// left at its previous value so callers can reason about "last known good" time.
 
 		// Status RPC now includes initialization fields and works without db connection
 		existing.IsPostgresRunning = status.PostgresRunning
@@ -204,6 +212,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		"reported_type", status.PoolerType,
 		"is_initialized", status.IsInitialized,
 		"postgres_running", status.PostgresRunning,
+		"postgres_ready", status.PostgresReady,
 		"latency", time.Since(totalStart),
 	)
 }
@@ -246,6 +255,7 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 		"pooler_type", resp.Status.PoolerType,
 		"is_initialized", resp.Status.IsInitialized,
 		"postgres_running", resp.Status.PostgresRunning,
+		"postgres_ready", resp.Status.PostgresReady,
 		"has_primary_status", resp.Status.PrimaryStatus != nil,
 		"has_replication_status", resp.Status.ReplicationStatus != nil,
 	)

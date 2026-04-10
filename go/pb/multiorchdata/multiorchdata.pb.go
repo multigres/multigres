@@ -70,11 +70,11 @@ type PoolerHealthState struct {
 	PrimaryStatus *multipoolermanagerdata.PrimaryStatus `protobuf:"bytes,8,opt,name=primary_status,json=primaryStatus,proto3" json:"primary_status,omitempty"`
 	// Replica-specific status (populated when pooler_type == REPLICA)
 	ReplicationStatus *multipoolermanagerdata.StandbyReplicationStatus `protobuf:"bytes,9,opt,name=replication_status,json=replicationStatus,proto3" json:"replication_status,omitempty"`
-	// Whether PostgreSQL is currently running on this node.
-	// Determined from the Status RPC's postgres_running field.
+	// Whether PostgreSQL is currently running and accepting connections on this node.
+	// Determined from the Status RPC's postgres_ready field.
 	// Used to determine PrimaryReachable in the analyzer - a primary with postgres down
 	// should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
-	IsPostgresRunning bool `protobuf:"varint,10,opt,name=is_postgres_running,json=isPostgresRunning,proto3" json:"is_postgres_running,omitempty"`
+	IsPostgresReady bool `protobuf:"varint,10,opt,name=is_postgres_ready,json=isPostgresReady,proto3" json:"is_postgres_ready,omitempty"`
 	// Whether the pooler considers itself initialized.
 	// Determined from the Status RPC's is_initialized field.
 	// This is based on the data directory state, not LSN.
@@ -86,8 +86,16 @@ type PoolerHealthState struct {
 	ConsensusTerm *multipoolermanagerdata.ConsensusTerm `protobuf:"bytes,13,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Consensus status from ConsensusStatus RPC (for divergence detection)
 	ConsensusStatus *consensusdata.StatusResponse `protobuf:"bytes,14,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Timestamp of the last time PostgreSQL specifically responded as healthy
+	// (i.e. pg_isready passed). Never cleared on failure — callers must compare
+	// against time.Now() to detect staleness.
+	LastPostgresReadyTime *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=last_postgres_ready_time,json=lastPostgresReadyTime,proto3" json:"last_postgres_ready_time,omitempty"`
+	// Whether the PostgreSQL process exists on this node, regardless of whether
+	// it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
+	// Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
+	IsPostgresRunning bool `protobuf:"varint,16,opt,name=is_postgres_running,json=isPostgresRunning,proto3" json:"is_postgres_running,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PoolerHealthState) Reset() {
@@ -183,9 +191,9 @@ func (x *PoolerHealthState) GetReplicationStatus() *multipoolermanagerdata.Stand
 	return nil
 }
 
-func (x *PoolerHealthState) GetIsPostgresRunning() bool {
+func (x *PoolerHealthState) GetIsPostgresReady() bool {
 	if x != nil {
-		return x.IsPostgresRunning
+		return x.IsPostgresReady
 	}
 	return false
 }
@@ -218,11 +226,25 @@ func (x *PoolerHealthState) GetConsensusStatus() *consensusdata.StatusResponse {
 	return nil
 }
 
+func (x *PoolerHealthState) GetLastPostgresReadyTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastPostgresReadyTime
+	}
+	return nil
+}
+
+func (x *PoolerHealthState) GetIsPostgresRunning() bool {
+	if x != nil {
+		return x.IsPostgresRunning
+	}
+	return false
+}
+
 var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x13consensusdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x87\a\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x13consensusdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x88\b\n" +
 	"\x11PoolerHealthState\x12?\n" +
 	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12!\n" +
 	"\ris_up_to_date\x18\x02 \x01(\bR\n" +
@@ -234,13 +256,15 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\vpooler_type\x18\a \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
 	"\x0eprimary_status\x18\b \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\rprimaryStatus\x12_\n" +
-	"\x12replication_status\x18\t \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12.\n" +
-	"\x13is_postgres_running\x18\n" +
-	" \x01(\bR\x11isPostgresRunning\x12%\n" +
+	"\x12replication_status\x18\t \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12*\n" +
+	"\x11is_postgres_ready\x18\n" +
+	" \x01(\bR\x0fisPostgresReady\x12%\n" +
 	"\x0eis_initialized\x18\v \x01(\bR\risInitialized\x12,\n" +
 	"\x12has_data_directory\x18\f \x01(\bR\x10hasDataDirectory\x12L\n" +
 	"\x0econsensus_term\x18\r \x01(\v2%.multipoolermanagerdata.ConsensusTermR\rconsensusTerm\x12H\n" +
-	"\x10consensus_status\x18\x0e \x01(\v2\x1d.consensusdata.StatusResponseR\x0fconsensusStatusB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x10consensus_status\x18\x0e \x01(\v2\x1d.consensusdata.StatusResponseR\x0fconsensusStatus\x12S\n" +
+	"\x18last_postgres_ready_time\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\x15lastPostgresReadyTime\x12.\n" +
+	"\x13is_postgres_running\x18\x10 \x01(\bR\x11isPostgresRunningB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once
@@ -266,20 +290,21 @@ var file_multiorchdata_proto_goTypes = []any{
 	(*consensusdata.StatusResponse)(nil),                    // 7: consensusdata.StatusResponse
 }
 var file_multiorchdata_proto_depIdxs = []int32{
-	1, // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
-	2, // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
-	2, // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
-	2, // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
-	3, // 4: multiorchdata.PoolerHealthState.pooler_type:type_name -> clustermetadata.PoolerType
-	4, // 5: multiorchdata.PoolerHealthState.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	5, // 6: multiorchdata.PoolerHealthState.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	6, // 7: multiorchdata.PoolerHealthState.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
-	7, // 8: multiorchdata.PoolerHealthState.consensus_status:type_name -> consensusdata.StatusResponse
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	1,  // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
+	2,  // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
+	2,  // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
+	2,  // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
+	3,  // 4: multiorchdata.PoolerHealthState.pooler_type:type_name -> clustermetadata.PoolerType
+	4,  // 5: multiorchdata.PoolerHealthState.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	5,  // 6: multiorchdata.PoolerHealthState.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	6,  // 7: multiorchdata.PoolerHealthState.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
+	7,  // 8: multiorchdata.PoolerHealthState.consensus_status:type_name -> consensusdata.StatusResponse
+	2,  // 9: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }

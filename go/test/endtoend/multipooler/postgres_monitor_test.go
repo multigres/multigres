@@ -48,7 +48,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should get status from primary")
-		require.True(t, status.Status.PostgresRunning, "Postgres should be running initially")
+		require.True(t, status.Status.PostgresReady, "Postgres should be running initially")
 		t.Logf("Postgres is running initially")
 	})
 
@@ -69,7 +69,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 				t.Logf("Status check failed: %v", err)
 				return false
 			}
-			return status.Status.PostgresRunning
+			return status.Status.PostgresReady
 		}, 30*time.Second, 500*time.Millisecond, "Postgres should be automatically restarted by monitoring")
 
 		t.Logf("Postgres was successfully auto-restarted")
@@ -94,7 +94,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should get status from primary")
-		require.False(t, status.Status.PostgresRunning, "Postgres should NOT be restarted when monitoring is disabled")
+		require.False(t, status.Status.PostgresReady, "Postgres should NOT be restarted when monitoring is disabled")
 		t.Logf("Confirmed: Postgres stayed down (monitoring disabled)")
 	})
 
@@ -114,7 +114,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 				t.Logf("Status check failed: %v", err)
 				return false
 			}
-			return status.Status.PostgresRunning
+			return status.Status.PostgresReady
 		}, 30*time.Second, 500*time.Millisecond, "Postgres should be restarted after enabling monitoring")
 
 		t.Logf("Postgres was successfully restarted after enabling monitoring")

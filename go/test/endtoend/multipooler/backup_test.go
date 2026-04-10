@@ -240,7 +240,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						if statusResp.Status.ConsensusTerm != nil {
 							restoredTerm = statusResp.Status.ConsensusTerm.TermNumber
 						}
-						return statusResp.Status.PostgresRunning
+						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
 					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
 					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
@@ -630,7 +630,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 					statusCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 					defer cancel()
 					statusResp, err := standbyClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
-					return err == nil && statusResp.Status.PostgresRunning
+					return err == nil && statusResp.Status.PostgresReady
 				}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
 
 				primary := &clustermetadatapb.MultiPooler{

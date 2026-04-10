@@ -1374,7 +1374,11 @@ type Status struct {
 	IsInitialized bool `protobuf:"varint,4,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`
 	// Whether data directory exists
 	HasDataDirectory bool `protobuf:"varint,5,opt,name=has_data_directory,json=hasDataDirectory,proto3" json:"has_data_directory,omitempty"`
-	// Whether PostgreSQL is currently running
+	// Whether the PostgreSQL process exists (regardless of whether it accepts connections).
+	// True if the postgres process is running (e.g. SIGSTOP'd postgres: process exists but
+	// pg_isready fails). False if the process is dead (e.g. after SIGKILL).
+	// Use this to distinguish a temporarily-unresponsive postgres (SIGSTOP) from a dead
+	// postgres (SIGKILL) when postgres_ready is false.
 	PostgresRunning bool `protobuf:"varint,6,opt,name=postgres_running,json=postgresRunning,proto3" json:"postgres_running,omitempty"`
 	// Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
 	// This may differ from pooler_type during transitions or failures.
@@ -1391,8 +1395,12 @@ type Status struct {
 	// How long the current action has been running.
 	// Only meaningful when postgres_action != UNSPECIFIED.
 	PostgresActionDuration *durationpb.Duration `protobuf:"bytes,12,opt,name=postgres_action_duration,json=postgresActionDuration,proto3" json:"postgres_action_duration,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
+	// This is the combined check: process must exist AND respond to pg_isready.
+	// Use postgres_running to check only if the process exists.
+	PostgresReady bool `protobuf:"varint,13,opt,name=postgres_ready,json=postgresReady,proto3" json:"postgres_ready,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Status) Reset() {
@@ -1507,6 +1515,13 @@ func (x *Status) GetPostgresActionDuration() *durationpb.Duration {
 		return x.PostgresActionDuration
 	}
 	return nil
+}
+
+func (x *Status) GetPostgresReady() bool {
+	if x != nil {
+		return x.PostgresReady
+	}
+	return false
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -4277,7 +4292,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
 	"\x16PrimaryPositionRequest\"<\n" +
 	"\x17PrimaryPositionResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xcc\x05\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xf3\x05\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
@@ -4292,7 +4307,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\bshard_id\x18\n" +
 	" \x01(\tR\ashardId\x12O\n" +
 	"\x0fpostgres_action\x18\v \x01(\x0e2&.multipoolermanagerdata.PostgresActionR\x0epostgresAction\x12S\n" +
-	"\x18postgres_action_duration\x18\f \x01(\v2\x19.google.protobuf.DurationR\x16postgresActionDuration\"\x0f\n" +
+	"\x18postgres_action_duration\x18\f \x01(\v2\x19.google.protobuf.DurationR\x16postgresActionDuration\x12%\n" +
+	"\x0epostgres_ready\x18\r \x01(\bR\rpostgresReady\"\x0f\n" +
 	"\rStatusRequest\"H\n" +
 	"\x0eStatusResponse\x126\n" +
 	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\"\x98\x03\n" +
