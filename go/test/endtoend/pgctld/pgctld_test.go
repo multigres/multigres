@@ -332,8 +332,8 @@ timeout: 30
 	})
 }
 
-// TestRestartAsStandbyWithRealPostgreSQL tests restart --as-standby with real PostgreSQL
-func TestRestartAsStandbyWithRealPostgreSQL(t *testing.T) {
+// TestRestartWithRealPostgreSQL tests that restart always writes standby.signal
+func TestRestartWithRealPostgreSQL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration tests in short mode")
 	}
@@ -386,20 +386,20 @@ timeout: 30
 	require.NoError(t, err)
 	assert.Contains(t, string(output), "Running")
 
-	// Restart as standby
-	restartCmd := executil.Command(t.Context(), "pgctld", "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--as-standby", "--config-file", pgctldConfigFile)
+	// Restart — always writes standby.signal
+	restartCmd := executil.Command(t.Context(), "pgctld", "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
 	setupTestEnv(restartCmd, dataDir)
 	output, err = restartCmd.CombinedOutput()
 	if err != nil {
-		t.Logf("restart --as-standby output: %s", string(output))
+		t.Logf("restart output: %s", string(output))
 	}
 	require.NoError(t, err)
-	assert.Contains(t, string(output), "restarted as standby successfully")
+	assert.Contains(t, string(output), "restarted successfully")
 
-	// Verify standby.signal was created
+	// Verify standby.signal was created (restart always writes it)
 	standbySignalPath := filepath.Join(dataDir, "pg_data", "standby.signal")
 	_, err = os.Stat(standbySignalPath)
-	assert.NoError(t, err, "standby.signal file should exist after restart --as-standby")
+	assert.NoError(t, err, "standby.signal file should exist after restart")
 
 	// Verify server is still running
 	statusCmd = executil.Command(t.Context(), "pgctld", "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
@@ -423,7 +423,7 @@ timeout: 30
 	require.NoError(t, err, "Recovery check should succeed, output: %s", string(output))
 	t.Logf("Recovery mode check result: %s", string(output))
 	// The output should contain 't' for true indicating recovery mode
-	assert.Contains(t, strings.TrimSpace(string(output)), "t", "PostgreSQL should be in recovery mode after restart --as-standby")
+	assert.Contains(t, strings.TrimSpace(string(output)), "t", "PostgreSQL should be in recovery mode after restart")
 
 	// Clean stop
 	stopCmd := executil.Command(t.Context(), "pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
