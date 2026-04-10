@@ -101,6 +101,13 @@ func TestParseTextArray(t *testing.T) {
 		assert.Equal(t, []string{"abc"}, result)
 	})
 
+	t.Run("backslash escapes comma delimiter in unquoted element", func(t *testing.T) {
+		// {foo\,bar} is a single element "foo,bar", not two elements.
+		result, err := ParseTextArray(`{foo\,bar}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"foo,bar"}, result)
+	})
+
 	t.Run("backslash-escaped null is not treated as SQL NULL", func(t *testing.T) {
 		// \null has a backslash escape so it is the string "null", not SQL NULL.
 		result, err := ParseTextArray(`{n\ull}`)
