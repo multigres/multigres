@@ -55,6 +55,34 @@ func counterValue(s *metricdata.Sum[int64]) int64 {
 	return s.DataPoints[0].Value
 }
 
+// getHistogramFloat64 extracts a named Float64 histogram from collected metric data.
+func getHistogramFloat64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Histogram[float64] {
+	t.Helper()
+
+	var metricData metricdata.ResourceMetrics
+	err := reader.Collect(t.Context(), &metricData)
+	require.NoError(t, err)
+
+	for _, scopeMetric := range metricData.ScopeMetrics {
+		for _, m := range scopeMetric.Metrics {
+			if m.Name == name {
+				hist, ok := m.Data.(metricdata.Histogram[float64])
+				require.True(t, ok, "expected Histogram[float64] data type for %s", name)
+				return &hist
+			}
+		}
+	}
+	return nil
+}
+
+// histogramCount returns the count of observations in a histogram, or 0 if nil.
+func histogramCount(h *metricdata.Histogram[float64]) uint64 {
+	if h == nil || len(h.DataPoints) == 0 {
+		return 0
+	}
+	return h.DataPoints[0].Count
+}
+
 // setupMetrics is a test helper that initializes telemetry and creates a Metrics instance.
 func setupMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
 	t.Helper()
@@ -82,17 +110,17 @@ func TestMetrics_SingleAttemptSuccess(t *testing.T) {
 	m.IncBackupAttempts(ctx)
 	m.IncBackupSuccesses(ctx)
 
-	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
 	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
 	assert.Equal(t, int64(1), counterValue(attempts))
 
-	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
 	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
 	assert.Equal(t, int64(1), counterValue(successes))
 
 	// failures counter was never incremented, so it may not appear in collected metrics;
 	// counterValue returns 0 for nil, which is the expected value.
-	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
 	assert.Equal(t, int64(0), counterValue(failures))
 }
 
@@ -105,16 +133,16 @@ func TestMetrics_SingleAttemptFailure(t *testing.T) {
 	m.IncBackupAttempts(ctx)
 	m.IncBackupFailures(ctx)
 
-	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
 	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
 	assert.Equal(t, int64(1), counterValue(attempts))
 
 	// successes counter was never incremented, so it may not appear in collected metrics;
 	// counterValue returns 0 for nil, which is the expected value.
-	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
 	assert.Equal(t, int64(0), counterValue(successes))
 
-	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
 	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
 	assert.Equal(t, int64(1), counterValue(failures))
 }
@@ -136,6 +164,51 @@ func TestMetrics_NilSafe(t *testing.T) {
 	assert.NotPanics(t, func() { m.IncBackupAttempts(ctx) })
 	assert.NotPanics(t, func() { m.IncBackupSuccesses(ctx) })
 	assert.NotPanics(t, func() { m.IncBackupFailures(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreAttempts(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreSuccesses(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreFailures(ctx) })
+	assert.NotPanics(t, func() { m.RecordBackupDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupVerifyDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordRestoreDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupLockWait(ctx, 1.0) })
+}
+
+func TestMetrics_RestoreCounters_SingleSuccess(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncRestoreAttempts(ctx)
+	m.IncRestoreSuccesses(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
+	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
+	require.NotNil(t, successes, "pgbackrest.restore.successes counter not found")
+	assert.Equal(t, int64(1), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
+	assert.Equal(t, int64(0), counterValue(failures))
+}
+
+func TestMetrics_RestoreCounters_SingleFailure(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncRestoreAttempts(ctx)
+	m.IncRestoreFailures(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
+	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
+	assert.Equal(t, int64(0), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
+	require.NotNil(t, failures, "pgbackrest.restore.failures counter not found")
+	assert.Equal(t, int64(1), counterValue(failures))
 }
 
 // TestMetrics_Property_AttemptsEqualSuccessesPlusFailures generates 100 random
@@ -158,13 +231,13 @@ func TestMetrics_Property_AttemptsEqualSuccessesPlusFailures(t *testing.T) {
 		}
 	}
 
-	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
 	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
 
-	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
 	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
 
-	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
 	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
 
 	assert.Equal(t, int64(100), counterValue(attempts), "should have 100 total attempts")
@@ -172,4 +245,49 @@ func TestMetrics_Property_AttemptsEqualSuccessesPlusFailures(t *testing.T) {
 	assert.Equal(t, expectedFailures, counterValue(failures), "failures should match expected")
 	assert.Equal(t, counterValue(attempts), counterValue(successes)+counterValue(failures),
 		"attempts should equal successes + failures")
+}
+
+func TestMetrics_BackupDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupDuration(ctx, 1.5)
+	m.RecordBackupDuration(ctx, 2.5)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.duration")
+	require.NotNil(t, hist, "pgbackrest.backup.duration histogram not found")
+	assert.Equal(t, uint64(2), histogramCount(hist))
+}
+
+func TestMetrics_BackupVerifyDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupVerifyDuration(ctx, 0.5)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.verify.duration")
+	require.NotNil(t, hist, "pgbackrest.backup.verify.duration histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+func TestMetrics_RestoreDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordRestoreDuration(ctx, 3.0)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.restore.duration")
+	require.NotNil(t, hist, "pgbackrest.restore.duration histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+func TestMetrics_BackupLockWait(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupLockWait(ctx, 0.1)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.lock_wait")
+	require.NotNil(t, hist, "pgbackrest.backup.lock_wait histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
 }
