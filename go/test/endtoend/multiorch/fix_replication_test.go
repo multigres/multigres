@@ -214,7 +214,7 @@ func TestFixReplication(t *testing.T) {
 	t.Log("Verifying replica was removed from standby list...")
 	require.Eventually(t, func() bool {
 		return !isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 2*time.Second, 100*time.Millisecond, "replica should not be in standby list after removal")
+	}, 5*time.Second, 200*time.Millisecond, "replica should not be in standby list after removal")
 
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")

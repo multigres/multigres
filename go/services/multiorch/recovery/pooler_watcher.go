@@ -397,10 +397,18 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 
 	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
-	if existing, ok := cw.store.Get(poolerID); ok {
-		// Update the MultiPooler metadata but preserve all health-check timestamps.
-		existing.MultiPooler = pooler
-		cw.store.Set(poolerID, existing)
+	// Use DoUpdate to atomically update only the topology metadata, preserving all
+	// health-check fields (timestamps, IsUpToDate, IsLastCheckValid, etc.) that may
+	// be written concurrently by the health check worker. A closure variable tracks
+	// whether the key existed so we know whether to treat this as a new pooler.
+	existing := false
+	cw.store.DoUpdate(poolerID, func(state *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		existing = true
+		state.MultiPooler = pooler
+		return state
+	})
+
+	if existing {
 		cw.logger.Debug("pooler metadata updated from topology", "pooler_id", poolerID)
 	} else {
 		// New pooler — add to store and queue for immediate health check.
