@@ -421,11 +421,11 @@ func TestEncodeStringArray(t *testing.T) {
 	})
 
 	t.Run("single plain element", func(t *testing.T) {
-		assert.Equal(t, "{foo}", encodeStringArray([]string{"foo"}))
+		assert.Equal(t, `{"foo"}`, encodeStringArray([]string{"foo"}))
 	})
 
 	t.Run("multiple plain elements", func(t *testing.T) {
-		assert.Equal(t, "{foo,bar,baz}", encodeStringArray([]string{"foo", "bar", "baz"}))
+		assert.Equal(t, `{"foo","bar","baz"}`, encodeStringArray([]string{"foo", "bar", "baz"}))
 	})
 
 	t.Run("element with space is quoted", func(t *testing.T) {
@@ -447,6 +447,14 @@ func TestEncodeStringArray(t *testing.T) {
 	t.Run("pooler ID format round-trips through ParseTextArray", func(t *testing.T) {
 		elems := []string{"zone1_pooler-1", "zone1_pooler-2", "zone1_pooler-3"}
 		encoded := encodeStringArray(elems)
-		assert.Equal(t, "{zone1_pooler-1,zone1_pooler-2,zone1_pooler-3}", encoded)
+		assert.Equal(t, `{"zone1_pooler-1","zone1_pooler-2","zone1_pooler-3"}`, encoded)
+	})
+
+	t.Run("unicode elements are encoded correctly", func(t *testing.T) {
+		assert.Equal(t, `{"ᚼᛅᛁᛚ","ᚼᛅᛁᛗᚱ"}`, encodeStringArray([]string{"ᚼᛅᛁᛚ", "ᚼᛅᛁᛗᚱ"}))
+	})
+
+	t.Run("null string is quoted to avoid SQL NULL interpretation", func(t *testing.T) {
+		assert.Equal(t, `{"NULL"}`, encodeStringArray([]string{"NULL"}))
 	})
 }

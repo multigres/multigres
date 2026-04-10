@@ -22,6 +22,8 @@ import (
 )
 
 func TestParseTextArray(t *testing.T) {
+	// ── Happy path ───────────────────────────────────────────────────────────
+
 	t.Run("empty array", func(t *testing.T) {
 		result, err := ParseTextArray("{}")
 		require.NoError(t, err)
@@ -52,13 +54,13 @@ func TestParseTextArray(t *testing.T) {
 		assert.Equal(t, []string{"foo,bar", "baz"}, result)
 	})
 
-	t.Run("quoted element with backslash escape", func(t *testing.T) {
+	t.Run("quoted element with escaped double quote", func(t *testing.T) {
 		result, err := ParseTextArray(`{"foo\"bar"}`)
 		require.NoError(t, err)
 		assert.Equal(t, []string{`foo"bar`}, result)
 	})
 
-	t.Run("quoted element with backslash", func(t *testing.T) {
+	t.Run("quoted element with escaped backslash", func(t *testing.T) {
 		result, err := ParseTextArray(`{"foo\\bar"}`)
 		require.NoError(t, err)
 		assert.Equal(t, []string{`foo\bar`}, result)
@@ -69,6 +71,72 @@ func TestParseTextArray(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"zone1_pooler-1", "zone1_pooler-2", "zone1_pooler-3"}, result)
 	})
+
+	// ── Whitespace handling (PostgreSQL spec: trim around unquoted elements) ─
+
+	t.Run("whitespace around elements is trimmed", func(t *testing.T) {
+		result, err := ParseTextArray("{ foo , bar }")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"foo", "bar"}, result)
+	})
+
+	t.Run("internal whitespace in unquoted element is preserved", func(t *testing.T) {
+		// PostgreSQL preserves whitespace surrounded by non-whitespace chars.
+		result, err := ParseTextArray("{0 second  ,0 second}")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"0 second", "0 second"}, result)
+	})
+
+	t.Run("whitespace inside quoted element is preserved", func(t *testing.T) {
+		result, err := ParseTextArray(`{"  0 second  ","0 second"}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"  0 second  ", "0 second"}, result)
+	})
+
+	// ── Backslash escaping outside of quotes ─────────────────────────────────
+
+	t.Run("backslash escapes special char in unquoted element", func(t *testing.T) {
+		result, err := ParseTextArray(`{ab\c}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"abc"}, result)
+	})
+
+	t.Run("backslash-escaped null is not treated as SQL NULL", func(t *testing.T) {
+		// \null has a backslash escape so it is the string "null", not SQL NULL.
+		result, err := ParseTextArray(`{n\ull}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"null"}, result)
+	})
+
+	// ── NULL handling ─────────────────────────────────────────────────────────
+
+	t.Run("unquoted NULL element returns error", func(t *testing.T) {
+		_, err := ParseTextArray(`{NULL}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "NULL element")
+	})
+
+	t.Run("unquoted null is case-insensitive", func(t *testing.T) {
+		_, err := ParseTextArray(`{foo,null,bar}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "NULL element")
+	})
+
+	t.Run("quoted NULL string is valid", func(t *testing.T) {
+		result, err := ParseTextArray(`{"NULL"}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"NULL"}, result)
+	})
+
+	// ── Unicode ───────────────────────────────────────────────────────────────
+
+	t.Run("unicode elements", func(t *testing.T) {
+		result, err := ParseTextArray(`{"ᚼᛅᛁᛚ","ᚼᛅᛁᛗᚱ"}`)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"ᚼᛅᛁᛚ", "ᚼᛅᛁᛗᚱ"}, result)
+	})
+
+	// ── Structural errors ─────────────────────────────────────────────────────
 
 	t.Run("not an array literal - missing braces", func(t *testing.T) {
 		_, err := ParseTextArray("foo,bar")
@@ -86,5 +154,61 @@ func TestParseTextArray(t *testing.T) {
 		_, err := ParseTextArray("{")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not a PostgreSQL array literal")
+	})
+
+	t.Run("missing closing brace", func(t *testing.T) {
+		_, err := ParseTextArray(`{"foo","bar"`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a PostgreSQL array literal")
+	})
+
+	t.Run("trailing backslash in quoted element", func(t *testing.T) {
+		// {"foo\} has valid outer braces but a backslash at end of inner content.
+		_, err := ParseTextArray(`{"foo\}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unterminated escape sequence")
+	})
+
+	t.Run("unterminated quoted element", func(t *testing.T) {
+		// {"foo} has valid outer braces but the closing quote is missing.
+		_, err := ParseTextArray(`{"foo}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unterminated quoted element")
+	})
+
+	t.Run("junk after quoted element", func(t *testing.T) {
+		_, err := ParseTextArray(`{"a"b}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "incorrectly quoted")
+	})
+
+	t.Run("quote in middle of unquoted element", func(t *testing.T) {
+		_, err := ParseTextArray(`{a"b"}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "incorrectly quoted")
+	})
+
+	t.Run("consecutive delimiters", func(t *testing.T) {
+		_, err := ParseTextArray(`{1,,3}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected empty element")
+	})
+
+	t.Run("trailing delimiter", func(t *testing.T) {
+		_, err := ParseTextArray(`{1,}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "trailing delimiter")
+	})
+
+	t.Run("stray closing brace inside element", func(t *testing.T) {
+		_, err := ParseTextArray(`{foo}bar}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected '}'")
+	})
+
+	t.Run("multi-dimensional array", func(t *testing.T) {
+		_, err := ParseTextArray(`{{a,b},{c,d}}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multi-dimensional")
 	})
 }

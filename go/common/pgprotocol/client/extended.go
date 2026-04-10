@@ -369,9 +369,9 @@ func argToParam(arg any) ([]byte, error) {
 	}
 }
 
-// encodeStringArray encodes a []string as a PostgreSQL text-format array literal (e.g. {foo,bar}).
-// Elements that require quoting (containing braces, commas, backslashes, double-quotes, or whitespace)
-// are enclosed in double-quotes with internal double-quotes and backslashes escaped.
+// encodeStringArray encodes a []string as a PostgreSQL text-format array literal (e.g. {"foo","bar"}).
+// All elements are double-quoted with internal double-quotes and backslashes escaped.
+// Always quoting avoids edge cases (empty strings, NULL, whitespace, unicode) without loss of correctness.
 func encodeStringArray(elems []string) string {
 	if len(elems) == 0 {
 		return "{}"
@@ -382,33 +382,17 @@ func encodeStringArray(elems []string) string {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		if needsQuoting(e) {
-			b.WriteByte('"')
-			for _, c := range e {
-				if c == '"' || c == '\\' {
-					b.WriteByte('\\')
-				}
-				b.WriteRune(c)
+		b.WriteByte('"')
+		for _, c := range e {
+			if c == '"' || c == '\\' {
+				b.WriteByte('\\')
 			}
-			b.WriteByte('"')
-		} else {
-			b.WriteString(e)
+			b.WriteRune(c)
 		}
+		b.WriteByte('"')
 	}
 	b.WriteByte('}')
 	return b.String()
-}
-
-func needsQuoting(s string) bool {
-	if s == "" {
-		return true
-	}
-	for _, c := range s {
-		if c == '{' || c == '}' || c == ',' || c == '"' || c == '\\' || c == ' ' || c == '\t' || c == '\n' {
-			return true
-		}
-	}
-	return false
 }
 
 // processExecuteResponses processes responses to an Execute command.
