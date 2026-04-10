@@ -176,6 +176,12 @@ func TestParseTextArray(t *testing.T) {
 		assert.Contains(t, err.Error(), "unterminated escape sequence")
 	})
 
+	t.Run("trailing backslash in unquoted element", func(t *testing.T) {
+		_, err := ParseTextArray(`{foo\}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unterminated escape sequence")
+	})
+
 	t.Run("unterminated quoted element", func(t *testing.T) {
 		// {"foo} has valid outer braces but the closing quote is missing.
 		_, err := ParseTextArray(`{"foo}`)
