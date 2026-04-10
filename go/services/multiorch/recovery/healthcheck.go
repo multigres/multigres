@@ -164,6 +164,8 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			existing.LastCheckAttempted = now
 			existing.IsUpToDate = true // We tried, don't retry immediately
 			existing.IsLastCheckValid = false
+			existing.IsPostgresReady = false   // Assume Postgres is down if we can't reach the pooler
+			existing.IsPostgresRunning = false // Unknown — assume false when pooler is unreachable
 			return existing
 		})
 		return
@@ -184,6 +186,12 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		existing.LastSeen = successTime
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
+		existing.IsPostgresReady = status.PostgresReady
+		if status.PostgresReady {
+			existing.LastPostgresReadyTime = successTime
+		}
+		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
+		// left at its previous value so callers can reason about "last known good" time.
 
 		// Status RPC now includes initialization fields and works without db connection
 		existing.IsPostgresRunning = status.PostgresRunning
@@ -204,6 +212,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		"reported_type", status.PoolerType,
 		"is_initialized", status.IsInitialized,
 		"postgres_running", status.PostgresRunning,
+		"postgres_ready", status.PostgresReady,
 		"latency", time.Since(totalStart),
 	)
 }
@@ -246,6 +255,7 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 		"pooler_type", resp.Status.PoolerType,
 		"is_initialized", resp.Status.IsInitialized,
 		"postgres_running", resp.Status.PostgresRunning,
+		"postgres_ready", resp.Status.PostgresReady,
 		"has_primary_status", resp.Status.PrimaryStatus != nil,
 		"has_replication_status", resp.Status.ReplicationStatus != nil,
 	)
@@ -327,48 +337,32 @@ func (re *Engine) queuePoolersHealthCheck() {
 	pollInterval := re.config.GetPoolerHealthCheckInterval()
 	cutoff := time.Now().Add(-pollInterval)
 
-	pushedCount := 0
-
-	// Collect poolers to queue and poolers that need IsUpToDate reset
+	// DoUpdateRange holds the store lock for the entire iteration, resetting
+	// IsUpToDate atomically for poolers that need re-checking.
+	// Without this reset, pollPooler skips if IsUpToDate && IsLastCheckValid are both true.
+	// Queue pushes are collected and done after the lock is released.
 	var poolersToQueue []string
-	var poolersToReset []struct {
-		id   string
-		info *multiorchdatapb.PoolerHealthState
-	}
-
-	// Iterate over poolers using Range() - do NOT call Set inside Range (deadlock!)
-	re.poolerStore.Range(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
-		// Skip if recently attempted (either never attempted or older than interval)
+	re.poolerStore.DoUpdateRange(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool) {
 		lastCheckAttempted := time.Time{}
 		if poolerInfo.LastCheckAttempted != nil {
 			lastCheckAttempted = poolerInfo.LastCheckAttempted.AsTime()
 		}
+
 		if !lastCheckAttempted.IsZero() && lastCheckAttempted.After(cutoff) {
-			return true // continue iteration
+			return nil, true // recently checked, skip and continue
 		}
 
-		// Collect pooler for queueing
 		poolersToQueue = append(poolersToQueue, poolerID)
 
-		// If IsUpToDate is true, collect for reset (will be done after Range completes)
-		// Without this reset, pollPooler skips if IsUpToDate && IsLastCheckValid are both true.
 		if poolerInfo.IsUpToDate {
 			poolerInfo.IsUpToDate = false
-			poolersToReset = append(poolersToReset, struct {
-				id   string
-				info *multiorchdatapb.PoolerHealthState
-			}{poolerID, poolerInfo})
+			return poolerInfo, true // write reset back atomically and continue
 		}
-
-		return true // continue iteration
+		return nil, true // already false, no write needed, continue
 	})
 
-	// Now safe to call Set (Range lock is released)
-	for _, p := range poolersToReset {
-		re.poolerStore.Set(p.id, p.info)
-	}
-
-	// Push collected poolers to queue
+	// Push collected poolers to queue (outside the store lock)
+	pushedCount := 0
 	for _, poolerID := range poolersToQueue {
 		re.healthCheckQueue.Push(poolerID)
 		pushedCount++

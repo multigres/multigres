@@ -216,7 +216,11 @@ message Status {
   // Whether data directory exists
   bool has_data_directory = 5;
 
-  // Whether PostgreSQL is currently running
+  // Whether the PostgreSQL process exists (regardless of whether it accepts connections).
+  // True if the postgres process is running (e.g. SIGSTOP'd postgres: process exists but
+  // pg_isready fails). False if the process is dead (e.g. after SIGKILL).
+  // Use this to distinguish a temporarily-unresponsive postgres (SIGSTOP) from a dead
+  // postgres (SIGKILL) when postgres_ready is false.
   bool postgres_running = 6;
 
   // Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
@@ -239,6 +243,12 @@ message Status {
   // How long the current action has been running.
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
+
+  // Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
+  // This is the combined check: process must exist AND respond to pg_isready.
+  // Use postgres_running to check only if the process exists.
+  bool postgres_ready = 13;
+
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
