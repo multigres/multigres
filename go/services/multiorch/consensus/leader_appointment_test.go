@@ -1256,13 +1256,13 @@ func TestAppointLeader(t *testing.T) {
 
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
-		mp1.IsPostgresRunning = true
+		mp1.IsPostgresReady = true
 
 		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
-		mp2.IsPostgresRunning = true
+		mp2.IsPostgresReady = true
 
 		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby")
-		mp3.IsPostgresRunning = true
+		mp3.IsPostgresReady = true
 
 		// mp3 rejects the term during BeginTerm
 		mp3Key := topoclient.MultiPoolerIDString(mp3.MultiPooler.Id)
