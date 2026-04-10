@@ -1756,6 +1756,11 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.waitForPromotionComplete(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: promotion did not complete, will retry", "error", err)
+			return
+		}
+		pm.logger.InfoContext(ctx, "MonitorPostgres: promotion complete, updating pooler type to primary")
+		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to primary after promotion", "error", err)
 		}
 	}
 }

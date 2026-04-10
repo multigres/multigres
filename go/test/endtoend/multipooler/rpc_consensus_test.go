@@ -393,7 +393,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup, WithoutReplication(), WithEnabledMonitor())
 
 	t.Log("Manager primary-multipooler is ready")
 	t.Log("Manager standby-multipooler is ready")
