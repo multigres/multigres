@@ -1677,6 +1677,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running and primary")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to primary")
+		pm.clearResignedPrimaryAtTerm()
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to primary", "error", err)
 		}
@@ -1685,6 +1686,19 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
+		// Signal voluntary resignation so the coordinator can trigger an immediate
+		// election. Use the primary_term (the term at which we were elected) since
+		// the coordinator uses this to decide whether the signal is still active.
+		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
+		// consensus term from there for a more precise resignation signal.
+		pm.mu.Lock()
+		cs := pm.consensusState
+		pm.mu.Unlock()
+		if cs != nil {
+			if term, err := cs.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
+				pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
+			}
+		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
 		}

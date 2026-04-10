@@ -725,6 +725,97 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 // Note: Type adjustment action execution (AdjustTypeToPrimary, AdjustTypeToReplica) is tested in
 // integration tests because it requires topoClient and full infrastructure.
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
+// The resignation signal behavior is tested below without full infrastructure.
+
+func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler) *MultiPoolerManager {
+	t.Helper()
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	return &MultiPoolerManager{
+		logger:       slog.Default(),
+		actionLock:   NewActionLock(),
+		multipooler:  multipooler,
+		serviceID:    multipooler.Id,
+		topoClient:   ts,
+		servingState: NewStateManager(slog.Default(), multipooler),
+	}
+}
+
+func TestTakeRemedialAction_AdjustTypeToReplica_SetsResignation(t *testing.T) {
+	ctx := t.Context()
+
+	cs := NewConsensusState("", nil)
+	cs.mu.Lock()
+	cs.term = &multipoolermanagerdatapb.ConsensusTerm{
+		TermNumber:  1,
+		PrimaryTerm: 5,
+	}
+	cs.mu.Unlock()
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	pm := newRemedialActionTestManager(t, multipooler)
+	pm.consensusState = cs
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionAdjustTypeToReplica)
+
+	// Resignation signal must be set to the primary_term from consensus state
+	av := pm.buildAvailabilityStatus()
+	require.NotNil(t, av, "availability status should be set after type adjustment to replica")
+	assert.Equal(t, int64(5), av.ResignedPrimaryAtTerm)
+}
+
+func TestTakeRemedialAction_AdjustTypeToReplica_NoResignationWhenNoPrimaryTerm(t *testing.T) {
+	ctx := t.Context()
+
+	// No primary_term in consensus state (e.g. never was primary)
+	cs := NewConsensusState("", nil)
+	cs.mu.Lock()
+	cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1, PrimaryTerm: 0}
+	cs.mu.Unlock()
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	pm := newRemedialActionTestManager(t, multipooler)
+	pm.consensusState = cs
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionAdjustTypeToReplica)
+
+	assert.Nil(t, pm.buildAvailabilityStatus(), "no resignation when node was never primary")
+}
+
+func TestTakeRemedialAction_AdjustTypeToPrimary_ClearsResignation(t *testing.T) {
+	ctx := t.Context()
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		Type: clustermetadatapb.PoolerType_REPLICA,
+	}
+	pm := newRemedialActionTestManager(t, multipooler)
+	pm.setResignedPrimaryAtTerm(7)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionAdjustTypeToPrimary)
+
+	assert.Nil(t, pm.buildAvailabilityStatus(), "resignation signal must be cleared when transitioning back to primary")
+}
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := t.Context()

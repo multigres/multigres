@@ -33,7 +33,6 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestConsensus_Status(t *testing.T) {
@@ -341,16 +340,12 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		assert.Equal(t, expectedTerm, resp.Term, "Response term should be updated to new term")
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
-		// Verify PostgreSQL is stopped (emergency demotion stops postgres)
-		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
-		require.NoError(t, err)
-		defer pgctldClient.Close()
-
+		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
 		require.Eventually(t, func() bool {
-			statusResp, err := pgctldClient.Status(context.Background(), &pgctldpb.StatusRequest{})
-			return err == nil && statusResp.Status == pgctldpb.ServerStatus_STOPPED
-		}, 10*time.Second, 1*time.Second, "PostgreSQL should be stopped after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
-		t.Log("Confirmed: PostgreSQL stopped after emergency demotion")
+			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
+			return err == nil && statusResp.Role == "replica"
+		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
+		t.Log("Confirmed: PostgreSQL running as standby after emergency demotion")
 
 		t.Logf("BeginTerm correctly granted for new term %d", expectedTerm)
 	})
@@ -697,16 +692,12 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		t.Logf("BeginTerm response: accepted=%v, term=%d, current_lsn=%s",
 			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.WalPosition.CurrentLsn)
 
-		// Verify PostgreSQL is stopped (emergency demotion stops postgres, doesn't restart as standby)
-		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
-		require.NoError(t, err)
-		defer pgctldClient.Close()
-
+		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
 		require.Eventually(t, func() bool {
-			statusResp, err := pgctldClient.Status(context.Background(), &pgctldpb.StatusRequest{})
-			return err == nil && statusResp.Status == pgctldpb.ServerStatus_STOPPED
-		}, 10*time.Second, 1*time.Second, "PostgreSQL should be stopped after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
-		t.Log("SUCCESS: PostgreSQL is stopped after emergency demotion")
+			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
+			return err == nil && statusResp.Role == "replica"
+		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
+		t.Log("SUCCESS: PostgreSQL is running as standby after emergency demotion")
 
 		// === RESTORE STATE ===
 		// We need to restore the primary back to its original state for other tests
