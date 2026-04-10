@@ -865,11 +865,6 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
-	// TODO: This is not a long-term solution. The disableMonitor() approach will likely be
-	// replaced with proper state management in follow-up work to PR #550.
-	pm.disableMonitorInternal()
-
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -972,12 +967,14 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	// Emergency demotion: stop PostgreSQL without restart
-	// In this emergency path, the SHUTDOWN_CHECKPOINT from this demoted primary may not
-	// propagate to other nodes (they could have already been recruited by multiorch to form
-	// a new cohort). This will result in timeline divergence. The expected flow is that this
-	// node will need to be rewired with pg_rewind before it can rejoin the cluster.
-	if err := pm.stopPostgresForEmergencyDemote(ctx, state); err != nil {
+	// Signal voluntary resignation so the coordinator can trigger an immediate
+	// election without waiting for a heartbeat timeout.
+	pm.setResignedPrimaryAtTerm(consensusTerm)
+
+	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
+	// the node in the cluster as a replication target, avoiding timeline divergence
+	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
 		return nil, err
 	}
 

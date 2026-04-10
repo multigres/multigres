@@ -423,6 +423,22 @@ message HighestCoordinatorPromise {
   google.protobuf.Timestamp last_acceptance_time = 3;
 }
 
+// AvailabilityStatus carries best-effort operational fitness signals for a node.
+// Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
+// on-disk state), AvailabilityStatus is in-memory and may be absent after a
+// process restart. Coordinators must treat absence as "unknown," not "unfit."
+//
+// These signals answer "how suitable is this node for each role right now?" and
+// are used by the coordinator for promotion preference and failover decisions.
+message AvailabilityStatus {
+  // resigned_primary_at_term is set when the primary voluntarily resigns
+  // (e.g. via EmergencyDemote). The value is the consensus term at which the
+  // primary resigned. A non-zero value signals the coordinator to trigger an
+  // immediate election rather than waiting for a heartbeat timeout.
+  // Cleared when this node is elected as primary again.
+  int64 resigned_primary_at_term = 1;
+}
+
 // ConsensusStatus is a node's complete view of its position in the distributed
 // system: its promise, what it has committed, and what it knows is coming.
 message ConsensusStatus {

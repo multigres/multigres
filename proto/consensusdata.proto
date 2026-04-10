@@ -145,6 +145,11 @@ message StatusResponse {
   // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
   // 0 if never primary. For current primaries, must be non-zero.
   int64 primary_term = 11;
+
+  // Best-effort operational fitness signals for this node. These signals are
+  // in-memory and may be absent after a process restart. Coordinators treat
+  // absence as "unknown," not "unfit."
+  clustermetadata.AvailabilityStatus availability_status = 13;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table

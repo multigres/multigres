@@ -438,9 +438,13 @@ type StatusResponse struct {
 	// Preserved when consensus term increases (new elections).
 	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
 	// 0 if never primary. For current primaries, must be non-zero.
-	PrimaryTerm   int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PrimaryTerm int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	// Best-effort operational fitness signals for this node. These signals are
+	// in-memory and may be absent after a process restart. Coordinators treat
+	// absence as "unknown," not "unfit."
+	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,13,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -534,6 +538,13 @@ func (x *StatusResponse) GetPrimaryTerm() int64 {
 		return x.PrimaryTerm
 	}
 	return 0
+}
+
+func (x *StatusResponse) GetAvailabilityStatus() *clustermetadata.AvailabilityStatus {
+	if x != nil {
+		return x.AvailabilityStatus
+	}
+	return nil
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -828,7 +839,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xdc\x02\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xb2\x03\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -841,7 +852,8 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04role\x18\t \x01(\tR\x04role\x12@\n" +
 	"\rtimeline_info\x18\n" +
 	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
-	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\"2\n" +
+	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12T\n" +
+	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
@@ -877,19 +889,20 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_consensusdata_proto_goTypes = []any{
-	(BeginTermAction)(0),            // 0: consensusdata.BeginTermAction
-	(*WALPosition)(nil),             // 1: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),        // 2: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),       // 3: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),           // 4: consensusdata.StatusRequest
-	(*StatusResponse)(nil),          // 5: consensusdata.StatusResponse
-	(*LeadershipViewRequest)(nil),   // 6: consensusdata.LeadershipViewRequest
-	(*LeadershipViewResponse)(nil),  // 7: consensusdata.LeadershipViewResponse
-	(*CanReachPrimaryRequest)(nil),  // 8: consensusdata.CanReachPrimaryRequest
-	(*CanReachPrimaryResponse)(nil), // 9: consensusdata.CanReachPrimaryResponse
-	(*TimelineInfo)(nil),            // 10: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),      // 12: clustermetadata.ID
+	(BeginTermAction)(0),                       // 0: consensusdata.BeginTermAction
+	(*WALPosition)(nil),                        // 1: consensusdata.WALPosition
+	(*BeginTermRequest)(nil),                   // 2: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),                  // 3: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),                      // 4: consensusdata.StatusRequest
+	(*StatusResponse)(nil),                     // 5: consensusdata.StatusResponse
+	(*LeadershipViewRequest)(nil),              // 6: consensusdata.LeadershipViewRequest
+	(*LeadershipViewResponse)(nil),             // 7: consensusdata.LeadershipViewResponse
+	(*CanReachPrimaryRequest)(nil),             // 8: consensusdata.CanReachPrimaryRequest
+	(*CanReachPrimaryResponse)(nil),            // 9: consensusdata.CanReachPrimaryResponse
+	(*TimelineInfo)(nil),                       // 10: consensusdata.TimelineInfo
+	(*timestamppb.Timestamp)(nil),              // 11: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                 // 12: clustermetadata.ID
+	(*clustermetadata.AvailabilityStatus)(nil), // 13: clustermetadata.AvailabilityStatus
 }
 var file_consensusdata_proto_depIdxs = []int32{
 	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
@@ -898,12 +911,13 @@ var file_consensusdata_proto_depIdxs = []int32{
 	1,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
 	1,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
 	10, // 5: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	11, // 6: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	7,  // [7:7] is the sub-list for method output_type
-	7,  // [7:7] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	13, // 6: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	11, // 7: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }

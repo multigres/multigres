@@ -1349,3 +1349,25 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		})
 	}
 }
+
+func TestAvailabilityStatus(t *testing.T) {
+	t.Run("buildAvailabilityStatus returns nil when no resignation is set", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		assert.Nil(t, pm.buildAvailabilityStatus())
+	})
+
+	t.Run("setResignedPrimaryAtTerm makes buildAvailabilityStatus return the term", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.setResignedPrimaryAtTerm(7)
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		assert.Equal(t, int64(7), av.ResignedPrimaryAtTerm)
+	})
+
+	t.Run("clearResignedPrimaryAtTerm removes the signal", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.setResignedPrimaryAtTerm(3)
+		pm.clearResignedPrimaryAtTerm()
+		assert.Nil(t, pm.buildAvailabilityStatus())
+	})
+}

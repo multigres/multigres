@@ -133,6 +133,12 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
+	// resignedPrimaryAtTerm is set when this node voluntarily resigns as primary
+	// (via EmergencyDemote). The value is the consensus term at which the primary
+	// resigned. A non-zero value signals the coordinator to trigger an immediate
+	// election. Protected by mu. Cleared when this node is elected primary again.
+	resignedPrimaryAtTerm int64
+
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
@@ -1067,30 +1073,6 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
-	return nil
-}
-
-// stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
-// This is used when a primary needs to step down immediately during consensus term changes.
-// The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
-func (pm *MultiPoolerManager) stopPostgresForEmergencyDemote(ctx context.Context, state *demotionState) error {
-	if state.isReadOnly {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "unexpected state: PostgreSQL already in standby mode during emergency demotion")
-	}
-
-	if pm.pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
-	}
-
-	stopReq := &pgctldpb.StopRequest{
-		Mode: "fast",
-	}
-	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-		return mterrors.Wrap(err, "failed to stop PostgreSQL during emergency demotion")
-	}
-
-	pm.logger.InfoContext(ctx, "PostgreSQL stopped for emergency demotion")
-
 	return nil
 }
 
