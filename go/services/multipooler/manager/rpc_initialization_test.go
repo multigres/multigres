@@ -507,11 +507,34 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToPrimary,
 		},
 		{
+			name: "postgres_running_standby_with_primary_term_promotes",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+				hasPrimaryTerm:  true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionPromoteToPrimary,
+		},
+		{
+			name: "postgres_running_standby_with_primary_term_promotes_regardless_of_topology",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+				hasPrimaryTerm:  true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionPromoteToPrimary,
+		},
+		{
 			name: "postgres_running_demote_to_replica",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
 				isPrimary:       false,
+				hasPrimaryTerm:  false,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionAdjustTypeToReplica,

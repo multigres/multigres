@@ -1112,7 +1112,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		Timeout:   nil, // Use default timeout
 		Port:      0,   // Use default port
 		ExtraArgs: nil,
-		AsStandby: true, // Create standby.signal before restart
 	}
 
 	resp, err := pm.pgctldClient.Restart(ctx, req)
@@ -1526,6 +1525,10 @@ type postgresState struct {
 	postgresRunning  bool
 	backupsAvailable bool
 	isPrimary        bool
+	// hasPrimaryTerm is true when the local consensus state records a non-zero primary term,
+	// meaning this node was promoted as primary and has not been explicitly demoted.
+	// A zero primary term indicates the node was gracefully demoted.
+	hasPrimaryTerm bool
 }
 
 // remedialAction represents actions the postgres monitor can take
@@ -1537,6 +1540,7 @@ const (
 	remedialActionRestoreFromBackup
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
+	remedialActionPromoteToPrimary
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1627,6 +1631,14 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		state.backupsAvailable = pm.hasCompleteBackups(ctx)
 	}
 
+	// Check if this node has an active primary term (non-zero primary term means it was
+	// promoted as primary and not explicitly demoted via SetPrimaryTerm(0)).
+	if pm.consensusState != nil {
+		if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil {
+			state.hasPrimaryTerm = term.GetPrimaryTerm() > 0
+		}
+	}
+
 	return state
 }
 
@@ -1652,8 +1664,18 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		if currentState.isPrimary && pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToPrimary
 		}
-		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
-			return remedialActionAdjustTypeToReplica
+		if !currentState.isPrimary {
+			// Postgres started as standby. If we have an active primary term (non-zero),
+			// we crashed before being explicitly demoted — promote back to primary.
+			// A zero primary term means we were demoted gracefully; adjust topology if needed.
+			// TODO: Consider publishing degraded health and requesting failover from multiorch instead,
+			// to guard against serving non-durable transactions under read-committed isolation.
+			if currentState.hasPrimaryTerm {
+				return remedialActionPromoteToPrimary
+			}
+			if pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+				return remedialActionAdjustTypeToReplica
+			}
 		}
 		return remedialActionNone // Pooler type already matches
 	}
@@ -1723,6 +1745,17 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+		}
+
+	case remedialActionPromoteToPrimary:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running as standby but primary term is set")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: promoting PostgreSQL to primary")
+		if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to promote PostgreSQL, will retry", "error", err)
+			return
+		}
+		if err := pm.waitForPromotionComplete(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: promotion did not complete, will retry", "error", err)
 		}
 	}
 }

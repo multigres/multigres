@@ -1436,12 +1436,11 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 
 	// Step 4: Start PostgreSQL as standby
-	// Use Restart with as_standby=true to create standby.signal and start postgres
-	// Note: postgres is already stopped, so the stop phase will be a no-op
+	// Use Restart to start postgres as standby (standby.signal is always written).
+	// Note: postgres is already stopped, so the stop phase will be a no-op.
 	pm.logger.InfoContext(ctx, "Starting PostgreSQL as standby after pg_rewind")
 	restartReq := &pgctldpb.RestartRequest{
-		Mode:      "fast",
-		AsStandby: true,
+		Mode: "fast",
 	}
 	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL as standby", "error", err)

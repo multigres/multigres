@@ -415,9 +415,7 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
 		"backup_id", backupID)
 
-	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		AsStandby: true,
-	})
+	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{})
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))

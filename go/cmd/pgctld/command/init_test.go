@@ -52,3 +52,34 @@ func TestInitDataDirWithResult_AlreadyInitialized(t *testing.T) {
 	assert.True(t, result.AlreadyInitialized)
 	assert.Contains(t, result.Message, "already initialized")
 }
+
+// TestInitDataDirWithResult_InitdbFailure verifies that InitDataDirWithResult returns
+// an error (and does not proceed to setupDatabase) when initdb fails.
+func TestInitDataDirWithResult_InitdbFailure(t *testing.T) {
+	poolerDir := t.TempDir()
+
+	// Point PGDATA at an uninitialized directory so we attempt initdb.
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	// Mock initdb that always fails.
+	binDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(binDir, "initdb"),
+		[]byte("#!/bin/bash\necho 'initdb: fatal error' >&2\nexit 1\n"),
+		0o755,
+	))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := PgCtldServiceConfig{
+		Port:     5432,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+	}
+
+	_, err := InitDataDirWithResult(logger, poolerDir, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize data directory")
+}

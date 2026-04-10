@@ -104,16 +104,16 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	resp, err := StartAsStandbyWithResult(cmd.Context(), s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}
 
 	// Display appropriate message for CLI users
-	if result.AlreadyRunning {
-		fmt.Printf("PostgreSQL is already running (PID: %d)\n", result.PID)
+	if resp.GetResult() == pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING {
+		fmt.Printf("PostgreSQL is already running (PID: %d)\n", resp.GetPid())
 	} else {
-		fmt.Printf("PostgreSQL server started successfully (PID: %d)\n", result.PID)
+		fmt.Printf("PostgreSQL server started successfully (PID: %d)\n", resp.GetPid())
 	}
 
 	return nil
@@ -180,12 +180,32 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 // automatically during startup (before accepting connections).
 func StartAsStandbyWithResult(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*pb.StartAsStandbyResponse, error) {
 	if isPostgreSQLRunning(config.PostgresDataDir) {
-		pid, _ := readPostmasterPID(config.PostgresDataDir)
+		// Postgres is already running — it was started with standby.signal so it is
+		// already in recovery mode. Return the current PID without restarting.
+		pid, err := readPostmasterPID(config.PostgresDataDir)
+		if err != nil {
+			logger.DebugContext(ctx, "Failed to read postmaster.pid for already-running postgres", "error", err)
+		}
 		pid32, _ := intToInt32(pid)
 		return &pb.StartAsStandbyResponse{
 			Result: pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING,
 			Pid:    pid32,
 		}, nil
+	}
+
+	// Ensure Unix socket directory exists before starting PostgreSQL.
+	// This is necessary after restores, where pgBackRest only restores pg_data
+	// but not external directories like pg_sockets.
+	if config.UnixSocketDirectories != "" {
+		if err := os.MkdirAll(config.UnixSocketDirectories, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create Unix socket directory %s: %w", config.UnixSocketDirectories, err)
+		}
+		logger.InfoContext(ctx, "Ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
+	}
+
+	// Enforce PGDATA permission invariant before pg_ctl start.
+	if err := ensurePGDATAPermissions(logger, config.PostgresDataDir); err != nil {
+		return nil, fmt.Errorf("PGDATA permission check failed: %w", err)
 	}
 
 	// Write standby.signal so postgres starts in recovery mode, never as primary.
@@ -196,6 +216,7 @@ func StartAsStandbyWithResult(ctx context.Context, logger *slog.Logger, config *
 		return nil, fmt.Errorf("failed to create standby.signal: %w", err)
 	}
 
+	logger.InfoContext(ctx, "Starting PostgreSQL server as standby", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL as standby: %w", err)
 	}
@@ -203,28 +224,16 @@ func StartAsStandbyWithResult(ctx context.Context, logger *slog.Logger, config *
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
-	pid, _ := readPostmasterPID(config.PostgresDataDir)
+	pid, err := readPostmasterPID(config.PostgresDataDir)
+	if err != nil {
+		logger.DebugContext(ctx, "Failed to read postmaster.pid after starting postgres", "error", err)
+	}
 	pid32, _ := intToInt32(pid)
 	logger.InfoContext(ctx, "PostgreSQL started successfully as standby", "pid", pid32)
 	return &pb.StartAsStandbyResponse{
 		Result: pb.StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED,
 		Pid:    pid32,
 	}, nil
-}
-
-// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
-func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config)
-	if err != nil {
-		return err
-	}
-
-	// For backward compatibility, log the message if provided
-	if result.Message != "" && !result.AlreadyRunning {
-		logger.Info(result.Message)
-	}
-
-	return nil
 }
 
 // ensurePGDATAPermissions ensures PGDATA is owned by the effective UID and set to 0700 before pg_ctl start.

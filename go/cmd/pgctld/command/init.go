@@ -86,8 +86,10 @@ Examples:
 }
 
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information.
-// When pgDatabase differs from the default "postgres" database, it starts PostgreSQL transiently
-// and creates the target database — mirroring docker-library/postgres's docker_setup_db behaviour.
+// After initdb it starts PostgreSQL transiently to update pg_control with GUC values from our
+// postgresql.conf, then stops it. This must happen before any StartAsStandby call because
+// PostgreSQL's recovery mode requires that configured GUC values (e.g. max_connections) are ≥
+// the values recorded in pg_control by initdb. Also creates cfg.Database if it does not already exist.
 func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServiceConfig) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir()
