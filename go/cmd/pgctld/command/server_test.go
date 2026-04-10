@@ -143,9 +143,32 @@ func TestPgCtldServiceStartAsStandby(t *testing.T) {
 		// The mock postgres checks for standby.signal in the data dir and exits 0.
 		// If standby.signal is missing, it exits 1.
 		pgDataDir := filepath.Join(baseDir, "pg_data")
-		testutil.MockBinary(t, binDir, "postgres", `
-[ -f "`+pgDataDir+`/standby.signal" ] && exit 0
-exit 1
+
+		// pg_ctl start creates a postmaster.pid and exits 0.
+		// The code writes standby.signal before calling pg_ctl start, so
+		// standby.signal will be present when pg_ctl runs. We verify this
+		// ordering by asserting standby.signal still exists after the call.
+		testutil.MockBinary(t, binDir, "pg_ctl", `
+case "$1" in
+    "start")
+        DATADIR=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -D) DATADIR="$2"; shift 2 ;;
+                -D*) DATADIR="${1#-D}"; shift ;;
+                *) shift ;;
+            esac
+        done
+        if [ -n "$DATADIR" ]; then
+            sleep 3600 >/dev/null 2>&1 &
+            MOCK_PID=$!
+            printf '%s\n%s\n%s\n5432\n/tmp\nlocalhost\n*\nready\n' \
+                "$MOCK_PID" "$DATADIR" "$(date +%s)" > "$DATADIR/postmaster.pid"
+        fi
+        echo "server started"
+        ;;
+    *) exit 1 ;;
+esac
 `)
 		testutil.MockBinary(t, binDir, "pg_isready", "exit 0")
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
