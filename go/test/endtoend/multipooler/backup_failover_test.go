@@ -117,14 +117,12 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	require.NotNil(t, standbyInst, "expected a standby instance")
 	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
-	// Disable postgres monitoring on all nodes so that multipooler does not
-	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
-	for name, inst := range setup.Multipoolers {
-		mc := createBackupClient(t, inst.Multipooler.GrpcPort)
-		_, err := mc.SetMonitor(t.Context(), &multipoolermanagerdata.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err, "failed to disable monitoring on %s", name)
-		t.Logf("Disabled postgres monitoring on %s", name)
-	}
+	// Rename postgresql.conf on the primary so the monitor cannot auto-restart postgres
+	// after the kill — multiorch must orchestrate recovery.
+	postgresqlConf := filepath.Join(primary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
+	postgresqlConfDisabled := postgresqlConf + ".disabled"
+	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
+	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
 
 	// Tag the backup so we can check its specific status after failure.
 	const testJobID = "failover-test-backup"

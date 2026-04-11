@@ -137,8 +137,8 @@ type MultiPoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
-	// rewindPending is set after emergency demotion to suppress the postgres monitor
-	// until a rewind completes successfully. Set by EmergencyDemote, cleared by RewindToSource.
+	// rewindPending suppresses the postgres monitor after emergency demotion until a
+	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
 	rewindPending atomic.Bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
@@ -1591,6 +1591,13 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
+
+	// Re-check rewindPending after acquiring the lock: EmergencyDemote sets this flag
+	// while holding the lock, so we may have been waiting while it demoted the node.
+	if pm.rewindPending.Load() {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
+		return
+	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
 	currentState = pm.discoverPostgresState(lockCtx)

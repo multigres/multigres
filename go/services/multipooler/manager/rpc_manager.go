@@ -866,10 +866,6 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Suppress the postgres monitor until a rewind completes; the monitor would
-	// otherwise restart postgres on this demoted node.
-	pm.rewindPending.Store(true)
-
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -982,6 +978,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	}
 
 	pm.healthStreamer.UpdatePrimaryObservation(nil)
+
+	// Suppress the postgres monitor until a rewind completes; the monitor would
+	// otherwise restart postgres on this demoted node.
+	pm.rewindPending.Store(true)
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,

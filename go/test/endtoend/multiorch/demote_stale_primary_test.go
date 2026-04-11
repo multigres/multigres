@@ -17,6 +17,7 @@ package multiorch
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -74,16 +75,14 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
-	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer oldPrimaryClient.Close()
-
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	}()
+	// Rename postgresql.conf aside so the postgres monitor cannot auto-restart postgres
+	// after the kill. Without its config file, postgres fails to start immediately.
+	// We restore it after the new primary is elected so DemoteStalePrimary can start
+	// postgres to run pg_rewind.
+	postgresqlConf := filepath.Join(oldPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
+	postgresqlConfDisabled := postgresqlConf + ".disabled"
+	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
+	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
 
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
@@ -94,6 +93,11 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
+
+	// Restore postgresql.conf so DemoteStalePrimary can start postgres for pg_rewind.
+	// By this point EmergencyDemote has been called (part of failover), setting rewindPending,
+	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
+	require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")
@@ -186,16 +190,14 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
-	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer oldPrimaryClient.Close()
-
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	}()
+	// Rename postgresql.conf aside so the postgres monitor cannot auto-restart postgres
+	// after shutdown. Without its config file, postgres fails to start immediately.
+	// We restore it after the new primary is elected so DemoteStalePrimary can start
+	// postgres to run pg_rewind.
+	postgresqlConf := filepath.Join(oldPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
+	postgresqlConfDisabled := postgresqlConf + ".disabled"
+	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
+	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
 
 	// Step 1: Gracefully shutdown postgres on primary to trigger failover
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
@@ -206,6 +208,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
+
+	// Restore postgresql.conf so DemoteStalePrimary can start postgres for pg_rewind.
+	// By this point EmergencyDemote has been called (part of failover), setting rewindPending,
+	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
+	require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")

@@ -23,6 +23,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -89,11 +90,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
 
-	// Disable monitoring so multiorch orchestrates recovery instead
-	// of each multipooler's local postgres monitor. This could create races for
-	// this test.
-	disableMonitoringOnAllNodes(t, setup)
-
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	gatewayDB, err := sql.Open("postgres", connStr)
@@ -128,6 +124,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, currentPrimary, "current primary should exist")
 		currentPrimaryName := currentPrimary.Name
 
+		// Rename postgresql.conf to prevent the monitor from auto-restarting postgres after
+		// the kill. Without its config file postgres fails to start immediately, keeping it
+		// dead until multiorch triggers failover.
+		postgresqlConf := filepath.Join(currentPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
+		postgresqlConfDisabled := postgresqlConf + ".disabled"
+		require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
+		t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
+
 		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
 		setup.KillPostgres(t, currentPrimaryName)
@@ -137,6 +141,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 15*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
+
+		// Restore postgresql.conf: by now EmergencyDemote has been called (part of failover),
+		// setting rewindPending, so the monitor will not restart postgres before DemoteStalePrimary runs.
+		require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
+
+		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
+		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
+		// before the next iteration begins — otherwise the grace period would carry over.
+		setup.RequireRecovery(t, "multiorch", 20*time.Second)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
 		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
@@ -156,11 +169,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
-
-		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
-		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
-		disableMonitoringOnAllNodes(t, setup)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
 
 		// No need to restart validator or switch connections - multigateway automatically routes to new primary
 		// We track failed writes just for debugging purposes, but during a failover it is expected
@@ -229,10 +238,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 	// Wait for emergency demoted primary to rejoin as standby
 	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
-
-	// Ensure monitoring is disabled on all multipoolers
-	t.Logf("Re-disabling monitoring on all multipoolers after failover 4...")
-	disableMonitoringOnAllNodes(t, setup)
 
 	successWrites, failedWrites := validator.Stats()
 	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
@@ -498,25 +503,6 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
 	require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
-}
-
-// disableMultipoolerMonitoring disables postgres monitoring on a single multipooler.
-func disableMultipoolerMonitoring(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
-	t.Helper()
-	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer client.Close()
-
-	_, err = client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-}
-
-// disableMonitoringOnAllNodes disables postgres monitoring on all multipoolers.
-func disableMonitoringOnAllNodes(t *testing.T, setup *shardsetup.ShardSetup) {
-	t.Helper()
-	for name, inst := range setup.Multipoolers {
-		disableMultipoolerMonitoring(t, name, inst)
-	}
 }
 
 // checkPrimary checks if a specific multipooler is the primary.
