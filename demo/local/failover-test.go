@@ -102,13 +102,15 @@ Examples:
 }
 
 var (
-	autoYes bool
-	debug   bool
+	autoYes  bool
+	debug    bool
+	maxCount int
 )
 
 func init() {
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false, "Automatically proceed with failovers without confirmation")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
+	rootCmd.Flags().IntVarP(&maxCount, "count", "n", 0, "Stop after N successful failover iterations (0 = run forever)")
 }
 
 func runFailoverTest(cmd *cobra.Command, args []string) error {
@@ -147,11 +149,6 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 	}
 	logSuccess("All prerequisites satisfied")
 	fmt.Fprintln(os.Stderr)
-
-	// Disable PostgreSQL monitoring on all poolers
-	if err := disablePostgresMonitoring(ctx, config); err != nil {
-		return fmt.Errorf("failed to disable postgres monitoring: %w", err)
-	}
 
 	// Start the failover loop
 	return failoverLoop(ctx, config)
@@ -262,51 +259,6 @@ func (c *adminClient) Close() error {
 	return c.conn.Close()
 }
 
-func disablePostgresMonitoring(ctx context.Context, config *Config) error {
-	logInfo("Disabling PostgreSQL monitoring on all poolers...")
-
-	client, err := newAdminClient(config.AdminServer)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	poolers, err := getPoolers(ctx, client)
-	if err != nil {
-		return err
-	}
-
-	if len(poolers) == 0 {
-		logWarn("No poolers found")
-		return nil
-	}
-
-	for _, pooler := range poolers {
-		cell := pooler.Id.Cell
-		serviceID := pooler.Id.Name
-		poolerName := fmt.Sprintf("multipooler-%s-%s", cell, serviceID)
-
-		logInfo(fmt.Sprintf("  Disabling monitoring on: %s (cell=%s, service_id=%s)", poolerName, cell, serviceID))
-
-		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := client.SetPostgresMonitor(reqCtx, &multiadminpb.SetPostgresMonitorRequest{
-			PoolerId: pooler.Id,
-			Enabled:  false,
-		})
-		cancel()
-
-		if err != nil {
-			logError(fmt.Sprintf("    ✗ Failed to disable monitoring on %s: %v", poolerName, err))
-			return err
-		}
-		logSuccess("    ✓ Disabled monitoring on " + poolerName)
-	}
-
-	logSuccess(fmt.Sprintf("Disabled monitoring on %d pooler(s)", len(poolers)))
-	fmt.Fprintln(os.Stderr)
-	return nil
-}
-
 func getPoolers(ctx context.Context, client *adminClient) ([]*clustermetadatapb.MultiPooler, error) {
 	resp, err := client.GetPoolers(ctx, &multiadminpb.GetPoolersRequest{})
 	if err != nil {
@@ -398,7 +350,9 @@ func stopPooler(poolerInfo *PoolerInfo, config *Config) error {
 	logInfo(fmt.Sprintf("Stopping pooler: %s/%s", poolerInfo.Cell, poolerInfo.ServiceID))
 
 	pgctldBin := filepath.Join(config.RepoRoot, "bin", "pgctld")
+	pgDataDir := filepath.Join(poolerInfo.PoolerDir, "pg_data")
 	cmd := exec.Command(pgctldBin, "stop", "--pooler-dir", poolerInfo.PoolerDir)
+	cmd.Env = append(os.Environ(), "PGDATA="+pgDataDir)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
@@ -788,17 +742,28 @@ func failoverLoop(ctx context.Context, config *Config) error {
 			logInfo("Auto-yes enabled, proceeding automatically...")
 		}
 
+		// Block the postgres monitor from auto-restarting postgres during failover.
+		inhibitPath := filepath.Join(primaryInfo.PoolerDir, "no-autostart")
+		if err := os.WriteFile(inhibitPath, []byte{}, 0o644); err != nil {
+			logError(fmt.Sprintf("Failed to create no-autostart marker: %v", err))
+			return err
+		}
+
 		// Stop the primary
 		if err := stopPooler(primaryInfo, config); err != nil {
+			_ = os.Remove(inhibitPath)
 			logError(fmt.Sprintf("Failed to stop pooler: %v", err))
 			return err
 		}
 
-		// Wait for new primary
+		// Wait for new primary — by this point emergencyDemoteLocked has set rewindPending.
 		if err := waitForNewPrimary(ctx, config, primaryInfo.ServiceID, 60); err != nil {
+			_ = os.Remove(inhibitPath)
 			logError("Failed to detect new primary. Manual intervention required.")
 			return err
 		}
+		// Remove the marker: rewindPending now prevents premature auto-restart.
+		_ = os.Remove(inhibitPath)
 
 		// Let the system restart postgres organically
 		logInfo("Waiting for system to restart postgres organically...")
@@ -817,10 +782,9 @@ func failoverLoop(ctx context.Context, config *Config) error {
 		// Print detailed replication status
 		printReplicationStatus(ctx, config)
 
-		// Re-disable monitoring for the next iteration
-		if err := disablePostgresMonitoring(ctx, config); err != nil {
-			logError(fmt.Sprintf("Failed to re-disable postgres monitoring: %v", err))
-			return err
+		if maxCount > 0 && iteration >= maxCount {
+			logInfo(fmt.Sprintf("Completed %d iteration(s) as requested.", iteration))
+			return nil
 		}
 
 		iteration++

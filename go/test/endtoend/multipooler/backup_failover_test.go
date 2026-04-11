@@ -117,12 +117,11 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	require.NotNil(t, standbyInst, "expected a standby instance")
 	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
-	// Rename postgresql.conf on the primary so the monitor cannot auto-restart postgres
+	// Create no-autostart marker to prevent the postgres monitor from restarting postgres
 	// after the kill — multiorch must orchestrate recovery.
-	postgresqlConf := filepath.Join(primary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
-	postgresqlConfDisabled := postgresqlConf + ".disabled"
-	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
-	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
+	inhibitPath := filepath.Join(primary.Pgctld.PoolerDir, "no-autostart")
+	require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
+	t.Cleanup(func() { _ = os.Remove(inhibitPath) })
 
 	// Tag the backup so we can check its specific status after failure.
 	const testJobID = "failover-test-backup"

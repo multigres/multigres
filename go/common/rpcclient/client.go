@@ -264,13 +264,6 @@ type MultiPoolerClient interface {
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
 	//
-	// Manager Service Methods - PostgreSQL Monitoring Control
-	//
-
-	// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-	SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error)
-
-	//
 	// Connection Management Methods
 	//
 

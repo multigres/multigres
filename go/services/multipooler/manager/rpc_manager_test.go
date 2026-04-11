@@ -1645,20 +1645,6 @@ func TestReplicationStatus(t *testing.T) {
 	})
 }
 
-func TestSetMonitorRPCEnable(t *testing.T) {
-	// SetMonitor is a no-op. Verify it returns success regardless of arguments.
-	ctx := context.Background()
-	pm := &MultiPoolerManager{logger: slog.New(slog.NewTextHandler(os.Stdout, nil))}
-
-	resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	resp, err = pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-}
-
 func TestStopPostgresForEmergencyDemote(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -1849,17 +1835,6 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		code := mterrors.Code(err)
 		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
 	})
-}
-
-// TestSetMonitorRPCDisable verifies the SetMonitor RPC returns success regardless of arguments.
-// The RPC is a no-op; monitor state is controlled via EmergencyDemote / RewindToSource instead.
-func TestSetMonitorRPCDisable(t *testing.T) {
-	ctx := context.Background()
-	pm := &MultiPoolerManager{logger: slog.New(slog.NewTextHandler(os.Stdout, nil))}
-
-	resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
 }
 
 func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *testing.T) {

@@ -809,18 +809,3 @@ message RewindToSourceResponse {
   bool rewind_performed = 3;
 }
 
-// =============================================================================
-// PostgreSQL Monitoring Control APIs
-// =============================================================================
-
-// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
-message SetMonitorRequest {
-  // Whether to enable monitoring (true) or disable it (false)
-  bool enabled = 1;
-}
-
-// SetMonitorResponse confirms monitoring was updated
-// Errors are returned via gRPC status codes, not in the response body
-message SetMonitorResponse {
-  // Empty - success indicated by no error
-}

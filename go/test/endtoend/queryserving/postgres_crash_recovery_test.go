@@ -41,7 +41,7 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	}
 
 	setup := getSharedSetup(t)
-	setup.SetupTest(t, shardsetup.WithEnabledMonitor())
+	setup.SetupTest(t)
 
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 

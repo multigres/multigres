@@ -124,13 +124,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, currentPrimary, "current primary should exist")
 		currentPrimaryName := currentPrimary.Name
 
-		// Rename postgresql.conf to prevent the monitor from auto-restarting postgres after
-		// the kill. Without its config file postgres fails to start immediately, keeping it
-		// dead until multiorch triggers failover.
-		postgresqlConf := filepath.Join(currentPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
-		postgresqlConfDisabled := postgresqlConf + ".disabled"
-		require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
-		t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
+		// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+		// between the kill and when emergencyDemoteLocked sets rewindPending.
+		inhibitPath := filepath.Join(currentPrimary.Pgctld.PoolerDir, "no-autostart")
+		require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
+		t.Cleanup(func() { _ = os.Remove(inhibitPath) })
 
 		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
@@ -142,9 +140,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Restore postgresql.conf: by now EmergencyDemote has been called (part of failover),
-		// setting rewindPending, so the monitor will not restart postgres before DemoteStalePrimary runs.
-		require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
+		// Remove the inhibit marker: by now emergencyDemoteLocked has set rewindPending,
+		// so the monitor will not restart postgres before DemoteStalePrimary runs.
+		require.NoError(t, os.Remove(inhibitPath))
 
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)

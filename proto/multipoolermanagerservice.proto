@@ -171,11 +171,4 @@ service MultiPoolerManager {
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
       returns (multipoolermanagerdata.RewindToSourceResponse);
   
-  //
-  // PostgreSQL Monitoring Control
-  //
-  
-  // SetMonitor enables or disables the PostgreSQL monitoring goroutine
-  rpc SetMonitor(multipoolermanagerdata.SetMonitorRequest)
-        returns (multipoolermanagerdata.SetMonitorResponse);
 }

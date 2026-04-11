@@ -33,7 +33,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithEnabledMonitor())
+	setupPoolerTest(t, setup)
 
 	// Wait for primary manager to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)

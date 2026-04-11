@@ -86,7 +86,6 @@ type FakeClient struct {
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	RewindToSourceResponses                  map[string]*multipoolermanagerdatapb.RewindToSourceResponse
-	SetMonitorResponses                      map[string]*multipoolermanagerdatapb.SetMonitorResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
@@ -131,7 +130,6 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		RewindToSourceResponses:                  make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
-		SetMonitorResponses:                      make(map[string]*multipoolermanagerdatapb.SetMonitorResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
 		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
@@ -197,13 +195,6 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 		Response: resp,
 		Delay:    delay,
 	}
-}
-
-// SetMonitorResponse sets a SetMonitor response for a pooler.
-func (f *FakeClient) SetMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.SetMonitorResponse) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.SetMonitorResponses[poolerID] = resp
 }
 
 //
@@ -770,27 +761,6 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
-}
-
-//
-// Manager Service Methods - PostgreSQL Monitoring Control
-//
-
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-func (f *FakeClient) SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("SetMonitor", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.SetMonitorResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
 }
 
 //

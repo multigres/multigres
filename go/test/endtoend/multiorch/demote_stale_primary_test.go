@@ -75,14 +75,11 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Rename postgresql.conf aside so the postgres monitor cannot auto-restart postgres
-	// after the kill. Without its config file, postgres fails to start immediately.
-	// We restore it after the new primary is elected so DemoteStalePrimary can start
-	// postgres to run pg_rewind.
-	postgresqlConf := filepath.Join(oldPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
-	postgresqlConfDisabled := postgresqlConf + ".disabled"
-	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
-	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
+	// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+	// between the kill and when emergencyDemoteLocked sets rewindPending.
+	inhibitPath := filepath.Join(oldPrimary.Pgctld.PoolerDir, "no-autostart")
+	require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
+	t.Cleanup(func() { _ = os.Remove(inhibitPath) })
 
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
@@ -94,10 +91,9 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// Restore postgresql.conf so DemoteStalePrimary can start postgres for pg_rewind.
-	// By this point EmergencyDemote has been called (part of failover), setting rewindPending,
+	// Remove the inhibit marker: by this point emergencyDemoteLocked has set rewindPending,
 	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
+	require.NoError(t, os.Remove(inhibitPath))
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")
@@ -190,14 +186,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Rename postgresql.conf aside so the postgres monitor cannot auto-restart postgres
-	// after shutdown. Without its config file, postgres fails to start immediately.
-	// We restore it after the new primary is elected so DemoteStalePrimary can start
-	// postgres to run pg_rewind.
-	postgresqlConf := filepath.Join(oldPrimary.Pgctld.PoolerDir, "pg_data", "postgresql.conf")
-	postgresqlConfDisabled := postgresqlConf + ".disabled"
-	require.NoError(t, os.Rename(postgresqlConf, postgresqlConfDisabled))
-	t.Cleanup(func() { _ = os.Rename(postgresqlConfDisabled, postgresqlConf) })
+	// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+	// between the shutdown and when emergencyDemoteLocked sets rewindPending.
+	inhibitPath := filepath.Join(oldPrimary.Pgctld.PoolerDir, "no-autostart")
+	require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
+	t.Cleanup(func() { _ = os.Remove(inhibitPath) })
 
 	// Step 1: Gracefully shutdown postgres on primary to trigger failover
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
@@ -209,10 +202,9 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// Restore postgresql.conf so DemoteStalePrimary can start postgres for pg_rewind.
-	// By this point EmergencyDemote has been called (part of failover), setting rewindPending,
+	// Remove the inhibit marker: by this point emergencyDemoteLocked has set rewindPending,
 	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	require.NoError(t, os.Rename(postgresqlConfDisabled, postgresqlConf))
+	require.NoError(t, os.Remove(inhibitPath))
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")

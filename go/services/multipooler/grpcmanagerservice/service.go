@@ -326,8 +326,3 @@ func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multip
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)
 }
-
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine
-func (s *managerService) SetMonitor(ctx context.Context, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	return s.manager.SetMonitor(ctx, req)
-}

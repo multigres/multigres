@@ -1455,16 +1455,6 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
-// SetMonitor is a no-op. The postgres monitor runs continuously; use EmergencyDemote
-// and RewindToSource to control monitoring state around failover.
-func (pm *MultiPoolerManager) SetMonitor(
-	ctx context.Context,
-	_ *multipoolermanagerdatapb.SetMonitorRequest,
-) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	pm.logger.WarnContext(ctx, "SetMonitor RPC is a no-op; monitor runs continuously")
-	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
-}
-
 // ====================================================================================
 // Helper methods for DemoteStalePrimary
 // ====================================================================================

@@ -523,23 +523,6 @@ func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.M
 }
 
 //
-// Manager Service Methods - PostgreSQL Monitoring Control
-//
-
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-func (c *Client) SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.SetMonitor(ctx, request)
-}
-
-//
 // Connection Management Methods
 //
 
