@@ -337,48 +337,32 @@ func (re *Engine) queuePoolersHealthCheck() {
 	pollInterval := re.config.GetPoolerHealthCheckInterval()
 	cutoff := time.Now().Add(-pollInterval)
 
-	pushedCount := 0
-
-	// Collect poolers to queue and poolers that need IsUpToDate reset
+	// DoUpdateRange holds the store lock for the entire iteration, resetting
+	// IsUpToDate atomically for poolers that need re-checking.
+	// Without this reset, pollPooler skips if IsUpToDate && IsLastCheckValid are both true.
+	// Queue pushes are collected and done after the lock is released.
 	var poolersToQueue []string
-	var poolersToReset []struct {
-		id   string
-		info *multiorchdatapb.PoolerHealthState
-	}
-
-	// Iterate over poolers using Range() - do NOT call Set inside Range (deadlock!)
-	re.poolerStore.Range(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
-		// Skip if recently attempted (either never attempted or older than interval)
+	re.poolerStore.DoUpdateRange(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool) {
 		lastCheckAttempted := time.Time{}
 		if poolerInfo.LastCheckAttempted != nil {
 			lastCheckAttempted = poolerInfo.LastCheckAttempted.AsTime()
 		}
+
 		if !lastCheckAttempted.IsZero() && lastCheckAttempted.After(cutoff) {
-			return true // continue iteration
+			return nil, true // recently checked, skip and continue
 		}
 
-		// Collect pooler for queueing
 		poolersToQueue = append(poolersToQueue, poolerID)
 
-		// If IsUpToDate is true, collect for reset (will be done after Range completes)
-		// Without this reset, pollPooler skips if IsUpToDate && IsLastCheckValid are both true.
 		if poolerInfo.IsUpToDate {
 			poolerInfo.IsUpToDate = false
-			poolersToReset = append(poolersToReset, struct {
-				id   string
-				info *multiorchdatapb.PoolerHealthState
-			}{poolerID, poolerInfo})
+			return poolerInfo, true // write reset back atomically and continue
 		}
-
-		return true // continue iteration
+		return nil, true // already false, no write needed, continue
 	})
 
-	// Now safe to call Set (Range lock is released)
-	for _, p := range poolersToReset {
-		re.poolerStore.Set(p.id, p.info)
-	}
-
-	// Push collected poolers to queue
+	// Push collected poolers to queue (outside the store lock)
+	pushedCount := 0
 	for _, poolerID := range poolersToQueue {
 		re.healthCheckQueue.Push(poolerID)
 		pushedCount++
