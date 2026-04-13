@@ -770,7 +770,9 @@ func TestTakeRemedialAction_AdjustTypeToReplica_SetsResignation(t *testing.T) {
 	// Resignation signal must be set to the primary_term from consensus state
 	av := pm.buildAvailabilityStatus()
 	require.NotNil(t, av, "availability status should be set after type adjustment to replica")
-	assert.Equal(t, int64(5), av.ResignedPrimaryAtTerm)
+	require.NotNil(t, av.LeadershipStatus)
+	assert.Equal(t, int64(5), av.LeadershipStatus.PrimaryTerm)
+	assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 }
 
 func TestTakeRemedialAction_AdjustTypeToReplica_NoResignationWhenNoPrimaryTerm(t *testing.T) {

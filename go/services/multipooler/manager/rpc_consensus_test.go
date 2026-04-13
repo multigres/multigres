@@ -1361,7 +1361,9 @@ func TestAvailabilityStatus(t *testing.T) {
 		pm.setResignedPrimaryAtTerm(7)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
-		assert.Equal(t, int64(7), av.ResignedPrimaryAtTerm)
+		require.NotNil(t, av.LeadershipStatus)
+		assert.Equal(t, int64(7), av.LeadershipStatus.PrimaryTerm)
+		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 	})
 
 	t.Run("clearResignedPrimaryAtTerm removes the signal", func(t *testing.T) {

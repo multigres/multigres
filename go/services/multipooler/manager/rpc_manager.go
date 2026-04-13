@@ -968,8 +968,17 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	}
 
 	// Signal voluntary resignation so the coordinator can trigger an immediate
-	// election without waiting for a heartbeat timeout.
-	pm.setResignedPrimaryAtTerm(consensusTerm)
+	// election without waiting for a heartbeat timeout. Use this node's own
+	// primary_term (not the incoming consensusTerm) so the coordinator can
+	// correlate the signal with the term at which this node was elected.
+	pm.mu.Lock()
+	cs := pm.consensusState
+	pm.mu.Unlock()
+	if cs != nil {
+		if term, err := cs.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
+			pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
+		}
+	}
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence

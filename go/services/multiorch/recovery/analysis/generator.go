@@ -23,6 +23,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -357,7 +358,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	if topologyPrimary != nil {
 		sa.HighestTermDiscoveredPrimaryID = topologyPrimary.MultiPooler.Id
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresRunning
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresRunning && !types.PrimaryNeedsReplacement(topologyPrimary)
 
 		// Populate the standby list from the topology primary (used by IsInStandbyList).
 		if topologyPrimary.PrimaryStatus != nil && topologyPrimary.PrimaryStatus.SyncReplicationConfig != nil {

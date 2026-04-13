@@ -423,20 +423,95 @@ message HighestCoordinatorPromise {
   google.protobuf.Timestamp last_acceptance_time = 3;
 }
 
+// NodeSignal describes a node's general availability, independent of any specific
+// term or leadership role. 0 (UNKNOWN) means the field was not intentionally set;
+// coordinators treat it as "no concern known," not as "definitely healthy."
+enum NodeSignal {
+  NODE_SIGNAL_UNKNOWN = 0;
+
+  // Node is fully available and fit for any role.
+  NODE_SIGNAL_AVAILABLE = 1;
+
+  // Node is transiently unavailable but expected to recover without operator
+  // intervention. Coordinator should not elect this node and should not add it
+  // to the sync standby list.
+  //
+  // Examples: backup or restore in progress, postgres bouncing between restarts.
+  //
+  // TODO: coordinator should synthesize TEMPORARILY_UNAVAILABLE into
+  // PoolerHealthState.AvailabilityStatus when a node has been unreachable past
+  // a configurable threshold, so the analyzer reads from one place regardless
+  // of whether the signal is self-reported or synthesized.
+  NODE_SIGNAL_TEMPORARILY_UNAVAILABLE = 2;
+
+  // Node is leaving the cluster entirely (e.g. graceful pod shutdown).
+  // Coordinator should remove this node from the sync standby list. Because
+  // LEAVING_COHORT implies a leadership demotion request, a leader publishing
+  // this signal should also set LeadershipStatus.signal = REQUESTING_DEMOTION.
+  //
+  // TODO: implement in the multipooler SIGTERM handler.
+  // TODO: implement coordinator handling: remove from sync standby list immediately.
+  NODE_SIGNAL_LEAVING_COHORT = 3;
+}
+
+// LeadershipSignal describes a leader's self-reported status for its current term.
+// Only published by nodes that are or were primary (primary_term != 0).
+// 0 (UNKNOWN) means the field was not intentionally set.
+enum LeadershipSignal {
+  LEADERSHIP_SIGNAL_UNKNOWN = 0;
+
+  // Node is actively and healthily serving as primary for primary_term.
+  // Published each poll cycle so the coordinator can distinguish a confirmed
+  // healthy primary from one that restarted and hasn't re-published yet.
+  LEADERSHIP_SIGNAL_ACTIVE = 1;
+
+  // Node is requesting demotion from leadership for primary_term. Coordinator
+  // should trigger an immediate election rather than waiting for a heartbeat
+  // timeout. The node may continue as a replica after demotion.
+  //
+  // Staleness check: coordinator verifies leadership_status.primary_term matches
+  // the node's known primary_term before acting, to ignore signals left over from
+  // a previous election cycle.
+  LEADERSHIP_SIGNAL_REQUESTING_DEMOTION = 2;
+}
+
+// LeadershipStatus is published only by nodes that are or have been primary.
+// It lets the coordinator distinguish an actively healthy primary, a primary
+// requesting demotion, and a node that has never held leadership.
+message LeadershipStatus {
+  // The primary_term at which this node was most recently elected.
+  // Non-zero only on nodes that have been elected primary.
+  int64 primary_term = 1;
+
+  LeadershipSignal signal = 2;
+}
+
+// NodeStatus describes a node's general operational availability,
+// independent of any specific term or leadership role.
+message NodeStatus {
+  NodeSignal signal = 1;
+}
+
 // AvailabilityStatus carries best-effort operational fitness signals for a node.
 // Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
 // on-disk state), AvailabilityStatus is in-memory and may be absent after a
 // process restart. Coordinators must treat absence as "unknown," not "unfit."
 //
-// These signals answer "how suitable is this node for each role right now?" and
-// are used by the coordinator for promotion preference and failover decisions.
+// Signals are re-derivable from continuous health polling, so process restarts
+// do not create permanent unavailability. See NodeSignal and LeadershipSignal
+// for re-derivation rules.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state.
+// TODO: coordinator should synthesize AvailabilityStatus into
+// PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
+// regardless of source.
 message AvailabilityStatus {
-  // resigned_primary_at_term is set when the primary voluntarily resigns
-  // (e.g. via EmergencyDemote). The value is the consensus term at which the
-  // primary resigned. A non-zero value signals the coordinator to trigger an
-  // immediate election rather than waiting for a heartbeat timeout.
-  // Cleared when this node is elected as primary again.
-  int64 resigned_primary_at_term = 1;
+  // node_status describes general availability, always published.
+  NodeStatus node_status = 1;
+
+  // leadership_status is only set by nodes that are or have been primary.
+  LeadershipStatus leadership_status = 2;
 }
 
 // ConsensusStatus is a node's complete view of its position in the distributed

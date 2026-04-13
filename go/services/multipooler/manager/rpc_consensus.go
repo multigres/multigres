@@ -256,30 +256,36 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	return nil
 }
 
-// buildAvailabilityStatus returns the current AvailabilityStatus for this node,
-// or nil if no fitness signals are set.
+// buildAvailabilityStatus returns the current AvailabilityStatus for this node.
+// Leaders always publish a LeadershipStatus. Returns nil if no signals are set
+// and no leadership context exists.
 func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
 	pm.mu.Lock()
 	resignedTerm := pm.resignedPrimaryAtTerm
 	pm.mu.Unlock()
+
 	if resignedTerm == 0 {
 		return nil
 	}
+
 	return &clustermetadatapb.AvailabilityStatus{
-		ResignedPrimaryAtTerm: resignedTerm,
+		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+			PrimaryTerm: resignedTerm,
+			Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+		},
 	}
 }
 
-// setResignedPrimaryAtTerm records that this node voluntarily resigned as primary
-// at the given consensus term. The signal is included in subsequent StatusResponses
-// so the coordinator can trigger an immediate election.
+// setResignedPrimaryAtTerm records that this node is requesting demotion as primary
+// for the given term. The signal is included in subsequent StatusResponses so the
+// coordinator can trigger an immediate election.
 func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(term int64) {
 	pm.mu.Lock()
 	pm.resignedPrimaryAtTerm = term
 	pm.mu.Unlock()
 }
 
-// clearResignedPrimaryAtTerm clears the voluntary resignation signal, called when
+// clearResignedPrimaryAtTerm clears the leadership demotion request, called when
 // this node is elected as primary again.
 func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm() {
 	pm.mu.Lock()
