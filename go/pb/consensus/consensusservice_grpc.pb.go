@@ -22,7 +22,6 @@ package consensus
 
 import (
 	context "context"
-
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"

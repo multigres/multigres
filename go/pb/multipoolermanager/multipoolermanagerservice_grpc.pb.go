@@ -22,7 +22,6 @@ package multipoolermanager
 
 import (
 	context "context"
-
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
