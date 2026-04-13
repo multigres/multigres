@@ -257,7 +257,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	}
 	shardsetup.EventuallyPoolerCondition(t, allInstances, 10*time.Second, 500*time.Millisecond,
 		func(name string, s *multipoolermanagerdatapb.Status) (bool, string) {
-			if !s.PostgresRunning {
+			if !s.PostgresReady {
 				return false, "postgres not running"
 			}
 			if s.PoolerType == clustermetadatapb.PoolerType_REPLICA {
@@ -568,7 +568,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 				if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
 					return false, fmt.Sprintf("not yet REPLICA (is %v)", s.PoolerType)
 				}
-				if !s.PostgresRunning {
+				if !s.PostgresReady {
 					return false, "postgres not running"
 				}
 				if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {

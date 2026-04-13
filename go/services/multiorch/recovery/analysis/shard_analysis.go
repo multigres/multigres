@@ -68,6 +68,20 @@ type ShardAnalysis struct {
 	// connected to the primary Postgres. Used to avoid failover when only the primary
 	// pooler process is down but Postgres is still running.
 	ReplicasConnectedToPrimary bool
+
+	// PrimaryPostgresReady is true if the topology primary's Postgres is accepting connections
+	// (pg_isready succeeds). Distinct from PrimaryReachable: the pooler may be reachable
+	// but Postgres may not yet be ready (e.g. still starting up).
+	PrimaryPostgresReady bool
+
+	// PrimaryPostgresRunning is true if the topology primary's Postgres process exists,
+	// even if it is not accepting connections. False when the process is dead (SIGKILL).
+	PrimaryPostgresRunning bool
+
+	// PrimaryLastPostgresReadyTime is the last time the topology primary's Postgres
+	// responded healthy (IsPostgresReady was true). Zero if never seen ready.
+	// Used to time-bound failover suppression when replicas are still connected.
+	PrimaryLastPostgresReadyTime time.Time
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the primary's

@@ -78,14 +78,14 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 
 	// Check if a primary already exists and is healthy (problem resolved).
 	// We must verify both that the pooler is reachable (IsLastCheckValid) AND that
-	// PostgreSQL is running (IsPostgresRunning). If the pooler is up but Postgres
-	// is down, or if the primary has signalled it needs replacement, we still need
-	// to trigger failover.
+	// PostgreSQL is ready (IsPostgresReady). If the pooler is up but Postgres
+	// is not ready, or if the primary has signalled it needs replacement, we still
+	// need to trigger failover.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY ||
 			!pooler.IsLastCheckValid ||
-			!pooler.IsPostgresRunning {
+			!pooler.IsPostgresReady {
 			continue
 		}
 		if types.PrimaryNeedsReplacement(pooler) {
