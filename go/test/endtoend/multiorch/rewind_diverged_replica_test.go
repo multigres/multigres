@@ -110,6 +110,9 @@ func TestRewindDivergedReplica(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond, "baseline data should replicate to R1")
 	t.Log("Baseline data verified on R1")
 
+	// Make sure orch is in a clean state (no transient problems from bootstrap).
+	setup.RequireRecovery(t, "multiorch", 5*time.Second)
+
 	// Pause recovery so orch doesn't interfere with the manual divergence creation
 	setup.DisableRecovery(t, "multiorch")
 
@@ -131,7 +134,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	t.Log("R1 WAL receiver confirmed stopped")
 
 	// Promote R1 to a standalone primary on timeline 2
-	_, err = r1DB.Exec("SELECT pg_promote()")
+	_, err = r1DB.Exec("SELECT pg_promote(); CHECKPOINT")
 	require.NoError(t, err, "pg_promote() should succeed on R1")
 	t.Log("R1 promoted to timeline 2")
 
