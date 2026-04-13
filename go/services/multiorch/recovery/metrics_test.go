@@ -57,6 +57,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	problems := []types.Problem{
 		{
 			CheckName: "PrimaryIsDead",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -70,6 +71,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		},
 		{
 			CheckName: "ReplicaNotReplicating",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -118,6 +120,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 	initialProblems := []types.Problem{
 		{
 			CheckName: "PrimaryIsDead",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -136,6 +139,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 	newProblems := []types.Problem{
 		{
 			CheckName: "ReplicaNotReplicating",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
