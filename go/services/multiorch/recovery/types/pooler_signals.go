@@ -38,13 +38,13 @@ import (
 // coordinator-synthesized signals (e.g. TEMPORARILY_UNAVAILABLE for unreachable
 // nodes) are handled here too.
 func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
-	ls := p.ConsensusStatus.GetAvailabilityStatus().GetLeadershipStatus()
-	if ls == nil {
+	leadershipStatus := p.ConsensusStatus.GetAvailabilityStatus().GetLeadershipStatus()
+	if leadershipStatus == nil {
 		return false
 	}
-	if ls.Signal != clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION {
+	if leadershipStatus.Signal != clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	return ls.PrimaryTerm != 0 && ls.PrimaryTerm == p.ConsensusStatus.GetPrimaryTerm()
+	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == p.ConsensusStatus.GetPrimaryTerm()
 }
