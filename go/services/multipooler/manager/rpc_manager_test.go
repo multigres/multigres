@@ -1372,6 +1372,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1459,6 +1460,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1541,6 +1543,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1605,21 +1608,19 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
 		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
-		// Current rule with two cohort members
-		mockQueryService.AddQueryPattern("SELECT coordinator_term, leader_subterm",
-			mock.MakeQueryResult(
-				[]string{"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members", "durability_policy_name", "durability_quorum_type", "durability_required_count", "durability_async_fallback", "current_lsn"},
-				[][]any{{int64(1), int64(0), "zone1_test-service", "zone1_test-service", `["zone1_pooler-a","zone1_pooler-b"]`, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), nil, "0/1000000"}},
-			))
-
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		pm.rules = &fakeRuleStore{
+			pos: &clustermetadatapb.NodePosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					CohortMembers: []*clustermetadatapb.ID{
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-a"},
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-b"},
+					},
+				},
+				Lsn: "0/1000000",
+			},
+		}
 
 		status, err := pm.Status(ctx)
 		require.NoError(t, err)
@@ -1692,6 +1693,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
