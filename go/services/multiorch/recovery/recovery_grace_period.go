@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -33,10 +32,11 @@ const (
 )
 
 // gracePeriodKey uniquely identifies a grace period tracking entry.
-// Uses (ProblemCode, PoolerID) to track independently per pooler.
+// entityID is either a pooler ID string (for pooler-scoped problems) or a
+// shard key string (for shard-scoped problems).
 type gracePeriodKey struct {
 	code     types.ProblemCode
-	poolerID string
+	entityID string
 }
 
 // RecoveryGracePeriodTracker tracks grace periods for recovery actions.
@@ -111,14 +111,17 @@ func (dt *RecoveryGracePeriodTracker) calculateDeadline(cfg types.GracePeriodCon
 	return time.Now().Add(base + jitter)
 }
 
-// Observe records the health state of a problem type for a specific pooler.
-// This should be called every recovery cycle for each (pooler, analyzer) combination.
+// Observe records the health state of a problem type for a specific entity.
+// entityID is a pooler ID string for pooler-scoped problems, or a shard key
+// string for shard-scoped problems.
+//
+// This should be called every recovery cycle for each (entity, analyzer) combination.
 //
 // If isHealthy is true: resets the deadline to now + (base + jitter), with fresh jitter
 // If isHealthy is false: freezes the deadline (countdown continues)
 //
 // If the action doesn't require grace period tracking, this is a noop.
-func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, poolerID string, action types.RecoveryAction, isHealthy bool) {
+func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, entityID string, action types.RecoveryAction, isHealthy bool) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
@@ -129,7 +132,7 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, poolerID s
 		return
 	}
 
-	key := gracePeriodKey{code: code, poolerID: poolerID}
+	key := gracePeriodKey{code: code, entityID: entityID}
 	_, exists := dt.deadlines[key]
 
 	if isHealthy {
@@ -146,7 +149,7 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, poolerID s
 // Returns true if action should execute (deadline expired or no grace period needed).
 // Returns false if still within grace period window (should wait longer).
 //
-// This assumes Observe() has already been called for the (problem type, pooler) combination.
+// This assumes Observe() has already been called for the (problem type, entity) combination.
 // If the action doesn't require grace period tracking, returns true (execute immediately).
 func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool {
 	dt.mu.Lock()
@@ -159,22 +162,16 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 		return true
 	}
 
-	// Use pooler ID from the problem to look up the deadline
-	if problem.PoolerID == nil {
-		dt.logger.WarnContext(dt.ctx, "Cannot check grace period: problem missing pooler ID",
-			"problem_code", problem.Code)
-		return false
-	}
-	poolerID := topoclient.MultiPoolerIDString(problem.PoolerID)
+	entityID := problem.EntityID()
 
-	key := gracePeriodKey{code: problem.Code, poolerID: poolerID}
+	key := gracePeriodKey{code: problem.Code, entityID: entityID}
 	deadline, exists := dt.deadlines[key]
 	if !exists {
 		// Problem has grace period but no deadline - this is unexpected
 		// Observe() should have been called before ShouldExecute()
 		dt.logger.WarnContext(dt.ctx, "Grace period deadline not found, skipping recovery",
 			"problem_code", problem.Code,
-			"pooler_id", poolerID)
+			"entity_id", entityID)
 		return false
 	}
 

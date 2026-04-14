@@ -59,7 +59,9 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 	// Acquire the local action lock first to prevent deadlock with the distributed lease.
 	var err error
+	lockStart := time.Now()
 	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
+	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
 	if err != nil {
 		return "", err
 	}
@@ -189,11 +191,13 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	// Execute backup with progress logging
 	var output []byte
+	backupStart := time.Now()
 	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
 		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
 	})
+	pm.metrics.RecordBackupDuration(ctx, time.Since(backupStart).Seconds())
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -223,11 +227,13 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	// Execute verify with progress logging
 	var verifyOutput []byte
+	verifyStart := time.Now()
 	verifyErr := telemetry.WithSpan(verifyCtx, "backup/verify", func(ctx context.Context) error {
 		var runErr error
 		verifyOutput, runErr = pm.runLongCommand(ctx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 		return runErr
 	})
+	pm.metrics.RecordBackupVerifyDuration(ctx, time.Since(verifyStart).Seconds())
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -287,6 +293,17 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.metrics.IncRestoreAttempts(ctx)
+	restoreStart := time.Now()
+	defer func() {
+		pm.metrics.RecordRestoreDuration(ctx, time.Since(restoreStart).Seconds())
+		if retErr == nil {
+			pm.metrics.IncRestoreSuccesses(ctx)
+		} else {
+			pm.metrics.IncRestoreFailures(ctx)
+		}
+	}()
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
 

@@ -67,15 +67,15 @@ message ShardStatusResponse {
 }
 
 message DetectedProblem {
-  string code = 1;                           // e.g., "PrimaryIsDead"
-  string check_name = 2;                     // Analyzer name
-  clustermetadata.ID pooler_id = 3;          // Affected pooler
+  string code = 1; // e.g., "PrimaryIsDead"
+  string check_name = 2; // Analyzer name
+  clustermetadata.ID pooler_id = 3; // Affected pooler
   string database = 4;
   string table_group = 5;
   string shard = 6;
   string description = 7;
   int32 priority = 8;
-  string scope = 9;                          // "Shard" or "Pooler"
+  string scope = 9; // "Shard" or "Pooler"
   google.protobuf.Timestamp detected_at = 10;
 }
 
@@ -83,8 +83,9 @@ message PoolerHealth {
   clustermetadata.ID pooler_id = 1;
   bool reachable = 2;
   bool postgres_running = 3;
-  string pooler_type = 4;                    // PRIMARY, REPLICA, UNKNOWN
+  string pooler_type = 4; // PRIMARY, REPLICA, UNKNOWN
   google.protobuf.Timestamp last_check = 5;
+  bool postgres_ready = 6;
 }
 
 message DisableRecoveryRequest {

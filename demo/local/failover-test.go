@@ -367,14 +367,14 @@ func findPrimary(ctx context.Context, config *Config) (*PoolerInfo, error) {
 			continue
 		}
 
-		postgresRunning := status.Status.PostgresRunning
-		isReady := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+		postgresReady := status.Status.PostgresReady
+		primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
 
-		if postgresRunning && isReady {
+		if postgresReady && primaryIsOperational {
 			poolerInfo := getPoolerInfo(cell, serviceID, config)
 			logSuccess(fmt.Sprintf("Found primary: %s/%s", cell, serviceID))
-			logInfo(fmt.Sprintf("  - PostgreSQL running: %v", postgresRunning))
-			logInfo(fmt.Sprintf("  - Ready: %v", isReady))
+			logInfo(fmt.Sprintf("  - PostgreSQL ready: %v", postgresReady))
+			logInfo(fmt.Sprintf("  - Ready: %v", primaryIsOperational))
 			return poolerInfo, nil
 		}
 	}
@@ -471,14 +471,14 @@ func waitForNewPrimary(ctx context.Context, config *Config, oldServiceID string,
 				continue
 			}
 
-			postgresRunning := status.Status.PostgresRunning
-			isReady := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+			postgresReady := status.Status.PostgresReady
+			primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
 
 			if debug && attempt%10 == 0 {
-				fmt.Fprintf(os.Stderr, "  [DEBUG]   postgres_running=%v, ready=%v\n", postgresRunning, isReady)
+				fmt.Fprintf(os.Stderr, "  [DEBUG]   postgres_ready=%v, primary_is_operational=%v\n", postgresReady, primaryIsOperational)
 			}
 
-			if postgresRunning && isReady {
+			if postgresReady && primaryIsOperational {
 				fmt.Fprintln(os.Stderr)
 				logSuccess(fmt.Sprintf("New primary elected: %s/%s", cell, serviceID))
 				return nil
@@ -520,10 +520,10 @@ func waitForReplicaHealth(ctx context.Context, config *Config, cell, serviceID s
 		}
 
 		poolerType := status.Status.PoolerType
-		postgresRunning := status.Status.PostgresRunning
+		postgresReady := status.Status.PostgresReady
 		replStatus := status.Status.ReplicationStatus
 
-		if poolerType == clustermetadatapb.PoolerType_REPLICA && postgresRunning && replStatus != nil {
+		if poolerType == clustermetadatapb.PoolerType_REPLICA && postgresReady && replStatus != nil {
 			lastReceiveLSN := replStatus.LastReceiveLsn
 			lastReplayLSN := replStatus.LastReplayLsn
 			isPaused := replStatus.IsWalReplayPaused
@@ -551,7 +551,7 @@ func waitForReplicaHealth(ctx context.Context, config *Config, cell, serviceID s
 						continue
 					}
 
-					if !primaryStatus.Status.PostgresRunning {
+					if !primaryStatus.Status.PostgresReady {
 						continue
 					}
 
@@ -629,7 +629,7 @@ func printReplicationStatus(ctx context.Context, config *Config) {
 			continue
 		}
 
-		if status.Status.PostgresRunning && status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready {
+		if status.Status.PostgresReady && status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready {
 			primaryCell = cell
 			primaryServiceID = serviceID
 			break
@@ -677,8 +677,8 @@ func printReplicationStatus(ctx context.Context, config *Config) {
 			continue
 		}
 
-		if !status.Status.PostgresRunning {
-			fmt.Fprintf(os.Stderr, "  %sPostgreSQL not running%s\n", colorRed, colorReset)
+		if !status.Status.PostgresReady {
+			fmt.Fprintf(os.Stderr, "  %sPostgreSQL not ready%s\n", colorRed, colorReset)
 			continue
 		}
 

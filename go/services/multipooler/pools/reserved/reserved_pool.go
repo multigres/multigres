@@ -254,7 +254,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 // release is called when a reserved connection is released.
 func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	p.mu.Lock()
-	delete(p.active, rc.ConnID)
+	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
@@ -281,7 +281,7 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	rc.pooled.Recycle()
 
 	p.logger.Debug("reserved connection released",
-		"conn_id", rc.ConnID,
+		"conn_id", rc.ConnID(),
 		"reason", reason.String())
 }
 

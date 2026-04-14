@@ -71,6 +71,7 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		SpoolPath string
 		LockPath  string
 
+		RetentionConfig map[string]string
 		RepoConfig      map[string]string
 		RepoCredentials map[string]string
 
@@ -82,6 +83,7 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		SpoolPath: spoolPath,
 		LockPath:  lockPath,
 
+		RetentionConfig: DefaultRetentionConfig(),
 		RepoConfig:      repoConfig,
 		RepoCredentials: repoCredentials,
 

@@ -28,6 +28,18 @@ func flattenShardAnalyses(shards []*ShardAnalysis) []*PoolerAnalysis {
 	return analyses
 }
 
+// findPoolerByName returns the PoolerAnalysis with the given name from a ShardAnalysis,
+// or nil if not found. Used in tests that need to assert on a specific pooler's analysis
+// within a shard.
+func findPoolerByName(sa *ShardAnalysis, name string) *PoolerAnalysis {
+	for _, pa := range sa.Analyses {
+		if pa.PoolerID.Name == name {
+			return pa
+		}
+	}
+	return nil
+}
+
 // analyzeOne wraps a single ReplicationAnalysis in a ShardAnalysis, calls Analyze,
 // and returns the first problem detected (or nil) along with any error.
 // Used in tests that exercise single-pooler scenarios.

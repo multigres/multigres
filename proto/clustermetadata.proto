@@ -297,12 +297,6 @@ enum QuorumType {
   // QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
   QUORUM_TYPE_UNKNOWN = 0;
 
-  // Deprecated: use QUORUM_TYPE_AT_LEAST_N
-  QUORUM_TYPE_ANY_N = 1;
-
-  // Deprecated: use QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
-  QUORUM_TYPE_MULTI_CELL_ANY_N = 2;
-
   // QUORUM_TYPE_AT_LEAST_N requires at least N nodes from the discovered cohort to acknowledge
   QUORUM_TYPE_AT_LEAST_N = 3;
 

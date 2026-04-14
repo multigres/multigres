@@ -20,8 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pglogrepl"
-
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -29,6 +27,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -129,7 +128,7 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 // For a primary node CurrentLsn is used; for a standby, LastReceiveLsn.
 // Returns (0, false) when pos is nil, both LSN fields are empty, or the string
 // cannot be parsed.
-func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
+func walPositionLSN(pos *consensusdatapb.WALPosition) (pgutil.LSN, bool) {
 	if pos == nil {
 		return 0, false
 	}
@@ -149,7 +148,7 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
 		return 0, false
 	}
 
-	lsn, err := pglogrepl.ParseLSN(lsnStr)
+	lsn, err := pgutil.ParseLSN(lsnStr)
 	if err != nil {
 		return 0, false
 	}
@@ -203,7 +202,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 	}
 
 	var bestRecruit *recruitmentResult
-	var bestLSN pglogrepl.LSN
+	var bestLSN pgutil.LSN
 
 	for i := range recruited {
 		r := &recruited[i]
@@ -524,7 +523,7 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// in an election.
 	var healthyInitializedPoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
-		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresRunning {
+		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresReady {
 			healthyInitializedPoolers = append(healthyInitializedPoolers, pooler)
 		}
 	}
