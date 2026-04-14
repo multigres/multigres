@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/eventlog"
@@ -744,13 +743,8 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	// Sync to topology
 	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
+	pm.topoPublisher.Notify(pm.multipooler)
 	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
-		return mterrors.Wrap(err, "failed to update pooler type in topology")
-	}
 
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
 	return nil
