@@ -40,10 +40,6 @@ type topoPublisher struct {
 	logger     *slog.Logger
 	topoClient topoRegistrar
 
-	// retryInterval controls how often the background loop polls for missed writes.
-	// Defaults to topoPublisherRetryInterval. May be overridden in tests.
-	retryInterval time.Duration
-
 	// wakeup is a size-1 buffered channel. A non-blocking send schedules a
 	// publish without accumulating multiple pending signals.
 	wakeup chan struct{}
@@ -55,10 +51,9 @@ type topoPublisher struct {
 
 func newTopoPublisher(logger *slog.Logger, topoClient topoRegistrar) *topoPublisher {
 	return &topoPublisher{
-		logger:        logger,
-		topoClient:    topoClient,
-		retryInterval: topoPublisherRetryInterval,
-		wakeup:        make(chan struct{}, 1),
+		logger:     logger,
+		topoClient: topoClient,
+		wakeup:     make(chan struct{}, 1),
 	}
 }
 
@@ -80,16 +75,21 @@ func (tp *topoPublisher) Notify(mp *clustermetadatapb.MultiPooler) {
 // Run is the background loop. It blocks until ctx is cancelled. Call it in a
 // goroutine: go tp.Run(ctx).
 func (tp *topoPublisher) Run(ctx context.Context) {
-	ticker := time.NewTicker(tp.retryInterval)
+	ticker := time.NewTicker(topoPublisherRetryInterval)
 	defer ticker.Stop()
+	tp.run(ctx, ticker.C)
+}
 
+// run is the internal loop, accepting an injectable ticker channel so tests can
+// drive retries without real clock time.
+func (tp *topoPublisher) run(ctx context.Context, tickC <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tp.wakeup:
 			tp.publishIfNeeded(ctx)
-		case <-ticker.C:
+		case <-tickC:
 			tp.publishIfNeeded(ctx)
 		}
 	}
