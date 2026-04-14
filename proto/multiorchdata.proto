@@ -58,11 +58,11 @@ message PoolerHealthState {
   // Replica-specific status (populated when pooler_type == REPLICA)
   multipoolermanagerdata.StandbyReplicationStatus replication_status = 9;
 
-  // Whether PostgreSQL is currently running on this node.
-  // Determined from the Status RPC's postgres_running field.
+  // Whether PostgreSQL is currently running and accepting connections on this node.
+  // Determined from the Status RPC's postgres_ready field.
   // Used to determine PrimaryReachable in the analyzer - a primary with postgres down
   // should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
-  bool is_postgres_running = 10;
+  bool is_postgres_ready = 10;
 
   // Whether the pooler considers itself initialized.
   // Determined from the Status RPC's is_initialized field.
@@ -83,4 +83,14 @@ message PoolerHealthState {
   // populated from the Status RPC response. An empty list (not nil) on an
   // initialized pooler signals the shard needs its initial cohort established.
   repeated clustermetadata.ID cohort_members = 15;
+
+  // Timestamp of the last time PostgreSQL specifically responded as healthy
+  // (i.e. pg_isready passed). Never cleared on failure — callers must compare
+  // against time.Now() to detect staleness.
+  google.protobuf.Timestamp last_postgres_ready_time = 16;
+
+  // Whether the PostgreSQL process exists on this node, regardless of whether
+  // it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
+  // Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
+  bool is_postgres_running = 17;
 }

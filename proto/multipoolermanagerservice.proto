@@ -148,6 +148,10 @@ service MultiPoolerManager {
   rpc GetBackupByJobId(multipoolermanagerdata.GetBackupByJobIdRequest)
       returns (multipoolermanagerdata.GetBackupByJobIdResponse);
 
+  // ExpireBackups removes backups that exceed the configured retention policy.
+  rpc ExpireBackups(multipoolermanagerdata.ExpireBackupsRequest)
+    returns (multipoolermanagerdata.ExpireBackupsResponse);
+
   //
   // PgRewind Operations
   //

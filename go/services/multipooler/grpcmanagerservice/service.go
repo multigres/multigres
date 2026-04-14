@@ -301,6 +301,18 @@ func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolerm
 	}, nil
 }
 
+// ExpireBackups removes backups that exceed the configured retention policy
+func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+	expiredIDs, err := s.manager.ExpireBackups(ctx, req.Overrides)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+
+	return &multipoolermanagerdatapb.ExpireBackupsResponse{
+		ExpiredBackupIds: expiredIDs,
+	}, nil
+}
+
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)

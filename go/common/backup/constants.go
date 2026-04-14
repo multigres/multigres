@@ -23,8 +23,10 @@ const (
 	// Retention policies for backups
 	// RetentionDifferential: Keep the most recent differential backup
 	RetentionDifferential = "1"
-	// RetentionFull: Keep full backups for this many days
-	RetentionFull = "28"
+	// RetentionFull: Keep this many full backups
+	RetentionFull = "7"
+	// RetentionFullType: Use count-based retention for full backups
+	RetentionFullType = "count"
 	// RetentionHistory: Disable WAL archive retention (0 = disabled)
 	// When set to 0, pgBackRest does not enforce WAL retention separately from backup retention
 	RetentionHistory = "0"
@@ -40,4 +42,6 @@ const (
 	InfoTimeout = 30 * time.Second
 	// ValidationTimeout is the maximum time allowed for S3 bucket validation
 	ValidationTimeout = 10 * time.Second
+	// ExpireTimeout is the maximum time allowed for a backup expiration operation
+	ExpireTimeout = 10 * time.Minute
 )

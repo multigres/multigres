@@ -304,7 +304,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			name: "postgres_running_type_matches_primary",
+			name: "postgres_ready_type_matches_primary",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -314,7 +314,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			name: "postgres_running_promote_to_primary",
+			name: "postgres_ready_promote_to_primary",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -324,7 +324,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToPrimary,
 		},
 		{
-			name: "postgres_running_demote_to_replica",
+			name: "postgres_ready_demote_to_replica",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -334,7 +334,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToReplica,
 		},
 		{
-			name: "postgres_running_type_matches_replica",
+			name: "postgres_ready_type_matches_replica",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -411,7 +411,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
 }
 
-func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
+func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	ctx := t.Context()
 
 	pm := &MultiPoolerManager{

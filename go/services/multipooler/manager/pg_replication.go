@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -248,22 +249,35 @@ func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn str
 	return reachedTarget, nil
 }
 
-// queryReplicationStatus queries PostgreSQL for all replication status fields.
-// This method handles NULL values properly for LSN fields that may be NULL
-// when not in recovery mode or when no WAL has been received/replayed.
-func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	sql := `SELECT
-		pg_last_wal_replay_lsn(),
+// sqlGetReplicationStatus is the SQL query to retrieve all relevant replication
+// status fields from pg_stat_wal_receiver. This is used by
+// queryReplicationStatus to get a comprehensive view of the replication state
+// in one query. Note that some fields may be NULL depending on the state of the
+// standby (e.g., if not in recovery or if no WAL has been received).
+//
+// Scalar subqueries are used for pg_stat_wal_receiver fields so that NULL is
+// returned when the view is empty (e.g., on the primary or when the WAL
+// receiver is not running), rather than returning zero rows.
+const sqlGetReplicationStatus = `
+SELECT	pg_last_wal_replay_lsn(),
 		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
 		current_setting('primary_conninfo'),
-		(SELECT status FROM pg_stat_wal_receiver LIMIT 1)`
+		(SELECT status FROM pg_stat_wal_receiver LIMIT 1),
+		(SELECT last_msg_receipt_time FROM pg_stat_wal_receiver LIMIT 1),
+		current_setting('wal_receiver_status_interval'),
+		current_setting('wal_receiver_timeout')
+`
 
+// queryReplicationStatus queries PostgreSQL for all replication status fields.
+// This method handles NULL values properly for LSN fields that may be NULL
+// when not in recovery mode or when no WAL has been received/replayed.
+func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.query(queryCtx, sqlGetReplicationStatus)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -275,8 +289,11 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	var lastXactTime *string
 	var primaryConnInfo string
 	var walReceiverStatus *string
+	var lastMsgReceiveTime *time.Time
+	var walReceiverStatusInterval *string
+	var walReceiverTimeout *string
 
-	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus)
+	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus, &lastMsgReceiveTime, &walReceiverStatusInterval, &walReceiverTimeout)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -295,6 +312,26 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	}
 	if walReceiverStatus != nil {
 		status.WalReceiverStatus = *walReceiverStatus
+	}
+
+	if lastMsgReceiveTime != nil {
+		status.LastMsgReceiveTime = timestamppb.New(*lastMsgReceiveTime)
+	}
+
+	if walReceiverStatusInterval != nil {
+		// We can use ParseDuration here since PostgreSQL interval settings are
+		// in a format compatible with Go durations (e.g., "10s", "500ms").
+		if d, err := time.ParseDuration(*walReceiverStatusInterval); err == nil {
+			status.WalReceiverStatusInterval = durationpb.New(d)
+		}
+	}
+
+	if walReceiverTimeout != nil {
+		// We can use ParseDuration here since PostgreSQL interval settings are
+		// in a format compatible with Go durations (e.g., "10s", "500ms").
+		if d, err := time.ParseDuration(*walReceiverTimeout); err == nil {
+			status.WalReceiverTimeout = durationpb.New(d)
+		}
 	}
 
 	// Parse primary_conninfo into structured format

@@ -211,7 +211,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, managerStatusResp.Status.PoolerType, "Should still be PRIMARY")
 		assert.Equal(t, "primary", managerStatusResp.Status.PostgresRole, "PostgreSQL should still be primary")
-		assert.True(t, managerStatusResp.Status.PostgresRunning, "PostgreSQL should still be running")
+		assert.True(t, managerStatusResp.Status.PostgresReady, "PostgreSQL should still be running")
 
 		t.Logf("BeginTerm NO_ACTION on primary: term=%d, still primary with postgres running", expectedTerm)
 	})
@@ -278,7 +278,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, managerStatusResp.Status.PoolerType, "Should still be REPLICA")
 		assert.Equal(t, "standby", managerStatusResp.Status.PostgresRole, "PostgreSQL should still be standby")
-		assert.True(t, managerStatusResp.Status.PostgresRunning, "PostgreSQL should still be running")
+		assert.True(t, managerStatusResp.Status.PostgresReady, "PostgreSQL should still be running")
 		assert.NotNil(t, managerStatusResp.Status.ReplicationStatus, "Replication status should be populated")
 		assert.NotNil(t, managerStatusResp.Status.ReplicationStatus.PrimaryConnInfo, "Primary connection info should be preserved")
 		assert.Equal(t, "test-primary-host", managerStatusResp.Status.ReplicationStatus.PrimaryConnInfo.Host,

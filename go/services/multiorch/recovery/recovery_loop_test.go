@@ -1078,7 +1078,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.recoveryGracePeriodTracker.Observe(types.ProblemPrimaryIsDead, "multipooler-cell1-primary-pooler", problems[0].RecoveryAction, false)
+	engine.recoveryGracePeriodTracker.Observe(types.ProblemPrimaryIsDead, problems[0].EntityID(), problems[0].RecoveryAction, false)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{
@@ -1864,7 +1864,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	initialDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 	require.True(t, exists, "deadline should be set after problem detected")
@@ -1886,7 +1886,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	resetDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
@@ -1908,7 +1908,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	recurrenceDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 

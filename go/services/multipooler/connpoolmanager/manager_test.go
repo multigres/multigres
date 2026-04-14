@@ -228,7 +228,7 @@ func TestManager_NewReservedConn(t *testing.T) {
 	require.NotNil(t, conn)
 
 	// Verify connection has a unique ID.
-	assert.Greater(t, conn.ConnID, int64(0))
+	assert.Greater(t, conn.ConnID(), int64(0))
 
 	conn.Release(reserved.ReleaseCommit) // ReleaseCommit
 }
@@ -273,12 +273,12 @@ func TestManager_GetReservedConn(t *testing.T) {
 	// Create a reserved connection.
 	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
 	require.NoError(t, err)
-	connID := conn.ConnID
+	connID := conn.ConnID()
 
 	// Retrieve by ID.
 	retrieved, ok := manager.GetReservedConn(connID, "testuser")
 	require.True(t, ok)
-	assert.Equal(t, connID, retrieved.ConnID)
+	assert.Equal(t, connID, retrieved.ConnID())
 
 	conn.Release(reserved.ReleaseCommit)
 }

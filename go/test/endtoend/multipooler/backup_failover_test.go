@@ -198,7 +198,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 			}
 			if resp.Status.IsInitialized &&
 				resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
-				resp.Status.PostgresRunning {
+				resp.Status.PostgresReady {
 				t.Logf("New primary elected: %s", name)
 				return true
 			}

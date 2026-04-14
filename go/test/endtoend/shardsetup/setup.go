@@ -61,7 +61,7 @@ type SetupConfig struct {
 	TableGroup                          string
 	Shard                               string
 	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "ANY_2")
+	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
@@ -678,10 +678,7 @@ func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.Cli
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
-		return nil // unreachable; satisfies staticcheck SA5011
-	}
+	require.NotNilf(t, mo, "connectToMultiOrch: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -1858,7 +1855,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.Reachable && h.PostgresRunning {
+		if h.Reachable && h.PostgresReady {
 			status = "up"
 		}
 
