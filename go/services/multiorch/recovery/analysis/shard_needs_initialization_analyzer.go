@@ -23,30 +23,30 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
-// ShardNeedsInitialCohortAnalyzer detects Phase 2 of shard bootstrap: the shard has
+// ShardNeedsInitializationAnalyzer detects Phase 2 of shard bootstrap: the shard has
 // been initialized (first backup created and a 0-member cohort record written) but
 // its initial cohort has not yet been established by multiorch.
 //
 // Fires when the shard has at least one reachable, initialized pooler, no primary,
 // and no pooler in the shard has cohort members. This is a shard-level problem:
-// InitialCohortAction needs to see all initialized poolers to form a quorum.
-type ShardNeedsInitialCohortAnalyzer struct {
+// ShardInitAction needs to see all initialized poolers to form a quorum.
+type ShardNeedsInitializationAnalyzer struct {
 	factory *RecoveryActionFactory
 }
 
-func (a *ShardNeedsInitialCohortAnalyzer) Name() types.CheckName {
-	return "ShardNeedsInitialCohort"
+func (a *ShardNeedsInitializationAnalyzer) Name() types.CheckName {
+	return "ShardNeedsInitialization"
 }
 
-func (a *ShardNeedsInitialCohortAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemShardNeedsInitialCohort
+func (a *ShardNeedsInitializationAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemShardNeedsInitialization
 }
 
-func (a *ShardNeedsInitialCohortAnalyzer) RecoveryAction() types.RecoveryAction {
-	return a.factory.NewInitialCohortAction()
+func (a *ShardNeedsInitializationAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewShardInitAction()
 }
 
-func (a *ShardNeedsInitialCohortAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -69,13 +69,13 @@ func (a *ShardNeedsInitialCohortAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pr
 	}
 
 	return []types.Problem{{
-		Code:           types.ProblemShardNeedsInitialCohort,
-		CheckName:      "ShardNeedsInitialCohort",
+		Code:           types.ProblemShardNeedsInitialization,
+		CheckName:      "ShardNeedsInitialization",
 		ShardKey:       sa.ShardKey,
-		Description:    fmt.Sprintf("Shard %s has no initial cohort", sa.ShardKey),
+		Description:    fmt.Sprintf("Shard %s needs initialization", sa.ShardKey),
 		Priority:       types.PriorityShardBootstrap,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
-		RecoveryAction: a.factory.NewInitialCohortAction(),
+		RecoveryAction: a.factory.NewShardInitAction(),
 	}}, nil
 }

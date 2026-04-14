@@ -31,39 +31,40 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// initialCohortCoordinator is the subset of consensus.Coordinator used by InitialCohortAction.
-type initialCohortCoordinator interface {
+// shardInitCoordinator is the subset of consensus.Coordinator used by ShardInitAction.
+type shardInitCoordinator interface {
 	GetBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error)
 	AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error
+	GetCoordinatorID() *clustermetadatapb.ID
 }
 
-// Compile-time assertion that InitialCohortAction implements types.RecoveryAction.
-var _ types.RecoveryAction = (*InitialCohortAction)(nil)
+// Compile-time assertion that ShardInitAction implements types.RecoveryAction.
+var _ types.RecoveryAction = (*ShardInitAction)(nil)
 
-// InitialCohortAction handles Phase 2 of shard bootstrap: the first backup has already
+// ShardInitAction handles Phase 2 of shard bootstrap: the first backup has already
 // been created and all poolers have restored from it. This action:
-//  1. Reads the pooler store (already refreshed by the recovery loop recheck) to collect
-//     initialized poolers and verify no cohort is established yet
+//  1. Reads the pooler store to collect initialized poolers and verify no cohort
+//     is established yet
 //  2. Ensures enough initialized poolers are available to satisfy the durability policy
-//  3. CAS-claims the initial cohort via topoStore.ClaimInitialCohort
-//  4. Calls coordinator.AppointInitialLeader with the committed cohort
-type InitialCohortAction struct {
+//  3. Claims the exclusive right to initialize via topoStore.ClaimShardInitialization
+//  4. Calls coordinator.AppointInitialLeader with the initialized poolers
+type ShardInitAction struct {
 	config      *config.Config
-	coordinator initialCohortCoordinator
+	coordinator shardInitCoordinator
 	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
 
-// NewInitialCohortAction creates a new InitialCohortAction.
-func NewInitialCohortAction(
+// NewShardInitAction creates a new ShardInitAction.
+func NewShardInitAction(
 	cfg *config.Config,
-	coordinator initialCohortCoordinator,
+	coordinator shardInitCoordinator,
 	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
-) *InitialCohortAction {
-	return &InitialCohortAction{
+) *ShardInitAction {
+	return &ShardInitAction{
 		config:      cfg,
 		coordinator: coordinator,
 		poolerStore: poolerStore,
@@ -73,8 +74,8 @@ func NewInitialCohortAction(
 }
 
 // Execute performs the initial cohort establishment for a bootstrapped shard.
-func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem) error {
-	a.logger.InfoContext(ctx, "executing initial cohort action",
+func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) error {
+	a.logger.InfoContext(ctx, "executing shard init action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
@@ -113,41 +114,28 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 		"initialized_count", len(initializedPoolers),
 		"required_count", policy.RequiredCount)
 
-	// Build the proposed cohort from initialized poolers.
-	proposedIDs := make([]string, 0, len(initializedPoolers))
-	for _, p := range initializedPoolers {
-		proposedIDs = append(proposedIDs, p.MultiPooler.Id.Name)
-	}
-
-	// CAS-claim the initial cohort. This is idempotent: if another multiorch instance
-	// already claimed the cohort, we get back the committed IDs instead of our proposal.
-	committedIDs, err := a.topoStore.ClaimInitialCohort(ctx, problem.ShardKey, proposedIDs)
+	// Claim the exclusive right to initialize this shard. If another coordinator
+	// already claimed it, back off and let them handle it.
+	claimedBy := topoclient.ClusterIDString(a.coordinator.GetCoordinatorID())
+	won, err := a.topoStore.ClaimShardInitialization(ctx, problem.ShardKey, claimedBy)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to claim initial cohort")
+		return mterrors.Wrap(err, "failed to claim shard initialization")
+	}
+	if !won {
+		a.logger.InfoContext(ctx, "shard initialization claimed by another coordinator, skipping",
+			"shard_key", problem.ShardKey.String())
+		return nil
 	}
 
-	a.logger.InfoContext(ctx, "initial cohort claimed",
+	a.logger.InfoContext(ctx, "shard initialization claimed",
 		"shard_key", problem.ShardKey.String(),
-		"committed_ids", committedIDs)
+		"claimed_by", claimedBy)
 
-	// Build the committed cohort from the topology-committed IDs. Use the pooler store
-	// entries so that each PoolerHealthState includes address/port information.
-	committedCohort := a.buildCohortFromIDs(initializedPoolers, committedIDs)
-
-	// The cohort may have been committed to etcd by a different multiorch instance; we may not
-	// yet have all committed poolers in our store. Retry next cycle if reachable poolers
-	// are insufficient to satisfy the durability policy.
-	if !commonconsensus.IsDurabilityPolicyAchievable(policy, len(committedCohort)) {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"insufficient initial cohort poolers reachable: have %d of %v, need %d for quorum",
-			len(committedCohort), committedIDs, policy.RequiredCount)
-	}
-
-	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
+	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, initializedPoolers, problem.ShardKey.Database); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
 	}
 
-	a.logger.InfoContext(ctx, "initial cohort action completed successfully",
+	a.logger.InfoContext(ctx, "shard init action completed successfully",
 		"shard_key", problem.ShardKey.String())
 	return nil
 }
@@ -156,7 +144,7 @@ func (a *InitialCohortAction) Execute(ctx context.Context, problem types.Problem
 // recovery loop before Execute is called). It returns the list of initialized poolers, plus
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
-func (a *InitialCohortAction) getInitializedPoolers(shardKey commontypes.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
+func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
 	a.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true
@@ -178,31 +166,15 @@ func (a *InitialCohortAction) getInitializedPoolers(shardKey commontypes.ShardKe
 	return initialized, cohortEstablished
 }
 
-// buildCohortFromIDs returns the subset of cohort poolers whose names are in committedIDs.
-func (a *InitialCohortAction) buildCohortFromIDs(cohort []*multiorchdatapb.PoolerHealthState, committedIDs []string) []*multiorchdatapb.PoolerHealthState {
-	idSet := make(map[string]struct{}, len(committedIDs))
-	for _, id := range committedIDs {
-		idSet[id] = struct{}{}
-	}
-
-	var result []*multiorchdatapb.PoolerHealthState
-	for _, p := range cohort {
-		if _, ok := idSet[p.MultiPooler.Id.Name]; ok {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
 // RecoveryAction interface implementation
 
-func (a *InitialCohortAction) RequiresHealthyPrimary() bool {
+func (a *ShardInitAction) RequiresHealthyPrimary() bool {
 	return false
 }
 
-func (a *InitialCohortAction) Metadata() types.RecoveryMetadata {
+func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
-		Name:        "InitialCohort",
+		Name:        "ShardInit",
 		Description: "Establish initial cohort and appoint first leader for a bootstrapped shard",
 		Timeout:     60 * time.Second,
 		LockTimeout: 15 * time.Second,
@@ -210,10 +182,10 @@ func (a *InitialCohortAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (a *InitialCohortAction) Priority() types.Priority {
+func (a *ShardInitAction) Priority() types.Priority {
 	return types.PriorityShardBootstrap
 }
 
-func (a *InitialCohortAction) GracePeriod() *types.GracePeriodConfig {
+func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {
 	return nil
 }

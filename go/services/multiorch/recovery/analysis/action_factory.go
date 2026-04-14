@@ -58,9 +58,9 @@ func NewRecoveryActionFactory(
 	}
 }
 
-// NewInitialCohortAction creates an initial cohort action.
-func (f *RecoveryActionFactory) NewInitialCohortAction() types.RecoveryAction {
-	return actions.NewInitialCohortAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
+// NewShardInitAction creates a shard initialization action.
+func (f *RecoveryActionFactory) NewShardInitAction() types.RecoveryAction {
+	return actions.NewShardInitAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.

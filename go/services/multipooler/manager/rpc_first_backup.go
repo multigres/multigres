@@ -31,7 +31,7 @@ import (
 // createFirstBackupAndInitialize attempts to create the first pgBackRest backup for this shard.
 //
 // If no backup exists, this pooler races via the backup lease to run initdb, create the
-// multigres schema, write a 0-member cohort record (the signal for ShardNeedsInitialCohort),
+// multigres schema, write a 0-member cohort record (the signal for ShardNeedsInitialization),
 // create the first pgBackRest backup, and delete the local data directory. All poolers
 // then restore from that backup and end up in the same state: hot standby.
 //

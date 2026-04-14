@@ -264,7 +264,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")
 
-		assert.Equal(t, "InitialCohort", reason, "reason should be 'InitialCohort'")
+		assert.Equal(t, "ShardInit", reason, "reason should be 'ShardInit'")
 
 		// Parse and verify cohort_members is a valid JSON array
 		var cohortMembers []string

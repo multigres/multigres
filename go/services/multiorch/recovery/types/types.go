@@ -34,7 +34,7 @@ type ProblemCode string
 
 const (
 	// Shard bootstrap problems (highest priority - shard cannot function at all).
-	ProblemShardNeedsInitialCohort ProblemCode = "ShardNeedsInitialCohort"
+	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
 	// Primary problems (catastrophic - block everything else).
 	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"

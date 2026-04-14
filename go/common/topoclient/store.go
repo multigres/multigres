@@ -92,12 +92,12 @@ const (
 
 // Filenames for all object types.
 const (
-	CellFile          = "Cell"
-	DatabaseFile      = "Database"
-	GatewayFile       = "Gateway"
-	PoolerFile        = "Pooler"
-	OrchFile          = "Orch"
-	InitialCohortFile = "InitialCohort"
+	CellFile           = "Cell"
+	DatabaseFile       = "Database"
+	GatewayFile        = "Gateway"
+	PoolerFile         = "Pooler"
+	OrchFile           = "Orch"
+	ShardInitClaimFile = "ShardInitClaim"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -217,12 +217,10 @@ type Store interface {
 	// See backup_lock.go for full documentation.
 	TryLockBackup(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
-	// ClaimInitialCohort atomically records the initial cohort pooler IDs for a shard.
-	// The first caller to win the race creates the record and gets back its proposed IDs.
-	// Any subsequent caller (including after a crash) reads the already-committed record
-	// and gets back those IDs instead of its own proposal.
-	// Callers must use the returned IDs — not their proposed list — to establish the cohort.
-	ClaimInitialCohort(ctx context.Context, shardKey types.ShardKey, proposedIDs []string) (committedIDs []string, err error)
+	// ClaimShardInitialization atomically claims the right to initialize a shard.
+	// Returns true if this caller won the claim (or is resuming its own prior claim
+	// after a crash). Returns false if a different coordinator already owns it.
+	ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimedBy string) (won bool, err error)
 
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.

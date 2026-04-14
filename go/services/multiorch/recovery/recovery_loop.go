@@ -399,7 +399,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 // read doesn't stall a full recovery cycle.
 //
 // A nil return value is not a correctness issue: analyzers that require a policy
-// (e.g. ShardNeedsInitialCohort) refuse to fire when policy is nil, so a transient
+// (e.g. ShardNeedsInitialization) refuse to fire when policy is nil, so a transient
 // failure simply delays bootstrap until the next cycle. GetBootstrapPolicy caches
 // successful results in a sync.Map, so a healthy cluster never hits the error path.
 func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermetadatapb.DurabilityPolicy {

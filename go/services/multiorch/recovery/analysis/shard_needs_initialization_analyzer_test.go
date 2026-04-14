@@ -31,7 +31,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-func TestShardNeedsInitialCohortAnalyzer_Analyze(t *testing.T) {
+func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
@@ -45,7 +45,7 @@ func TestShardNeedsInitialCohortAnalyzer_Analyze(t *testing.T) {
 	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
-	analyzer := &ShardNeedsInitialCohortAnalyzer{factory: factory}
+	analyzer := &ShardNeedsInitializationAnalyzer{factory: factory}
 	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	policy := topoclient.AtLeastN(2)
 
@@ -68,7 +68,7 @@ func TestShardNeedsInitialCohortAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemShardNeedsInitialCohort, problems[0].Code)
+		require.Equal(t, types.ProblemShardNeedsInitialization, problems[0].Code)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 		require.Equal(t, types.PriorityShardBootstrap, problems[0].Priority)
 		require.NotNil(t, problems[0].RecoveryAction)
@@ -133,6 +133,6 @@ func TestShardNeedsInitialCohortAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
-		require.Equal(t, types.CheckName("ShardNeedsInitialCohort"), analyzer.Name())
+		require.Equal(t, types.CheckName("ShardNeedsInitialization"), analyzer.Name())
 	})
 }
