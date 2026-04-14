@@ -1167,13 +1167,14 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 			expectError:       false,
 			expectedArgsContains: []string{
 				"--pg2-host=primary.example.com",
+				"--pg2-path=/data/pg_data",
 				"--pg2-host-type=tls",
 				"--pg2-host-port=8443",
 				"--pg2-host-ca-file=",
 				"--pg2-host-cert-file=",
 				"--pg2-host-key-file=",
 			},
-			expectedArgsNotContains: []string{"--pg2-port=5432", "--pg2-path="},
+			expectedArgsNotContains: []string{"--pg2-port=5432"},
 		},
 		{
 			name:                 "replica_without_tls_local_mode_requires_override",
@@ -1228,7 +1229,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 				}
 				pm.primaryPoolerID = primaryID
 
-				// Add primary to topology with pgbackrest port
+				// Add primary to topology with pgbackrest port and data dir
 				if pm.topoClient != nil {
 					primaryPooler := &clustermetadatapb.MultiPooler{
 						Id:       primaryID,
@@ -1238,6 +1239,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 							"postgres":   tt.primaryPort,
 							"pgbackrest": int32(tt.pgBackRestTLSPort),
 						},
+						PgDataDir: "/data/pg_data",
 					}
 					err := pm.topoClient.CreateMultiPooler(context.Background(), primaryPooler)
 					require.NoError(t, err, "failed to create primary pooler in topology")
@@ -1283,7 +1285,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 	ctx := context.Background()
 	poolerDir := t.TempDir()
 
-	t.Run("TLS mode ignores pg2_path in base but applies via overrides", func(t *testing.T) {
+	t.Run("TLS mode pg2_path override replaces topology value", func(t *testing.T) {
 		// Create manager with TLS certs
 		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
@@ -1292,7 +1294,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.primaryHost = "primary.example.com"
 		pm.primaryPort = 5432
 
-		// Create primary pooler ID and add to topology with pgbackrest port
+		// Create primary pooler ID and add to topology with pgbackrest port and data dir
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -1300,7 +1302,6 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 		pm.primaryPoolerID = primaryID
 
-		// Add primary to topology with pgbackrest port
 		if pm.topoClient != nil {
 			primaryPooler := &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -1310,6 +1311,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 					"postgres":   5432,
 					"pgbackrest": 8432,
 				},
+				PgDataDir: "/data/pg_data",
 			}
 			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
@@ -1323,7 +1325,43 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		assert.Contains(t, args, "--pg2-host=primary.example.com")
 		assert.Contains(t, args, "--pg2-host-type=tls")
 		assert.Contains(t, args, "--pg2-host-port=8432")
-		assert.Contains(t, args, "--pg2-path=/custom/path") // Added by override
+		assert.Contains(t, args, "--pg2-path=/custom/path") // Override wins over topology
+		assert.NotContains(t, args, "--pg2-path=/data/pg_data")
+	})
+
+	t.Run("TLS mode errors when pg_data_dir missing from topology", func(t *testing.T) {
+		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
+		pm.config.PgBackRestCertFile = "/path/to/client.crt"
+		pm.config.PgBackRestKeyFile = "/path/to/client.key"
+		pm.primaryHost = "primary.example.com"
+		pm.primaryPort = 5432
+
+		primaryID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-primary-no-datadir",
+		}
+		pm.primaryPoolerID = primaryID
+
+		if pm.topoClient != nil {
+			primaryPooler := &clustermetadatapb.MultiPooler{
+				Id:       primaryID,
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary.example.com",
+				PortMap: map[string]int32{
+					"postgres":   5432,
+					"pgbackrest": 8432,
+				},
+				// PgDataDir intentionally omitted
+			}
+			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			require.NoError(t, err, "failed to create primary pooler in topology")
+		}
+
+		_, err := pm.GetPrimaryAsPg2Args(ctx, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pg_data_dir")
 	})
 
 	t.Run("local mode requires pg2_path override", func(t *testing.T) {
@@ -1355,7 +1393,6 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.primaryHost = "primary.example.com"
 		pm.primaryPort = 5432
 
-		// Create primary pooler ID and add to topology with pgbackrest port
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -1363,7 +1400,6 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 		pm.primaryPoolerID = primaryID
 
-		// Add primary to topology with pgbackrest port
 		if pm.topoClient != nil {
 			primaryPooler := &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -1373,6 +1409,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 					"postgres":   5432,
 					"pgbackrest": 8432,
 				},
+				PgDataDir: "/data/pg_data",
 			}
 			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")

@@ -858,12 +858,11 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // GetPrimaryAsPg2Args returns pgbackrest CLI arguments for pg2 (primary) configuration.
 //
 // When backing up from PRIMARY: Returns empty slice - pgBackRest does local backup from pg1.
-// When backing up from REPLICA with TLS certs: Returns TLS connection parameters to primary's pgBackRest server.
+// When backing up from REPLICA with TLS certs: Returns TLS connection parameters and pg2-path
+// (resolved from topology or overrides) to the primary's pgBackRest server.
 // When backing up from REPLICA without TLS certs: Returns direct postgres connection parameters (test mode).
 //
 // Returns error if this is a replica pooler without primary information.
-//
-// This is a public method to allow testing and potential reuse by other components.
 func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	ctx context.Context,
 	overrides map[string]string,
@@ -896,28 +895,37 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	var args []string
 
 	if isTLSMode {
-		// TLS mode: need to get the PRIMARY's pgBackRest port from topology
-		var primaryPgBackRestPort int32
-		if primaryPoolerID != nil {
-			// Get primary pooler info from topology to find its pgBackRest port
-			primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
-			if err != nil {
-				return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
-			}
-			if port, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]; ok {
-				primaryPgBackRestPort = port
-			} else {
-				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-					"primary pooler does not have pgbackrest port configured")
-			}
-		} else {
+		// TLS mode: need to get the PRIMARY's pgBackRest port and data dir from topology
+		if primaryPoolerID == nil {
 			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 				"primary pooler ID not available")
 		}
 
-		// TLS mode base arguments - connect to PRIMARY's pgBackRest TLS server
+		primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
+		}
+
+		primaryPgBackRestPort, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]
+		if !ok {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pgbackrest port configured")
+		}
+
+		// pg2-path is required by pgBackRest even in TLS mode.
+		// Use the override if provided, otherwise read from topology.
+		pg2Path := overrides["pg2_path"]
+		if pg2Path == "" {
+			pg2Path = primaryInfo.MultiPooler.PgDataDir
+		}
+		if pg2Path == "" {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pg_data_dir set in topology (required for pg2-path)")
+		}
+
 		args = []string{
 			"--pg2-host=" + primaryHost,
+			"--pg2-path=" + pg2Path,
 			"--pg2-host-type=tls",
 			fmt.Sprintf("--pg2-host-port=%d", primaryPgBackRestPort),
 			"--pg2-host-ca-file=" + caFile,

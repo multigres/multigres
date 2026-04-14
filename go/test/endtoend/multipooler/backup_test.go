@@ -459,16 +459,9 @@ func TestBackup_FromStandby(t *testing.T) {
 			// Create backup client connection to standby
 			backupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
 
-			// For local mode (tests without TLS), we need to pass pg2_path override
-			// so pgBackRest can connect to the primary's postgres to get WAL files
-			primaryDataPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data")
-			overrides := map[string]string{
-				"pg2_path": primaryDataPath,
-			}
-
 			t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating full backup from standby...")
-				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, overrides)
+				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
 				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
@@ -477,7 +470,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating incremental backup from standby...")
-				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, overrides)
+				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, nil)
 			})
 		})
 	}

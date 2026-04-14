@@ -82,17 +82,14 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 		"shard", req.Shard,
 		"force_primary", req.ForcePrimary)
 
-	// For replica backups in local mode (tests), we need to pass pg2_path override
-	// so pgBackRest can connect to the primary's postgres to get WAL files.
-	// In TLS mode (production), this override is not used.
+	// For replica backups, pg2_path is resolved from topology by the multipooler.
+	// Pass it as an override here as a fallback in case topology lookup fails.
 	overrides := make(map[string]string)
 	if pooler.Type == clustermetadatapb.PoolerType_REPLICA {
-		// Find the primary pooler to get its data directory
 		primary, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, true)
 		if err != nil {
 			s.logger.WarnContext(ctx, "Failed to find primary pooler for pg2_path override",
 				"error", err)
-			// Continue without override - will work in TLS mode, fail in local mode
 		} else if primary.PgDataDir != "" {
 			overrides["pg2_path"] = primary.PgDataDir
 			s.logger.DebugContext(ctx, "Added pg2_path override for replica backup",
