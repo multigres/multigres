@@ -285,8 +285,9 @@ func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(term int64) {
 	pm.mu.Unlock()
 }
 
-// clearResignedPrimaryAtTerm clears the leadership demotion request, called when
-// this node is elected as primary again.
+// clearResignedPrimaryAtTerm clears the leadership demotion request. Called by
+// coordinator-driven promotion (SetPrimaryTerm) when this node is explicitly
+// re-appointed as primary at a new term.
 func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm() {
 	pm.mu.Lock()
 	pm.resignedPrimaryAtTerm = 0

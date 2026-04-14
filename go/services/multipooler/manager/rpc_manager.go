@@ -1290,6 +1290,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
+	// Clear any outstanding resignation signal now that the coordinator has
+	// explicitly re-promoted us at a new term. A higher primary_term implicitly
+	// invalidates the old signal, but clearing eagerly avoids a window where
+	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
+	pm.clearResignedPrimaryAtTerm()
+
 	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
 		PrimaryID:   pm.serviceID,
 		PrimaryTerm: consensusTerm,
