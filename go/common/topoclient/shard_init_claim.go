@@ -19,8 +19,11 @@ import (
 	"errors"
 	"path"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func shardInitClaimPath(shardKey types.ShardKey) string {
@@ -30,26 +33,48 @@ func shardInitClaimPath(shardKey types.ShardKey) string {
 // ClaimShardInitialization atomically claims the right to initialize a shard
 // using a create-if-not-exists write to the global topology.
 //
-// The first caller creates the claim and gets back won=true.
-// Any subsequent caller checks whether the existing claim belongs to them
-// (matching claimedBy), returning won=true for a retry after crash, or
-// won=false if a different coordinator already owns the initialization.
-func (ts *store) ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimedBy string) (bool, error) {
+// The claim persists both the claimer's identity and the proposed cohort so that
+// a crash-retry reuses the same cohort for idempotency.
+//
+// Returns won=true and the committed cohort if this caller created the claim or
+// is resuming its own prior claim. Returns won=false if a different coordinator
+// already owns the initialization.
+func (ts *store) ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (bool, []*clustermetadatapb.ID, error) {
+	claim := &clustermetadatapb.ShardInitClaim{
+		ClaimerId:     claimerID,
+		CohortMembers: proposedCohort,
+	}
+
+	data, err := proto.Marshal(claim)
+	if err != nil {
+		return false, nil, mterrors.Wrapf(err, "failed to marshal shard init claim for %s", shardKey)
+	}
+
 	filePath := shardInitClaimPath(shardKey)
 
-	_, err := ts.globalTopo.Create(ctx, filePath, []byte(claimedBy))
+	_, err = ts.globalTopo.Create(ctx, filePath, data)
 	if err == nil {
-		return true, nil
+		return true, proposedCohort, nil
 	}
 
 	if !errors.Is(err, &TopoError{Code: NodeExists}) {
-		return false, mterrors.Wrapf(err, "failed to claim shard initialization for %s", shardKey)
+		return false, nil, mterrors.Wrapf(err, "failed to claim shard initialization for %s", shardKey)
 	}
 
-	data, _, err := ts.globalTopo.Get(ctx, filePath)
+	// Claim already exists — read it back and check ownership.
+	existing, _, err := ts.globalTopo.Get(ctx, filePath)
 	if err != nil {
-		return false, mterrors.Wrapf(err, "failed to read shard init claim for %s", shardKey)
+		return false, nil, mterrors.Wrapf(err, "failed to read shard init claim for %s", shardKey)
 	}
 
-	return string(data) == claimedBy, nil
+	committed := &clustermetadatapb.ShardInitClaim{}
+	if err := proto.Unmarshal(existing, committed); err != nil {
+		return false, nil, mterrors.Wrapf(err, "failed to unmarshal shard init claim for %s", shardKey)
+	}
+
+	if ClusterIDString(committed.ClaimerId) == ClusterIDString(claimerID) {
+		return true, committed.CohortMembers, nil
+	}
+
+	return false, nil, nil
 }

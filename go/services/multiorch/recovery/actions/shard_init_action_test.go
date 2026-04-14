@@ -34,7 +34,11 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-const testCoordinatorID = "cell1_test-multiorch"
+var testCoordinatorID = &clustermetadatapb.ID{
+	Component: clustermetadatapb.ID_MULTIORCH,
+	Cell:      "cell1",
+	Name:      "test-multiorch",
+}
 
 // mockCoordinator implements shardInitCoordinator for tests.
 type mockCoordinator struct {
@@ -64,7 +68,7 @@ func (m *mockCoordinator) GetCoordinatorID() *clustermetadatapb.ID {
 	if m.coordinatorID != nil {
 		return m.coordinatorID
 	}
-	return &clustermetadatapb.ID{Cell: "cell1", Name: "test-multiorch"}
+	return testCoordinatorID
 }
 
 var testShardInitShardKey = commontypes.ShardKey{
@@ -245,7 +249,7 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 
 func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	// Same coordinator already claimed but crashed before appointing.
-	// On retry it should win again and proceed.
+	// On retry it should win again and proceed with the committed cohort.
 	ps := newPoolerStore(t)
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
@@ -254,7 +258,11 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
 	// Pre-write the claim with the same coordinator ID to simulate a prior attempt.
-	won, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID)
+	priorCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
+	}
+	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID, priorCohort)
 	require.NoError(t, err)
 	require.True(t, won)
 
@@ -278,7 +286,11 @@ func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
 	// Pre-write the claim with a different coordinator ID.
-	won, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, "cell2_other-multiorch")
+	otherCoord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "other-multiorch"}
+	otherCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "p3"},
+	}
+	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, otherCoord, otherCohort)
 	require.NoError(t, err)
 	require.True(t, won)
 

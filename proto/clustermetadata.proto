@@ -74,6 +74,18 @@ message Database {
   DurabilityPolicy bootstrap_durability_policy = 4;
 }
 
+// ShardInitClaim records which coordinator claimed the right to initialize a shard
+// and the cohort it intends to use. Stored as a create-if-not-exists node in the
+// global topology so that only one coordinator can initialize a given shard.
+message ShardInitClaim {
+  // The coordinator that claimed this shard initialization.
+  ID claimer_id = 1;
+
+  // The cohort of poolers the claimer will use for initial leader appointment.
+  // Persisted so that a crash-retry uses the same cohort for idempotency.
+  repeated ID cohort_members = 2;
+}
+
 // BackupLocation specifies where backups are stored
 message BackupLocation {
   oneof location {

@@ -114,10 +114,15 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 		"initialized_count", len(initializedPoolers),
 		"required_count", policy.RequiredCount)
 
-	// Claim the exclusive right to initialize this shard. If another coordinator
-	// already claimed it, back off and let them handle it.
-	claimedBy := topoclient.ClusterIDString(a.coordinator.GetCoordinatorID())
-	won, err := a.topoStore.ClaimShardInitialization(ctx, problem.ShardKey, claimedBy)
+	// Build the proposed cohort IDs from initialized poolers.
+	proposedIDs := make([]*clustermetadatapb.ID, len(initializedPoolers))
+	for i, p := range initializedPoolers {
+		proposedIDs[i] = p.MultiPooler.Id
+	}
+
+	// Claim the exclusive right to initialize this shard and persist the cohort.
+	// On crash-retry the committed cohort is returned so we reuse the same members.
+	won, committedIDs, err := a.topoStore.ClaimShardInitialization(ctx, problem.ShardKey, a.coordinator.GetCoordinatorID(), proposedIDs)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to claim shard initialization")
 	}
@@ -129,9 +134,17 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 
 	a.logger.InfoContext(ctx, "shard initialization claimed",
 		"shard_key", problem.ShardKey.String(),
-		"claimed_by", claimedBy)
+		"committed_cohort_size", len(committedIDs))
 
-	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, initializedPoolers, problem.ShardKey.Database); err != nil {
+	// Resolve committed IDs to full PoolerHealthState entries from the pooler store.
+	committedCohort := a.buildCohortFromIDs(initializedPoolers, committedIDs)
+	if !commonconsensus.IsDurabilityPolicyAchievable(policy, len(committedCohort)) {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"insufficient committed cohort poolers reachable: have %d of %d, need %d for quorum",
+			len(committedCohort), len(committedIDs), policy.RequiredCount)
+	}
+
+	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
 	}
 
@@ -164,6 +177,23 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (
 		return true
 	})
 	return initialized, cohortEstablished
+}
+
+// buildCohortFromIDs resolves committed cohort IDs to PoolerHealthState entries
+// from the local pooler store. Returns only the poolers we can find locally.
+func (a *ShardInitAction) buildCohortFromIDs(poolers []*multiorchdatapb.PoolerHealthState, committedIDs []*clustermetadatapb.ID) []*multiorchdatapb.PoolerHealthState {
+	idSet := make(map[string]struct{}, len(committedIDs))
+	for _, id := range committedIDs {
+		idSet[topoclient.ClusterIDString(id)] = struct{}{}
+	}
+
+	var result []*multiorchdatapb.PoolerHealthState
+	for _, p := range poolers {
+		if _, ok := idSet[topoclient.ClusterIDString(p.MultiPooler.Id)]; ok {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // RecoveryAction interface implementation

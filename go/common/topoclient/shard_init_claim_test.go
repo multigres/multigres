@@ -21,19 +21,26 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func TestClaimShardInitialization(t *testing.T) {
 	shardKey := types.ShardKey{Database: "mydb", TableGroup: "tg0", Shard: "0"}
+	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
+	cohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
+	}
 
 	t.Run("first caller wins the claim", func(t *testing.T) {
 		ctx := t.Context()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, err := ts.ClaimShardInitialization(ctx, shardKey, "coordinator-1")
+		won, committed, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
+		require.Len(t, committed, 2)
 	})
 
 	t.Run("second caller with different ID loses", func(t *testing.T) {
@@ -41,27 +48,34 @@ func TestClaimShardInitialization(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, err := ts.ClaimShardInitialization(ctx, shardKey, "coordinator-1")
+		won, _, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
 
-		won, err = ts.ClaimShardInitialization(ctx, shardKey, "coordinator-2")
+		coord2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "orch-2"}
+		won, _, err = ts.ClaimShardInitialization(ctx, shardKey, coord2, cohort)
 		require.NoError(t, err)
 		require.False(t, won)
 	})
 
-	t.Run("same caller after crash wins again", func(t *testing.T) {
+	t.Run("same caller after crash gets committed cohort", func(t *testing.T) {
 		ctx := t.Context()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, err := ts.ClaimShardInitialization(ctx, shardKey, "coordinator-1")
+		won, _, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
 
-		// Simulated crash and retry with same ID
-		won, err = ts.ClaimShardInitialization(ctx, shardKey, "coordinator-1")
+		// Retry with a different proposed cohort — should get back the original.
+		newCohort := []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p3"},
+		}
+		won, committed, err := ts.ClaimShardInitialization(ctx, shardKey, coord, newCohort)
 		require.NoError(t, err)
 		require.True(t, won)
+		require.Len(t, committed, 2)
+		require.Equal(t, "p1", committed[0].Name)
+		require.Equal(t, "p2", committed[1].Name)
 	})
 }

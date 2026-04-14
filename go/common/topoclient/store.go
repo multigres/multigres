@@ -218,9 +218,10 @@ type Store interface {
 	TryLockBackup(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
 	// ClaimShardInitialization atomically claims the right to initialize a shard.
-	// Returns true if this caller won the claim (or is resuming its own prior claim
-	// after a crash). Returns false if a different coordinator already owns it.
-	ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimedBy string) (won bool, err error)
+	// Persists both the claimer ID and the proposed cohort. On crash-retry the
+	// committed cohort is returned so the caller reuses the same members.
+	// Returns won=false if a different coordinator already owns the claim.
+	ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
 
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
