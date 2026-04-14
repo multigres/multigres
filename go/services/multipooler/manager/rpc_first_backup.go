@@ -133,28 +133,9 @@ func (pm *MultiPoolerManager) createFirstBackupLocked(ctx context.Context) error
 		return mterrors.Wrap(err, "failed to initialize multischema data")
 	}
 
-	// Get WAL position for the history record.
-	walPosition, err := pm.getPrimaryLSN(ctx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get WAL position")
-	}
-
-	// Write a 0-member cohort record. This is the canonical signal that the shard
-	// has been initialized but not yet had its initial cohort established by multiorch.
-	if err := pm.insertHistoryRecord(ctx,
-		0,           // term 0 — no consensus yet
-		"promotion", // event type
-		poolerID{},  // no leader yet (inserts NULL via NULLIF)
-		nil,         // no coordinator yet
-		walPosition,
-		"bootstrap",             // operation
-		"BootstrapInitialShard", // reason
-		nil,                     // 0-member cohort
-		nil,                     // 0 accepted members
-		false,                   // not forced
-	); err != nil {
-		return mterrors.Wrap(err, "failed to insert initial history record")
-	}
+	// The zero-state sentinel row (term=0, empty cohort) was already inserted by
+	// createRuleTables via createSidecarSchema above. This signals to multiorch
+	// that the shard has been initialized but not yet had its cohort established.
 
 	// Run stanza-create within the already-held backup lease (no second acquisition).
 	if err := pm.runStanzaCreate(ctx); err != nil {

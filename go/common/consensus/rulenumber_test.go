@@ -23,7 +23,7 @@ import (
 )
 
 func rn(term, subterm int64) *clustermetadatapb.RuleNumber {
-	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, RuleSubterm: subterm}
+	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm}
 }
 
 func TestCompareRuleNumbers(t *testing.T) {
