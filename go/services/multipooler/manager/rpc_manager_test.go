@@ -1605,11 +1605,11 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
 		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
-		// Leadership history with two cohort members
-		mockQueryService.AddQueryPattern("SELECT id, term_number, event_type",
+		// Current rule with two cohort members
+		mockQueryService.AddQueryPattern("SELECT coordinator_term, leader_subterm",
 			mock.MakeQueryResult(
-				[]string{"id", "term_number", "event_type", "leader_id", "coordinator_id", "wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at"},
-				[][]any{{int64(1), int64(1), "promotion", "zone1_test-service", "zone1_test-service", "0/1000000", "bootstrap", "initial", `["zone1_pooler-a","zone1_pooler-b"]`, `["zone1_pooler-a","zone1_pooler-b"]`, "2026-01-01 00:00:00+00"}},
+				[]string{"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members", "durability_policy_name", "durability_quorum_type", "durability_required_count", "durability_async_fallback", "current_lsn"},
+				[][]any{{int64(1), int64(0), "zone1_test-service", "zone1_test-service", `["zone1_pooler-a","zone1_pooler-b"]`, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), nil, "0/1000000"}},
 			))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
