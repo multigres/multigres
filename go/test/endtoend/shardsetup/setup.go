@@ -546,16 +546,7 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("DisableRecovery: multiorch '%s' not found", orchName)
-	}
-
-	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("DisableRecovery: failed to create gRPC client: %v", err)
-	}
+	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
 	client := multiorchpb.NewMultiOrchServiceClient(conn)
@@ -568,7 +559,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	if !resp.Success {
 		t.Fatalf("DisableRecovery: returned success=false: %s", resp.Message)
 	}
-	t.Logf("Disabled recovery on multiorch '%s' (port %d)", orchName, mo.GrpcPort)
+	t.Logf("Disabled recovery on multiorch '%s'", orchName)
 
 	return func() {
 		s.EnableRecovery(t, orchName)
@@ -579,16 +570,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("EnableRecovery: multiorch '%s' not found", orchName)
-	}
-
-	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("EnableRecovery: failed to create gRPC client: %v", err)
-	}
+	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
 	client := multiorchpb.NewMultiOrchServiceClient(conn)
@@ -601,7 +583,7 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	if !resp.Success {
 		t.Fatalf("EnableRecovery: returned success=false: %s", resp.Message)
 	}
-	t.Logf("Enabled recovery on multiorch '%s' (port %d)", orchName, mo.GrpcPort)
+	t.Logf("Enabled recovery on multiorch '%s'", orchName)
 }
 
 // TriggerRecoveryOnce runs a single immediate recovery cycle and returns any problem codes
@@ -698,6 +680,7 @@ func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.Cli
 	mo := s.MultiOrchInstances[orchName]
 	if mo == nil {
 		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
+		return nil // unreachable; satisfies staticcheck SA5011
 	}
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
