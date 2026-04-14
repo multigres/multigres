@@ -1352,12 +1352,12 @@ func TestAppointInitialLeader(t *testing.T) {
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, "standby")
 		mp1.IsInitialized = true
-		mp1.IsPostgresRunning = true
+		mp1.IsPostgresReady = true
 		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby")
 		mp2.IsInitialized = true
-		mp2.IsPostgresRunning = true
+		mp2.IsPostgresReady = true
 		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
