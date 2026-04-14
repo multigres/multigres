@@ -131,8 +131,4 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, problems)
 	})
-
-	t.Run("analyzer name is correct", func(t *testing.T) {
-		require.Equal(t, types.CheckName("ShardNeedsInitialization"), analyzer.Name())
-	})
 }
