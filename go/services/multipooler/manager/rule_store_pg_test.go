@@ -319,7 +319,7 @@ func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(1), pos.Rule.RuleNumber.CoordinatorTerm)
-	assert.Equal(t, int64(0), pos.Rule.RuleNumber.RuleSubterm, "first write in a new term starts at subterm 0")
+	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm, "first write in a new term starts at subterm 0")
 }
 
 func TestRuleStorePG_UpdateRule_SameTermIncrementsSubterm(t *testing.T) {
@@ -335,11 +335,11 @@ func TestRuleStorePG_UpdateRule_SameTermIncrementsSubterm(t *testing.T) {
 
 	pos1, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), pos1.Rule.RuleNumber.RuleSubterm)
+	assert.Equal(t, int64(0), pos1.Rule.RuleNumber.LeaderSubterm)
 
 	pos2, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "second", now))
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.RuleSubterm, "second write in same term increments subterm")
+	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.LeaderSubterm, "second write in same term increments subterm")
 }
 
 func TestRuleStorePG_UpdateRule_NewTermResetsSubterm(t *testing.T) {
@@ -363,7 +363,7 @@ func TestRuleStorePG_UpdateRule_NewTermResetsSubterm(t *testing.T) {
 	pos, err := rs.updateRule(ctx, newRuleUpdate(2, coordinatorID, "promotion", "new coordinator", now))
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), pos.Rule.RuleNumber.CoordinatorTerm)
-	assert.Equal(t, int64(0), pos.Rule.RuleNumber.RuleSubterm, "new term resets subterm to 0")
+	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm, "new term resets subterm to 0")
 }
 
 func TestRuleStorePG_UpdateRule_StaleTermRejected(t *testing.T) {
@@ -414,7 +414,7 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(3), pos.Rule.RuleNumber.CoordinatorTerm)
-	assert.Equal(t, int64(0), pos.Rule.RuleNumber.RuleSubterm)
+	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm)
 
 	require.NotNil(t, pos.Rule.PrimaryId)
 	assert.Equal(t, "zone1", pos.Rule.PrimaryId.Cell)
@@ -468,7 +468,7 @@ func TestRuleStorePG_UpdateRule_HistoryFields(t *testing.T) {
 
 	rec := records[0]
 	assert.Equal(t, int64(5), rec.CoordinatorTerm)
-	assert.Equal(t, int64(0), rec.RuleSubterm)
+	assert.Equal(t, int64(0), rec.LeaderSubterm)
 	assert.Equal(t, "promotion", rec.EventType)
 	assert.Equal(t, "bootstrap failover", rec.Reason)
 
@@ -511,8 +511,8 @@ func TestRuleStorePG_UpdateRule_CASSuccess(t *testing.T) {
 	// Write the first rule so we know the exact term/subterm.
 	pos1, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
-	term := pos1.Rule.RuleNumber.CoordinatorTerm // 1
-	subterm := pos1.Rule.RuleNumber.RuleSubterm  // 0
+	term := pos1.Rule.RuleNumber.CoordinatorTerm  // 1
+	subterm := pos1.Rule.RuleNumber.LeaderSubterm // 0
 
 	// CAS: only proceed if current rule is still (term=1, subterm=0).
 	pos2, err := rs.updateRule(ctx,
@@ -520,7 +520,7 @@ func TestRuleStorePG_UpdateRule_CASSuccess(t *testing.T) {
 			withPreviousRule(term, subterm),
 	)
 	require.NoError(t, err, "CAS should succeed when term/subterm match")
-	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.RuleSubterm, "subterm should advance to 1")
+	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.LeaderSubterm, "subterm should advance to 1")
 }
 
 func TestRuleStorePG_UpdateRule_CASConflict(t *testing.T) {
@@ -618,7 +618,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(1), pos.Rule.RuleNumber.CoordinatorTerm)
-	assert.Equal(t, int64(goroutines-1), pos.Rule.RuleNumber.RuleSubterm,
+	assert.Equal(t, int64(goroutines-1), pos.Rule.RuleNumber.LeaderSubterm,
 		"final subterm should equal goroutines-1 after %d serialized writes", goroutines)
 }
 

@@ -66,7 +66,7 @@ func newRuleStore(
 // ruleNumber identifies a specific rule version by coordinator term and subterm.
 type ruleNumber struct {
 	coordinatorTerm int64
-	ruleSubterm     int64
+	leaderSubterm   int64
 }
 
 // ruleUpdateBuilder constructs the parameters for updateRule.
@@ -135,8 +135,8 @@ func (b *ruleUpdateBuilder) withForce() *ruleUpdateBuilder {
 
 // withPreviousRule adds a compare-and-swap check: the update only proceeds if the
 // current rule matches the given coordinator term and subterm.
-func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, ruleSubterm int64) *ruleUpdateBuilder {
-	b.previousRule = &ruleNumber{coordinatorTerm: coordinatorTerm, ruleSubterm: ruleSubterm}
+func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int64) *ruleUpdateBuilder {
+	b.previousRule = &ruleNumber{coordinatorTerm: coordinatorTerm, leaderSubterm: leaderSubterm}
 	return b
 }
 
@@ -160,7 +160,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.current_rule (
 		shard_id                  BYTEA PRIMARY KEY,
 		coordinator_term          BIGINT NOT NULL,
-		rule_subterm              BIGINT NOT NULL,
+		leader_subterm            BIGINT NOT NULL,
 		leader_id                 TEXT,
 		coordinator_id            TEXT,
 		cohort_members            TEXT[] NOT NULL,
@@ -175,7 +175,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 
 	if _, err := rs.queryService.QueryArgs(execCtx, `
 		INSERT INTO multigres.current_rule
-		  (shard_id, coordinator_term, rule_subterm, cohort_members, created_at)
+		  (shard_id, coordinator_term, leader_subterm, cohort_members, created_at)
 		VALUES ($1, 0, 0, '{}', now())
 		ON CONFLICT (shard_id) DO NOTHING`,
 		[]byte("0")); err != nil {
@@ -183,11 +183,11 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	}
 
 	// Each row records a cluster state change (promotion, cohort membership, durability policy).
-	// The composite primary key (coordinator_term, rule_subterm) uniquely identifies each rule;
-	// rule_subterm is assigned by the application as MAX(rule_subterm)+1 within a coordinator_term.
+	// The composite primary key (coordinator_term, leader_subterm) uniquely identifies each rule;
+	// leader_subterm is assigned by the application as MAX(leader_subterm)+1 within a coordinator_term.
 	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.rule_history (
 		coordinator_term          BIGINT NOT NULL,
-		rule_subterm              BIGINT NOT NULL,
+		leader_subterm              BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
 		leader_id                 TEXT,
 		coordinator_id            TEXT,
@@ -201,7 +201,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 		durability_async_fallback TEXT,
 		operation                 TEXT,
 		created_at                TIMESTAMPTZ NOT NULL,
-		PRIMARY KEY (coordinator_term, rule_subterm)
+		PRIMARY KEY (coordinator_term, leader_subterm)
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create rule_history table")
 	}
@@ -227,7 +227,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 	defer cancel()
 
 	result, err := rs.queryService.QueryArgs(queryCtx, `
-		SELECT coordinator_term, rule_subterm, leader_id, coordinator_id, cohort_members,
+		SELECT coordinator_term, leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
 		       durability_async_fallback,
 		       CASE
@@ -244,7 +244,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 		return nil, nil
 	}
 
-	var coordinatorTerm, ruleSubterm int64
+	var coordinatorTerm, leaderSubterm int64
 	var leaderIDStr, coordinatorIDStr *string
 	var cohortNames []string
 	var durabilityPolicyName, durabilityQuorumType, durabilityAsyncFallback *string
@@ -252,7 +252,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 	var lsn string
 	if err := executor.ScanRow(result.Rows[0],
 		&coordinatorTerm,
-		&ruleSubterm,
+		&leaderSubterm,
 		&leaderIDStr,
 		&coordinatorIDStr,
 		&cohortNames,
@@ -275,7 +275,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 		coordinatorIDStrVal = *coordinatorIDStr
 	}
 	pos, err := buildNodePosition(
-		coordinatorTerm, ruleSubterm,
+		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrVal, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
 		lsn,
@@ -289,9 +289,9 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 // updateRule atomically writes a new rule by updating multigres.current_rule and
 // appending to multigres.rule_history in a single CTE statement.
 //
-// The rule_subterm is assigned as:
+// The leader_subterm is assigned as:
 //   - 0 if termNumber is greater than the current coordinator_term (new term)
-//   - current rule_subterm + 1 if termNumber equals the current coordinator_term
+//   - current leader_subterm + 1 if termNumber equals the current coordinator_term
 //
 // Fields not set via the builder (leaderID, cohortMembers) retain their current
 // values in current_rule. All provided values are written to rule_history.
@@ -353,7 +353,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	var previousTerm, previousSubterm *int64
 	if update.previousRule != nil {
 		previousTerm = &update.previousRule.coordinatorTerm
-		previousSubterm = &update.previousRule.ruleSubterm
+		previousSubterm = &update.previousRule.leaderSubterm
 	}
 
 	// Use the remote operation timeout for history writes. This write validates that synchronous
@@ -375,31 +375,31 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		           $9::text[]       AS cohort_members,
 		           $10::text[]      AS accepted_members,
 		           $11::bigint      AS cas_coordinator_term,
-		           $12::bigint      AS cas_rule_subterm,
+		           $12::bigint      AS cas_leader_subterm,
 		           $13::timestamptz AS created_at
 		  ),
 		  locked AS (
 		    -- FOR UPDATE serializes concurrent writes at the database level, complementing
 		    -- the action lock held by the caller.
 		    -- Returns zero rows (causing a no-op write and error return) when any condition fails.
-		    -- next_sub: 0 when starting a new coordinator term, otherwise increment within term.
-		    SELECT current_rule.coordinator_term, current_rule.rule_subterm,
+		    -- next_leader_subterm: 0 when starting a new coordinator term, otherwise increment within term.
+		    SELECT current_rule.coordinator_term, current_rule.leader_subterm,
 		           current_rule.leader_id, current_rule.cohort_members,
 		           CASE WHEN params.coordinator_term > current_rule.coordinator_term THEN 0
-		                ELSE current_rule.rule_subterm + 1
-		           END AS next_sub
+		                ELSE current_rule.leader_subterm + 1
+		           END AS next_leader_subterm
 		    FROM multigres.current_rule, params
 		    WHERE current_rule.shard_id = params.shard_id                   -- target shard
 		      AND params.coordinator_term >= current_rule.coordinator_term  -- reject stale writes
 		      AND (params.cas_coordinator_term IS NULL                      -- optimistic CAS check
 		           OR (current_rule.coordinator_term = params.cas_coordinator_term
-		               AND current_rule.rule_subterm = params.cas_rule_subterm))
+		               AND current_rule.leader_subterm = params.cas_leader_subterm))
 		    FOR UPDATE
 		  ),
 		  updated AS (
 		    UPDATE multigres.current_rule
 		    SET coordinator_term = params.coordinator_term,
-		        rule_subterm     = locked.next_sub,
+		        leader_subterm     = locked.next_leader_subterm,
 		        leader_id        = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
 		        coordinator_id   = NULLIF(params.coordinator_id, ''),
 		        cohort_members   = COALESCE(params.cohort_members, locked.cohort_members),
@@ -408,16 +408,16 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		    -- Correlates the update target to the specific shard row. If locked is empty
 		    -- (any condition above failed), the cross-join produces zero rows here too.
 		    WHERE current_rule.shard_id = params.shard_id
-		    RETURNING current_rule.coordinator_term, current_rule.rule_subterm,
+		    RETURNING current_rule.coordinator_term, current_rule.leader_subterm,
 		              current_rule.leader_id, current_rule.coordinator_id, current_rule.cohort_members,
 		              current_rule.durability_policy_name, current_rule.durability_quorum_type,
 		              current_rule.durability_required_count, current_rule.durability_async_fallback
 		  ),
 		  inserted AS (
 		    INSERT INTO multigres.rule_history
-		      (coordinator_term, rule_subterm, event_type, leader_id, coordinator_id,
+		      (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members, created_at)
-		    SELECT updated.coordinator_term, updated.rule_subterm,
+		    SELECT updated.coordinator_term, updated.leader_subterm,
 		           params.event_type,
 		           updated.leader_id,
 		           updated.coordinator_id,
@@ -430,7 +430,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		  )
 		-- Cross-joining inserted ensures a zero-row history insert (a bug) also returns zero
 		-- rows here, causing the caller to surface an error rather than silently succeeding.
-		SELECT updated.coordinator_term, updated.rule_subterm,
+		SELECT updated.coordinator_term, updated.leader_subterm,
 		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
 		       updated.durability_policy_name, updated.durability_quorum_type,
 		       updated.durability_required_count, updated.durability_async_fallback,
@@ -471,7 +471,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 			update.termNumber)
 	}
 
-	var coordinatorTerm, ruleSubterm int64
+	var coordinatorTerm, leaderSubterm int64
 	var leaderIDStr *string
 	var coordinatorIDStrResult string
 	var cohortNames []string
@@ -480,7 +480,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	var lsn string
 	if err := executor.ScanSingleRow(result,
 		&coordinatorTerm,
-		&ruleSubterm,
+		&leaderSubterm,
 		&leaderIDStr,
 		&coordinatorIDStrResult,
 		&cohortNames,
@@ -494,7 +494,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	}
 
 	pos, err := buildNodePosition(
-		coordinatorTerm, ruleSubterm,
+		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrResult, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
 		lsn,
@@ -506,18 +506,18 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 }
 
 // queryRuleHistory returns the most recent rule history records in descending
-// order by (coordinator_term, rule_subterm). Returns at most limit records.
+// order by (coordinator_term, leader_subterm). Returns at most limit records.
 func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHistoryRecord, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
 	result, err := rs.queryService.QueryArgs(queryCtx, `
-		SELECT coordinator_term, rule_subterm, event_type, leader_id, coordinator_id,
+		SELECT coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
 		       durability_async_fallback, created_at
 		FROM multigres.rule_history
-		ORDER BY coordinator_term DESC, rule_subterm DESC
+		ORDER BY coordinator_term DESC, leader_subterm DESC
 		LIMIT $1`, limit)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query rule_history")
@@ -531,7 +531,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 		var durabilityRequiredCount *int64
 		if err := executor.ScanRow(row,
 			&rec.CoordinatorTerm,
-			&rec.RuleSubterm,
+			&rec.LeaderSubterm,
 			&rec.EventType,
 			&leaderIDStr,
 			&rec.CoordinatorID,
@@ -568,7 +568,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 // leaderIDStr and coordinatorIDStr are app-name formatted strings (e.g. "zone1_pooler-name").
 // durability fields are nil when not set in the DB.
 func buildNodePosition(
-	coordinatorTerm, ruleSubterm int64,
+	coordinatorTerm, leaderSubterm int64,
 	leaderIDStr *string,
 	coordinatorIDStr string,
 	cohortNames []string,
@@ -580,7 +580,7 @@ func buildNodePosition(
 	rule := &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{
 			CoordinatorTerm: coordinatorTerm,
-			RuleSubterm:     ruleSubterm,
+			LeaderSubterm:   leaderSubterm,
 		},
 	}
 
@@ -653,7 +653,7 @@ func appNamesToIDs(names []string) ([]*clustermetadatapb.ID, error) {
 // ruleHistoryRecord represents a row from multigres.rule_history or multigres.current_rule.
 type ruleHistoryRecord struct {
 	CoordinatorTerm         int64
-	RuleSubterm             int64
+	LeaderSubterm           int64
 	EventType               string
 	LeaderID                *poolerID // nil if not set
 	CoordinatorID           *string   // informational only; component type is not stored

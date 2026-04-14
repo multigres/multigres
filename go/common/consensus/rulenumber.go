@@ -27,14 +27,14 @@ func CompareRuleNumbers(a, b *clustermetadatapb.RuleNumber) int {
 	aSubterm := int64(0)
 	if a != nil {
 		aTerm = a.GetCoordinatorTerm()
-		aSubterm = a.GetRuleSubterm()
+		aSubterm = a.GetLeaderSubterm()
 	}
 
 	bTerm := int64(0)
 	bSubterm := int64(0)
 	if b != nil {
 		bTerm = b.GetCoordinatorTerm()
-		bSubterm = b.GetRuleSubterm()
+		bSubterm = b.GetLeaderSubterm()
 	}
 
 	if aTerm != bTerm {

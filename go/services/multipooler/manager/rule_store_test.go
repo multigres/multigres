@@ -38,10 +38,10 @@ func TestQueryRuleHistory(t *testing.T) {
 		createdAt := "2026-03-24 09:00:17.000000+00"
 
 		mockQueryService.AddQueryPatternOnce(
-			"SELECT coordinator_term, rule_subterm, event_type",
+			"SELECT coordinator_term, leader_subterm, event_type",
 			mock.MakeQueryResult(
 				[]string{
-					"coordinator_term", "rule_subterm", "event_type", "leader_id", "coordinator_id",
+					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
 					"durability_async_fallback", "created_at",
@@ -67,7 +67,7 @@ func TestQueryRuleHistory(t *testing.T) {
 
 		// First record: term 2, subterm 1 (newest)
 		assert.Equal(t, int64(2), records[0].CoordinatorTerm)
-		assert.Equal(t, int64(1), records[0].RuleSubterm)
+		assert.Equal(t, int64(1), records[0].LeaderSubterm)
 		assert.Equal(t, "promotion", records[0].EventType)
 		require.NotNil(t, records[0].LeaderID)
 		assert.Equal(t, leaderAppName, records[0].LeaderID.appName)
@@ -96,10 +96,10 @@ func TestQueryRuleHistory(t *testing.T) {
 		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService)
 
 		mockQueryService.AddQueryPatternOnce(
-			"SELECT coordinator_term, rule_subterm, event_type",
+			"SELECT coordinator_term, leader_subterm, event_type",
 			mock.MakeQueryResult(
 				[]string{
-					"coordinator_term", "rule_subterm", "event_type", "leader_id", "coordinator_id",
+					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
 					"durability_async_fallback", "created_at",
@@ -119,7 +119,7 @@ func TestQueryRuleHistory(t *testing.T) {
 		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService)
 
 		mockQueryService.AddQueryPatternOnceWithError(
-			"SELECT coordinator_term, rule_subterm, event_type",
+			"SELECT coordinator_term, leader_subterm, event_type",
 			errors.New("connection refused"),
 		)
 

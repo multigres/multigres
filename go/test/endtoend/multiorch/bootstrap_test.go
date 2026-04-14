@@ -234,7 +234,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			       array_to_json(cohort_members)::text, array_to_json(accepted_members)::text
 			FROM multigres.rule_history
 			WHERE event_type = 'promotion'
-			ORDER BY coordinator_term DESC, rule_subterm DESC
+			ORDER BY coordinator_term DESC, leader_subterm DESC
 			LIMIT 1
 		`, 7)
 		require.NoError(t, err, "should query rule_history")
