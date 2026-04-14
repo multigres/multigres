@@ -242,14 +242,19 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	// the primary criterion: a node that has seen a higher term has applied more
 	// of the agreed WAL history (the history write uses RemoteOperationTimeout,
 	// so sync standbys are guaranteed to have acknowledged it).
-	if rec, err := pm.currentLeadershipRecord(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get leadership term during revoke; candidate selection may be suboptimal",
+	if nodePosition, err := pm.rules.observePosition(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get rule history during revoke; candidate selection may be suboptimal",
 			"term", term, "error", err)
-	} else if rec != nil {
-		response.WalPosition.LeadershipTerm = rec.TermNumber
-		response.WalPosition.CohortMembers = rec.CohortMembers
-		pm.logger.InfoContext(ctx, "Captured leadership term for candidate selection",
-			"term", term, "leadership_term", rec.TermNumber)
+	} else if nodePosition != nil {
+		response.WalPosition.LeadershipTerm = nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm()
+		pids, pidErr := toPoolerIDs(nodePosition.GetRule().GetCohortMembers())
+		if pidErr != nil {
+			pm.logger.WarnContext(ctx, "Some cohort member IDs have invalid format; using approximate names for candidate selection",
+				"term", term, "error", pidErr)
+		}
+		response.WalPosition.CohortMembers = poolerIDsToAppNames(pids)
+		pm.logger.InfoContext(ctx, "Captured coordinator term for candidate selection",
+			"term", term, "coordinator_term", nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 
 	return nil

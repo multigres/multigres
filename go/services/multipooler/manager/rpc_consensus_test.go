@@ -69,7 +69,7 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 }
 
-func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -109,8 +109,10 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Shutdown() })
 
-	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
+	// Assign mock pooler controller and rule store BEFORE starting the manager
+	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = rules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -488,7 +490,7 @@ func TestBeginTerm(t *testing.T) {
 
 			tt.setupMocks(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
@@ -545,7 +547,7 @@ func TestBeginTerm(t *testing.T) {
 
 			tt.setupMocks(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
@@ -884,7 +886,7 @@ func TestCanReachPrimary(t *testing.T) {
 
 			tt.setupMock(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Handle nil qsc case
 			if tt.nilQsc {
@@ -1026,7 +1028,7 @@ func TestConsensusStatus(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			tt.setupMock(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
