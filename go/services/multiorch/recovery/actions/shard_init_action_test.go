@@ -73,11 +73,6 @@ var testShardInitShardKey = commontypes.ShardKey{
 	Shard:      "0",
 }
 
-// atLeastNPolicy returns a DurabilityPolicy requiring n nodes.
-func atLeastNPolicy(n int32) *clustermetadatapb.DurabilityPolicy {
-	return &clustermetadatapb.DurabilityPolicy{RequiredCount: n}
-}
-
 func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
 	return &multiorchdatapb.PoolerHealthState{
 		IsInitialized: initialized,
@@ -220,7 +215,7 @@ func TestShardInitAction_Execute_InsufficientInitializedPoolers(t *testing.T) {
 	// Only 1 initialized pooler but policy requires 2
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 
-	coord := &mockCoordinator{bootstrapPolicy: atLeastNPolicy(2)}
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	action := newTestAction(t, coord, ps, nil)
 	err := action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
 
@@ -234,7 +229,7 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
-	coord := &mockCoordinator{bootstrapPolicy: atLeastNPolicy(2)}
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 	action := newTestAction(t, coord, ps, ts)
 
@@ -255,7 +250,7 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
-	coord := &mockCoordinator{bootstrapPolicy: atLeastNPolicy(2)}
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
 	// Pre-write the claim with the same coordinator ID to simulate a prior attempt.
@@ -279,7 +274,7 @@ func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
-	coord := &mockCoordinator{bootstrapPolicy: atLeastNPolicy(2)}
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
 	// Pre-write the claim with a different coordinator ID.
@@ -300,7 +295,7 @@ func TestShardInitAction_Execute_AppointInitialLeaderError(t *testing.T) {
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{
-		bootstrapPolicy:         atLeastNPolicy(2),
+		bootstrapPolicy:         topoclient.AtLeastN(2),
 		appointInitialLeaderErr: errors.New("consensus failed"),
 	}
 	action := newTestAction(t, coord, ps, memorytopo.NewServer(t.Context(), "cell1"))
