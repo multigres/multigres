@@ -65,32 +65,49 @@ type poolerID struct {
 // This is used consistently for:
 // - SetPrimaryConnInfo: standby's application_name when connecting to primary
 // - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+//
+// On validation failure an approximate poolerID is returned alongside the error.
+// The approximate appName is "{cell}_{name}" with missing fields replaced by
+// "<unknown>". For overlong names the full (invalid) string is returned as-is.
+// Callers that require a strictly valid appName must check the error. Callers that
+// can tolerate an approximate name (e.g. for logging or informational responses)
+// may use the returned value regardless.
 func newPoolerID(id *clustermetadatapb.ID) (poolerID, error) {
 	if id == nil {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil")
+		return poolerID{appName: "<nil>"}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil ID")
 	}
+
+	cell := id.Cell
+	if cell == "" {
+		cell = "<unknown>"
+	}
+	name := id.Name
+	if name == "" {
+		name = "<unknown>"
+	}
+	appName := fmt.Sprintf("%s_%s", cell, name)
+
 	if id.Cell == "" {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
+		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
 	}
 	if id.Name == "" {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
+		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
 	}
 	// Underscores are not allowed in Cell or Name because they are used as delimiters
 	// in the application_name format (cell_name). Allowing underscores would break parsing.
 	if strings.Contains(id.Cell, "_") {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"cell contains underscore: %q (underscores not allowed)", id.Cell)
 	}
 	if strings.Contains(id.Name, "_") {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"name contains underscore: %q (underscores not allowed)", id.Name)
 	}
-	name := fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	if len(name) > maxApplicationNameLength {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"application name %q exceeds maximum length of %d characters", name, maxApplicationNameLength)
+	if len(appName) > maxApplicationNameLength {
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"application name %q exceeds maximum length of %d characters", appName, maxApplicationNameLength)
 	}
-	return poolerID{id: id, appName: name}, nil
+	return poolerID{id: id, appName: appName}, nil
 }
 
 // poolerIDsToAppNames converts a slice of poolerID to their application name strings for use in APIs
@@ -112,17 +129,23 @@ func formatStandbyList(ids []poolerID) string {
 	return strings.Join(quoted, ", ")
 }
 
-// toPoolerIDs converts a slice of standby IDs to their poolerID representations.
+// toPoolerIDs converts a slice of IDs to their poolerID representations.
+// If any ID fails strict validation the corresponding poolerID contains an
+// approximate appName and the first error is returned alongside the full slice.
+// Callers that require strict validity must check the error. Callers that can
+// tolerate approximate names (e.g. for logging or informational responses) may
+// use the returned slice regardless.
 func toPoolerIDs(ids []*clustermetadatapb.ID) ([]poolerID, error) {
 	result := make([]poolerID, len(ids))
+	var firstErr error
 	for i, id := range ids {
 		pid, err := newPoolerID(id)
-		if err != nil {
-			return nil, mterrors.Wrapf(err, "standby_ids[%d]", i)
-		}
 		result[i] = pid
+		if err != nil && firstErr == nil {
+			firstErr = mterrors.Wrapf(err, "ids[%d]", i)
+		}
 	}
-	return result, nil
+	return result, firstErr
 }
 
 // ----------------------------------------------------------------------------
@@ -1000,7 +1023,11 @@ func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) 
 	if len(standbyIDs) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
 	}
-	return toPoolerIDs(standbyIDs)
+	pids, err := toPoolerIDs(standbyIDs)
+	if err != nil {
+		return pids, mterrors.Wrap(err, "invalid standby_ids")
+	}
+	return pids, nil
 }
 
 // validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication

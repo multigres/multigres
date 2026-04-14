@@ -603,3 +603,45 @@ func TestScanRowAllowNils(t *testing.T) {
 		assert.Equal(t, 42, i)
 	})
 }
+
+func TestScanValue_StringSlice(t *testing.T) {
+	t.Run("plain elements", func(t *testing.T) {
+		row := makeRow("{foo,bar,baz}")
+		var result []string
+		err := ScanRow(row, &result)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"foo", "bar", "baz"}, result)
+	})
+
+	t.Run("empty array", func(t *testing.T) {
+		row := makeRow("{}")
+		var result []string
+		err := ScanRow(row, &result)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, result)
+	})
+
+	t.Run("quoted element with spaces", func(t *testing.T) {
+		row := makeRow(`{"foo bar","baz"}`)
+		var result []string
+		err := ScanRow(row, &result)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"foo bar", "baz"}, result)
+	})
+
+	t.Run("invalid array literal returns error", func(t *testing.T) {
+		row := makeRow("foo,bar")
+		var result []string
+		err := ScanRow(row, &result)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a PostgreSQL array literal")
+	})
+
+	t.Run("NULL value leaves slice unchanged", func(t *testing.T) {
+		row := makeRow(nil)
+		result := []string{"existing"}
+		err := ScanRow(row, &result)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"existing"}, result) // unchanged
+	})
+}

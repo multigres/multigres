@@ -338,8 +338,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on' after failover")
 	})
 
-	// Verify leadership_history records all failovers
-	t.Run("verify leadership_history after failovers", func(t *testing.T) {
+	// Verify rule_history records all failovers.
+	// TODO: Switch to requesting consensus status from the multipooler RPC once
+	// ConsensusStatus is hooked up to RPCs; that will avoid the direct SQL query.
+	t.Run("verify rule_history after failovers", func(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
@@ -348,11 +350,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
-		// Query the leadership_history table for the latest record
-		query := `SELECT term_number, leader_id, coordinator_id, wal_position, reason,
-				  cohort_members, accepted_members, created_at
-				  FROM multigres.leadership_history
-				  ORDER BY term_number DESC
+		// Query the rule_history table for the latest promotion record
+		query := `SELECT coordinator_term, leader_id, coordinator_id, wal_position, reason,
+				  array_to_json(cohort_members)::text, array_to_json(accepted_members)::text, created_at
+				  FROM multigres.rule_history
+				  WHERE event_type = 'promotion'
+				  ORDER BY coordinator_term DESC, leader_subterm DESC
 				  LIMIT 1`
 
 		var termNumber int64
@@ -362,10 +365,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		err := db.QueryRow(query).Scan(&termNumber, &leaderID, &coordinatorID, &walPosition,
 			&reason, &cohortMembersJSON, &acceptedMembersJSON, &createdAt)
-		require.NoError(t, err, "Should be able to query leadership_history")
+		require.NoError(t, err, "Should be able to query rule_history")
 
-		// Assertions - after 3 failovers, term_number should be >= 3
-		assert.GreaterOrEqual(t, termNumber, int64(3), "term_number should be >= 3 after 3 failovers")
+		// Assertions - after 3 failovers, coordinator_term should be >= 3
+		assert.GreaterOrEqual(t, termNumber, int64(3), "coordinator_term should be >= 3 after 3 failovers")
 		assert.Contains(t, leaderID, finalPrimaryName, "leader_id should contain final primary name")
 		// Verify coordinator_id matches the multiorch's cell_name format (with multiple multiorchs, any could be coordinator)
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
@@ -385,7 +388,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.LessOrEqual(t, len(acceptedMembers), len(cohortMembers),
 			"accepted_members should not exceed cohort_members")
 
-		t.Logf("Leadership history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
+		t.Logf("Rule history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
