@@ -65,6 +65,17 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	require.NoError(t, err, "failed to connect to pgctld")
 	defer pgctldClient.Close()
 
+	// Disable postgres restarts so the monitor does not restart postgres before
+	// we can confirm it is stopped.
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	_, err = primaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err, "failed to disable postgres restarts")
+	defer func() {
+		_, _ = primaryClient.Manager.SetPostgresRestartsEnabled(context.Background(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	}()
+
 	t.Logf("Stopping postgres on primary node %s via pgctld (immediate mode)", setup.PrimaryName)
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stopCancel()
@@ -73,7 +84,7 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 		t.Logf("pgctld Stop returned error (postgres may already be stopped): %v", err)
 	}
 
-	// Confirm postgres is down before waiting for restart.
+	// Confirm postgres is down before re-enabling restarts.
 	require.Eventually(t, func() bool {
 		statusCtx := utils.WithShortDeadline(t)
 		resp, err := pgctldClient.Status(statusCtx, &pgctldpb.StatusRequest{})
@@ -84,9 +95,11 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	}, 10*time.Second, 500*time.Millisecond, "Postgres should be stopped after kill")
 	t.Log("Postgres confirmed stopped")
 
+	// Re-enable restarts so the monitor can auto-restart postgres.
+	_, err = primaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err, "failed to re-enable postgres restarts")
+
 	// Step 3: Wait for the monitor to auto-restart postgres.
-	primaryClient := setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
 
 	t.Log("Waiting for postgres to be auto-restarted by monitor...")
 	require.Eventually(t, func() bool {
