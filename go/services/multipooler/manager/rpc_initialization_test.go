@@ -626,7 +626,6 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 		logger:       slog.Default(),
 		actionLock:   NewActionLock(),
 	}
-	pm.postgresRestartsEnabled.Store(true)
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -652,7 +651,6 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		logger:       slog.Default(),
 		actionLock:   NewActionLock(),
 	}
-	pm.postgresRestartsEnabled.Store(true)
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -857,7 +855,6 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		state:        ManagerStateStarting,
 		actionLock:   NewActionLock(),
 	}
-	pm.postgresRestartsEnabled.Store(true)
 
 	// Call iteration when not ready - should return early without calling pgctld
 	pm.monitorPostgresIteration(ctx)
@@ -923,7 +920,6 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		state:        ManagerStateReady,
 		actionLock:   NewActionLock(),
 	}
-	pm.postgresRestartsEnabled.Store(true)
 
 	// Call iteration - should discover stopped state and attempt to start
 	pm.monitorPostgresIteration(ctx)
@@ -954,7 +950,6 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		state:        ManagerStateReady,
 		actionLock:   NewActionLock(),
 	}
-	pm.postgresRestartsEnabled.Store(true)
 
 	// Call iteration multiple times to simulate retry behavior
 	for range 5 {

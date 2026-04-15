@@ -26,9 +26,9 @@ import (
 )
 
 // TestPostgresMonitorControl tests the complete postgres monitoring control flow:
-// 1. Auto-restart when restarts are enabled (default)
-// 2. No auto-restart when restarts are disabled via SetPostgresRestartsEnabled
-// 3. Auto-restart resumes when restarts are re-enabled
+// 1. Auto-restart when monitoring is enabled (default)
+// 2. No auto-restart when monitoring is disabled
+// 3. Auto-restart resumes when monitoring is re-enabled
 func TestPostgresMonitorControl(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -52,7 +52,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		t.Logf("Postgres is running initially")
 	})
 
-	t.Run("2. kill postgres and verify auto-restart with restarts enabled", func(t *testing.T) {
+	t.Run("2. kill postgres and verify auto-restart with monitoring enabled", func(t *testing.T) {
 		// Kill postgres process
 		t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
 		setup.KillPostgres(t, setup.PrimaryName)
@@ -83,6 +83,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 	})
 
 	t.Run("4. kill postgres and verify it stays down", func(t *testing.T) {
+		// Kill postgres process
 		t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
 		setup.KillPostgres(t, setup.PrimaryName)
 
@@ -104,6 +105,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		require.NoError(t, err, "Should re-enable postgres restarts successfully")
 		t.Logf("Postgres restarts re-enabled on primary")
 
+		// Wait for postgres to be restarted by monitoring
 		t.Logf("Waiting for postgres to be automatically restarted...")
 		require.Eventually(t, func() bool {
 			ctx := utils.WithShortDeadline(t)
@@ -114,6 +116,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 			}
 			return status.Status.PostgresReady
 		}, 30*time.Second, 500*time.Millisecond, "Postgres should restart after re-enabling restarts")
+
 		t.Logf("Postgres was successfully restarted after re-enabling restarts")
 	})
 }

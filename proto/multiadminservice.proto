@@ -116,7 +116,6 @@ service MultiAdminService {
       body: "*"
     };
   }
-
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -402,5 +401,5 @@ message SetPostgresRestartsEnabledRequest {
 // SetPostgresRestartsEnabledResponse confirms that the flag was updated
 // Errors are returned via gRPC status codes, not in the response body
 message SetPostgresRestartsEnabledResponse {
+  // Empty - success indicated by no error
 }
-

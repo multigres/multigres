@@ -141,10 +141,10 @@ type MultiPoolerManager struct {
 	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
 	rewindPending atomic.Bool
 
-	// postgresRestartsEnabled controls whether the monitor is allowed to auto-restart
-	// a stopped PostgreSQL instance. Defaults to true; tests and demos set it to false
-	// around controlled failovers to prevent premature restarts.
-	postgresRestartsEnabled atomic.Bool
+	// postgresRestartsDisabled suppresses auto-restart of a stopped PostgreSQL instance.
+	// When set, the monitor continues to run and detect problems but skips the start action.
+	// False by default (restarts enabled); tests and demos set it during controlled failovers.
+	postgresRestartsDisabled atomic.Bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
@@ -258,9 +258,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		ctx:    ctx,
 		cancel: cancel,
 	}
-
-	// postgresRestartsEnabled defaults to true; tests/demos may disable it temporarily.
-	pm.postgresRestartsEnabled.Store(true)
 
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
@@ -1736,7 +1733,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionStartPostgres:
 		// Honour the in-memory flag set by tests and demos to suppress auto-restart
 		// during controlled failovers.
-		if !pm.postgresRestartsEnabled.Load() {
+		if pm.postgresRestartsDisabled.Load() {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled")
 			return
 		}

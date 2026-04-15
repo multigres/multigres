@@ -74,12 +74,16 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable postgres restarts to prevent the monitor from auto-restarting postgres
-	// between the kill and when emergencyDemoteLocked sets rewindPending.
-	primaryManagerClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	// Disable postgres restarts on old primary so postgres is not restarted by pooler
+	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
-	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	defer oldPrimaryClient.Close()
+
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err)
+	defer func() {
+		_, _ = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	}()
 
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
@@ -90,12 +94,6 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
-
-	// Re-enable postgres restarts: by this point emergencyDemoteLocked has set rewindPending,
-	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
-	require.NoError(t, err)
-	primaryManagerClient.Close()
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")
@@ -188,12 +186,16 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable postgres restarts to prevent the monitor from auto-restarting postgres
-	// between the shutdown and when emergencyDemoteLocked sets rewindPending.
-	primaryManagerClient2, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	// Disable postgres restarts on old primary so postgres is not restarted by pooler
+	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
-	_, err = primaryManagerClient2.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	defer oldPrimaryClient.Close()
+
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err)
+	defer func() {
+		_, _ = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	}()
 
 	// Step 1: Gracefully shutdown postgres on primary to trigger failover
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
@@ -204,12 +206,6 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
-
-	// Re-enable postgres restarts: by this point emergencyDemoteLocked has set rewindPending,
-	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	_, err = primaryManagerClient2.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
-	require.NoError(t, err)
-	primaryManagerClient2.Close()
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")

@@ -375,9 +375,10 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 	}, nil
 }
 
-// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a specific pooler
-// by proxying the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a specific
+// pooler by proxying the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
 func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *multiadminpb.SetPostgresRestartsEnabledRequest) (*multiadminpb.SetPostgresRestartsEnabledResponse, error) {
+	// Validate request
 	if req.PoolerId == nil {
 		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
 	}
@@ -385,12 +386,14 @@ func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
 	}
 
+	// Create a fully-qualified pooler ID for topology lookup
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      req.PoolerId.Cell,
 		Name:      req.PoolerId.Name,
 	}
 
+	// Get pooler from topology
 	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)

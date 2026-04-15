@@ -522,6 +522,11 @@ func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.M
 	return conn.managerClient.RewindToSource(ctx, request)
 }
 
+//
+// Manager Service Methods - PostgreSQL Restart Control
+//
+
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {

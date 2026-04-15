@@ -1455,6 +1455,15 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor.
+// When disabled, the monitor continues to run and detect problems but will not auto-restart
+// a stopped PostgreSQL instance. Used by tests and demos during controlled failovers.
+func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	pm.postgresRestartsDisabled.Store(!req.Enabled)
+	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled)
+	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
 // ====================================================================================
 // Helper methods for DemoteStalePrimary
 // ====================================================================================
@@ -1604,13 +1613,4 @@ func (pm *MultiPoolerManager) restartAsStandbyAfterRewind(ctx context.Context) e
 		isReadOnly: false, // Postgres was stopped, not in standby mode yet
 	}
 	return pm.restartPostgresAsStandby(ctx, state)
-}
-
-// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor.
-// When disabled, the monitor continues to run and detect problems but will not auto-restart
-// a stopped PostgreSQL instance. Used by tests and demos during controlled failovers.
-func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
-	pm.postgresRestartsEnabled.Store(req.Enabled)
-	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled)
-	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
 }

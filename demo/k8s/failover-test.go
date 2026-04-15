@@ -139,15 +139,13 @@ Examples:
 }
 
 var (
-	autoYes  bool
-	debug    bool
-	maxCount int
+	autoYes bool
+	debug   bool
 )
 
 func init() {
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false, "Automatically proceed with failovers without confirmation")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
-	rootCmd.Flags().IntVarP(&maxCount, "count", "n", 0, "Stop after N successful failover iterations (0 = run forever)")
 }
 
 func runFailoverTest(cmd *cobra.Command, args []string) error {
@@ -175,6 +173,11 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 	}
 	logSuccess("All prerequisites satisfied")
 	fmt.Fprintln(os.Stderr)
+
+	// Disable PostgreSQL monitoring on all poolers
+	if err := disablePostgresMonitoring(ctx, config); err != nil {
+		return fmt.Errorf("failed to disable postgres monitoring: %w", err)
+	}
 
 	// Start the failover loop
 	return failoverLoop(ctx, config)
@@ -224,6 +227,54 @@ func verifyPrerequisites(config *Config) error {
 	return nil
 }
 
+func disablePostgresMonitoring(ctx context.Context, config *Config) error {
+	logInfo("Disabling PostgreSQL monitoring on all poolers...")
+
+	poolers, err := getPoolers(config)
+	if err != nil {
+		return err
+	}
+
+	if len(poolers.Poolers) == 0 {
+		logWarn("No poolers found")
+		return nil
+	}
+
+	client, err := newAdminClient(config.MultiadminGRPC)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	for _, pooler := range poolers.Poolers {
+		cell := pooler.ID.Cell
+		serviceID := pooler.ID.Name
+		poolerName := fmt.Sprintf("multipooler-%s-%s", cell, serviceID)
+
+		logInfo(fmt.Sprintf("  Disabling monitoring on: %s (cell=%s, service_id=%s)", poolerName, cell, serviceID))
+
+		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err := client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
+			PoolerId: &clustermetadatapb.ID{
+				Cell: cell,
+				Name: serviceID,
+			},
+			Enabled: false,
+		})
+		cancel()
+
+		if err != nil {
+			logError(fmt.Sprintf("    ✗ Failed to disable monitoring on %s: %v", poolerName, err))
+			return err
+		}
+		logSuccess("    ✓ Disabled monitoring on " + poolerName)
+	}
+
+	logSuccess(fmt.Sprintf("Disabled monitoring on %d pooler(s)", len(poolers.Poolers)))
+	fmt.Fprintln(os.Stderr)
+	return nil
+}
+
 func newAdminClient(addr string) (*adminClient, error) {
 	conn, err := grpccommon.NewClient(addr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
 	if err != nil {
@@ -242,26 +293,6 @@ type adminClient struct {
 
 func (c *adminClient) Close() error {
 	return c.conn.Close()
-}
-
-func setPostgresRestarts(ctx context.Context, config *Config, poolerInfo *PoolerInfo, enabled bool) error {
-	client, err := newAdminClient(config.MultiadminGRPC)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	_, err = client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
-		PoolerId: &clustermetadatapb.ID{
-			Cell: poolerInfo.Cell,
-			Name: poolerInfo.ServiceID,
-		},
-		Enabled: enabled,
-	})
-	return err
 }
 
 func getPoolers(config *Config) (*PoolersResponse, error) {
@@ -721,28 +752,17 @@ func failoverLoop(ctx context.Context, config *Config) error {
 			logInfo("Auto-yes enabled, proceeding automatically...")
 		}
 
-		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
-		// during failover.
-		if err := setPostgresRestarts(ctx, config, primaryInfo, false); err != nil {
-			logError(fmt.Sprintf("Failed to disable postgres restarts: %v", err))
-			return err
-		}
-
 		// Stop the primary
 		if err := stopPooler(primaryInfo, config); err != nil {
-			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError(fmt.Sprintf("Failed to stop pooler: %v", err))
 			return err
 		}
 
-		// Wait for new primary — by this point emergencyDemoteLocked has set rewindPending.
+		// Wait for new primary
 		if err := waitForNewPrimary(config, primaryInfo.ServiceID, 60); err != nil {
-			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError("Failed to detect new primary. Manual intervention required.")
 			return err
 		}
-		// Re-enable restarts: rewindPending now prevents premature auto-restart.
-		_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 
 		// Let the system restart postgres organically
 		logInfo("Waiting for system to restart postgres organically...")
@@ -761,9 +781,10 @@ func failoverLoop(ctx context.Context, config *Config) error {
 		// Print detailed replication status
 		printReplicationStatus(config)
 
-		if maxCount > 0 && iteration >= maxCount {
-			logInfo(fmt.Sprintf("Completed %d iteration(s) as requested.", iteration))
-			return nil
+		// Re-disable monitoring for the next iteration
+		if err := disablePostgresMonitoring(ctx, config); err != nil {
+			logError(fmt.Sprintf("Failed to re-disable postgres monitoring: %v", err))
+			return err
 		}
 
 		iteration++

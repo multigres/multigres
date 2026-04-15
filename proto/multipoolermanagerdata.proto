@@ -836,8 +836,8 @@ message SetPostgresRestartsEnabledRequest {
   bool enabled = 1;
 }
 
-// SetPostgresRestartsEnabledResponse confirms the flag was updated
+// SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
 message SetPostgresRestartsEnabledResponse {
+  // Empty - success indicated by no error
 }
-

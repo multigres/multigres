@@ -4228,7 +4228,7 @@ func (x *SetPostgresRestartsEnabledRequest) GetEnabled() bool {
 	return false
 }
 
-// SetPostgresRestartsEnabledResponse confirms the flag was updated
+// SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
 type SetPostgresRestartsEnabledResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

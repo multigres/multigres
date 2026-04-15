@@ -2098,7 +2098,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Start a mock pgctld server that will fail the Stop call (after Pause() is called)
+	// Start a mock pgctld server that will fail the Stop call
 	mockPgctld := &testutil.MockPgCtldService{
 		StopError: errors.New("mock error: PostgreSQL stop failed"),
 	}
@@ -2149,7 +2149,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Call RewindToSource - this should fail during the Stop call (after Pause() is called)
+	// Call RewindToSource - this should fail during the Stop call
 	_, err = manager.RewindToSource(ctx, source)
 
 	// Verify the call failed as expected
@@ -2157,13 +2157,13 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "PostgreSQL stop failed")
 
 	// CRITICAL REGRESSION TEST: Verify the manager was reopened despite the error.
-	// This is the bug we're testing for - without the defer resume() pattern,
-	// the manager would stay closed on this error path after Pause() was called.
+	// This is the bug we're testing for: if RewindToSource fails, the manager must
+	// still be reopened so the node can continue operating.
 	require.Eventually(t, func() bool {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
 		return manager.isOpen
-	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails after Pause()")
+	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
 }
 
 func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
@@ -2171,43 +2171,41 @@ func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 
 	t.Run("disable", func(t *testing.T) {
 		pm := &MultiPoolerManager{logger: slog.Default()}
-		pm.postgresRestartsEnabled.Store(true)
 
 		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		assert.False(t, pm.postgresRestartsEnabled.Load(), "restarts should be disabled after RPC")
+		assert.True(t, pm.postgresRestartsDisabled.Load(), "restarts should be disabled after RPC")
 	})
 
 	t.Run("enable", func(t *testing.T) {
 		pm := &MultiPoolerManager{logger: slog.Default()}
-		pm.postgresRestartsEnabled.Store(false)
+		pm.postgresRestartsDisabled.Store(true)
 
 		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		assert.True(t, pm.postgresRestartsEnabled.Load(), "restarts should be enabled after RPC")
+		assert.False(t, pm.postgresRestartsDisabled.Load(), "restarts should be enabled after RPC")
 	})
 
 	t.Run("idempotent_disable", func(t *testing.T) {
 		pm := &MultiPoolerManager{logger: slog.Default()}
-		pm.postgresRestartsEnabled.Store(true)
 
 		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err)
 		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err)
-		assert.False(t, pm.postgresRestartsEnabled.Load())
+		assert.True(t, pm.postgresRestartsDisabled.Load())
 	})
 
 	t.Run("idempotent_enable", func(t *testing.T) {
 		pm := &MultiPoolerManager{logger: slog.Default()}
-		pm.postgresRestartsEnabled.Store(false)
+		pm.postgresRestartsDisabled.Store(true)
 
 		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)
 		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)
-		assert.True(t, pm.postgresRestartsEnabled.Load())
+		assert.False(t, pm.postgresRestartsDisabled.Load())
 	})
 }

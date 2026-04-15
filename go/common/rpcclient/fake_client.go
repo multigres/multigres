@@ -86,6 +86,7 @@ type FakeClient struct {
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	RewindToSourceResponses                  map[string]*multipoolermanagerdatapb.RewindToSourceResponse
+	SetPostgresRestartsEnabledResponses      map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
@@ -130,6 +131,7 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		RewindToSourceResponses:                  make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
+		SetPostgresRestartsEnabledResponses:      make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
 		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
@@ -195,6 +197,13 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 		Response: resp,
 		Delay:    delay,
 	}
+}
+
+// SetPostgresRestartsEnabledResponse sets a SetPostgresRestartsEnabled response for a pooler.
+func (f *FakeClient) SetPostgresRestartsEnabledResponse(poolerID string, resp *multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SetPostgresRestartsEnabledResponses[poolerID] = resp
 }
 
 //
@@ -763,6 +772,11 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
 }
 
+//
+// Manager Service Methods - PostgreSQL Restart Control
+//
+
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("SetPostgresRestartsEnabled", poolerID)
@@ -771,6 +785,11 @@ func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clu
 		return nil, err
 	}
 
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.SetPostgresRestartsEnabledResponses[poolerID]; ok {
+		return resp, nil
+	}
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
 }
 
