@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -824,7 +825,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 // checkBootstrapStatus checks if all nodes are initialized and returns the primary name.
 // A node is considered initialized only if it can be queried AND has an explicit type (PRIMARY or REPLICA).
 // Additionally checks that:
-// - PRIMARY has sync replication configured with the expected number of standbys
+// - PRIMARY has sync replication configured with the full cohort and all replicas connected
 // - REPLICA has primary_conn_info configured
 func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) (string, bool) {
 	t.Helper()
@@ -837,11 +838,11 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 	var primaryName string
 	var initializedCount int
-	// The sync standby list contains the full cohort (including the primary itself),
-	// so we expect all multipoolers to appear in StandbyIds.
-	expectedCohortCount := len(setup.Multipoolers)
-	// The connected_followers list should contain all replicas (everyone except the primary).
-	expectedFollowerCount := len(setup.Multipoolers) - 1
+	// Build the set of all multipooler names for exact membership checks.
+	allNames := make(map[string]struct{}, len(setup.Multipoolers))
+	for n := range setup.Multipoolers {
+		allNames[n] = struct{}{}
+	}
 
 	// Build human-readable status for each pooler
 	poolerStatuses := make([]string, 0, len(setup.Multipoolers))
@@ -898,22 +899,36 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			// Check that sync replication is configured with the full cohort
-			cohortCount := 0
+			// Verify the sync standby list contains every multipooler in the cohort.
+			syncNames := make(map[string]struct{})
 			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-				cohortCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+				for _, id := range status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+					syncNames[id.Name] = struct{}{}
+				}
 			}
-			// Check that all replicas are actually connected and streaming
-			followerCount := 0
+			missingSync := missingNames(allNames, syncNames)
+
+			// Verify connected_followers contains every replica (all names except this primary).
+			followerNames := make(map[string]struct{})
 			if status.PrimaryStatus != nil {
-				followerCount = len(status.PrimaryStatus.ConnectedFollowers)
+				for _, id := range status.PrimaryStatus.ConnectedFollowers {
+					followerNames[id.Name] = struct{}{}
+				}
 			}
-			if cohortCount < expectedCohortCount {
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d cohort)%s %s",
-					name, cohortCount, expectedCohortCount, actionSuffix, diag))
-			} else if followerCount < expectedFollowerCount {
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, followers_waiting (%d/%d connected)%s %s",
-					name, followerCount, expectedFollowerCount, actionSuffix, diag))
+			expectedFollowers := make(map[string]struct{}, len(allNames)-1)
+			for n := range allNames {
+				if n != name {
+					expectedFollowers[n] = struct{}{}
+				}
+			}
+			missingFollowers := missingNames(expectedFollowers, followerNames)
+
+			if len(missingSync) > 0 {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (missing %v)%s %s",
+					name, missingSync, actionSuffix, diag))
+			} else if len(missingFollowers) > 0 {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, followers_waiting (missing %v)%s %s",
+					name, missingFollowers, actionSuffix, diag))
 			} else {
 				primaryName = name
 				isFullyInitialized = true
@@ -1794,6 +1809,18 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 
 		t.Logf("%s: multiorch %s: %s, %s", label, name, poolerSummary, problemSummary)
 	}
+}
+
+// missingNames returns the sorted list of keys present in expected but absent from actual.
+func missingNames(expected, actual map[string]struct{}) []string {
+	var missing []string
+	for name := range expected {
+		if _, ok := actual[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // formatProblemsCompact creates a one-line summary: [code1@pooler1, code2@pooler2]
