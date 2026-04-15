@@ -16,16 +16,12 @@ package manager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
-	"github.com/multigres/multigres/go/common/timeouts"
-	"github.com/multigres/multigres/go/common/topoclient"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
@@ -249,141 +245,6 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING`, tablegroupOid, shardName)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to insert shard")
-	}
-
-	return nil
-}
-
-// LeadershipHistoryRecord represents a row in the multigres.leadership_history table.
-type LeadershipHistoryRecord struct {
-	ID              int64
-	TermNumber      int64
-	EventType       string
-	LeaderID        *string
-	CoordinatorID   *string
-	WALPosition     *string
-	Operation       *string
-	Reason          string
-	CohortMembers   []string
-	AcceptedMembers []string
-	CreatedAt       time.Time
-}
-
-// queryLeadershipHistory returns the most recent leadership history records ordered
-// by term number descending (newest first). limit controls the maximum number of
-// records returned.
-func (pm *MultiPoolerManager) queryLeadershipHistory(ctx context.Context, limit int) ([]LeadershipHistoryRecord, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-
-	result, err := pm.queryArgs(queryCtx, `
-		SELECT id, term_number, event_type, leader_id, coordinator_id,
-		       wal_position, operation, reason, cohort_members, accepted_members, created_at
-		FROM multigres.leadership_history
-		ORDER BY term_number DESC, id DESC
-		LIMIT $1`, limit)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to query leadership history")
-	}
-
-	records := make([]LeadershipHistoryRecord, 0, len(result.Rows))
-	for _, row := range result.Rows {
-		var rec LeadershipHistoryRecord
-		var cohortJSON string
-		var acceptedJSONPtr *string
-		if err := executor.ScanRow(row,
-			&rec.ID,
-			&rec.TermNumber,
-			&rec.EventType,
-			&rec.LeaderID,
-			&rec.CoordinatorID,
-			&rec.WALPosition,
-			&rec.Operation,
-			&rec.Reason,
-			&cohortJSON,
-			&acceptedJSONPtr,
-			&rec.CreatedAt,
-		); err != nil {
-			return nil, mterrors.Wrap(err, "failed to scan leadership history row")
-		}
-
-		if err := json.Unmarshal([]byte(cohortJSON), &rec.CohortMembers); err != nil {
-			return nil, mterrors.Wrap(err, "failed to unmarshal cohort_members")
-		}
-		if acceptedJSONPtr != nil {
-			if err := json.Unmarshal([]byte(*acceptedJSONPtr), &rec.AcceptedMembers); err != nil {
-				return nil, mterrors.Wrap(err, "failed to unmarshal accepted_members")
-			}
-		}
-
-		records = append(records, rec)
-	}
-
-	return records, nil
-}
-
-// currentLeadershipRecord returns the single most recent record in
-// multigres.leadership_history, determined by the highest term_number.
-// Returns nil if the table is empty.
-func (pm *MultiPoolerManager) currentLeadershipRecord(ctx context.Context) (*LeadershipHistoryRecord, error) {
-	records, err := pm.queryLeadershipHistory(ctx, 1)
-	if err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return nil, nil
-	}
-	return &records[0], nil
-}
-
-// insertHistoryRecord inserts a record into the leadership_history table.
-// This is used for both promotion events and replication config changes.
-// This operation uses the remote-operation-timeout and will fail if it cannot complete within
-// that time. A timeout typically indicates that synchronous replication is not functioning.
-func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType string, leaderID poolerID, coordinatorID *clustermetadatapb.ID, walPosition, operation, reason string, cohortMembers, acceptedMembers []poolerID, force bool) error {
-	if force {
-		// Force mode skips history recording entirely. Force operations are emergency
-		// operations that must configure replication GUCs regardless. The INSERT would
-		// block on sync replication with unreachable standbys, consuming the parent
-		// context's deadline and causing subsequent GUC changes to fail.
-		pm.logger.InfoContext(ctx, "Skipping history record in force mode",
-			"term_number", termNumber,
-			"event_type", eventType,
-			"operation", operation)
-		return nil
-	}
-
-	cohortJSON, err := json.Marshal(poolerIDsToAppNames(cohortMembers))
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal cohort_members")
-	}
-
-	acceptedJSON, err := json.Marshal(poolerIDsToAppNames(acceptedMembers))
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal accepted_members")
-	}
-
-	// Use the remote operation timeout for history writes. This write validates that synchronous
-	// replication is functioning - it must wait long enough for standbys to connect and acknowledge.
-	execCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
-	defer cancel()
-
-	insert := fmt.Sprintf(`INSERT INTO multigres.leadership_history
-	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
-	VALUES (%d, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), %s, %s::jsonb, %s::jsonb)`,
-		termNumber,
-		ast.QuoteStringLiteral(eventType),
-		ast.QuoteStringLiteral(leaderID.appName),
-		ast.QuoteStringLiteral(topoclient.ClusterIDString(coordinatorID)),
-		ast.QuoteStringLiteral(walPosition),
-		ast.QuoteStringLiteral(operation),
-		ast.QuoteStringLiteral(reason),
-		ast.QuoteStringLiteral(string(cohortJSON)),
-		ast.QuoteStringLiteral(string(acceptedJSON)),
-	)
-
-	if err := pm.exec(execCtx, insert); err != nil {
-		return mterrors.Wrap(err, "failed to insert history record")
 	}
 
 	return nil
