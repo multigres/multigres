@@ -1661,32 +1661,61 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
 }
 
-// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
-// This is different from KillPostgres which uses SIGKILL for immediate termination.
-// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
-func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) {
+// StopPostgres disables automatic postgres restarts on the named node, then stops postgres
+// via the pgctld Stop RPC with the given mode (e.g. "fast", "immediate").
+// It returns a resume function that re-enables restarts; the caller should defer it.
+//
+// This is safer than calling pgctld Stop directly because the postgres monitor runs
+// continuously and would otherwise restart postgres immediately after it stops.
+func (s *ShardSetup) StopPostgres(t *testing.T, name, mode string) (resume func()) {
 	t.Helper()
 
 	inst := s.GetMultipoolerInstance(name)
 	require.NotNil(t, inst, "node %s not found", name)
 
-	t.Logf("Gracefully shutting down postgres on node %s via pgctld Stop RPC", name)
+	// Disable automatic restarts so the monitor does not restart postgres before we stop it.
+	mpClient, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err, "Failed to connect to multipooler for %s", name)
+	defer mpClient.Close()
 
-	// Create pgctld client
-	client, err := NewPgctldClient(inst.Pgctld.GrpcPort)
+	_, err = mpClient.Manager.SetPostgresRestartsEnabled(t.Context(),
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err, "Failed to disable postgres restarts on %s", name)
+
+	// Stop postgres via pgctld.
+	pgClient, err := NewPgctldClient(inst.Pgctld.GrpcPort)
 	require.NoError(t, err, "Failed to connect to pgctld for %s", name)
-	defer client.Close()
+	defer pgClient.Close()
 
-	// Call Stop RPC with "fast" mode for graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = client.Stop(ctx, &pgctldpb.StopRequest{
-		Mode: "fast",
-	})
-	require.NoError(t, err, "Failed to stop postgres on %s", name)
+	_, err = pgClient.Stop(ctx, &pgctldpb.StopRequest{Mode: mode})
+	require.NoError(t, err, "Failed to stop postgres on %s (mode=%s)", name, mode)
+	t.Logf("Postgres stopped on %s (mode=%s)", name, mode)
 
-	t.Logf("Postgres gracefully stopped on %s - multipooler should detect failure", name)
+	grpcPort := inst.Multipooler.GrpcPort
+	return func() {
+		resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer resumeCancel()
+		mpClient2, err := NewMultipoolerClient(grpcPort)
+		if err != nil {
+			t.Logf("StopPostgres resume: failed to connect to multipooler on port %d: %v", grpcPort, err)
+			return
+		}
+		defer mpClient2.Close()
+		_, _ = mpClient2.Manager.SetPostgresRestartsEnabled(resumeCtx,
+			&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		t.Logf("Re-enabled postgres restarts on %s", name)
+	}
+}
+
+// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
+// This is different from KillPostgres which uses SIGKILL for immediate termination.
+// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
+func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) (resume func()) {
+	t.Helper()
+	return s.StopPostgres(t, name, "fast")
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.
