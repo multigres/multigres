@@ -1732,7 +1732,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
 		}
-		busy, backupFound, err := pm.createFirstBackupAndInitialize(ctx)
+		busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(ctx)
 		if busy {
 			pm.setMonitorReason(ctx, reasonWaitingForFirstBackupLease, "MonitorPostgres: backup lease held by another pooler, waiting")
 		} else if err != nil {

@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,6 +30,8 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -71,6 +74,49 @@ func (s *stubPgctldClient) PgRewind(_ context.Context, _ *pgctldpb.PgRewindReque
 }
 
 var _ pgctldpb.PgCtldClient = (*stubPgctldClient)(nil)
+
+// successStubPgctldClient is a pgctld stub that succeeds for all calls.
+// InitDataDir creates the pg_data directory to simulate what real pgctld does.
+type successStubPgctldClient struct {
+	pgDataDir string // set by test; InitDataDir creates this directory
+}
+
+func (s *successStubPgctldClient) Start(context.Context, *pgctldpb.StartRequest, ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	return &pgctldpb.StartResponse{}, nil
+}
+
+func (s *successStubPgctldClient) Stop(context.Context, *pgctldpb.StopRequest, ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	return &pgctldpb.StopResponse{}, nil
+}
+
+func (s *successStubPgctldClient) Restart(context.Context, *pgctldpb.RestartRequest, ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
+	return &pgctldpb.RestartResponse{}, nil
+}
+
+func (s *successStubPgctldClient) ReloadConfig(context.Context, *pgctldpb.ReloadConfigRequest, ...grpc.CallOption) (*pgctldpb.ReloadConfigResponse, error) {
+	return &pgctldpb.ReloadConfigResponse{}, nil
+}
+
+func (s *successStubPgctldClient) Status(context.Context, *pgctldpb.StatusRequest, ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
+	return &pgctldpb.StatusResponse{}, nil
+}
+
+func (s *successStubPgctldClient) Version(context.Context, *pgctldpb.VersionRequest, ...grpc.CallOption) (*pgctldpb.VersionResponse, error) {
+	return &pgctldpb.VersionResponse{}, nil
+}
+
+func (s *successStubPgctldClient) InitDataDir(context.Context, *pgctldpb.InitDataDirRequest, ...grpc.CallOption) (*pgctldpb.InitDataDirResponse, error) {
+	if s.pgDataDir != "" {
+		_ = os.MkdirAll(s.pgDataDir, 0o755)
+	}
+	return &pgctldpb.InitDataDirResponse{}, nil
+}
+
+func (s *successStubPgctldClient) PgRewind(context.Context, *pgctldpb.PgRewindRequest, ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
+	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+var _ pgctldpb.PgCtldClient = (*successStubPgctldClient)(nil)
 
 // TestLoadDurabilityPolicy verifies that loadDurabilityPolicy returns the
 // bootstrap_durability_policy from the topology database record.
@@ -161,7 +207,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	busy, backupFound, err := pm.createFirstBackupAndInitialize(lockCtx)
+	busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(lockCtx)
 	require.Error(t, err)
 	assert.False(t, busy)
 	assert.False(t, backupFound)
@@ -203,7 +249,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	busy, backupFound, err := pm.createFirstBackupAndInitialize(lockCtx)
+	busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(lockCtx)
 	require.Error(t, err)
 	assert.False(t, busy)
 	assert.False(t, backupFound)
@@ -211,39 +257,34 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 	assert.Contains(t, err.Error(), "data directory already exists")
 }
 
-// TestCreateFirstBackupAndInitialize_Busy verifies that when another pooler already
-// holds the backup lease, the function returns (busy=true, nil).
-func TestCreateFirstBackupAndInitialize_Busy(t *testing.T) {
+// TestWithBackupLease_ReturnsNodeExistsWhenHeld verifies that WithBackupLease returns
+// a NodeExists error when the lease is already held by another pooler. This is the
+// error that createFirstBackupAndInitializeLocked maps to busy=true.
+// The full first-backup flow (prep + lease contention) is covered by integration tests.
+func TestWithBackupLease_ReturnsNodeExistsWhenHeld(t *testing.T) {
 	ctx := t.Context()
 
-	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-	defer store.Close()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer ts.Close()
 
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		topoClient: store,
-		actionLock: NewActionLock(),
-		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   "testdb",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-		config: &Config{},
+	shardKey := commontypes.ShardKey{
+		Database:   "testdb",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	// Simulate another pooler holding the backup lease
-	_, otherUnlock, err := store.TryLockBackup(ctx, pm.shardKey(), "other-pooler-backup")
+	// Another pooler holds the lease.
+	_, otherUnlock, err := ts.TryLockBackup(ctx, shardKey, "other-pooler-backup")
 	require.NoError(t, err)
 	var otherErr error
 	defer otherUnlock(&otherErr)
 
-	// Acquire the action lock as the monitor would do
-	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
-	require.NoError(t, err)
-	defer pm.actionLock.Release(lockCtx)
-
-	busy, backupFound, err := pm.createFirstBackupAndInitialize(lockCtx)
-	assert.True(t, busy)
-	assert.False(t, backupFound)
-	assert.NoError(t, err)
+	// WithBackupLease should fail with NodeExists.
+	err = ts.WithBackupLease(ctx, shardKey, "our-pooler", "create-first-backup", slog.Default(), func(context.Context) error {
+		t.Fatal("fn must not be called when lease is held")
+		return nil
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}),
+		"expected NodeExists when lease is held, got: %v", err)
 }
