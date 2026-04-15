@@ -372,36 +372,6 @@ func TestOnStateChange_StartsOnPrimaryServing(t *testing.T) {
 	assert.Nil(t, st.cancel, "tracker should be stopped after REPLICA+SERVING")
 }
 
-func TestSchemaTracker_CloseDisablesOnStateChange(t *testing.T) {
-	ctx := context.Background()
-	stub := &stubPubSubListener{startedCh: make(chan struct{})}
-	close(stub.startedCh)
-
-	st := &schemaTracker{
-		logger:          testLogger().With("component", "schema_tracker"),
-		getQueryService: func() executor.InternalQueryService { return nil },
-		pubsubListener:  stub,
-		notifyVersion:   func(v int64) {},
-		pollInterval:    time.Hour,
-		ctx:             ctx,
-		notifCh:         make(chan *sqltypes.Notification, 16),
-	}
-
-	// Close the tracker permanently.
-	st.Close()
-	assert.True(t, st.closed.Load(), "closed flag should be set")
-
-	// OnStateChange should be a no-op after Close — it must not start the
-	// polling loop or subscribe to the pubsub listener.
-	err := st.OnStateChange(ctx,
-		clustermetadatapb.PoolerType_PRIMARY,
-		clustermetadatapb.PoolerServingStatus_SERVING,
-	)
-	require.NoError(t, err)
-	assert.Nil(t, st.cancel, "tracker should NOT start after Close")
-	assert.False(t, stub.subscribed, "should NOT subscribe after Close")
-}
-
 // stubPubSubListener is a minimal stand-in for *pubsub.Listener that records
 // Subscribe calls without requiring a real PostgreSQL connection.
 type stubPubSubListener struct {

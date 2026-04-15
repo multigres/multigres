@@ -294,6 +294,39 @@ func TestStateManager_HealthStreamerIntegration(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
+func TestStateManager_Unregister(t *testing.T) {
+	comp1 := &testComponent{}
+	comp2 := &testComponent{}
+	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+
+	ssm := NewStateManager(newTestLogger(), mp, comp1, comp2)
+
+	// Unregister comp1.
+	ssm.Unregister(comp1)
+
+	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+
+	// Only comp2 should have been called.
+	assert.Equal(t, 0, comp1.callCount, "unregistered component should not be called")
+	assert.Equal(t, 1, comp2.callCount)
+}
+
+func TestStateManager_Unregister_NotFound(t *testing.T) {
+	comp1 := &testComponent{}
+	comp2 := &testComponent{} // never registered
+	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+
+	ssm := NewStateManager(newTestLogger(), mp, comp1)
+
+	// Unregistering a component that was never registered should be a no-op.
+	ssm.Unregister(comp2)
+
+	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+	assert.Equal(t, 1, comp1.callCount)
+}
+
 func TestStateManager_ParallelExecution(t *testing.T) {
 	// Verify both components are invoked (they run in parallel via errgroup).
 	comp1 := &slowComponent{}

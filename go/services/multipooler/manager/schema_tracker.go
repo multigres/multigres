@@ -115,14 +115,6 @@ type schemaTracker struct {
 
 	// wg tracks the run goroutine so Stop can wait for it to exit.
 	wg sync.WaitGroup
-
-	// closed is set by Close to permanently disable this instance.
-	// After Close, OnStateChange becomes a no-op. This is needed because
-	// the StateManager does not support unregistering components: when the
-	// manager calls reopenConnections, the old schemaTracker instance remains
-	// in the component list but must not attempt to use its stale
-	// pubsubListener reference.
-	closed atomic.Bool
 }
 
 // newSchemaTracker creates a schema tracker. ctx should be the manager's
@@ -169,14 +161,6 @@ func (st *schemaTracker) stop() {
 	st.cancel = nil
 }
 
-// Close permanently disables this schema tracker instance. After Close,
-// OnStateChange becomes a no-op so stale instances left in the
-// StateManager's component list do not interfere with new instances.
-func (st *schemaTracker) Close() {
-	st.closed.Store(true)
-	st.stop()
-}
-
 // OnStateChange implements StateAware.
 //
 // On PRIMARY+SERVING: starts the polling loop and subscribes to the
@@ -191,9 +175,6 @@ func (st *schemaTracker) OnStateChange(
 	poolerType clustermetadatapb.PoolerType,
 	servingStatus clustermetadatapb.PoolerServingStatus,
 ) error {
-	if st.closed.Load() {
-		return nil
-	}
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		// The pubsub listener also starts on PRIMARY+SERVING and runs concurrently
 		// with this call (SetState fans out OnStateChange in parallel). Wait for it

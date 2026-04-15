@@ -533,20 +533,27 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 // This is used by reopenConnections() during auto-restore to avoid canceling
 // the startup context that WaitUntilReady is waiting on.
 func (pm *MultiPoolerManager) closeConnectionsLocked() {
-	// Close resources (safe to call even if nil/never opened)
-	if pm.replTracker != nil {
-		pm.replTracker.Close()
-		pm.replTracker = nil
-	}
-
+	// Unregister connection-scoped components from the state manager before
+	// stopping them. These components capture references to the connection
+	// pool (directly or transitively) at construction time and become stale
+	// after the pool is closed. openConnectionsLocked will create fresh
+	// instances and re-register them.
 	if pm.schemaTracker != nil {
-		pm.schemaTracker.Close()
+		pm.servingState.Unregister(pm.schemaTracker)
+		pm.schemaTracker.stop()
 		pm.schemaTracker = nil
 	}
 
 	if pm.pubsubListener != nil {
+		pm.servingState.Unregister(pm.pubsubListener)
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
+	}
+
+	if pm.replTracker != nil {
+		pm.servingState.Unregister(pm.replTracker)
+		pm.replTracker.Close()
+		pm.replTracker = nil
 	}
 
 	// Close connection pool manager

@@ -76,6 +76,22 @@ func (ssm *StateManager) Register(component StateAware) {
 	ssm.components = append(ssm.components, component)
 }
 
+// Unregister removes a component so it will no longer receive OnStateChange
+// calls. This is used during reopenConnections to remove stale components
+// (e.g., old pubsub listeners, repl trackers, schema trackers) before
+// registering their replacements.
+// Must not be called concurrently with SetState.
+func (ssm *StateManager) Unregister(component StateAware) {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	for i, c := range ssm.components {
+		if c == component {
+			ssm.components = append(ssm.components[:i], ssm.components[i+1:]...)
+			return
+		}
+	}
+}
+
 // RegisterAndSync adds a component and immediately syncs it to the current state.
 // This is used for components created after the initial state transition (e.g.,
 // ReplTracker is created after Open() has already transitioned to SERVING).
