@@ -261,7 +261,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	defer conn.Close()
 
 	qs := &connQueryService{conn: conn}
-	_, err = qs.conn.Query(ctx, "TRUNCATE multigres.current_rule, multigres.rule_history")
+	_, err = qs.conn.Query(ctx, "DROP TABLE multigres.current_rule, multigres.rule_history")
 	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
