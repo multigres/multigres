@@ -155,6 +155,17 @@ type MultiPoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// lastIntegrityCheckPassed stores the most recent pgbackrest check result.
+	lastIntegrityCheckPassed *bool
+	// lastIntegrityCheckError stores the most recent pgbackrest check error.
+	lastIntegrityCheckError string
+
+	// backupInProgress indicates whether a backup is currently running.
+	backupInProgress bool
+
+	// lastStanzaError stores the most recent stanza-create error code.
+	lastStanzaError string
 }
 
 // promotionState tracks which parts of the promotion are complete

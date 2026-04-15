@@ -800,10 +800,19 @@ func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdat
 		errorMessage = pm.stateError.Error()
 	}
 
-	return &multipoolermanagerdatapb.StateResponse{
-		State:        state,
-		ErrorMessage: errorMessage,
-	}, nil
+	resp := &multipoolermanagerdatapb.StateResponse{
+		State:            state,
+		ErrorMessage:     errorMessage,
+		BackupInProgress: pm.backupInProgress,
+		StanzaError:      pm.lastStanzaError,
+	}
+
+	if pm.lastIntegrityCheckPassed != nil {
+		resp.LastIntegrityCheckPassed = pm.lastIntegrityCheckPassed
+		resp.LastIntegrityCheckError = pm.lastIntegrityCheckError
+	}
+
+	return resp, nil
 }
 
 // GetFollowers gets the list of follower servers with detailed replication status

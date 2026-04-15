@@ -560,11 +560,42 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 
 		output, err := safeCombinedOutput(cmd)
 		if err != nil {
+			// Record the latest stanza-create error code for State().
+			pm.mu.Lock()
+			pm.lastStanzaError = classifyStanzaError(output)
+			pm.mu.Unlock()
+
 			return mterrors.New(mtrpcpb.Code_INTERNAL,
 				fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
 		}
 
+		// Clear any previous stanza error on success.
+		pm.clearStanzaError()
+
 		pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
 		return nil
 	})
+}
+
+// classifyStanzaError maps pgbackrest stanza-create output to a stanza error code.
+// Returns:
+//   - "028" if the output contains [028] (system identifier mismatch)
+//   - "unknown" for any other failure
+//
+// The return value is stored in lastStanzaError and surfaced via State().
+// Empty string means no error (set on success via clearStanzaError, not by this function).
+func classifyStanzaError(output string) string {
+	if strings.Contains(output, "[028]") {
+		return "028"
+	}
+	return "unknown"
+}
+
+// clearStanzaError resets the stanza error state after a successful stanza-create.
+// This is the production path that clears lastStanzaError — callers should use this
+// rather than setting the field directly.
+func (pm *MultiPoolerManager) clearStanzaError() {
+	pm.mu.Lock()
+	pm.lastStanzaError = ""
+	pm.mu.Unlock()
 }

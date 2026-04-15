@@ -84,6 +84,15 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 // backupLocked performs a backup. Caller must hold the action lock and backup lease.
 func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+	pm.mu.Lock()
+	pm.backupInProgress = true
+	pm.mu.Unlock()
+	defer func() {
+		pm.mu.Lock()
+		pm.backupInProgress = false
+		pm.mu.Unlock()
+	}()
+
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
 		retBackupID, err = pm.backupLockedInner(ctx, forcePrimary, backupType, jobID, overrides)
@@ -240,6 +249,36 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	}
 	// TODO: use `pgbackrest info` to verify that the database pages from the backed up
 	// Postgres cluster pass checksum validation.
+
+	// Record the latest pgbackrest check result for State().
+	checkCtx, checkCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer checkCancel()
+
+	checkCmd := executil.Command(checkCtx, "pgbackrest",
+		"--stanza="+pm.stanzaName(),
+		"--config="+configPath,
+		"check")
+
+	checkPassed := true
+	var checkError string
+	checkErr := telemetry.WithSpan(checkCtx, "backup/check", func(ctx context.Context) error {
+		checkOutput, runErr := pm.runLongCommand(ctx, checkCmd, "pgbackrest check")
+		if runErr != nil {
+			checkPassed = false
+			checkError = fmt.Sprintf("pgbackrest check failed: %v\nOutput: %s", runErr, string(checkOutput))
+			pm.logger.WarnContext(ctx, "Post-backup integrity check failed",
+				"backup_id", foundBackupID, "error", checkError)
+		}
+		return nil // Don't fail the backup because of a check failure
+	})
+	if checkErr != nil {
+		pm.logger.WarnContext(ctx, "Post-backup integrity check span error", "error", checkErr)
+	}
+
+	pm.mu.Lock()
+	pm.lastIntegrityCheckPassed = &checkPassed
+	pm.lastIntegrityCheckError = checkError
+	pm.mu.Unlock()
 
 	return foundBackupID, nil
 }
