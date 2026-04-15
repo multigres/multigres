@@ -180,6 +180,10 @@ func (st *schemaTracker) OnStateChange(
 		// with this call (SetState fans out OnStateChange in parallel). Wait for it
 		// to be ready before subscribing so we don't silently drop the subscription.
 		st.pubsubListener.AwaitRunning(ctx)
+		// Create a fresh notifCh each time. The pubsub listener closes all
+		// subscriber channels when it stops, so re-subscribing a previously
+		// closed channel would panic on the next stop.
+		st.notifCh = make(chan *sqltypes.Notification, 16)
 		st.pubsubListener.SubscribeCh(constants.SchemaChangedChannel, st.notifCh)
 		st.start()
 		st.logger.InfoContext(ctx, "schema tracking started")
