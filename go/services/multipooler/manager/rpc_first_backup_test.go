@@ -257,6 +257,98 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 	assert.Contains(t, err.Error(), "data directory already exists")
 }
 
+// TestCreateFirstBackupAndInitialize_InitDataDirFails verifies that an initdb failure
+// is returned to the caller. The cleanup defer (scheduled before InitDataDir) runs
+// but has nothing to clean up because the data directory was never created.
+func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	// No PG_VERSION — hasDataDirectory() returns false.
+
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   NewActionLock(),
+		pgctldClient: &stubPgctldClient{}, // InitDataDir returns UNAVAILABLE
+		multipooler: &clustermetadatapb.MultiPooler{
+			Database:   dbName,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+			PoolerDir:  poolerDir,
+		},
+		config: &Config{},
+	}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+	assert.False(t, busy)
+	assert.False(t, backupFound)
+	assert.Contains(t, err.Error(), "failed to initialize data directory")
+}
+
+// TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure verifies that
+// when InitDataDir succeeds but a later step fails, the data directory is removed.
+func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	pgctld := &successStubPgctldClient{pgDataDir: dataDir}
+
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   NewActionLock(),
+		pgctldClient: pgctld,
+		multipooler: &clustermetadatapb.MultiPooler{
+			Database:   dbName,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+			PoolerDir:  poolerDir,
+		},
+		config: &Config{},
+		// pgBackRestConfigPath deliberately empty → configureArchiveMode will fail,
+		// triggering the cleanup defer after InitDataDir succeeded.
+	}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	_, _, err = pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+
+	// The data directory should have been cleaned up by the defer.
+	assert.NoDirExists(t, dataDir, "data directory should be removed after failure")
+}
+
 // TestWithBackupLease_ReturnsNodeExistsWhenHeld verifies that WithBackupLease returns
 // a NodeExists error when the lease is already held by another pooler. This is the
 // error that createFirstBackupAndInitializeLocked maps to busy=true.

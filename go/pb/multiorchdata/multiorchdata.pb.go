@@ -85,7 +85,7 @@ type PoolerHealthState struct {
 	ConsensusTerm *multipoolermanagerdata.ConsensusTerm `protobuf:"bytes,13,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Consensus status from ConsensusStatus RPC (for divergence detection)
 	ConsensusStatus *consensusdata.StatusResponse `protobuf:"bytes,14,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
-	// Cohort members from the most recent multigres.leadership_history record,
+	// Cohort members from the most recent multigres.rule_history record,
 	// populated from the Status RPC response. An empty list (not nil) on an
 	// initialized pooler signals the shard needs its initial cohort established.
 	CohortMembers []*clustermetadata.ID `protobuf:"bytes,15,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`

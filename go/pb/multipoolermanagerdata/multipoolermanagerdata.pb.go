@@ -1431,7 +1431,7 @@ type Status struct {
 	// How long the current action has been running.
 	// Only meaningful when postgres_action != UNSPECIFIED.
 	PostgresActionDuration *durationpb.Duration `protobuf:"bytes,12,opt,name=postgres_action_duration,json=postgresActionDuration,proto3" json:"postgres_action_duration,omitempty"`
-	// Cohort members from the most recent multigres.leadership_history record.
+	// Cohort members from the most recent multigres.rule_history record.
 	// Empty if the table has no records or the database is unreachable.
 	// A record with an empty list (written during first-backup creation) signals
 	// that the shard has been initialized but not yet had its cohort established.

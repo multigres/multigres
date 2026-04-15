@@ -59,14 +59,8 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
-	// Initialize a fresh data directory.
-	if _, err := pm.pgctldClient.InitDataDir(ctx, &pgctldpb.InitDataDirRequest{}); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to initialize data directory")
-	}
-
-	// On any failure after initdb, stop postgres and remove the data directory
-	// so the next monitor iteration sees a clean slate and retries.
-	// The success path sets skipCleanup to prevent a redundant remove.
+	// Schedule cleanup before InitDataDir so that a partial failure (e.g. initdb
+	// creates the directory but crashes) is cleaned up on the next iteration.
 	skipCleanup := false
 	defer func() {
 		if skipCleanup {
@@ -79,6 +73,11 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			pm.logger.WarnContext(ctx, "Failed to remove data directory during first backup cleanup", "error", err)
 		}
 	}()
+
+	// Initialize a fresh data directory.
+	if _, err := pm.pgctldClient.InitDataDir(ctx, &pgctldpb.InitDataDirRequest{}); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to initialize data directory")
+	}
 
 	// Configure archive_mode before starting PostgreSQL.
 	if err := pm.configureArchiveMode(ctx); err != nil {
@@ -106,12 +105,10 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// createRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
 
-	if err := pm.runStanzaCreate(ctx); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to create pgbackrest stanza")
-	}
-
 	// Race for the backup lease. Only the lease holder creates the backup;
 	// everyone else will find an existing backup and skip to restore.
+	// Stanza-create runs inside the lease because it is part of the pgBackRest
+	// setup work that must complete before the backup.
 	err := pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease.
@@ -119,6 +116,10 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			pm.logger.InfoContext(leaseCtx, "First backup already exists (created by another pooler)")
 			backupFound = true
 			return nil
+		}
+
+		if err := pm.runStanzaCreate(leaseCtx); err != nil {
+			return mterrors.Wrap(err, "failed to create pgbackrest stanza")
 		}
 
 		if _, err := pm.backupLocked(leaseCtx, true, "full", "", nil); err != nil {

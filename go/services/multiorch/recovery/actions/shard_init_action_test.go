@@ -249,18 +249,24 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 
 func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	// Same coordinator already claimed but crashed before appointing.
-	// On retry it should win again and proceed with the committed cohort.
+	// On retry it should win again and proceed with the committed cohort
+	// from etcd, NOT the current pooler store contents.
 	ps := newPoolerStore(t)
+	// Pooler store has all four poolers, but the committed cohort only has prior-p1/prior-p2.
 	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	ps.Set("multipooler-cell1-prior-p1", makePoolerState("cell1", "prior-p1", "testdb", "default", "0", true, nil))
+	ps.Set("multipooler-cell1-prior-p2", makePoolerState("cell1", "prior-p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
-	// Pre-write the claim with the same coordinator ID to simulate a prior attempt.
+	// Pre-write the claim with the same coordinator ID but different pooler names
+	// than p1/p2. The committed cohort from etcd should take priority over what
+	// the current pooler store would freshly select.
 	priorCohort := []*clustermetadatapb.ID{
-		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
-		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p2"},
 	}
 	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID, priorCohort)
 	require.NoError(t, err)
@@ -270,9 +276,10 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	err = action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
 	require.NoError(t, err)
 
+	// The appointed cohort should use the etcd-committed names, not the pooler store names.
 	require.Len(t, coord.appointedCohort, 2)
 	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
-	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
+	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2"}, names)
 }
 
 func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
