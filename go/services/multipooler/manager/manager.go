@@ -1065,10 +1065,9 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block demotion.
 	pm.topoPublisher.Notify(pm.multipooler)
-	pm.mu.Unlock()
 
 	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
 	return nil
@@ -1398,10 +1397,9 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block promotion.
 	pm.topoPublisher.Notify(pm.multipooler)
-	pm.mu.Unlock()
 
 	return nil
 }

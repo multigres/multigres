@@ -741,10 +741,9 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to set serving state")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block type changes.
 	pm.topoPublisher.Notify(pm.multipooler)
-	pm.mu.Unlock()
 
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
 	return nil
