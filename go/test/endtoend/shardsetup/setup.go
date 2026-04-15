@@ -837,7 +837,11 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 	var primaryName string
 	var initializedCount int
-	expectedReplicaCount := len(setup.Multipoolers) - 1
+	// The sync standby list contains the full cohort (including the primary itself),
+	// so we expect all multipoolers to appear in StandbyIds.
+	expectedCohortCount := len(setup.Multipoolers)
+	// The connected_followers list should contain all replicas (everyone except the primary).
+	expectedFollowerCount := len(setup.Multipoolers) - 1
 
 	// Build human-readable status for each pooler
 	poolerStatuses := make([]string, 0, len(setup.Multipoolers))
@@ -894,14 +898,22 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			// Check that sync replication is configured with expected standbys
-			standbyCount := 0
+			// Check that sync replication is configured with the full cohort
+			cohortCount := 0
 			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-				standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+				cohortCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 			}
-			if standbyCount < expectedReplicaCount {
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d standbys)%s %s",
-					name, standbyCount, expectedReplicaCount, actionSuffix, diag))
+			// Check that all replicas are actually connected and streaming
+			followerCount := 0
+			if status.PrimaryStatus != nil {
+				followerCount = len(status.PrimaryStatus.ConnectedFollowers)
+			}
+			if cohortCount < expectedCohortCount {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d cohort)%s %s",
+					name, cohortCount, expectedCohortCount, actionSuffix, diag))
+			} else if followerCount < expectedFollowerCount {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, followers_waiting (%d/%d connected)%s %s",
+					name, followerCount, expectedFollowerCount, actionSuffix, diag))
 			} else {
 				primaryName = name
 				isFullyInitialized = true
