@@ -271,24 +271,11 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	defer pm.actionLock.Release(ctx)
 
 	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		// Pause monitoring during restore to prevent interference
-		var resumeMonitor func(context.Context)
-		err := telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
-			var pauseErr error
-			resumeMonitor, pauseErr = pm.PausePostgresMonitor(ctx)
-			return pauseErr
-		})
-		if err != nil {
-			return err
-		}
-		defer resumeMonitor(ctx)
-
 		return pm.restoreFromBackupLocked(ctx, backupID)
 	})
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock
-// and monitoring must be disabled to avoid interference.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err

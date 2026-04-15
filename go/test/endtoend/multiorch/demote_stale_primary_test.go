@@ -74,15 +74,15 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
+	// Disable postgres restarts on old primary so postgres is not restarted by pooler
 	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	defer oldPrimaryClient.Close()
 
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err)
 	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
+		_, _ = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 	}()
 
 	// Step 1: Kill postgres on primary to trigger failover
@@ -186,20 +186,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
-	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer oldPrimaryClient.Close()
-
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	}()
-
-	// Step 1: Gracefully shutdown postgres on primary to trigger failover
+	// Step 1: Gracefully shutdown postgres on primary to trigger failover.
+	// Restarts are disabled first so the monitor does not restart postgres immediately.
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
-	setup.ShutdownPostgres(t, oldPrimaryName)
+	resumeRestarts := setup.ShutdownPostgres(t, oldPrimaryName)
+	defer resumeRestarts()
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")

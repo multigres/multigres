@@ -493,7 +493,7 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 			AnalysisType: string(p.CheckName),
 			DBNamespace:  p.ShardKey.Database,
 			Shard:        p.ShardKey.Shard,
-			PoolerID:     topoclient.MultiPoolerIDString(p.PoolerID),
+			EntityID:     p.EntityID(),
 		})
 	}
 	return data

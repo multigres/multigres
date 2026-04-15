@@ -170,12 +170,16 @@ service MultiPoolerManager {
   // The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
       returns (multipoolermanagerdata.RewindToSourceResponse);
-  
+
   //
   // PostgreSQL Monitoring Control
   //
-  
-  // SetMonitor enables or disables the PostgreSQL monitoring goroutine
-  rpc SetMonitor(multipoolermanagerdata.SetMonitorRequest)
-        returns (multipoolermanagerdata.SetMonitorResponse);
+
+  // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
+  // When disabled, the monitor continues to run but will not auto-restart a stopped
+  // PostgreSQL instance. Used by tests and demos to prevent premature restarts during
+  // controlled failovers.
+  rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
+      returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
+
 }
