@@ -298,12 +298,20 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
 	lowThreshold := lb.lowReplicationLagNs
 	highThreshold := lb.highReplicationLagToleranceNs
+	hasLagFilter := lowThreshold > 0 || highThreshold > 0
 
-	// Two-tier lag filtering when at least one threshold is configured.
-	if lowThreshold > 0 || highThreshold > 0 {
-		var healthy, tolerable []*PoolerConnection
-		for _, conn := range candidates {
-			health := conn.Health()
+	// Single-pass: lag filtering + locality categorization combined.
+	// "healthy" = lag within lowThreshold (or unknown). "tolerable" = between
+	// low and high thresholds. Each bucket is further split by locality.
+	type bucket struct {
+		localServing, remoteServing, localNotServing []*PoolerConnection
+	}
+	var healthy, tolerable bucket
+
+	for _, conn := range candidates {
+		health := conn.Health()
+
+		if hasLagFilter {
 			lagNs := int64(0)
 			if health != nil {
 				lagNs = health.ReplicationLagNs
@@ -314,53 +322,69 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 				continue
 			}
 
+			isLocal := conn.Cell() == lb.localCell
+			isServing := health.IsServing()
+
 			// Lag unknown (0) or within the low threshold → healthy.
 			if lowThreshold == 0 || lagNs == 0 || lagNs <= lowThreshold {
-				healthy = append(healthy, conn)
+				switch {
+				case isLocal && isServing:
+					healthy.localServing = append(healthy.localServing, conn)
+				case isServing:
+					healthy.remoteServing = append(healthy.remoteServing, conn)
+				case isLocal:
+					healthy.localNotServing = append(healthy.localNotServing, conn)
+				}
 			} else {
 				// Between low and high thresholds → tolerable fallback.
-				tolerable = append(tolerable, conn)
+				switch {
+				case isLocal && isServing:
+					tolerable.localServing = append(tolerable.localServing, conn)
+				case isServing:
+					tolerable.remoteServing = append(tolerable.remoteServing, conn)
+				case isLocal:
+					tolerable.localNotServing = append(tolerable.localNotServing, conn)
+				}
+			}
+		} else {
+			// No lag filtering — all candidates go into "healthy".
+			isLocal := conn.Cell() == lb.localCell
+			isServing := health.IsServing()
+
+			switch {
+			case isLocal && isServing:
+				healthy.localServing = append(healthy.localServing, conn)
+			case isServing:
+				healthy.remoteServing = append(healthy.remoteServing, conn)
+			case isLocal:
+				healthy.localNotServing = append(healthy.localNotServing, conn)
 			}
 		}
+	}
 
-		if len(healthy) > 0 {
-			candidates = healthy
-		} else if len(tolerable) > 0 {
-			candidates = tolerable
-		} else {
+	// Pick the best bucket: prefer healthy, fall back to tolerable.
+	b := &healthy
+	if len(b.localServing)+len(b.remoteServing)+len(b.localNotServing) == 0 {
+		b = &tolerable
+	}
+	if len(b.localServing)+len(b.remoteServing)+len(b.localNotServing) == 0 {
+		if hasLagFilter {
 			// All replicas exceed the high tolerance threshold.
 			return nil
 		}
-	}
-
-	// Categorize by locality and serving status.
-	var localServing, remoteServing, localNotServing []*PoolerConnection
-	for _, conn := range candidates {
-		isLocal := conn.Cell() == lb.localCell
-		isServing := conn.Health().IsServing()
-
-		switch {
-		case isLocal && isServing:
-			localServing = append(localServing, conn)
-		case isServing:
-			remoteServing = append(remoteServing, conn)
-		case isLocal:
-			localNotServing = append(localNotServing, conn)
-		}
+		// No lag filter and no candidates categorized — shouldn't happen
+		// because candidates is non-empty, but be safe.
+		return candidates[rand.IntN(len(candidates))]
 	}
 
 	// Select from tiers in preference order, with randomization within each tier.
-	if len(localServing) > 0 {
-		return localServing[rand.IntN(len(localServing))]
+	if len(b.localServing) > 0 {
+		return b.localServing[rand.IntN(len(b.localServing))]
 	}
-	if len(remoteServing) > 0 {
-		return remoteServing[rand.IntN(len(remoteServing))]
+	if len(b.remoteServing) > 0 {
+		return b.remoteServing[rand.IntN(len(b.remoteServing))]
 	}
-	if len(localNotServing) > 0 {
-		return localNotServing[rand.IntN(len(localNotServing))]
-	}
-	// Fall back to any remaining candidate.
-	return candidates[rand.IntN(len(candidates))]
+	return b.localNotServing[rand.IntN(len(b.localNotServing))]
 }
 
 // onPoolerHealthUpdate is the callback invoked by PoolerConnection when health

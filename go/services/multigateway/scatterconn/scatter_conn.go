@@ -301,11 +301,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
@@ -412,11 +408,7 @@ func (sc *ScatterConn) Describe(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
