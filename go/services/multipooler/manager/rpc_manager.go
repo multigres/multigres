@@ -886,11 +886,6 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
-	// TODO: This is not a long-term solution. The disableMonitor() approach will likely be
-	// replaced with proper state management in follow-up work to PR #550.
-	pm.disableMonitorInternal()
-
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -1004,6 +999,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	pm.healthStreamer.UpdatePrimaryObservation(nil)
 
+	// Suppress the postgres monitor until a rewind completes; the monitor would
+	// otherwise restart postgres on this demoted node.
+	pm.rewindPending.Store(true)
+
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
 		"consensus_term", consensusTerm,
@@ -1093,13 +1092,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 			LsnPosition:     finalLSN,
 		}, nil
 	}
-
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
 
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
@@ -1380,13 +1372,6 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
-
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
@@ -1474,6 +1459,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
 	}
 
+	// Rewind succeeded: allow the monitor to resume normal operation.
+	pm.rewindPending.Store(false)
+
 	pm.logger.InfoContext(ctx, "RewindToSource completed successfully",
 		"rewind_performed", rewindPerformed)
 	return &multipoolermanagerdatapb.RewindToSourceResponse{
@@ -1483,22 +1471,13 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) SetMonitor(
-	ctx context.Context,
-	req *multipoolermanagerdatapb.SetMonitorRequest,
-) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	if req.Enabled {
-		if err := pm.enableMonitorInternal(); err != nil {
-			return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
-		}
-		pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", true)
-		return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
-	}
-
-	pm.disableMonitorInternal()
-	pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", false)
-	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor.
+// When disabled, the monitor continues to run and detect problems but will not auto-restart
+// a stopped PostgreSQL instance. Used by tests and demos during controlled failovers.
+func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	pm.postgresRestartsDisabled.Store(!req.Enabled)
+	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled)
+	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
 }
 
 // ====================================================================================
@@ -1586,9 +1565,13 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		}
 
 		pm.logger.InfoContext(ctx, "pg_rewind completed")
+		pm.rewindPending.Store(false)
 		return true, nil
 	}
 
+	// No divergence: the node is already in sync with the source. The rewind is
+	// effectively complete; clear the flag so the monitor resumes.
+	pm.rewindPending.Store(false)
 	pm.logger.InfoContext(ctx, "No divergence, skipping rewind")
 	return false, nil
 }

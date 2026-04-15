@@ -469,7 +469,6 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		logger:       slog.Default(),
 		actionLock:   NewActionLock(),
 	}
-
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction

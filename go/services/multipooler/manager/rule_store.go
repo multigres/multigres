@@ -157,7 +157,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.current_rule (
+	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.current_rule (
 		shard_id                  BYTEA PRIMARY KEY,
 		coordinator_term          BIGINT NOT NULL,
 		leader_subterm            BIGINT NOT NULL,
@@ -176,8 +176,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	if _, err := rs.queryService.QueryArgs(execCtx, `
 		INSERT INTO multigres.current_rule
 		  (shard_id, coordinator_term, leader_subterm, cohort_members, created_at)
-		VALUES ($1, 0, 0, '{}', now())
-		ON CONFLICT (shard_id) DO NOTHING`,
+		VALUES ($1, 0, 0, '{}', now())`,
 		[]byte("0")); err != nil {
 		return mterrors.Wrap(err, "failed to initialize current_rule")
 	}
@@ -185,9 +184,9 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 	// Each row records a cluster state change (promotion, cohort membership, durability policy).
 	// The composite primary key (coordinator_term, leader_subterm) uniquely identifies each rule;
 	// leader_subterm is assigned by the application as MAX(leader_subterm)+1 within a coordinator_term.
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE IF NOT EXISTS multigres.rule_history (
+	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.rule_history (
 		coordinator_term          BIGINT NOT NULL,
-		leader_subterm              BIGINT NOT NULL,
+		leader_subterm            BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
 		leader_id                 TEXT,
 		coordinator_id            TEXT,

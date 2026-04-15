@@ -108,11 +108,11 @@ service MultiAdminService {
   // PostgreSQL Monitoring Control (proxy methods)
   //
 
-  // SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
-  rpc SetPostgresMonitor(SetPostgresMonitorRequest) returns (SetPostgresMonitorResponse) {
+  // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+  rpc SetPostgresRestartsEnabled(SetPostgresRestartsEnabledRequest) returns (SetPostgresRestartsEnabledResponse) {
     option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"
+      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"
       body: "*"
     };
   }
@@ -389,17 +389,17 @@ message GetPoolerStatusResponse {
 
 // PostgreSQL Monitoring Control operation messages
 
-// SetPostgresMonitorRequest requests to enable or disable PostgreSQL monitoring on a pooler
-message SetPostgresMonitorRequest {
-  // pooler_id identifies which pooler to update monitoring on (required)
+// SetPostgresRestartsEnabledRequest requests to enable or disable automatic PostgreSQL restarts on a pooler
+message SetPostgresRestartsEnabledRequest {
+  // pooler_id identifies which pooler to update (required)
   clustermetadata.ID pooler_id = 1;
 
-  // enabled controls whether monitoring is enabled (true) or disabled (false)
+  // enabled controls whether automatic restarts are enabled (true) or suppressed (false)
   bool enabled = 2;
 }
 
-// SetPostgresMonitorResponse confirms that monitoring was updated
+// SetPostgresRestartsEnabledResponse confirms that the flag was updated
 // Errors are returned via gRPC status codes, not in the response body
-message SetPostgresMonitorResponse {
+message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }

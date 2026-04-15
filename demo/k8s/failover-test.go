@@ -254,7 +254,7 @@ func disablePostgresMonitoring(ctx context.Context, config *Config) error {
 		logInfo(fmt.Sprintf("  Disabling monitoring on: %s (cell=%s, service_id=%s)", poolerName, cell, serviceID))
 
 		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := client.SetPostgresMonitor(reqCtx, &multiadminpb.SetPostgresMonitorRequest{
+		_, err := client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{
 				Cell: cell,
 				Name: serviceID,

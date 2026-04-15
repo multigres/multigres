@@ -4076,29 +4076,31 @@ func (x *RewindToSourceResponse) GetRewindPerformed() bool {
 	return false
 }
 
-// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
-type SetMonitorRequest struct {
+// SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
+// by the postgres monitor. When disabled, the monitor will still run and detect problems,
+// but will not automatically restart a stopped PostgreSQL instance.
+type SetPostgresRestartsEnabledRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether to enable monitoring (true) or disable it (false)
+	// Whether automatic restarts are enabled (true) or suppressed (false)
 	Enabled       bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetMonitorRequest) Reset() {
-	*x = SetMonitorRequest{}
+func (x *SetPostgresRestartsEnabledRequest) Reset() {
+	*x = SetPostgresRestartsEnabledRequest{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetMonitorRequest) String() string {
+func (x *SetPostgresRestartsEnabledRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetMonitorRequest) ProtoMessage() {}
+func (*SetPostgresRestartsEnabledRequest) ProtoMessage() {}
 
-func (x *SetMonitorRequest) ProtoReflect() protoreflect.Message {
+func (x *SetPostgresRestartsEnabledRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4110,12 +4112,12 @@ func (x *SetMonitorRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetMonitorRequest.ProtoReflect.Descriptor instead.
-func (*SetMonitorRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetPostgresRestartsEnabledRequest.ProtoReflect.Descriptor instead.
+func (*SetPostgresRestartsEnabledRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{63}
 }
 
-func (x *SetMonitorRequest) GetEnabled() bool {
+func (x *SetPostgresRestartsEnabledRequest) GetEnabled() bool {
 	if x != nil {
 		return x.Enabled
 	}
@@ -4124,26 +4126,26 @@ func (x *SetMonitorRequest) GetEnabled() bool {
 
 // SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
-type SetMonitorResponse struct {
+type SetPostgresRestartsEnabledResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetMonitorResponse) Reset() {
-	*x = SetMonitorResponse{}
+func (x *SetPostgresRestartsEnabledResponse) Reset() {
+	*x = SetPostgresRestartsEnabledResponse{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetMonitorResponse) String() string {
+func (x *SetPostgresRestartsEnabledResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetMonitorResponse) ProtoMessage() {}
+func (*SetPostgresRestartsEnabledResponse) ProtoMessage() {}
 
-func (x *SetMonitorResponse) ProtoReflect() protoreflect.Message {
+func (x *SetPostgresRestartsEnabledResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4155,8 +4157,8 @@ func (x *SetMonitorResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetMonitorResponse.ProtoReflect.Descriptor instead.
-func (*SetMonitorResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetPostgresRestartsEnabledResponse.ProtoReflect.Descriptor instead.
+func (*SetPostgresRestartsEnabledResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{64}
 }
 
@@ -4405,10 +4407,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x16RewindToSourceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12)\n" +
-	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"-\n" +
-	"\x11SetMonitorRequest\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\"\x14\n" +
-	"\x12SetMonitorResponse*\xa5\x01\n" +
+	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"=\n" +
+	"!SetPostgresRestartsEnabledRequest\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\"$\n" +
+	"\"SetPostgresRestartsEnabledResponse*\xa5\x01\n" +
 	"\x0ePostgresAction\x12\x1f\n" +
 	"\x1bPOSTGRES_ACTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_ACTION_STARTING\x10\x01\x12)\n" +
@@ -4518,16 +4520,16 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*CreateDurabilityPolicyResponse)(nil),          // 66: multipoolermanagerdata.CreateDurabilityPolicyResponse
 	(*RewindToSourceRequest)(nil),                   // 67: multipoolermanagerdata.RewindToSourceRequest
 	(*RewindToSourceResponse)(nil),                  // 68: multipoolermanagerdata.RewindToSourceResponse
-	(*SetMonitorRequest)(nil),                       // 69: multipoolermanagerdata.SetMonitorRequest
-	(*SetMonitorResponse)(nil),                      // 70: multipoolermanagerdata.SetMonitorResponse
-	nil,                                             // 71: multipoolermanagerdata.BackupRequest.OverridesEntry
-	nil,                                             // 72: multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
-	(*durationpb.Duration)(nil),                     // 73: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),                   // 74: google.protobuf.Timestamp
-	(*clustermetadata.MultiPooler)(nil),             // 75: clustermetadata.MultiPooler
-	(*clustermetadata.ID)(nil),                      // 76: clustermetadata.ID
-	(clustermetadata.PoolerType)(0),                 // 77: clustermetadata.PoolerType
-	(*clustermetadata.DurabilityPolicy)(nil),        // 78: clustermetadata.DurabilityPolicy
+	(*SetPostgresRestartsEnabledRequest)(nil),       // 69: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
+	(*SetPostgresRestartsEnabledResponse)(nil),      // 70: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	nil,                                      // 71: multipoolermanagerdata.BackupRequest.OverridesEntry
+	nil,                                      // 72: multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	(*durationpb.Duration)(nil),              // 73: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),            // 74: google.protobuf.Timestamp
+	(*clustermetadata.MultiPooler)(nil),      // 75: clustermetadata.MultiPooler
+	(*clustermetadata.ID)(nil),               // 76: clustermetadata.ID
+	(clustermetadata.PoolerType)(0),          // 77: clustermetadata.PoolerType
+	(*clustermetadata.DurabilityPolicy)(nil), // 78: clustermetadata.DurabilityPolicy
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	73, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration

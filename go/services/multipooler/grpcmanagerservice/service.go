@@ -318,7 +318,7 @@ func (s *managerService) RewindToSource(ctx context.Context, req *multipoolerman
 	return s.manager.RewindToSource(ctx, req.Source)
 }
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine
-func (s *managerService) SetMonitor(ctx context.Context, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	return s.manager.SetMonitor(ctx, req)
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
+func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	return s.manager.SetPostgresRestartsEnabled(ctx, req)
 }
