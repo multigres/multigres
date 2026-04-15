@@ -95,3 +95,22 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
 		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
 }
+
+// disallowDirectPgctldStopInTests prevents test code from calling pgctld Stop() directly
+// in test packages that run multipooler alongside pgctld. The postgres monitor runs
+// continuously and will restart postgres immediately after it is stopped, causing races.
+// Use ShardSetup.StopPostgres instead — it disables restarts before stopping and returns
+// a resume function.
+//
+// Excluded: pgctld package tests (no multipooler running) and non-test files (e.g.
+// ShardSetup.StopPostgres itself calls Stop internally in setup.go).
+func disallowDirectPgctldStopInTests(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/pgctldservice")
+
+	m.Match(`$client.Stop($ctx, $req)`).
+		Where(
+			m["req"].Type.Is("*pgctldservice.StopRequest") &&
+				m.File().PkgPath.Matches(`/test/endtoend/`) &&
+				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
+		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
+}
