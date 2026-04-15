@@ -539,6 +539,11 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() {
 		pm.replTracker = nil
 	}
 
+	if pm.schemaTracker != nil {
+		pm.schemaTracker.Close()
+		pm.schemaTracker = nil
+	}
+
 	if pm.pubsubListener != nil {
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
