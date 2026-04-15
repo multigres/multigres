@@ -49,8 +49,11 @@ const (
 type CancelManager struct {
 	multigatewayservicepb.UnimplementedMultiGatewayServiceServer
 
-	// localCancelFn attempts to cancel a connection on this gateway.
-	localCancelFn func(pid, secret uint32) bool
+	// primaryCancelFn attempts to cancel a connection on the primary listener.
+	primaryCancelFn func(pid, secret uint32) bool
+	// replicaCancelFn attempts to cancel a connection on the replica-reads listener.
+	// Nil when no replica listener is configured.
+	replicaCancelFn func(pid, secret uint32) bool
 	// ownPrefix is this gateway's PID prefix.
 	ownPrefix uint32
 	// ts is the topology store for discovering other gateways.
@@ -79,20 +82,23 @@ type gatewayConn struct {
 }
 
 // NewCancelManager creates a new CancelManager.
+// primaryCancelFn handles cancels for the primary listener.
+// Use SetReplicaCancelFn to register the replica listener's cancel function
+// after the replica listener is created.
 func NewCancelManager(
-	localCancelFn func(pid, secret uint32) bool,
+	primaryCancelFn func(pid, secret uint32) bool,
 	ownPrefix uint32,
 	ts topoclient.Store,
 	logger *slog.Logger,
 ) *CancelManager {
 	ctx, cancel := context.WithCancel(context.TODO())
 	cm := &CancelManager{
-		localCancelFn: localCancelFn,
-		ownPrefix:     ownPrefix,
-		ts:            ts,
-		logger:        logger,
-		clients:       make(map[string]*gatewayConn),
-		stop:          cancel,
+		primaryCancelFn: primaryCancelFn,
+		ownPrefix:       ownPrefix,
+		ts:              ts,
+		logger:          logger,
+		clients:         make(map[string]*gatewayConn),
+		stop:            cancel,
 	}
 	empty := make(map[uint32]string)
 	cm.prefixCache.Store(&empty)
@@ -100,28 +106,66 @@ func NewCancelManager(
 	return cm
 }
 
+// SetReplicaCancelFn registers the cancel function for the replica-reads listener.
+// Must be called before the replica listener starts accepting connections.
+func (cm *CancelManager) SetReplicaCancelFn(fn func(pid, secret uint32) bool) {
+	cm.replicaCancelFn = fn
+}
+
 // RegisterWithGRPCServer registers the CancelManager as a gRPC service.
 func (cm *CancelManager) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multigatewayservicepb.RegisterMultiGatewayServiceServer(grpcServer, cm)
 }
 
-// HandleCancelRequest implements server.CancelHandler.
-// It decodes the PID prefix and either cancels locally or forwards to the owning gateway.
-func (cm *CancelManager) HandleCancelRequest(ctx context.Context, processID, secretKey uint32) {
+// handleCancel decodes the PID prefix and either cancels locally or forwards
+// to the owning gateway. The replica flag indicates whether the cancel arrived
+// on a replica-reads listener.
+func (cm *CancelManager) handleCancel(ctx context.Context, processID, secretKey uint32, replica bool) {
 	prefix, _ := pid.DecodePID(processID)
 
 	if prefix == cm.ownPrefix {
-		cm.localCancelFn(processID, secretKey)
+		cm.cancelLocal(processID, secretKey, replica)
 		return
 	}
 
 	// Forward to the gateway that owns this PID prefix.
-	if err := cm.forwardCancel(ctx, prefix, processID, secretKey); err != nil {
+	if err := cm.forwardCancel(ctx, prefix, processID, secretKey, replica); err != nil {
 		cm.logger.WarnContext(ctx, "failed to forward cancel request",
 			"target_prefix", prefix,
 			"process_id", processID,
+			"replica", replica,
 			"error", err,
 		)
+	}
+}
+
+// ForListener returns a server.CancelHandler that routes cancel requests
+// through this CancelManager with the given connection type baked in.
+// This avoids adding replica awareness to the generic server package.
+func (cm *CancelManager) ForListener(replica bool) *ListenerCancelHandler {
+	return &ListenerCancelHandler{cm: cm, replica: replica}
+}
+
+// ListenerCancelHandler adapts CancelManager to the server.CancelHandler
+// interface for a specific listener type (primary or replica).
+type ListenerCancelHandler struct {
+	cm      *CancelManager
+	replica bool
+}
+
+// HandleCancelRequest implements server.CancelHandler.
+func (h *ListenerCancelHandler) HandleCancelRequest(ctx context.Context, processID, secretKey uint32) {
+	h.cm.handleCancel(ctx, processID, secretKey, h.replica)
+}
+
+// cancelLocal dispatches a cancel to the correct local listener based on connection type.
+func (cm *CancelManager) cancelLocal(processID, secretKey uint32, replica bool) {
+	if replica {
+		if cm.replicaCancelFn != nil {
+			cm.replicaCancelFn(processID, secretKey)
+		}
+	} else {
+		cm.primaryCancelFn(processID, secretKey)
 	}
 }
 
@@ -136,13 +180,13 @@ func (cm *CancelManager) CancelQuery(ctx context.Context, req *multigatewayservi
 			"process_id", req.ProcessId,
 		)
 	}
-	cm.localCancelFn(req.ProcessId, req.SecretKey)
+	cm.cancelLocal(req.ProcessId, req.SecretKey, req.Replica)
 	return &multigatewayservicepb.CancelQueryResponse{}, nil
 }
 
 // forwardCancel finds the gateway with the given PID prefix and forwards the cancel request.
 // Cancellation is best-effort — no retries on failure.
-func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, processID, secretKey uint32) error {
+func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, processID, secretKey uint32, replica bool) error {
 	cache := *cm.prefixCache.Load()
 	addr, ok := cache[targetPrefix]
 	if !ok {
@@ -163,6 +207,7 @@ func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, proces
 	_, err = client.CancelQuery(ctx, &multigatewayservicepb.CancelQueryRequest{
 		ProcessId: processID,
 		SecretKey: secretKey,
+		Replica:   replica,
 	})
 	return err
 }

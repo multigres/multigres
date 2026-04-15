@@ -76,12 +76,12 @@ type MultiGateway struct {
 	pgReplicaPort viperutil.Value[int]
 	// pgReplicaListener is the optional replica-reads listener
 	pgReplicaListener *server.Listener
-	// pgReplicaLowLagSecs is the preferred replication lag threshold for replicas.
+	// pgReplicaLowLagMs is the preferred replication lag threshold (ms) for replicas.
 	// Replicas at or below this lag are considered "healthy" and preferred.
-	pgReplicaLowLagSecs viperutil.Value[int]
-	// pgReplicaHighLagToleranceSecs is the absolute maximum replication lag.
+	pgReplicaLowLagMs viperutil.Value[int]
+	// pgReplicaHighLagToleranceMs is the absolute maximum replication lag (ms).
 	// Replicas above this are never selected. 0 means no upper bound.
-	pgReplicaHighLagToleranceSecs viperutil.Value[int]
+	pgReplicaHighLagToleranceMs viperutil.Value[int]
 	// cancelManager handles cross-gateway query cancellation
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
@@ -158,17 +158,17 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_REPLICA_PORT"},
 		}),
-		pgReplicaLowLagSecs: viperutil.Configure(reg, "low-replication-lag-secs", viperutil.Options[int]{
-			Default:  30,
-			FlagName: "low-replication-lag-secs",
+		pgReplicaLowLagMs: viperutil.Configure(reg, "low-replication-lag-ms", viperutil.Options[int]{
+			Default:  30000,
+			FlagName: "low-replication-lag-ms",
 			Dynamic:  false,
-			EnvVars:  []string{"MT_LOW_REPLICATION_LAG_SECS"},
+			EnvVars:  []string{"MT_LOW_REPLICATION_LAG_MS"},
 		}),
-		pgReplicaHighLagToleranceSecs: viperutil.Configure(reg, "high-replication-lag-tolerance-secs", viperutil.Options[int]{
+		pgReplicaHighLagToleranceMs: viperutil.Configure(reg, "high-replication-lag-tolerance-ms", viperutil.Options[int]{
 			Default:  0,
-			FlagName: "high-replication-lag-tolerance-secs",
+			FlagName: "high-replication-lag-tolerance-ms",
 			Dynamic:  false,
-			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_SECS"},
+			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_MS"},
 		}),
 		bufferConfig: buffer.NewConfig(reg),
 		grpcServer:   servenv.NewGrpcServer(reg),
@@ -207,8 +207,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
-	fs.Int("low-replication-lag-secs", mg.pgReplicaLowLagSecs.Default(), "replicas at or below this lag (seconds) are preferred; 0 treats all replicas equally")
-	fs.Int("high-replication-lag-tolerance-secs", mg.pgReplicaHighLagToleranceSecs.Default(), "absolute max lag (seconds) for replicas; 0 means no upper bound")
+	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
+	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -218,8 +218,8 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 		mg.pgReplicaPort,
-		mg.pgReplicaLowLagSecs,
-		mg.pgReplicaHighLagToleranceSecs,
+		mg.pgReplicaLowLagMs,
+		mg.pgReplicaHighLagToleranceMs,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
@@ -267,15 +267,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Create LoadBalancer and register with discovery for real-time updates
 	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
-	lowLag := mg.pgReplicaLowLagSecs.Get()
-	highTolerance := mg.pgReplicaHighLagToleranceSecs.Get()
-	if lowLag > 0 || highTolerance > 0 {
+	lowLagMs := mg.pgReplicaLowLagMs.Get()
+	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
+	if lowLagMs > 0 || highToleranceMs > 0 {
 		loadBalancer.SetReplicationLagThresholds(
-			time.Duration(lowLag)*time.Second,
-			time.Duration(highTolerance)*time.Second,
+			time.Duration(lowLagMs)*time.Millisecond,
+			time.Duration(highToleranceMs)*time.Millisecond,
 		)
-		logger.InfoContext(ctx, "replica replication lag thresholds configured",
-			"low_lag_secs", lowLag, "high_tolerance_secs", highTolerance)
 	}
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
@@ -411,13 +409,16 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 
 	// Set up cross-gateway cancel request handling.
+	// Each listener's cancel function is registered separately so the cancel
+	// manager routes to the correct listener based on the connection type
+	// (primary vs replica) carried in the cancel request / gRPC forward.
 	mg.cancelManager = NewCancelManager(
 		mg.pgListener.CancelLocalConnection,
 		pidPrefix,
 		mg.ts,
 		logger,
 	)
-	mg.pgListener.SetCancelHandler(mg.cancelManager)
+	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
 	// Register the gRPC service via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
 	mg.senv.OnRun(func() {
@@ -436,7 +437,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
 		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
-		replicaHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:      replicaAddr,
@@ -448,6 +448,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
+		}
+		mg.cancelManager.SetReplicaCancelFn(mg.pgReplicaListener.CancelLocalConnection)
+		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+		if lowLagMs > 0 || highToleranceMs > 0 {
+			logger.InfoContext(ctx, "replica replication lag thresholds configured",
+				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
 		}
 		go func() {
 			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
