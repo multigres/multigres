@@ -1248,13 +1248,13 @@ func (x *DurabilityPolicy) GetAsyncFallback() AsyncReplicationFallbackMode {
 // cohort membership, durability policy) produces a new RuleNumber.
 //
 // Compared lexicographically: higher coordinator_term takes precedence; within
-// the same coordinator_term, higher rule_subterm takes precedence. rule_subterm
+// the same coordinator_term, higher leader_subterm takes precedence. leader_subterm
 // resets to 0 when coordinator_term increases, so subterms alone are not
 // globally unique.
 type RuleNumber struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	CoordinatorTerm int64                  `protobuf:"varint,1,opt,name=coordinator_term,json=coordinatorTerm,proto3" json:"coordinator_term,omitempty"`
-	RuleSubterm     int64                  `protobuf:"varint,2,opt,name=rule_subterm,json=ruleSubterm,proto3" json:"rule_subterm,omitempty"`
+	LeaderSubterm   int64                  `protobuf:"varint,2,opt,name=leader_subterm,json=leaderSubterm,proto3" json:"leader_subterm,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1296,9 +1296,9 @@ func (x *RuleNumber) GetCoordinatorTerm() int64 {
 	return 0
 }
 
-func (x *RuleNumber) GetRuleSubterm() int64 {
+func (x *RuleNumber) GetLeaderSubterm() int64 {
 	if x != nil {
-		return x.RuleSubterm
+		return x.LeaderSubterm
 	}
 	return 0
 }
@@ -1406,7 +1406,7 @@ func (x *ShardRule) GetCreationTime() *timestamppb.Timestamp {
 // promotion candidate.
 //
 // Comparison: prefer the node with the higher rule (coordinator_term first,
-// then rule_subterm). Break ties by LSN.
+// then leader_subterm). Break ties by LSN.
 type NodePosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The highest shard rule this node has committed to local WAL.
@@ -1756,11 +1756,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x04 \x01(\x05R\rrequiredCount\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x06 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback\"Z\n" +
+	"\x0easync_fallback\x18\x06 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback\"^\n" +
 	"\n" +
 	"RuleNumber\x12)\n" +
-	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12!\n" +
-	"\frule_subterm\x18\x02 \x01(\x03R\vruleSubterm\"\x86\x03\n" +
+	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12%\n" +
+	"\x0eleader_subterm\x18\x02 \x01(\x03R\rleaderSubterm\"\x86\x03\n" +
 	"\tShardRule\x12<\n" +
 	"\vrule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\n" +
 	"ruleNumber\x122\n" +

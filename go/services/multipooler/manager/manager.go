@@ -108,6 +108,7 @@ type MultiPoolerManager struct {
 	consensusState  *ConsensusState
 	topoLoaded      bool
 	consensusLoaded bool
+	rules           ruleStorer
 	ctx             context.Context
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
@@ -265,6 +266,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new

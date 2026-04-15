@@ -602,7 +602,7 @@ func TestSelectCandidate(t *testing.T) {
 	})
 
 	t.Run("nodes without leadership term fall back to LSN", func(t *testing.T) {
-		// If leadership_term is 0 (empty leadership_history, e.g. pre-bootstrap),
+		// If leadership_term is 0 (empty rule_history, e.g. pre-bootstrap),
 		// all nodes compare as equal on term, so LSN alone determines the winner.
 		c := &Coordinator{
 			coordinatorID: coordID,

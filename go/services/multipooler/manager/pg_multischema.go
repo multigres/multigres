@@ -60,7 +60,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.createLeadershipHistoryTable(ctx); err != nil {
+	if err := pm.rules.createRuleTables(ctx); err != nil {
 		return err
 	}
 
@@ -149,36 +149,6 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
-	return nil
-}
-
-// createLeadershipHistoryTable creates the leadership_history table and its indexes
-func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.leadership_history (
-		id BIGSERIAL PRIMARY KEY,
-		term_number BIGINT NOT NULL,
-		event_type TEXT NOT NULL,
-		leader_id TEXT,
-		coordinator_id TEXT,
-		wal_position TEXT,
-		accepted_members JSONB,
-		reason TEXT NOT NULL,
-		cohort_members JSONB NOT NULL,
-		operation TEXT,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create leadership_history table")
-	}
-
-	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term_event
-		ON multigres.leadership_history(term_number DESC, event_type)`); err != nil {
-		return mterrors.Wrap(err, "failed to create leadership_history index")
-	}
-
 	return nil
 }
 
