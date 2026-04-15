@@ -408,32 +408,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
 	}
 
-	// Set up cross-gateway cancel request handling.
-	// Each listener's cancel function is registered separately so the cancel
-	// manager routes to the correct listener based on the connection type
-	// (primary vs replica) carried in the cancel request / gRPC forward.
-	mg.cancelManager = NewCancelManager(
-		mg.pgListener.CancelLocalConnection,
-		pidPrefix,
-		mg.ts,
-		logger,
-	)
-	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
-	// Register the gRPC service via OnRun because grpcServer.Server is only
-	// created in servenv.Run() (after Create()), which runs after Init().
-	mg.senv.OnRun(func() {
-		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
-	})
-
-	// Start the PostgreSQL listener in a goroutine
-	go func() {
-		logger.Info("PostgreSQL listener starting", "port", mg.pgPort.Get())
-		if err := mg.pgListener.Serve(); err != nil {
-			logger.Error("PostgreSQL listener error", "error", err)
-		}
-	}()
-
-	// Optionally start a second listener for replica-reads connections.
+	// Optionally create a second listener for replica-reads connections.
+	var replicaCancelFn func(pid, secret uint32) bool
 	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
 		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
@@ -449,13 +425,45 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
 		}
-		mg.cancelManager.SetReplicaCancelFn(mg.pgReplicaListener.CancelLocalConnection)
-		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
 		if lowLagMs > 0 || highToleranceMs > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
 				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
 		}
+	}
+
+	// Set up cross-gateway cancel request handling.
+	// The cancel manager routes to the correct listener based on the connection
+	// type (primary vs replica) carried in the cancel request / gRPC forward.
+	mg.cancelManager = NewCancelManager(
+		mg.pgListener.CancelLocalConnection,
+		replicaCancelFn,
+		pidPrefix,
+		mg.ts,
+		logger,
+	)
+	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
+	if mg.pgReplicaListener != nil {
+		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+	}
+	// Register the gRPC service via OnRun because grpcServer.Server is only
+	// created in servenv.Run() (after Create()), which runs after Init().
+	mg.senv.OnRun(func() {
+		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+	})
+
+	// Start the PostgreSQL listener in a goroutine
+	go func() {
+		logger.Info("PostgreSQL listener starting", "port", mg.pgPort.Get())
+		if err := mg.pgListener.Serve(); err != nil {
+			logger.Error("PostgreSQL listener error", "error", err)
+		}
+	}()
+
+	// Start the replica listener if configured.
+	if mg.pgReplicaListener != nil {
 		go func() {
+			replicaPort := mg.pgReplicaPort.Get()
 			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
 			if err := mg.pgReplicaListener.Serve(); err != nil {
 				logger.Error("replica PostgreSQL listener error", "error", err)

@@ -83,10 +83,11 @@ type gatewayConn struct {
 
 // NewCancelManager creates a new CancelManager.
 // primaryCancelFn handles cancels for the primary listener.
-// Use SetReplicaCancelFn to register the replica listener's cancel function
-// after the replica listener is created.
+// replicaCancelFn handles cancels for the replica-reads listener (nil when no
+// replica listener is configured).
 func NewCancelManager(
 	primaryCancelFn func(pid, secret uint32) bool,
+	replicaCancelFn func(pid, secret uint32) bool,
 	ownPrefix uint32,
 	ts topoclient.Store,
 	logger *slog.Logger,
@@ -94,6 +95,7 @@ func NewCancelManager(
 	ctx, cancel := context.WithCancel(context.TODO())
 	cm := &CancelManager{
 		primaryCancelFn: primaryCancelFn,
+		replicaCancelFn: replicaCancelFn,
 		ownPrefix:       ownPrefix,
 		ts:              ts,
 		logger:          logger,
@@ -104,12 +106,6 @@ func NewCancelManager(
 	cm.prefixCache.Store(&empty)
 	go cm.refreshPrefixCachePeriodically(ctx)
 	return cm
-}
-
-// SetReplicaCancelFn registers the cancel function for the replica-reads listener.
-// Must be called before the replica listener starts accepting connections.
-func (cm *CancelManager) SetReplicaCancelFn(fn func(pid, secret uint32) bool) {
-	cm.replicaCancelFn = fn
 }
 
 // RegisterWithGRPCServer registers the CancelManager as a gRPC service.

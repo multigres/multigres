@@ -43,7 +43,7 @@ func TestCancelManager_LocalCancel(t *testing.T) {
 		return true
 	}
 
-	cm := NewCancelManager(primaryCancelFn, ownPrefix, nil, testCancelLogger())
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, nil, testCancelLogger())
 	defer cm.Close()
 
 	handler := cm.ForListener(false)
@@ -70,8 +70,7 @@ func TestCancelManager_LocalReplicaCancel(t *testing.T) {
 		return true
 	}
 
-	cm := NewCancelManager(primaryCancelFn, ownPrefix, nil, testCancelLogger())
-	cm.SetReplicaCancelFn(replicaCancelFn)
+	cm := NewCancelManager(primaryCancelFn, replicaCancelFn, ownPrefix, nil, testCancelLogger())
 	defer cm.Close()
 
 	handler := cm.ForListener(true)
@@ -106,7 +105,7 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 		},
 	}
 
-	cm := NewCancelManager(primaryCancelFn, ownPrefix, mockTS, testCancelLogger())
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, mockTS, testCancelLogger())
 	defer cm.Close()
 
 	// ForListener(false).HandleCancelRequest should try to forward but will fail
@@ -129,7 +128,7 @@ func TestCancelManager_GRPCHandler(t *testing.T) {
 		return true
 	}
 
-	cm := NewCancelManager(primaryCancelFn, ownPrefix, nil, testCancelLogger())
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, nil, testCancelLogger())
 	defer cm.Close()
 
 	resp, err := cm.CancelQuery(context.Background(), &multigatewayservicepb.CancelQueryRequest{
@@ -160,8 +159,7 @@ func TestCancelManager_GRPCHandlerReplica(t *testing.T) {
 		return true
 	}
 
-	cm := NewCancelManager(primaryCancelFn, ownPrefix, nil, testCancelLogger())
-	cm.SetReplicaCancelFn(replicaCancelFn)
+	cm := NewCancelManager(primaryCancelFn, replicaCancelFn, ownPrefix, nil, testCancelLogger())
 	defer cm.Close()
 
 	resp, err := cm.CancelQuery(context.Background(), &multigatewayservicepb.CancelQueryRequest{
