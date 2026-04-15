@@ -30,13 +30,13 @@ import (
 // (or observeErr/updateErr when set). updateRule records all calls in updates.
 type fakeRuleStore struct {
 	mu         sync.Mutex
-	pos        *clustermetadatapb.NodePosition
+	pos        *clustermetadatapb.PoolerPosition
 	observeErr error
 	updateErr  error
 	updates    []*ruleUpdateBuilder
 }
 
-func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.NodePosition, error) {
+func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.pos, f.observeErr
@@ -46,7 +46,13 @@ func (f *fakeRuleStore) createRuleTables(_ context.Context) error {
 	return nil
 }
 
-func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.NodePosition, error) {
+func (f *fakeRuleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pos
+}
+
+func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updates = append(f.updates, update)
