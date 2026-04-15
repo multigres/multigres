@@ -263,6 +263,9 @@ type MultiPoolerClient interface {
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
+	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
+
 	//
 	// Connection Management Methods
 	//

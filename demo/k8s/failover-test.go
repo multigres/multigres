@@ -35,6 +35,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 const (
@@ -218,31 +224,44 @@ func verifyPrerequisites(config *Config) error {
 	return nil
 }
 
-func createInhibitMarker(poolerInfo *PoolerInfo, config *Config) error {
-	cmd := exec.Command("kubectl",
-		"--context", config.KubectlContext,
-		"exec", "-n", config.KubernetesNamespace,
-		"pod/"+poolerInfo.PodName,
-		"-c", "pgctld", "--",
-		"touch", poolerDir+"/no-autostart",
-	)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create no-autostart marker: %w", err)
+func newAdminClient(addr string) (*adminClient, error) {
+	conn, err := grpccommon.NewClient(addr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}
-	return nil
+	return &adminClient{
+		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		conn:                    conn,
+	}, nil
 }
 
-func removeInhibitMarker(poolerInfo *PoolerInfo, config *Config) {
-	cmd := exec.Command("kubectl",
-		"--context", config.KubectlContext,
-		"exec", "-n", config.KubernetesNamespace,
-		"pod/"+poolerInfo.PodName,
-		"-c", "pgctld", "--",
-		"rm", "-f", poolerDir+"/no-autostart",
-	)
-	_ = cmd.Run()
+type adminClient struct {
+	multiadminpb.MultiAdminServiceClient
+	conn *grpc.ClientConn
+}
+
+func (c *adminClient) Close() error {
+	return c.conn.Close()
+}
+
+func setPostgresRestarts(ctx context.Context, config *Config, poolerInfo *PoolerInfo, enabled bool) error {
+	client, err := newAdminClient(config.MultiadminGRPC)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	_, err = client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
+		PoolerId: &clustermetadatapb.ID{
+			Cell: poolerInfo.Cell,
+			Name: poolerInfo.ServiceID,
+		},
+		Enabled: enabled,
+	})
+	return err
 }
 
 func getPoolers(config *Config) (*PoolersResponse, error) {
@@ -702,27 +721,28 @@ func failoverLoop(ctx context.Context, config *Config) error {
 			logInfo("Auto-yes enabled, proceeding automatically...")
 		}
 
-		// Block the postgres monitor from auto-restarting postgres during failover.
-		if err := createInhibitMarker(primaryInfo, config); err != nil {
-			logError(fmt.Sprintf("Failed to create no-autostart marker: %v", err))
+		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
+		// during failover.
+		if err := setPostgresRestarts(ctx, config, primaryInfo, false); err != nil {
+			logError(fmt.Sprintf("Failed to disable postgres restarts: %v", err))
 			return err
 		}
 
 		// Stop the primary
 		if err := stopPooler(primaryInfo, config); err != nil {
-			removeInhibitMarker(primaryInfo, config)
+			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError(fmt.Sprintf("Failed to stop pooler: %v", err))
 			return err
 		}
 
 		// Wait for new primary — by this point emergencyDemoteLocked has set rewindPending.
 		if err := waitForNewPrimary(config, primaryInfo.ServiceID, 60); err != nil {
-			removeInhibitMarker(primaryInfo, config)
+			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError("Failed to detect new primary. Manual intervention required.")
 			return err
 		}
-		// Remove the marker: rewindPending now prevents premature auto-restart.
-		removeInhibitMarker(primaryInfo, config)
+		// Re-enable restarts: rewindPending now prevents premature auto-restart.
+		_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 
 		// Let the system restart postgres organically
 		logInfo("Waiting for system to restart postgres organically...")

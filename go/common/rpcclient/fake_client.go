@@ -763,6 +763,17 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
 }
 
+func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("SetPostgresRestartsEnabled", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
 //
 // Connection Management Methods
 //

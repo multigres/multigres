@@ -824,3 +824,20 @@ message RewindToSourceResponse {
   bool rewind_performed = 3;
 }
 
+// =============================================================================
+// PostgreSQL Monitoring Control APIs
+// =============================================================================
+
+// SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
+// by the postgres monitor. When disabled, the monitor will still run and detect problems,
+// but will not automatically restart a stopped PostgreSQL instance.
+message SetPostgresRestartsEnabledRequest {
+  // Whether automatic restarts are enabled (true) or suppressed (false)
+  bool enabled = 1;
+}
+
+// SetPostgresRestartsEnabledResponse confirms the flag was updated
+// Errors are returned via gRPC status codes, not in the response body
+message SetPostgresRestartsEnabledResponse {
+}
+

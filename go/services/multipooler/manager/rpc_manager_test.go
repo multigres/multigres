@@ -2165,3 +2165,49 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		return manager.isOpen
 	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails after Pause()")
 }
+
+func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("disable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsEnabled.Store(true)
+
+		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.False(t, pm.postgresRestartsEnabled.Load(), "restarts should be disabled after RPC")
+	})
+
+	t.Run("enable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsEnabled.Store(false)
+
+		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.True(t, pm.postgresRestartsEnabled.Load(), "restarts should be enabled after RPC")
+	})
+
+	t.Run("idempotent_disable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsEnabled.Store(true)
+
+		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		assert.False(t, pm.postgresRestartsEnabled.Load())
+	})
+
+	t.Run("idempotent_enable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsEnabled.Store(false)
+
+		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		assert.True(t, pm.postgresRestartsEnabled.Load())
+	})
+}

@@ -374,3 +374,41 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 		Status: statusResp.Status,
 	}, nil
 }
+
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a specific pooler
+// by proxying the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *multiadminpb.SetPostgresRestartsEnabledRequest) (*multiadminpb.SetPostgresRestartsEnabledResponse, error) {
+	if req.PoolerId == nil {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
+	}
+	if req.PoolerId.Cell == "" || req.PoolerId.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
+	}
+
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      req.PoolerId.Cell,
+		Name:      req.PoolerId.Name,
+	}
+
+	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
+
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "pooler '%s/%s' not found", req.PoolerId.Cell, req.PoolerId.Name)
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
+	}
+
+	_, err = s.rpcClient.SetPostgresRestartsEnabled(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{
+		Enabled: req.Enabled,
+	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to update postgres restarts on pooler", "pooler_id", req.PoolerId, "enabled", req.Enabled, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to update postgres restarts on pooler: %v", err)
+	}
+
+	return &multiadminpb.SetPostgresRestartsEnabledResponse{}, nil
+}

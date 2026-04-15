@@ -279,6 +279,26 @@ func getPoolerStatus(ctx context.Context, client *adminClient, cell, serviceID s
 	})
 }
 
+func setPostgresRestarts(ctx context.Context, config *Config, poolerInfo *PoolerInfo, enabled bool) error {
+	client, err := newAdminClient(config.AdminServer)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	_, err = client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
+		PoolerId: &clustermetadatapb.ID{
+			Cell: poolerInfo.Cell,
+			Name: poolerInfo.ServiceID,
+		},
+		Enabled: enabled,
+	})
+	return err
+}
+
 func findPrimary(ctx context.Context, config *Config) (*PoolerInfo, error) {
 	logInfo("Searching for current primary...")
 
@@ -742,28 +762,28 @@ func failoverLoop(ctx context.Context, config *Config) error {
 			logInfo("Auto-yes enabled, proceeding automatically...")
 		}
 
-		// Block the postgres monitor from auto-restarting postgres during failover.
-		inhibitPath := filepath.Join(primaryInfo.PoolerDir, "no-autostart")
-		if err := os.WriteFile(inhibitPath, []byte{}, 0o644); err != nil {
-			logError(fmt.Sprintf("Failed to create no-autostart marker: %v", err))
+		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
+		// during failover.
+		if err := setPostgresRestarts(ctx, config, primaryInfo, false); err != nil {
+			logError(fmt.Sprintf("Failed to disable postgres restarts: %v", err))
 			return err
 		}
 
 		// Stop the primary
 		if err := stopPooler(primaryInfo, config); err != nil {
-			_ = os.Remove(inhibitPath)
+			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError(fmt.Sprintf("Failed to stop pooler: %v", err))
 			return err
 		}
 
 		// Wait for new primary — by this point emergencyDemoteLocked has set rewindPending.
 		if err := waitForNewPrimary(ctx, config, primaryInfo.ServiceID, 60); err != nil {
-			_ = os.Remove(inhibitPath)
+			_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 			logError("Failed to detect new primary. Manual intervention required.")
 			return err
 		}
-		// Remove the marker: rewindPending now prevents premature auto-restart.
-		_ = os.Remove(inhibitPath)
+		// Re-enable restarts: rewindPending now prevents premature auto-restart.
+		_ = setPostgresRestarts(ctx, config, primaryInfo, true)
 
 		// Let the system restart postgres organically
 		logInfo("Waiting for system to restart postgres organically...")

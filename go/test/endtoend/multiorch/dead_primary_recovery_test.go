@@ -23,7 +23,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -124,11 +123,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, currentPrimary, "current primary should exist")
 		currentPrimaryName := currentPrimary.Name
 
-		// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
 		// between the kill and when emergencyDemoteLocked sets rewindPending.
-		inhibitPath := filepath.Join(currentPrimary.Pgctld.PoolerDir, "no-autostart")
-		require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
-		t.Cleanup(func() { _ = os.Remove(inhibitPath) })
+		primaryManagerClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
 
 		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
@@ -140,9 +140,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Remove the inhibit marker: by now emergencyDemoteLocked has set rewindPending,
+		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
 		// so the monitor will not restart postgres before DemoteStalePrimary runs.
-		require.NoError(t, os.Remove(inhibitPath))
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		primaryManagerClient.Close()
 
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)

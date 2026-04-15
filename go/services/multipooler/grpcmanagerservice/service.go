@@ -326,3 +326,8 @@ func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multip
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)
 }
+
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
+func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	return s.manager.SetPostgresRestartsEnabled(ctx, req)
+}

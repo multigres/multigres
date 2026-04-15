@@ -62,6 +62,7 @@ const (
 	MultiPoolerManager_GetBackupByJobId_FullMethodName                = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
 	MultiPoolerManager_ExpireBackups_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
 	MultiPoolerManager_RewindToSource_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/RewindToSource"
+	MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName      = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -140,6 +141,11 @@ type MultiPoolerManagerClient interface {
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
+	// When disabled, the monitor continues to run but will not auto-restart a stopped
+	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
+	// controlled failovers.
+	SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -430,6 +436,16 @@ func (c *multiPoolerManagerClient) RewindToSource(ctx context.Context, in *multi
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.SetPostgresRestartsEnabledResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility.
@@ -506,6 +522,11 @@ type MultiPoolerManagerServer interface {
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
+	// When disabled, the monitor continues to run but will not auto-restart a stopped
+	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
+	// controlled failovers.
+	SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -599,6 +620,9 @@ func (UnimplementedMultiPoolerManagerServer) ExpireBackups(context.Context, *mul
 }
 func (UnimplementedMultiPoolerManagerServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
@@ -1125,6 +1149,24 @@ func _MultiPoolerManager_RewindToSource_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).SetPostgresRestartsEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).SetPostgresRestartsEnabled(ctx, req.(*multipoolermanagerdata.SetPostgresRestartsEnabledRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1243,6 +1285,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RewindToSource",
 			Handler:    _MultiPoolerManager_RewindToSource_Handler,
+		},
+		{
+			MethodName: "SetPostgresRestartsEnabled",
+			Handler:    _MultiPoolerManager_SetPostgresRestartsEnabled_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

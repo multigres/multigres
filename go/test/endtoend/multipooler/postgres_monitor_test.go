@@ -25,8 +25,10 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestPostgresMonitorControl tests that the postgres monitor automatically restarts
-// postgres when it goes down.
+// TestPostgresMonitorControl tests the complete postgres monitoring control flow:
+// 1. Auto-restart when restarts are enabled (default)
+// 2. No auto-restart when restarts are disabled via SetPostgresRestartsEnabled
+// 3. Auto-restart resumes when restarts are re-enabled
 func TestPostgresMonitorControl(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -50,7 +52,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		t.Logf("Postgres is running initially")
 	})
 
-	t.Run("2. kill postgres and verify auto-restart", func(t *testing.T) {
+	t.Run("2. kill postgres and verify auto-restart with restarts enabled", func(t *testing.T) {
 		// Kill postgres process
 		t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
 		setup.KillPostgres(t, setup.PrimaryName)
@@ -71,5 +73,47 @@ func TestPostgresMonitorControl(t *testing.T) {
 		}, 30*time.Second, 500*time.Millisecond, "Postgres should be automatically restarted by monitoring")
 
 		t.Logf("Postgres was successfully auto-restarted")
+	})
+
+	t.Run("3. disable postgres restarts", func(t *testing.T) {
+		ctx := utils.WithShortDeadline(t)
+		_, err := primaryClient.Manager.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err, "Should disable postgres restarts successfully")
+		t.Logf("Postgres restarts disabled on primary")
+	})
+
+	t.Run("4. kill postgres and verify it stays down", func(t *testing.T) {
+		t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
+		setup.KillPostgres(t, setup.PrimaryName)
+
+		// The monitor runs every 5s; verify postgres does not restart over ~3 cycles.
+		require.Never(t, func() bool {
+			ctx := utils.WithShortDeadline(t)
+			status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+			return status.Status.PostgresReady
+		}, 15*time.Second, 500*time.Millisecond, "Postgres should NOT be restarted when restarts are disabled")
+		t.Logf("Confirmed: postgres stayed down while restarts disabled")
+	})
+
+	t.Run("5. re-enable restarts and verify postgres restarts", func(t *testing.T) {
+		ctx := utils.WithShortDeadline(t)
+		_, err := primaryClient.Manager.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err, "Should re-enable postgres restarts successfully")
+		t.Logf("Postgres restarts re-enabled on primary")
+
+		t.Logf("Waiting for postgres to be automatically restarted...")
+		require.Eventually(t, func() bool {
+			ctx := utils.WithShortDeadline(t)
+			status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				t.Logf("Status check failed: %v", err)
+				return false
+			}
+			return status.Status.PostgresReady
+		}, 30*time.Second, 500*time.Millisecond, "Postgres should restart after re-enabling restarts")
+		t.Logf("Postgres was successfully restarted after re-enabling restarts")
 	})
 }

@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -142,6 +141,11 @@ type MultiPoolerManager struct {
 	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
 	rewindPending atomic.Bool
 
+	// postgresRestartsEnabled controls whether the monitor is allowed to auto-restart
+	// a stopped PostgreSQL instance. Defaults to true; tests and demos set it to false
+	// around controlled failovers to prevent premature restarts.
+	postgresRestartsEnabled atomic.Bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
@@ -254,6 +258,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// postgresRestartsEnabled defaults to true; tests/demos may disable it temporarily.
+	pm.postgresRestartsEnabled.Store(true)
 
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
@@ -1534,10 +1541,6 @@ type postgresState struct {
 	isPrimary        bool
 }
 
-// monitorInhibitFile is the name of a marker file that tests and demos can place in
-// the pooler directory to prevent the postgres monitor from auto-starting postgres.
-const monitorInhibitFile = "no-autostart"
-
 // remedialAction represents actions the postgres monitor can take
 type remedialAction int
 
@@ -1731,13 +1734,11 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionStartPostgres:
-		// Honour an inhibit marker placed in the pooler directory by tests or demos
-		// to prevent auto-restart during controlled failovers.
-		if pm.multipooler != nil {
-			if _, err := os.Stat(filepath.Join(pm.multipooler.PoolerDir, monitorInhibitFile)); err == nil {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, no-autostart inhibit file present")
-				return
-			}
+		// Honour the in-memory flag set by tests and demos to suppress auto-restart
+		// during controlled failovers.
+		if !pm.postgresRestartsEnabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled")
+			return
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {

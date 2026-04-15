@@ -17,7 +17,6 @@ package multiorch
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -75,11 +74,12 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+	// Disable postgres restarts to prevent the monitor from auto-restarting postgres
 	// between the kill and when emergencyDemoteLocked sets rewindPending.
-	inhibitPath := filepath.Join(oldPrimary.Pgctld.PoolerDir, "no-autostart")
-	require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
-	t.Cleanup(func() { _ = os.Remove(inhibitPath) })
+	primaryManagerClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err)
 
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
@@ -91,9 +91,11 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// Remove the inhibit marker: by this point emergencyDemoteLocked has set rewindPending,
+	// Re-enable postgres restarts: by this point emergencyDemoteLocked has set rewindPending,
 	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	require.NoError(t, os.Remove(inhibitPath))
+	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err)
+	primaryManagerClient.Close()
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")
@@ -186,11 +188,12 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Create no-autostart marker to prevent the postgres monitor from restarting postgres
+	// Disable postgres restarts to prevent the monitor from auto-restarting postgres
 	// between the shutdown and when emergencyDemoteLocked sets rewindPending.
-	inhibitPath := filepath.Join(oldPrimary.Pgctld.PoolerDir, "no-autostart")
-	require.NoError(t, os.WriteFile(inhibitPath, []byte{}, 0o644))
-	t.Cleanup(func() { _ = os.Remove(inhibitPath) })
+	primaryManagerClient2, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	_, err = primaryManagerClient2.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err)
 
 	// Step 1: Gracefully shutdown postgres on primary to trigger failover
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
@@ -202,9 +205,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// Remove the inhibit marker: by this point emergencyDemoteLocked has set rewindPending,
+	// Re-enable postgres restarts: by this point emergencyDemoteLocked has set rewindPending,
 	// so the monitor will not attempt to restart postgres before DemoteStalePrimary runs.
-	require.NoError(t, os.Remove(inhibitPath))
+	_, err = primaryManagerClient2.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err)
+	primaryManagerClient2.Close()
 
 	// Step 3: Write data to new primary to ensure timeline has diverged
 	t.Log("Writing data to new primary to ensure timeline divergence...")

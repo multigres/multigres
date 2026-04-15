@@ -663,3 +663,108 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		assert.Contains(t, st.Message(), "failed to get status from pooler")
 	})
 }
+
+func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
+	ctx := t.Context()
+	ts := memorytopo.NewServer(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := NewMultiAdminServer(ts, logger)
+
+	fakeClient := rpcclient.NewFakeClient()
+	server.SetRPCClient(fakeClient)
+
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
+	pooler := &clustermetadatapb.MultiPooler{
+		Id:         poolerID,
+		Database:   "db1",
+		TableGroup: "default",
+		Shard:      "0-inf",
+		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname:   "pool1.cell1.svc.cluster.local",
+		PortMap:    map[string]int32{"grpc": 15100},
+	}
+	err := ts.CreateMultiPooler(ctx, pooler)
+	require.NoError(t, err)
+
+	t.Run("nil pooler_id returns InvalidArgument", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: nil, Enabled: true}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "pooler_id cannot be empty")
+	})
+
+	t.Run("empty cell returns InvalidArgument", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
+			PoolerId: &clustermetadatapb.ID{Cell: "", Name: "pool1"},
+			Enabled:  true,
+		}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "pooler_id must have both cell and name")
+	})
+
+	t.Run("empty name returns InvalidArgument", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
+			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: ""},
+			Enabled:  true,
+		}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "pooler_id must have both cell and name")
+	})
+
+	t.Run("non-existent pooler returns NotFound", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
+			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: "nonexistent"},
+			Enabled:  true,
+		}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.NotFound, st.Code())
+		assert.Contains(t, st.Message(), "pooler 'cell1/nonexistent' not found")
+	})
+
+	t.Run("disable restarts succeeds", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: poolerID, Enabled: false}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("enable restarts succeeds", func(t *testing.T) {
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: poolerID, Enabled: true}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("rpc error returns Unavailable", func(t *testing.T) {
+		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		fakeClient.Errors[poolerKey] = errors.New("connection refused")
+		defer delete(fakeClient.Errors, poolerKey)
+
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: poolerID, Enabled: false}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+		assert.Contains(t, st.Message(), "failed to update postgres restarts on pooler")
+	})
+}
