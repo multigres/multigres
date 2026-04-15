@@ -100,7 +100,14 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	}
 	proposedTerm := maxTerm + 1
 
-	// PreVote - validate that leadership change is likely to succeed
+	return c.appointLeaderWithTerm(ctx, shardID, cohort, policy, proposedTerm, reason)
+}
+
+// appointLeaderWithTerm is the shared core of AppointLeader and AppointInitialLeader.
+// Given a resolved policy and proposed term, it runs preVote, BeginTerm, and
+// EstablishLeadership.
+func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64, reason string) (retErr error) {
+	// PreVote — validate that leadership change is likely to succeed.
 	canProceed, preVoteReason := c.preVote(ctx, cohort, policy, proposedTerm)
 	if !canProceed {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -156,7 +163,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	}
 
 	c.logger.InfoContext(ctx, "Leadership established", "shard", shardID)
-
 	return nil
 }
 
@@ -167,12 +173,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 // Uses GetBootstrapPolicy (not AppointLeader's LoadQuorumRule) because freshly restored
 // standbys report UNKNOWN pooler type, which causes LoadQuorumRule to fall back
 // to majority quorum instead of the configured durability policy.
-func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) (retErr error) {
-	c.logger.InfoContext(ctx, "Starting initial leader appointment",
-		"shard", shardID,
-		"database", database,
-		"cohort_size", len(cohort))
-
+func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error {
 	if len(cohort) == 0 {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
@@ -182,58 +183,9 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardID string, 
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
 
-	c.logger.InfoContext(ctx, "Loaded durability policy from topology",
-		"shard", shardID,
-		"quorum_type", policy.QuorumType,
-		"required_count", policy.RequiredCount,
-		"description", policy.Description)
-
-	// Freshly bootstrapped shards start at term 0; use term 1 directly.
-	const initialTerm = int64(1)
-
-	// PreVote - validate that leadership establishment is likely to succeed.
-	canProceed, preVoteReason := c.preVote(ctx, cohort, policy, initialTerm)
-	if !canProceed {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
-	}
-
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, policy, initialTerm)
-	if err != nil {
-		return mterrors.Wrap(err, "BeginTerm failed")
-	}
-
-	c.logger.InfoContext(ctx, "Recruitment succeeded",
-		"shard", shardID,
-		"term", term,
-		"candidate", candidate.MultiPooler.Id.Name,
-		"standbys", len(standbys))
-
-	eventlog.Emit(ctx, c.logger, eventlog.Started, eventlog.PrimaryPromotion{
-		NewPrimary: candidate.MultiPooler.Id.Name,
-	})
-	defer func() {
-		if retErr == nil {
-			eventlog.Emit(ctx, c.logger, eventlog.Success, eventlog.PrimaryPromotion{
-				NewPrimary: candidate.MultiPooler.Id.Name,
-			})
-		} else {
-			eventlog.Emit(ctx, c.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-				NewPrimary: candidate.MultiPooler.Id.Name,
-			}, "error", retErr)
-		}
-	}()
-
-	recruited := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys)+1)
-	recruited = append(recruited, candidate)
-	recruited = append(recruited, standbys...)
-
-	if err := c.EstablishLeadership(ctx, candidate, standbys, term, policy, "ShardInit", cohort, recruited); err != nil {
-		return mterrors.Wrap(err, "EstablishLeadership failed")
-	}
-
-	c.logger.InfoContext(ctx, "Initial leadership established", "shard", shardID)
-	return nil
+	// Freshly bootstrapped shards start at term 0; skip discoverMaxTerm (which
+	// would return 0 for brand-new nodes) and use term 1 directly.
+	return c.appointLeaderWithTerm(ctx, shardID, cohort, policy, 1 /* initialTerm */, "ShardInit")
 }
 
 // GetCoordinatorID returns the coordinator's ID.
