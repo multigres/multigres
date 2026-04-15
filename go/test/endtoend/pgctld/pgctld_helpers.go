@@ -55,12 +55,12 @@ func InitAndStartPostgreSQL(t *testing.T, grpcAddr string) error {
 
 	// Start PostgreSQL
 	t.Logf("Starting PostgreSQL via gRPC at %s", grpcAddr)
-	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	startResp, err := client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 	if err != nil {
-		return fmt.Errorf("call to Start RPC failed: %w", err)
+		return fmt.Errorf("call to StartAsStandby RPC failed: %w", err)
 	}
 
-	t.Logf("PostgreSQL started: PID=%d, Message=%s", startResp.Pid, startResp.Message)
+	t.Logf("PostgreSQL started: PID=%d", startResp.GetPid())
 	return nil
 }
 
@@ -112,11 +112,11 @@ func StartPostgreSQL(t *testing.T, grpcAddr string) error {
 
 	// Start PostgreSQL
 	t.Logf("Starting PostgreSQL via gRPC at %s", grpcAddr)
-	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	startResp, err := client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 	if err != nil {
-		return fmt.Errorf("call to Start RPC failed: %w", err)
+		return fmt.Errorf("call to StartAsStandby RPC failed: %w", err)
 	}
 
-	t.Logf("PostgreSQL started: PID=%d, Message=%s", startResp.Pid, startResp.Message)
+	t.Logf("PostgreSQL started: PID=%d", startResp.GetPid())
 	return nil
 }

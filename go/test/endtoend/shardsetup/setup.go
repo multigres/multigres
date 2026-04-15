@@ -1504,9 +1504,14 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Use a generous timeout: GUC values written by RestoreGUCs are already
 		// waited on inside that function, so this is a final sanity check that
 		// should pass quickly. The extra headroom guards against slow CI runners.
+		// Note: monitor is intentionally left running here so it can complete any
+		// in-progress promotion (e.g., after a crash restart) before validation.
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
 		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
+
+		// Ensure monitor is disabled after validation (in case something during test re-enabled it)
+		s.disableMonitorOnAll(t, cleanupCtx)
 	})
 }
 

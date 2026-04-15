@@ -1,0 +1,85 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package command
+
+import (
+	"log/slog"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
+)
+
+// TestInitDataDirWithResult_AlreadyInitialized verifies that InitDataDirWithResult
+// returns early without calling initdb or setupDatabase when the data directory
+// is already initialized.
+func TestInitDataDirWithResult_AlreadyInitialized(t *testing.T) {
+	poolerDir := t.TempDir()
+
+	// Create an initialized data directory (PG_VERSION is the marker)
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("17\n"), 0o644))
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := PgCtldServiceConfig{
+		Port:     5432,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+	}
+
+	result, err := InitDataDirWithResult(logger, poolerDir, cfg)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.AlreadyInitialized)
+	assert.Contains(t, result.Message, "already initialized")
+}
+
+// TestInitDataDirWithResult_InitdbFailure verifies that InitDataDirWithResult returns
+// an error (and does not proceed to setupDatabase) when initdb fails.
+func TestInitDataDirWithResult_InitdbFailure(t *testing.T) {
+	poolerDir := t.TempDir()
+
+	// Point PGDATA at an uninitialized directory so we attempt initdb.
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	// Mock initdb that always fails.
+	binDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(binDir, "initdb"),
+		[]byte("#!/bin/bash\necho 'initdb: fatal error' >&2\nexit 1\n"),
+		0o755,
+	))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := PgCtldServiceConfig{
+		Port:     5432,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+	}
+
+	_, err := InitDataDirWithResult(logger, poolerDir, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize data directory")
+}

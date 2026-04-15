@@ -37,6 +37,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// StartAsStandbyResult describes the outcome of a StartAsStandby call.
+type StartAsStandbyResult int32
+
+const (
+	StartAsStandbyResult_START_AS_STANDBY_RESULT_UNSPECIFIED StartAsStandbyResult = 0
+	// PostgreSQL was started successfully in standby mode. Crash recovery may
+	// have been performed automatically if the data directory was not cleanly stopped.
+	StartAsStandbyResult_START_AS_STANDBY_RESULT_STARTED StartAsStandbyResult = 1
+	// PostgreSQL was already running (no action taken).
+	StartAsStandbyResult_START_AS_STANDBY_RESULT_ALREADY_RUNNING StartAsStandbyResult = 2
+)
+
+// Enum value maps for StartAsStandbyResult.
+var (
+	StartAsStandbyResult_name = map[int32]string{
+		0: "START_AS_STANDBY_RESULT_UNSPECIFIED",
+		1: "START_AS_STANDBY_RESULT_STARTED",
+		2: "START_AS_STANDBY_RESULT_ALREADY_RUNNING",
+	}
+	StartAsStandbyResult_value = map[string]int32{
+		"START_AS_STANDBY_RESULT_UNSPECIFIED":     0,
+		"START_AS_STANDBY_RESULT_STARTED":         1,
+		"START_AS_STANDBY_RESULT_ALREADY_RUNNING": 2,
+	}
+)
+
+func (x StartAsStandbyResult) Enum() *StartAsStandbyResult {
+	p := new(StartAsStandbyResult)
+	*p = x
+	return p
+}
+
+func (x StartAsStandbyResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StartAsStandbyResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_pgctldservice_proto_enumTypes[0].Descriptor()
+}
+
+func (StartAsStandbyResult) Type() protoreflect.EnumType {
+	return &file_pgctldservice_proto_enumTypes[0]
+}
+
+func (x StartAsStandbyResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StartAsStandbyResult.Descriptor instead.
+func (StartAsStandbyResult) EnumDescriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{0}
+}
+
 // Server status enumeration
 type ServerStatus int32
 
@@ -80,11 +133,11 @@ func (x ServerStatus) String() string {
 }
 
 func (ServerStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_pgctldservice_proto_enumTypes[0].Descriptor()
+	return file_pgctldservice_proto_enumTypes[1].Descriptor()
 }
 
 func (ServerStatus) Type() protoreflect.EnumType {
-	return &file_pgctldservice_proto_enumTypes[0]
+	return &file_pgctldservice_proto_enumTypes[1]
 }
 
 func (x ServerStatus) Number() protoreflect.EnumNumber {
@@ -93,34 +146,34 @@ func (x ServerStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ServerStatus.Descriptor instead.
 func (ServerStatus) EnumDescriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{0}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{1}
 }
 
-// Start PostgreSQL server
-type StartRequest struct {
+// StartAsStandby starts PostgreSQL in standby (recovery) mode.
+type StartAsStandbyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Override the default port
+	// Override the default port.
 	Port int32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
-	// Additional postgres command line arguments
+	// Additional postgres command line arguments.
 	ExtraArgs     []string `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StartRequest) Reset() {
-	*x = StartRequest{}
+func (x *StartAsStandbyRequest) Reset() {
+	*x = StartAsStandbyRequest{}
 	mi := &file_pgctldservice_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StartRequest) String() string {
+func (x *StartAsStandbyRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StartRequest) ProtoMessage() {}
+func (*StartAsStandbyRequest) ProtoMessage() {}
 
-func (x *StartRequest) ProtoReflect() protoreflect.Message {
+func (x *StartAsStandbyRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_pgctldservice_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -132,49 +185,49 @@ func (x *StartRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StartRequest.ProtoReflect.Descriptor instead.
-func (*StartRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use StartAsStandbyRequest.ProtoReflect.Descriptor instead.
+func (*StartAsStandbyRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StartRequest) GetPort() int32 {
+func (x *StartAsStandbyRequest) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
 }
 
-func (x *StartRequest) GetExtraArgs() []string {
+func (x *StartAsStandbyRequest) GetExtraArgs() []string {
 	if x != nil {
 		return x.ExtraArgs
 	}
 	return nil
 }
 
-type StartResponse struct {
+type StartAsStandbyResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Process ID of started PostgreSQL server
-	Pid int32 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	// Status message
-	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Outcome of the start attempt.
+	Result StartAsStandbyResult `protobuf:"varint,1,opt,name=result,proto3,enum=pgctldservice.StartAsStandbyResult" json:"result,omitempty"`
+	// Process ID of the running PostgreSQL server.
+	Pid           int32 `protobuf:"varint,2,opt,name=pid,proto3" json:"pid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StartResponse) Reset() {
-	*x = StartResponse{}
+func (x *StartAsStandbyResponse) Reset() {
+	*x = StartAsStandbyResponse{}
 	mi := &file_pgctldservice_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StartResponse) String() string {
+func (x *StartAsStandbyResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StartResponse) ProtoMessage() {}
+func (*StartAsStandbyResponse) ProtoMessage() {}
 
-func (x *StartResponse) ProtoReflect() protoreflect.Message {
+func (x *StartAsStandbyResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_pgctldservice_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -186,23 +239,23 @@ func (x *StartResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StartResponse.ProtoReflect.Descriptor instead.
-func (*StartResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use StartAsStandbyResponse.ProtoReflect.Descriptor instead.
+func (*StartAsStandbyResponse) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *StartResponse) GetPid() int32 {
+func (x *StartAsStandbyResponse) GetResult() StartAsStandbyResult {
+	if x != nil {
+		return x.Result
+	}
+	return StartAsStandbyResult_START_AS_STANDBY_RESULT_UNSPECIFIED
+}
+
+func (x *StartAsStandbyResponse) GetPid() int32 {
 	if x != nil {
 		return x.Pid
 	}
 	return 0
-}
-
-func (x *StartResponse) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
 }
 
 // Stop PostgreSQL server
@@ -313,10 +366,8 @@ type RestartRequest struct {
 	// Timeout for stop phase
 	Timeout *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// Override default port for start phase
-	Port      int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
-	ExtraArgs []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	// If true, creates standby.signal before restart (for demotion to standby)
-	AsStandby     bool `protobuf:"varint,5,opt,name=as_standby,json=asStandby,proto3" json:"as_standby,omitempty"`
+	Port          int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -377,13 +428,6 @@ func (x *RestartRequest) GetExtraArgs() []string {
 		return x.ExtraArgs
 	}
 	return nil
-}
-
-func (x *RestartRequest) GetAsStandby() bool {
-	if x != nil {
-		return x.AsStandby
-	}
-	return false
 }
 
 type RestartResponse struct {
@@ -1131,27 +1175,25 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"A\n" +
-	"\fStartRequest\x12\x12\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"J\n" +
+	"\x15StartAsStandbyRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x02 \x03(\tR\textraArgs\";\n" +
-	"\rStartResponse\x12\x10\n" +
-	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"V\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\"g\n" +
+	"\x16StartAsStandbyResponse\x12;\n" +
+	"\x06result\x18\x01 \x01(\x0e2#.pgctldservice.StartAsStandbyResultR\x06result\x12\x10\n" +
+	"\x03pid\x18\x02 \x01(\x05R\x03pid\"V\n" +
 	"\vStopRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +
 	"\fStopResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xab\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\x8c\x01\n" +
 	"\x0eRestartRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x04 \x03(\tR\textraArgs\x12\x1d\n" +
-	"\n" +
-	"as_standby\x18\x05 \x01(\bR\tasStandby\"=\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\"=\n" +
 	"\x0fRestartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x15\n" +
@@ -1203,16 +1245,20 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x10application_name\x18\x05 \x01(\tR\x0fapplicationName\"D\n" +
 	"\x10PgRewindResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x16\n" +
-	"\x06output\x18\x02 \x01(\tR\x06output*f\n" +
+	"\x06output\x18\x02 \x01(\tR\x06output*\x91\x01\n" +
+	"\x14StartAsStandbyResult\x12'\n" +
+	"#START_AS_STANDBY_RESULT_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fSTART_AS_STANDBY_RESULT_STARTED\x10\x01\x12+\n" +
+	"'START_AS_STANDBY_RESULT_ALREADY_RUNNING\x10\x02*f\n" +
 	"\fServerStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSTOPPED\x10\x01\x12\f\n" +
 	"\bSTARTING\x10\x02\x12\v\n" +
 	"\aRUNNING\x10\x03\x12\f\n" +
 	"\bSTOPPING\x10\x04\x12\x13\n" +
-	"\x0fNOT_INITIALIZED\x10\x052\xe4\x04\n" +
-	"\x06PgCtld\x12B\n" +
-	"\x05Start\x12\x1b.pgctldservice.StartRequest\x1a\x1c.pgctldservice.StartResponse\x12?\n" +
+	"\x0fNOT_INITIALIZED\x10\x052\xff\x04\n" +
+	"\x06PgCtld\x12]\n" +
+	"\x0eStartAsStandby\x12$.pgctldservice.StartAsStandbyRequest\x1a%.pgctldservice.StartAsStandbyResponse\x12?\n" +
 	"\x04Stop\x12\x1a.pgctldservice.StopRequest\x1a\x1b.pgctldservice.StopResponse\x12H\n" +
 	"\aRestart\x12\x1d.pgctldservice.RestartRequest\x1a\x1e.pgctldservice.RestartResponse\x12W\n" +
 	"\fReloadConfig\x12\".pgctldservice.ReloadConfigRequest\x1a#.pgctldservice.ReloadConfigResponse\x12E\n" +
@@ -1233,58 +1279,60 @@ func file_pgctldservice_proto_rawDescGZIP() []byte {
 	return file_pgctldservice_proto_rawDescData
 }
 
-var file_pgctldservice_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_pgctldservice_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_pgctldservice_proto_goTypes = []any{
-	(ServerStatus)(0),             // 0: pgctldservice.ServerStatus
-	(*StartRequest)(nil),          // 1: pgctldservice.StartRequest
-	(*StartResponse)(nil),         // 2: pgctldservice.StartResponse
-	(*StopRequest)(nil),           // 3: pgctldservice.StopRequest
-	(*StopResponse)(nil),          // 4: pgctldservice.StopResponse
-	(*RestartRequest)(nil),        // 5: pgctldservice.RestartRequest
-	(*RestartResponse)(nil),       // 6: pgctldservice.RestartResponse
-	(*ReloadConfigRequest)(nil),   // 7: pgctldservice.ReloadConfigRequest
-	(*ReloadConfigResponse)(nil),  // 8: pgctldservice.ReloadConfigResponse
-	(*StatusRequest)(nil),         // 9: pgctldservice.StatusRequest
-	(*StatusResponse)(nil),        // 10: pgctldservice.StatusResponse
-	(*PgBackRestStatus)(nil),      // 11: pgctldservice.PgBackRestStatus
-	(*VersionRequest)(nil),        // 12: pgctldservice.VersionRequest
-	(*VersionResponse)(nil),       // 13: pgctldservice.VersionResponse
-	(*InitDataDirRequest)(nil),    // 14: pgctldservice.InitDataDirRequest
-	(*InitDataDirResponse)(nil),   // 15: pgctldservice.InitDataDirResponse
-	(*PgRewindRequest)(nil),       // 16: pgctldservice.PgRewindRequest
-	(*PgRewindResponse)(nil),      // 17: pgctldservice.PgRewindResponse
-	(*durationpb.Duration)(nil),   // 18: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
+	(StartAsStandbyResult)(0),      // 0: pgctldservice.StartAsStandbyResult
+	(ServerStatus)(0),              // 1: pgctldservice.ServerStatus
+	(*StartAsStandbyRequest)(nil),  // 2: pgctldservice.StartAsStandbyRequest
+	(*StartAsStandbyResponse)(nil), // 3: pgctldservice.StartAsStandbyResponse
+	(*StopRequest)(nil),            // 4: pgctldservice.StopRequest
+	(*StopResponse)(nil),           // 5: pgctldservice.StopResponse
+	(*RestartRequest)(nil),         // 6: pgctldservice.RestartRequest
+	(*RestartResponse)(nil),        // 7: pgctldservice.RestartResponse
+	(*ReloadConfigRequest)(nil),    // 8: pgctldservice.ReloadConfigRequest
+	(*ReloadConfigResponse)(nil),   // 9: pgctldservice.ReloadConfigResponse
+	(*StatusRequest)(nil),          // 10: pgctldservice.StatusRequest
+	(*StatusResponse)(nil),         // 11: pgctldservice.StatusResponse
+	(*PgBackRestStatus)(nil),       // 12: pgctldservice.PgBackRestStatus
+	(*VersionRequest)(nil),         // 13: pgctldservice.VersionRequest
+	(*VersionResponse)(nil),        // 14: pgctldservice.VersionResponse
+	(*InitDataDirRequest)(nil),     // 15: pgctldservice.InitDataDirRequest
+	(*InitDataDirResponse)(nil),    // 16: pgctldservice.InitDataDirResponse
+	(*PgRewindRequest)(nil),        // 17: pgctldservice.PgRewindRequest
+	(*PgRewindResponse)(nil),       // 18: pgctldservice.PgRewindResponse
+	(*durationpb.Duration)(nil),    // 19: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),  // 20: google.protobuf.Timestamp
 }
 var file_pgctldservice_proto_depIdxs = []int32{
-	18, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
-	18, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
-	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
-	18, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
-	11, // 4: pgctldservice.StatusResponse.pgbackrest_status:type_name -> pgctldservice.PgBackRestStatus
-	19, // 5: pgctldservice.PgBackRestStatus.last_started:type_name -> google.protobuf.Timestamp
-	1,  // 6: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
-	3,  // 7: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
-	5,  // 8: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
-	7,  // 9: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
-	9,  // 10: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
-	12, // 11: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
-	14, // 12: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
-	16, // 13: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
-	2,  // 14: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
-	4,  // 15: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
-	6,  // 16: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
-	8,  // 17: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
-	10, // 18: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
-	13, // 19: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
-	15, // 20: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
-	17, // 21: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
-	14, // [14:22] is the sub-list for method output_type
-	6,  // [6:14] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	0,  // 0: pgctldservice.StartAsStandbyResponse.result:type_name -> pgctldservice.StartAsStandbyResult
+	19, // 1: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
+	19, // 2: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
+	1,  // 3: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
+	19, // 4: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
+	12, // 5: pgctldservice.StatusResponse.pgbackrest_status:type_name -> pgctldservice.PgBackRestStatus
+	20, // 6: pgctldservice.PgBackRestStatus.last_started:type_name -> google.protobuf.Timestamp
+	2,  // 7: pgctldservice.PgCtld.StartAsStandby:input_type -> pgctldservice.StartAsStandbyRequest
+	4,  // 8: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
+	6,  // 9: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
+	8,  // 10: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
+	10, // 11: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
+	13, // 12: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
+	15, // 13: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
+	17, // 14: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
+	3,  // 15: pgctldservice.PgCtld.StartAsStandby:output_type -> pgctldservice.StartAsStandbyResponse
+	5,  // 16: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
+	7,  // 17: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
+	9,  // 18: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
+	11, // 19: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
+	14, // 20: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
+	16, // 21: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
+	18, // 22: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_pgctldservice_proto_init() }
@@ -1297,7 +1345,7 @@ func file_pgctldservice_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pgctldservice_proto_rawDesc), len(file_pgctldservice_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,

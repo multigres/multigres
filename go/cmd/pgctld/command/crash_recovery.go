@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -30,27 +31,9 @@ import (
 // Pattern: FATAL: lock file "<filename>" already exists
 var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already exists`)
 
-// isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
-// Returns true if state is "shut down" or "shut down in recovery", false otherwise.
-func isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
-	cmd := executil.Command(ctx, "pg_controldata", pgctld.PostgresDataDir())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
-	}
-
-	outputStr := string(output)
-	clusterStateStr := extractClusterState(outputStr)
-
-	// Clean states: "shut down", "shut down in recovery"
-	// Anything else means we should try crash recovery
-	cleanlyStopped := clusterStateStr == "shut down" || clusterStateStr == "shut down in recovery"
-
-	return cleanlyStopped, nil
-}
-
-// extractClusterState extracts the cluster state from pg_controldata output
-func extractClusterState(output string) string {
+// ExtractClusterState extracts the cluster state from pg_controldata output.
+// The returned string is the trimmed value after "Database cluster state:".
+func ExtractClusterState(output string) string {
 	for line := range strings.SplitSeq(output, "\n") {
 		if strings.Contains(line, "Database cluster state:") {
 			// Format: "Database cluster state:               in production"
@@ -63,10 +46,43 @@ func extractClusterState(output string) string {
 	return "unknown"
 }
 
+// IsCleanClusterState reports whether the pg_controldata cluster state indicates
+// a clean shutdown. The clean states are "shut down" and "shut down in recovery".
+// Any other state (e.g. "in production", "in archive recovery") requires crash recovery
+// before pg_rewind can run.
+func IsCleanClusterState(state string) bool {
+	return state == "shut down" || state == "shut down in recovery"
+}
+
+// isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
+// Returns true if state is "shut down" or "shut down in recovery", false otherwise.
+func isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
+	cmd := executil.Command(ctx, "pg_controldata", pgctld.PostgresDataDir())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
+	}
+
+	return IsCleanClusterState(ExtractClusterState(string(output))), nil
+}
+
 // runCrashRecovery performs crash recovery in single-user mode.
 // This runs postgres --single to complete crash recovery, then exits cleanly.
 func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
+
+	// Remove standby.signal if present. Single-user mode (postgres --single)
+	// does not support standby mode — PostgreSQL exits with FATAL if
+	// standby.signal exists when running as a standalone backend. Since
+	// StartAsStandby always writes standby.signal before starting, any
+	// previously started node will have this file. The caller re-creates it
+	// via StartAsStandby after crash recovery completes.
+	standbySignalPath := filepath.Join(pgctld.PostgresDataDir(), "standby.signal")
+	if err := os.Remove(standbySignalPath); err == nil {
+		logger.InfoContext(ctx, "Removed standby.signal before crash recovery", "path", standbySignalPath)
+	} else if !os.IsNotExist(err) {
+		logger.WarnContext(ctx, "Failed to remove standby.signal before crash recovery (continuing)", "error", err)
+	}
 
 	// Run postgres in single-user mode to perform crash recovery
 	// postgres --single starts in single-user mode, performs recovery, and exits on EOF

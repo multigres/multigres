@@ -44,12 +44,12 @@ func NewProtectedPgctldClient(client pgctldpb.PgCtldClient) pgctldpb.PgCtldClien
 	}
 }
 
-// Start starts PostgreSQL. Requires action lock to be held by caller.
-func (p *protectedPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+// StartAsStandby starts PostgreSQL in standby (recovery) mode. Requires action lock to be held by caller.
+func (p *protectedPgctldClient) StartAsStandby(ctx context.Context, req *pgctldpb.StartAsStandbyRequest, opts ...grpc.CallOption) (*pgctldpb.StartAsStandbyResponse, error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, fmt.Errorf("Start requires action lock to be held: %w", err)
+		return nil, fmt.Errorf("StartAsStandby requires action lock to be held: %w", err)
 	}
-	return p.client.Start(ctx, req, opts...)
+	return p.client.StartAsStandby(ctx, req, opts...)
 }
 
 // Stop stops PostgreSQL. Requires action lock to be held by caller.

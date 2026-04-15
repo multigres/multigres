@@ -26,8 +26,11 @@ service PgCtld {
 
   // Bootstrap and lifecycle Methods
 
-  // Start PostgreSQL server
-  rpc Start(StartRequest) returns (StartResponse);
+  // StartAsStandby starts PostgreSQL in standby (recovery) mode.
+  // Always writes standby.signal before starting, ensuring postgres never starts as primary.
+  // If the data directory was not cleanly shut down, PostgreSQL performs crash recovery
+  // automatically as part of startup (before accepting connections).
+  rpc StartAsStandby(StartAsStandbyRequest) returns (StartAsStandbyResponse);
 
   // Stop PostgreSQL server
   rpc Stop(StopRequest) returns (StopResponse);
@@ -52,21 +55,33 @@ service PgCtld {
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
 }
 
-// Start PostgreSQL server
-message StartRequest {
-  // Override the default port
+// StartAsStandby starts PostgreSQL in standby (recovery) mode.
+message StartAsStandbyRequest {
+  // Override the default port.
   int32 port = 1;
 
-  // Additional postgres command line arguments
+  // Additional postgres command line arguments.
   repeated string extra_args = 2;
 }
 
-message StartResponse {
-  // Process ID of started PostgreSQL server
-  int32 pid = 1;
+// StartAsStandbyResult describes the outcome of a StartAsStandby call.
+enum StartAsStandbyResult {
+  START_AS_STANDBY_RESULT_UNSPECIFIED = 0;
 
-  // Status message
-  string message = 2;
+  // PostgreSQL was started successfully in standby mode. Crash recovery may
+  // have been performed automatically if the data directory was not cleanly stopped.
+  START_AS_STANDBY_RESULT_STARTED = 1;
+
+  // PostgreSQL was already running (no action taken).
+  START_AS_STANDBY_RESULT_ALREADY_RUNNING = 2;
+}
+
+message StartAsStandbyResponse {
+  // Outcome of the start attempt.
+  StartAsStandbyResult result = 1;
+
+  // Process ID of the running PostgreSQL server.
+  int32 pid = 2;
 }
 
 // Stop PostgreSQL server
@@ -95,9 +110,6 @@ message RestartRequest {
   int32 port = 3;
 
   repeated string extra_args = 4;
-
-  // If true, creates standby.signal before restart (for demotion to standby)
-  bool as_standby = 5;
 }
 
 message RestartResponse {

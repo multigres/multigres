@@ -280,8 +280,9 @@ func initAndStartPostgreSQL(t *testing.T, client pgctldservice.PgCtldClient) {
 	require.NoError(t, err, "InitDataDir should succeed")
 
 	// Start PostgreSQL
-	_, err = client.Start(ctx, &pgctldservice.StartRequest{})
-	require.NoError(t, err, "Start should succeed")
+	startResp, err := client.StartAsStandby(ctx, &pgctldservice.StartAsStandbyRequest{})
+	require.NoError(t, err, "StartAsStandby should succeed")
+	require.NotNil(t, startResp)
 
 	// Wait for PostgreSQL to be ready
 	deadline := time.Now().Add(30 * time.Second)

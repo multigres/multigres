@@ -33,6 +33,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/command"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -331,8 +332,8 @@ timeout: 30
 	})
 }
 
-// TestRestartAsStandbyWithRealPostgreSQL tests restart --as-standby with real PostgreSQL
-func TestRestartAsStandbyWithRealPostgreSQL(t *testing.T) {
+// TestRestartWithRealPostgreSQL tests that restart always writes standby.signal
+func TestRestartWithRealPostgreSQL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration tests in short mode")
 	}
@@ -385,20 +386,20 @@ timeout: 30
 	require.NoError(t, err)
 	assert.Contains(t, string(output), "Running")
 
-	// Restart as standby
-	restartCmd := executil.Command(t.Context(), "pgctld", "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--as-standby", "--config-file", pgctldConfigFile)
+	// Restart — always writes standby.signal
+	restartCmd := executil.Command(t.Context(), "pgctld", "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
 	setupTestEnv(restartCmd, dataDir)
 	output, err = restartCmd.CombinedOutput()
 	if err != nil {
-		t.Logf("restart --as-standby output: %s", string(output))
+		t.Logf("restart output: %s", string(output))
 	}
 	require.NoError(t, err)
-	assert.Contains(t, string(output), "restarted as standby successfully")
+	assert.Contains(t, string(output), "restarted successfully")
 
-	// Verify standby.signal was created
+	// Verify standby.signal was created (restart always writes it)
 	standbySignalPath := filepath.Join(dataDir, "pg_data", "standby.signal")
 	_, err = os.Stat(standbySignalPath)
-	assert.NoError(t, err, "standby.signal file should exist after restart --as-standby")
+	assert.NoError(t, err, "standby.signal file should exist after restart")
 
 	// Verify server is still running
 	statusCmd = executil.Command(t.Context(), "pgctld", "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
@@ -422,7 +423,7 @@ timeout: 30
 	require.NoError(t, err, "Recovery check should succeed, output: %s", string(output))
 	t.Logf("Recovery mode check result: %s", string(output))
 	// The output should contain 't' for true indicating recovery mode
-	assert.Contains(t, strings.TrimSpace(string(output)), "t", "PostgreSQL should be in recovery mode after restart --as-standby")
+	assert.Contains(t, strings.TrimSpace(string(output)), "t", "PostgreSQL should be in recovery mode after restart")
 
 	// Clean stop
 	stopCmd := executil.Command(t.Context(), "pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
@@ -1176,7 +1177,7 @@ func readPostmasterPID(dataDir string) (int, error) {
 }
 
 // TestPgRewind_AfterCrash tests that PgRewind RPC automatically handles crash recovery
-// when PostgreSQL was killed ungracefully (SIGKILL) and left in "in production" state
+// when PostgreSQL was killed ungracefully (SIGKILL) and left in an unclean state
 func TestPgRewind_AfterCrash(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration tests in short mode")
@@ -1255,15 +1256,19 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		return err != nil
 	}, 5*time.Second, 100*time.Millisecond, "Standby postgres should terminate after SIGKILL")
 
-	// Verify standby is in "in production" state (not cleanly stopped)
-	t.Log("Verifying standby is in 'in production' state after crash")
+	// Verify standby is in an unclean state (not a clean shutdown) so crash recovery is needed.
+	// Since postgres always starts as standby, the cluster state after SIGKILL is
+	// "in archive recovery" rather than "in production".
+	t.Log("Verifying standby is in an unclean state after crash")
 	controldataCmd := exec.Command("pg_controldata", standbyPgDataDir)
 	output, err := controldataCmd.CombinedOutput()
 	require.NoError(t, err)
 	outputStr := string(output)
 	assert.Contains(t, outputStr, "Database cluster state:", "Should show cluster state")
-	assert.Contains(t, outputStr, "in production", "Should be 'in production' after SIGKILL")
-	t.Log("Confirmed: standby is in 'in production' state")
+	clusterState := command.ExtractClusterState(outputStr)
+	assert.False(t, command.IsCleanClusterState(clusterState),
+		"Cluster state should be unclean after SIGKILL (crash recovery needed), got: %q", clusterState)
+	t.Logf("Confirmed: standby is in state %q after SIGKILL (unclean, crash recovery needed)", clusterState)
 
 	// ===== CALL PGREWIND RPC =====
 	// Connect to standby gRPC and call PgRewind with dry_run=true

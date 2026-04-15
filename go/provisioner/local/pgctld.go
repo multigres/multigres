@@ -65,28 +65,15 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(ctx context.Context, address
 		return nil
 	}
 
-	// Data directory exists but PostgreSQL is not running - start it
+	// Data directory exists but PostgreSQL is not running - start it as standby.
+	// Crash recovery is permitted: this is resuming a previously initialized node,
+	// not a consensus-aware operation.
 	fmt.Printf(" starting PostgreSQL...")
-	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	resp, err := client.StartAsStandby(ctx, &pb.StartAsStandbyRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
-
-	// Verify PostgreSQL is now running
-	statusResp, err = client.Status(ctx, &pb.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to verify PostgreSQL status after start: %w", err)
-	}
-
-	if statusResp.GetStatus() != pb.ServerStatus_RUNNING {
-		return fmt.Errorf("PostgreSQL failed to start - status: %s, message: %s",
-			statusResp.GetStatus().String(), statusResp.GetMessage())
-	}
-
-	fmt.Printf(" PostgreSQL started (PID: %d) ✓\n", statusResp.GetPid())
-	if startResp.GetMessage() != "" {
-		fmt.Printf(" - %s", startResp.GetMessage())
-	}
+	fmt.Printf(" PostgreSQL started (PID: %d) ✓\n", resp.GetPid())
 
 	return nil
 }

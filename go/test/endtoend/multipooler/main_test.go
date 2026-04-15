@@ -150,8 +150,7 @@ func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pg
 	restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer restartCancel()
 	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		Mode:      "fast",
-		AsStandby: true,
+		Mode: "fast",
 	})
 	require.NoError(t, err, "Restart as standby should succeed on pooler: %s", multipoolerName)
 

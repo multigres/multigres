@@ -298,10 +298,10 @@ demo/local/multigres-with-otel.sh cluster start --config-path <config-path>  # t
 ./bin/pgctld start --pooler-dir <pooler-dir-from-config>
 ```
 
-**Restart pgctld (as standby)**:
+**Restart pgctld**:
 
 ```bash
-./bin/pgctld restart --pooler-dir <pooler-dir-from-config> --as-standby
+./bin/pgctld restart --pooler-dir <pooler-dir-from-config>
 ```
 
 **Check pgctld status**:
@@ -421,10 +421,10 @@ User: "stop pgctld"
 - Ask user which one to stop (zone1, zone2, or zone3)
 - Execute stop command with selected pooler-dir
 
-User: "restart pgctld xf42rpl6 as standby"
+User: "restart pgctld xf42rpl6"
 
 - Look up pooler-dir for xf42rpl6 in config
-- Execute: `./bin/pgctld restart --pooler-dir /path/to/pooler_xf42rpl6 --as-standby`
+- Execute: `./bin/pgctld restart --pooler-dir /path/to/pooler_xf42rpl6`
 
 User: "logs multipooler hm9hmxzm"
 
