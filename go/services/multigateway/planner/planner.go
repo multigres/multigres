@@ -74,6 +74,13 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
+	// Reject statements that are unsafe for a hosted connection pooler.
+	// This must run before the main dispatch to ensure blocked statements
+	// are never routed to PostgreSQL.
+	if err := planUnsupportedStmt(stmt); err != nil {
+		return nil, err
+	}
+
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
 	var plan *engine.Plan
@@ -190,6 +197,11 @@ func (p *Planner) PlanPortal(
 	conn *server.Conn,
 ) (*engine.Plan, error) {
 	stmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	// Reject statements that are unsafe for a hosted connection pooler.
+	if err := planUnsupportedStmt(stmt); err != nil {
+		return nil, err
+	}
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
