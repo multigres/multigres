@@ -41,6 +41,10 @@ type HealthState struct {
 	// RecommendedStalenessTimeout is the duration clients should use
 	// to detect a stale/dead health stream.
 	RecommendedStalenessTimeout time.Duration
+
+	// ReplicationLagNs is the current replication lag in nanoseconds,
+	// measured via heartbeat timestamps. Zero on the primary or when unknown.
+	ReplicationLagNs int64
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.
