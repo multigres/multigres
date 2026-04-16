@@ -343,7 +343,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
 		require.Eventually(t, func() bool {
 			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
-			return err == nil && statusResp.Role == "replica"
+			return err == nil && statusResp.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("Confirmed: PostgreSQL running as standby after emergency demotion")
 
@@ -695,7 +695,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
 		require.Eventually(t, func() bool {
 			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
-			return err == nil && statusResp.Role == "replica"
+			return err == nil && statusResp.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("SUCCESS: PostgreSQL is running as standby after emergency demotion")
 
