@@ -61,7 +61,7 @@ func ToGRPC(err error) error {
 		st := status.New(codes.Code(Code(err)), truncateError(err))
 		rpcErr := &mtrpcpb.RPCError{
 			Message:      err.Error(),
-			Code:         mtrpcpb.Code_UNKNOWN,
+			Code:         Code(err),
 			PgDiagnostic: PgDiagnosticToProto(diag),
 		}
 		// Attach the RPCError as a detail to the status
