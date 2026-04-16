@@ -535,7 +535,7 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 		if err := mo.Start(ctx, t); err != nil {
 			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
 		}
-		t.Cleanup(mo.CleanupFunc(t))
+		t.Cleanup(mo.CleanupFunc(t.Logf))
 
 		// Register cleanup to ensure recovery is always enabled
 		// This prevents test failures from leaving recovery disabled
@@ -761,7 +761,7 @@ func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetu
 		for name, inst := range setup.MultiOrchInstances {
 			mo = inst
 			moName = name
-			moCleanup = inst.CleanupFunc(t)
+			moCleanup = inst.CleanupFunc(t.Logf)
 			break
 		}
 	} else {
@@ -1225,7 +1225,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	// Stop multiorch instances first (clean state = not running)
 	for name, mo := range s.MultiOrchInstances {
 		if mo.IsRunning() {
-			mo.TerminateGracefully(t, 5*time.Second)
+			mo.TerminateGracefully(t.Logf, 5*time.Second)
 			t.Logf("Reset: Stopped multiorch %s", name)
 		}
 	}
@@ -1296,14 +1296,14 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 1. Stop multigateway (routes to multipoolers, stop first)
 	if s.Multigateway != nil {
-		s.Multigateway.TerminateGracefully(t, gracePeriod)
+		s.Multigateway.TerminateGracefully(t.Logf, gracePeriod)
 		t.Logf("ReinitializeCluster: stopped multigateway")
 	}
 
 	// 2. Stop multiorch instances
 	for name, mo := range s.MultiOrchInstances {
 		if mo.IsRunning() {
-			mo.TerminateGracefully(t, gracePeriod)
+			mo.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
 		}
 	}
@@ -1313,13 +1313,13 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// the postgres process survives and holds the port.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
-			inst.Multipooler.TerminateGracefully(t, gracePeriod)
+			inst.Multipooler.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
 			inst.Pgctld.StopPostgres(t)
 			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
-			inst.Pgctld.TerminateGracefully(t, gracePeriod)
+			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
 
@@ -1462,7 +1462,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Use explicit termination here since multiorch should be stopped before restoring state.
 		for name, mo := range s.MultiOrchInstances {
 			if mo.IsRunning() {
-				mo.TerminateGracefully(t, 5*time.Second)
+				mo.TerminateGracefully(t.Logf, 5*time.Second)
 				t.Logf("Cleanup: Stopped multiorch %s", name)
 			}
 		}
