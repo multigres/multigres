@@ -42,6 +42,10 @@ type HealthState struct {
 	// to detect a stale/dead health stream.
 	RecommendedStalenessTimeout time.Duration
 
+	// ReplicationLagNs is the current replication lag in nanoseconds,
+	// measured via heartbeat timestamps. Zero on the primary or when unknown.
+	ReplicationLagNs int64
+
 	// SchemaVersion is a monotonically increasing counter that is incremented
 	// each time a schema change is detected. Present in every health message so
 	// consumers can detect missed changes across health stream reconnects.

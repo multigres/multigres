@@ -421,12 +421,16 @@ message StreamPoolerHealthResponse {
   // this duration, clients should mark the pooler as unhealthy.
   google.protobuf.Duration recommended_staleness_timeout = 5;
 
+  // replication_lag_ns is the current replication lag in nanoseconds,
+  // measured via heartbeat timestamps. Zero on the primary or when unknown.
+  int64 replication_lag_ns = 6;
+
   // schema_version is a monotonically increasing counter that is incremented
   // each time the multipooler detects a schema change (DDL). It is present in
   // every heartbeat so consumers can detect missed changes even after a health
   // stream reconnect. When a consumer sees this value increase it should
   // invalidate any cached query plans for this shard.
-  int64 schema_version = 6;
+  int64 schema_version = 7;
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.
