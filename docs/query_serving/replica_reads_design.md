@@ -55,10 +55,10 @@ naturally.
 
 Replica selection uses a two-tier replication lag model:
 
-| Threshold           | Flag                                      | Default        | Behavior                                    |
-| ------------------- | ----------------------------------------- | -------------- | ------------------------------------------- |
-| Low (preferred)     | `--low-replication-lag-ms`                | 30000          | Replicas at or below this lag are preferred |
-| High (absolute max) | `--high-replication-lag-tolerance-ms`     | 0 (disabled)   | Replicas above this are never selected      |
+| Threshold           | Flag                                  | Default      | Behavior                                    |
+| ------------------- | ------------------------------------- | ------------ | ------------------------------------------- |
+| Low (preferred)     | `--low-replication-lag-ms`            | 30000        | Replicas at or below this lag are preferred |
+| High (absolute max) | `--high-replication-lag-tolerance-ms` | 0 (disabled) | Replicas above this are never selected      |
 
 ### Selection Algorithm
 
@@ -92,11 +92,11 @@ Within each tier, a random replica is selected to distribute load evenly.
 
 ## Configuration
 
-| Flag                                      | Default        | Description                             |
-| ----------------------------------------- | -------------- | --------------------------------------- |
-| `--pg-replica-port`                       | 0 (disabled)   | Port for replica-reads connections      |
-| `--low-replication-lag-ms`                | 30000          | Preferred lag threshold (milliseconds)  |
-| `--high-replication-lag-tolerance-ms`     | 0 (no limit)   | Absolute max lag (milliseconds)         |
+| Flag                                  | Default      | Description                            |
+| ------------------------------------- | ------------ | -------------------------------------- |
+| `--pg-replica-port`                   | 0 (disabled) | Port for replica-reads connections     |
+| `--low-replication-lag-ms`            | 30000        | Preferred lag threshold (milliseconds) |
+| `--high-replication-lag-tolerance-ms` | 0 (no limit) | Absolute max lag (milliseconds)        |
 
 Environment variables: `MT_PG_REPLICA_PORT`, `MT_LOW_REPLICATION_LAG_MS`,
 `MT_HIGH_REPLICATION_LAG_TOLERANCE_MS`.
