@@ -296,16 +296,7 @@ func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm() {
 
 // ConsensusStatus returns the current status of this node for consensus
 func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	// Get consensus state
-	pm.mu.Lock()
-	cs := pm.consensusState
-	pm.mu.Unlock()
-
-	if cs == nil {
-		return nil, errors.New("consensus state not initialized")
-	}
-
-	term, err := cs.GetInconsistentTerm()
+	term, err := pm.consensusState.GetInconsistentTerm()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get consensus term: %w", err)
 	}

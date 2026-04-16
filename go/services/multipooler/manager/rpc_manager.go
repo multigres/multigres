@@ -295,12 +295,9 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.PostgresActionDuration = durationpb.New(duration)
 	}
 
-	// Get consensus term if available (use inconsistent read for monitoring)
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentTerm()
-		if err == nil {
-			poolerStatus.ConsensusTerm = term
-		}
+	// Get consensus term (use inconsistent read for monitoring)
+	if term, err := pm.consensusState.GetInconsistentTerm(); err == nil {
+		poolerStatus.ConsensusTerm = term
 	}
 
 	// Get WAL position (ignore errors, just return empty string)
@@ -396,12 +393,6 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
-	}
-
-	if pm.consensusState == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus state must be available to configure synchronous replication",
-		)
 	}
 
 	// Insert history before applying GUCs.
@@ -627,9 +618,6 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	status.SyncReplicationConfig = syncConfig
 
 	// Include primary term from consensus state.
-	if pm.consensusState == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "consensus state not initialized")
-	}
 	term, err := pm.consensusState.GetInconsistentTerm()
 	if err != nil {
 		return nil, err
@@ -972,13 +960,8 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// election without waiting for a heartbeat timeout. Use this node's own
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
-	pm.mu.Lock()
-	cs := pm.consensusState
-	pm.mu.Unlock()
-	if cs != nil {
-		if term, err := cs.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
-			pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
-		}
+	if term, err := pm.consensusState.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
+		pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
 	}
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps

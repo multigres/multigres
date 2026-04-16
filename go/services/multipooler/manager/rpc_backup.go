@@ -365,11 +365,9 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// TODO: Revisit this when we restore backups for other reasons than to
 	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
 	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
-		if pm.consensusState != nil {
-			pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
-			if err := pm.consensusState.DeleteTermFile(); err != nil {
-				return mterrors.Wrap(err, "failed to delete consensus term file after restore")
-			}
+		pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
+		if err := pm.consensusState.DeleteTermFile(); err != nil {
+			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
 		}
 		pm.healthStreamer.UpdatePrimaryObservation(nil)
 		return nil
