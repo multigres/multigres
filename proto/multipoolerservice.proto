@@ -58,11 +58,6 @@ service MultiPoolerService {
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
 
-  // ReserveStreamExecute creates a reserved connection and executes a query.
-  // Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
-  // Returns the reserved connection ID for subsequent queries.
-  rpc ReserveStreamExecute(ReserveStreamExecuteRequest) returns (stream ReserveStreamExecuteResponse);
-
   // ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
   // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
   // Returns the reserved state - if non-empty, the connection is still reserved.
@@ -140,6 +135,11 @@ message StreamExecuteRequest {
 
   // options contains execution options including session state needed for query execution.
   query.ExecuteOptions options = 4;
+
+  // reservation_options controls connection reservation behavior.
+  // When set with non-zero reasons, StreamExecute creates a new reserved connection
+  // (or extends the reasons on an existing one if options.reserved_connection_id is set).
+  query.ReservationOptions reservation_options = 5;
 }
 
 // StreamExecuteResponse represents a single response in the stream of query results
@@ -257,7 +257,7 @@ message CopyBidiExecuteRequest {
   // reservation_options controls connection reservation behavior (only for INITIATE phase).
   // When set with a transaction reason and begin_query, the executor will start a
   // transaction on the new connection before initiating COPY.
-  ReservationOptions reservation_options = 8;
+  query.ReservationOptions reservation_options = 8;
 }
 
 // CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
@@ -316,20 +316,6 @@ enum ReservationReason {
   RESERVATION_REASON_LISTEN = 16;      // 0b10000
 }
 
-// ReservationOptions specifies options when creating a reserved connection.
-// This is extensible for future options (e.g., isolation level, read-only mode).
-message ReservationOptions {
-  // reasons is a bitmask of ReservationReason values indicating why the connection is being reserved.
-  // Multiple reasons can be ORed together (e.g., TRANSACTION | TEMP_TABLE).
-  uint32 reasons = 1;
-
-  // begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
-  // or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
-  // multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
-  // If empty and transaction reason is set, defaults to "BEGIN".
-  string begin_query = 2;
-}
-
 // TransactionConclusion specifies how to conclude a transaction.
 enum TransactionConclusion {
   TRANSACTION_CONCLUSION_UNSPECIFIED = 0;
@@ -337,34 +323,6 @@ enum TransactionConclusion {
   TRANSACTION_CONCLUSION_COMMIT = 1;
   // Execute ROLLBACK to rollback the transaction
   TRANSACTION_CONCLUSION_ROLLBACK = 2;
-}
-
-// ReserveStreamExecuteRequest represents a request to create a reserved connection and execute a query.
-message ReserveStreamExecuteRequest {
-  // query is the SQL query to execute
-  string query = 1;
-
-  // target specifies the routing destination (tablegroup, shard, pooler type)
-  query.Target target = 2;
-
-  // caller_id identifies the caller
-  mtrpc.CallerID caller_id = 3;
-
-  // options contains execution options including session state
-  query.ExecuteOptions options = 4;
-
-  // reservation_options specifies why the connection is being reserved and what setup to perform
-  ReservationOptions reservation_options = 5;
-}
-
-// ReserveStreamExecuteResponse represents a response in the stream of query results.
-message ReserveStreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
-
-  // reserved_state contains the authoritative reservation state from multipooler.
-  // This is returned in the first response and should be used for subsequent queries.
-  query.ReservedState reserved_state = 5;
 }
 
 // ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.
@@ -462,6 +420,10 @@ message StreamPoolerHealthResponse {
   // to detect a stale/dead health stream. If no message is received within
   // this duration, clients should mark the pooler as unhealthy.
   google.protobuf.Duration recommended_staleness_timeout = 5;
+
+  // replication_lag_ns is the current replication lag in nanoseconds,
+  // measured via heartbeat timestamps. Zero on the primary or when unknown.
+  int64 replication_lag_ns = 6;
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.

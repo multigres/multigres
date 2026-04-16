@@ -284,6 +284,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		PoolerType:       pm.getPoolerType(),
 		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
+		PostgresReady:    pm.isPostgresReady(ctx),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		PostgresRole:     pm.getRole(ctx),
 		ShardId:          pm.getShardID(),
@@ -412,15 +413,18 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus term")
 	}
-	if err := pm.insertHistoryRecord(ctx,
-		term.GetPrimaryTerm(),
+	update := newRuleUpdate(
+		term.GetTermNumber(),
+		pm.serviceID,
 		"replication_config",
-		pm.servicePoolerID, nil, "", // leaderID, coordinatorID, walPosition
-		"configure",
 		"ConfigureSynchronousReplication called",
-		standbyNames,
-		nil, // acceptedMembers
-		force); err != nil {
+		time.Now()).
+		withCohort(standbyIDs).
+		withOperation("configure")
+	if force {
+		update.withForce()
+	}
+	if _, err := pm.rules.updateRule(ctx, update); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
@@ -562,17 +566,27 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// before this primary can accept ACKs from it.
 	// This is for safe replica joining of the cluster.
 	// It will ensure multiorch can discover the new cohort during a failure.
-	if err := pm.insertHistoryRecord(ctx,
+	coordID := coordinatorID
+	if coordID == nil {
+		coordID = pm.serviceID
+	}
+	updatedStandbyIDs := make([]*clustermetadatapb.ID, len(updatedStandbys))
+	for i, p := range updatedStandbys {
+		updatedStandbyIDs[i] = p.id
+	}
+	standbyUpdate := newRuleUpdate(
 		consensusTerm,
+		coordID,
 		"replication_config",
-		leaderID,
-		coordinatorID,
-		"", // walPosition (not applicable for replication config changes)
-		operationName,
 		"UpdateSynchronousStandbyList: "+operationName,
-		updatedStandbys, // This is what we care in this update
-		nil,             // acceptedMembers
-		force); err != nil {
+		time.Now()).
+		withLeader(leaderID.id).
+		withCohort(updatedStandbyIDs).
+		withOperation(operationName)
+	if force {
+		standbyUpdate.withForce()
+	}
+	if _, err := pm.rules.updateRule(ctx, standbyUpdate); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
@@ -865,11 +879,6 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
-	// TODO: This is not a long-term solution. The disableMonitor() approach will likely be
-	// replaced with proper state management in follow-up work to PR #550.
-	pm.disableMonitorInternal()
-
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -983,6 +992,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	pm.healthStreamer.UpdatePrimaryObservation(nil)
 
+	// Suppress the postgres monitor until a rewind completes; the monitor would
+	// otherwise restart postgres on this demoted node.
+	pm.rewindPending.Store(true)
+
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
 		"consensus_term", consensusTerm,
@@ -1072,13 +1085,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 			LsnPosition:     finalLSN,
 		}, nil
 	}
-
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
 
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
@@ -1180,19 +1186,8 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// Pre-compute names before acquiring the lock, so we fail fast on bad arguments.
-	leaderID := pm.servicePoolerID
-	cohortMembers, err := toPoolerIDs(cohortMemberIDs)
-	if err != nil {
-		return nil, err
-	}
-	acceptedMembers, err := toPoolerIDs(acceptedMemberIDs)
-	if err != nil {
-		return nil, err
-	}
-
 	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err = pm.actionLock.Acquire(ctx, "Promote")
+	ctx, err := pm.actionLock.Acquire(ctx, "Promote")
 	if err != nil {
 		return nil, err
 	}
@@ -1201,7 +1196,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// Validation & Readiness
 
 	// Validate term - strict equality, no automatic updates
-	if err = pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
+	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
@@ -1288,27 +1283,34 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		PrimaryTerm: consensusTerm,
 	})
 
-	// Write leadership history record - this validates that sync replication is working.
+	// Write rule history record - this validates that sync replication is working.
 	// If this fails (typically due to timeout waiting for standby acknowledgment), we fail
 	// the promotion. It's better to have no primary than one that can't satisfy durability.
 	if reason == "" {
 		reason = "unknown"
 	}
-	if err := pm.insertHistoryRecord(ctx,
+	promoteCoordID := coordinatorID
+	if promoteCoordID == nil {
+		promoteCoordID = pm.serviceID
+	}
+	promoteUpdate := newRuleUpdate(
 		consensusTerm,
+		promoteCoordID,
 		"promotion",
-		leaderID,
-		coordinatorID,
-		finalLSN,
-		"", // operation
 		reason,
-		cohortMembers,
-		acceptedMembers,
-		force); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to insert leadership history - promotion failed",
+		time.Now()).
+		withLeader(pm.serviceID).
+		withCohort(cohortMemberIDs).
+		withAcceptedMembers(acceptedMemberIDs).
+		withWALPosition(finalLSN)
+	if force {
+		promoteUpdate.withForce()
+	}
+	if _, err = pm.rules.updateRule(ctx, promoteUpdate); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to write rule history - promotion failed",
 			"term", consensusTerm,
 			"error", err)
-		return nil, mterrors.Wrap(err, "promotion failed: could not write leadership history (sync replication may not be functioning)")
+		return nil, mterrors.Wrap(err, "promotion failed: could not write rule history (sync replication may not be functioning)")
 	}
 
 	// Update topology and notify all components (best-effort, don't fail promotion)
@@ -1362,13 +1364,6 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
-
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
@@ -1457,6 +1452,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
 	}
 
+	// Rewind succeeded: allow the monitor to resume normal operation.
+	pm.rewindPending.Store(false)
+
 	pm.logger.InfoContext(ctx, "RewindToSource completed successfully",
 		"rewind_performed", rewindPerformed)
 	return &multipoolermanagerdatapb.RewindToSourceResponse{
@@ -1466,22 +1464,13 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) SetMonitor(
-	ctx context.Context,
-	req *multipoolermanagerdatapb.SetMonitorRequest,
-) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	if req.Enabled {
-		if err := pm.enableMonitorInternal(); err != nil {
-			return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
-		}
-		pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", true)
-		return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
-	}
-
-	pm.disableMonitorInternal()
-	pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", false)
-	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor.
+// When disabled, the monitor continues to run and detect problems but will not auto-restart
+// a stopped PostgreSQL instance. Used by tests and demos during controlled failovers.
+func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	pm.postgresRestartsDisabled.Store(!req.Enabled)
+	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled)
+	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
 }
 
 // ====================================================================================
@@ -1569,9 +1558,13 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		}
 
 		pm.logger.InfoContext(ctx, "pg_rewind completed")
+		pm.rewindPending.Store(false)
 		return true, nil
 	}
 
+	// No divergence: the node is already in sync with the source. The rewind is
+	// effectively complete; clear the flag so the monitor resumes.
+	pm.rewindPending.Store(false)
 	pm.logger.InfoContext(ctx, "No divergence, skipping rewind")
 	return false, nil
 }

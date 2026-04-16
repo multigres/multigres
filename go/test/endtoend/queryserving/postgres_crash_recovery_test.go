@@ -15,7 +15,6 @@
 package queryserving
 
 import (
-	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	}
 
 	setup := getSharedSetup(t)
-	setup.SetupTest(t, shardsetup.WithEnabledMonitor())
+	setup.SetupTest(t)
 
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
@@ -57,23 +56,17 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	require.Equal(t, 1, result)
 	t.Log("Baseline query through multigateway succeeded")
 
-	// Step 2: Kill postgres on the primary via pgctld.
-	// Use pgctld Stop RPC directly (instead of setup.KillPostgres) to handle
-	// the case where postgres may already be stopped.
+	// Step 2: Stop postgres on the primary. Restarts are disabled first so the monitor
+	// does not restart postgres before we can confirm it is stopped.
 	primary := setup.GetPrimary(t)
 	pgctldClient, err := shardsetup.NewPgctldClient(primary.Pgctld.GrpcPort)
 	require.NoError(t, err, "failed to connect to pgctld")
 	defer pgctldClient.Close()
 
-	t.Logf("Stopping postgres on primary node %s via pgctld (immediate mode)", setup.PrimaryName)
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer stopCancel()
-	_, err = pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "immediate"})
-	if err != nil {
-		t.Logf("pgctld Stop returned error (postgres may already be stopped): %v", err)
-	}
+	resumeRestarts := setup.StopPostgres(t, setup.PrimaryName, "immediate")
+	defer resumeRestarts() // safety net if test fails before explicit resume
 
-	// Confirm postgres is down before waiting for restart.
+	// Confirm postgres is down.
 	require.Eventually(t, func() bool {
 		statusCtx := utils.WithShortDeadline(t)
 		resp, err := pgctldClient.Status(statusCtx, &pgctldpb.StatusRequest{})
@@ -83,6 +76,9 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 		return resp.Status != pgctldpb.ServerStatus_RUNNING
 	}, 10*time.Second, 500*time.Millisecond, "Postgres should be stopped after kill")
 	t.Log("Postgres confirmed stopped")
+
+	// Re-enable restarts so the monitor can auto-restart postgres.
+	resumeRestarts()
 
 	// Step 3: Wait for the monitor to auto-restart postgres.
 	primaryClient := setup.NewPrimaryClient(t)
@@ -95,7 +91,7 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return status.Status.PostgresRunning
+		return status.Status.PostgresReady
 	}, 30*time.Second, 500*time.Millisecond, "Postgres should be auto-restarted by monitor")
 	t.Log("Postgres auto-restarted successfully")
 

@@ -67,14 +67,14 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "should get status from %s", name)
 
-			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
+			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresRole=%s, PoolerType=%s",
 				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
-				status.Status.PostgresRunning, status.Status.PostgresRole, status.Status.PoolerType)
+				status.Status.PostgresReady, status.Status.PostgresRole, status.Status.PoolerType)
 
 			// Nodes should be completely uninitialized (no data directory at all)
 			require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
 			require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
-			require.False(t, status.Status.PostgresRunning, "Node %s should not have postgres running yet", name)
+			require.False(t, status.Status.PostgresReady, "Node %s should not have postgres running yet", name)
 			t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
 		}()
 	}
@@ -220,22 +220,25 @@ func TestBootstrapInitialization(t *testing.T) {
 		)
 	})
 
-	t.Run("verify leadership history", func(t *testing.T) {
+	t.Run("verify rule history", func(t *testing.T) {
 		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
 		ctx := t.Context()
 
-		// Query leadership_history table
+		// Query rule_history table for the bootstrap promotion record.
+		// TODO: Switch to requesting consensus status from the multipooler RPC once
+		// ConsensusStatus is hooked up to RPCs; that will avoid the direct SQL query.
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx, `
-			SELECT term_number, leader_id, coordinator_id, wal_position, reason,
-			       cohort_members, accepted_members
-			FROM multigres.leadership_history
-			ORDER BY term_number DESC
+			SELECT coordinator_term, leader_id, coordinator_id, wal_position, reason,
+			       array_to_json(cohort_members)::text, array_to_json(accepted_members)::text
+			FROM multigres.rule_history
+			WHERE event_type = 'promotion'
+			ORDER BY coordinator_term DESC, leader_subterm DESC
 			LIMIT 1
 		`, 7)
-		require.NoError(t, err, "should query leadership_history")
-		require.Len(t, resp.Rows, 1, "should have exactly one leadership history record")
+		require.NoError(t, err, "should query rule_history")
+		require.Len(t, resp.Rows, 1, "should have exactly one rule history promotion record")
 
 		row := resp.Rows[0]
 		termNumber := string(row.Values[0])
@@ -246,8 +249,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		cohortMembersJSON := string(row.Values[5])
 		acceptedMembersJSON := string(row.Values[6])
 
-		// Verify term_number is 1
-		assert.Equal(t, "1", termNumber, "term_number should be 1 for initial bootstrap")
+		// Verify coordinator_term is 1
+		assert.Equal(t, "1", termNumber, "coordinator_term should be 1 for initial bootstrap")
 
 		// Verify leader_id matches primary name (format: cell_name)
 		expectedLeaderID := fmt.Sprintf("%s_%s", setup.CellName, setup.PrimaryName)
@@ -276,7 +279,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err, "accepted_members should be valid JSON array")
 		assert.Contains(t, acceptedMembers, expectedLeaderID, "accepted_members should contain leader")
 
-		t.Logf("Leadership history verified: term=%s, leader=%s, coordinator=%s, reason=%s",
+		t.Logf("Rule history verified: term=%s, leader=%s, coordinator=%s, reason=%s",
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
@@ -351,7 +354,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				if !s.IsInitialized {
 					return false, "not yet initialized"
 				}
-				if !s.PostgresRunning {
+				if !s.PostgresReady {
 					return false, "postgres not running"
 				}
 				if s.ConsensusTerm == nil || s.ConsensusTerm.TermNumber == 0 {
@@ -373,12 +376,12 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		assert.True(t, status.Status.IsInitialized, "Standby should be initialized after auto-restore")
 		assert.True(t, status.Status.HasDataDirectory, "Standby should have data directory after auto-restore")
-		assert.True(t, status.Status.PostgresRunning, "PostgreSQL should be running after auto-restore")
+		assert.True(t, status.Status.PostgresReady, "PostgreSQL should be running after auto-restore")
 		assert.Equal(t, "standby", status.Status.PostgresRole, "Should be in standby role after auto-restore")
 
-		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
+		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, Role=%s",
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
-			status.Status.PostgresRunning, status.Status.PostgresRole)
+			status.Status.PostgresReady, status.Status.PostgresRole)
 	})
 
 	t.Run("verify archive_command config on all nodes", func(t *testing.T) {

@@ -48,7 +48,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pr
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -64,7 +64,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(poolerAnalysis *PoolerAn
 	}
 
 	// Skip if primary is unreachable (can't update standby list anyway)
-	if poolerAnalysis.PrimaryPoolerID != nil && !poolerAnalysis.PrimaryReachable {
+	if sa.HighestTermDiscoveredPrimaryID != nil && !sa.PrimaryReachable {
 		return nil, nil
 	}
 
@@ -79,7 +79,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(poolerAnalysis *PoolerAn
 	}
 
 	// Check if replica is already in the standby list
-	if poolerAnalysis.IsInPrimaryStandbyList {
+	if sa.IsInStandbyList(poolerAnalysis.PoolerID) {
 		return nil, nil
 	}
 

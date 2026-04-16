@@ -60,6 +60,12 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, "pgbackrest", "lock"), global.Key("lock-path").String())
 	assert.Equal(t, "zst", global.Key("compress-type").String())
 
+	// Retention settings must appear in [global] for all backend types
+	assert.Equal(t, "7", global.Key("repo1-retention-full").String())
+	assert.Equal(t, "1", global.Key("repo1-retention-diff").String())
+	assert.Equal(t, "count", global.Key("repo1-retention-full-type").String())
+	assert.Equal(t, "0", global.Key("repo1-retention-history").String())
+
 	stanza := cfg.Section("multigres")
 	assert.Equal(t, "posix", stanza.Key("repo1-type").String())
 	assert.Equal(t, "/backups", stanza.Key("repo1-path").String())

@@ -69,6 +69,21 @@ message StandbyReplicationStatus {
   // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
   // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
   string wal_receiver_status = 8;
+
+  // Last time the standby received a message (WAL or keepalive) from the
+  // primary. From pg_stat_wal_receiver.last_msg_receive_time. Null if WAL
+  // receiver is not running.
+  google.protobuf.Timestamp last_msg_receive_time = 9;
+
+  // How often the standby sends status messages to the primary.
+  // From current_setting('wal_receiver_status_interval').
+  // Used to derive the heartbeat staleness threshold dynamically.
+  google.protobuf.Duration wal_receiver_status_interval = 10;
+
+  // How long the standby waits without receiving a message from the primary
+  // before terminating the WAL receiver connection.
+  // From current_setting('wal_receiver_timeout').
+  google.protobuf.Duration wal_receiver_timeout = 11;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -216,7 +231,11 @@ message Status {
   // Whether data directory exists
   bool has_data_directory = 5;
 
-  // Whether PostgreSQL is currently running
+  // Whether the PostgreSQL process exists (regardless of whether it accepts connections).
+  // True if the postgres process is running (e.g. SIGSTOP'd postgres: process exists but
+  // pg_isready fails). False if the process is dead (e.g. after SIGKILL).
+  // Use this to distinguish a temporarily-unresponsive postgres (SIGSTOP) from a dead
+  // postgres (SIGKILL) when postgres_ready is false.
   bool postgres_running = 6;
 
   // Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
@@ -239,6 +258,12 @@ message Status {
   // How long the current action has been running.
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
+
+  // Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
+  // This is the combined check: process must exist AND respond to pg_isready.
+  // Use postgres_running to check only if the process exists.
+  bool postgres_ready = 13;
+
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
@@ -701,6 +726,20 @@ message GetBackupByJobIdResponse {
   BackupMetadata backup = 1;
 }
 
+// ExpireBackupsRequest requests expiration of old backups according to retention policy.
+message ExpireBackupsRequest {
+  // Optional overrides for pgbackrest expire command-line flags.
+  // Keys use underscores (e.g., "repo1_retention_full") and are converted to
+  // CLI flags (e.g., "--repo1-retention-full=<value>").
+  map<string, string> overrides = 1;
+}
+
+// ExpireBackupsResponse contains the result of backup expiration.
+message ExpireBackupsResponse {
+  // IDs of backups that were removed by the expiration.
+  repeated string expired_backup_ids = 1;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
@@ -789,14 +828,16 @@ message RewindToSourceResponse {
 // PostgreSQL Monitoring Control APIs
 // =============================================================================
 
-// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
-message SetMonitorRequest {
-  // Whether to enable monitoring (true) or disable it (false)
+// SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
+// by the postgres monitor. When disabled, the monitor will still run and detect problems,
+// but will not automatically restart a stopped PostgreSQL instance.
+message SetPostgresRestartsEnabledRequest {
+  // Whether automatic restarts are enabled (true) or suppressed (false)
   bool enabled = 1;
 }
 
 // SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
-message SetMonitorResponse {
+message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }

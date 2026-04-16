@@ -253,6 +253,9 @@ type MultiPoolerClient interface {
 	// GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
 	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
 
+	// ExpireBackups removes old backups according to retention policy.
+	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
+
 	//
 	// Manager Service Methods - Timeline Repair
 	//
@@ -261,11 +264,11 @@ type MultiPoolerClient interface {
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
 	//
-	// Manager Service Methods - PostgreSQL Monitoring Control
+	// Manager Service Methods - PostgreSQL Restart Control
 	//
 
-	// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-	SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error)
+	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
 	// Connection Management Methods

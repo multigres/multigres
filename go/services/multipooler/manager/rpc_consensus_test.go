@@ -41,8 +41,8 @@ import (
 // expectStandbyRevokeMocks sets up mock expectations for the standby revoke path:
 // receiver disconnect, wait for disconnect, and replay stabilization.
 func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
-	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"}
-	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil}}
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil, nil, nil, nil}}
 
 	// Replay state columns used by queryReplayState during stabilization polling
 	replayStateCols := []string{"replay_lsn", "is_paused"}
@@ -69,7 +69,7 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 }
 
-func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -109,8 +109,10 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Shutdown() })
 
-	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
+	// Assign mock pooler controller and rule store BEFORE starting the manager
+	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = rules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -488,7 +490,7 @@ func TestBeginTerm(t *testing.T) {
 
 			tt.setupMocks(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
@@ -545,7 +547,7 @@ func TestBeginTerm(t *testing.T) {
 
 			tt.setupMocks(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
@@ -884,7 +886,7 @@ func TestCanReachPrimary(t *testing.T) {
 
 			tt.setupMock(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Handle nil qsc case
 			if tt.nilQsc {
@@ -974,8 +976,11 @@ func TestConsensusStatus(t *testing.T) {
 						"pg_last_xact_replay_timestamp",
 						"current_setting",
 						"wal_receiver_status",
+						"last_msg_receive_time",
+						"wal_receiver_status_interval",
+						"wal_receiver_timeout",
 					},
-					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming"}}))
+					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming", nil, nil, nil}}))
 			},
 			expectedCurrentTerm: 3,
 			expectedIsHealthy:   true,
@@ -1023,7 +1028,7 @@ func TestConsensusStatus(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			tt.setupMock(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
 			err := pm.consensusState.setConsensusTerm(tt.initialTerm)

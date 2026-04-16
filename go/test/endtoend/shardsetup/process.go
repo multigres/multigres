@@ -66,6 +66,9 @@ type ProcessInstance struct {
 	TLSCertFile string // TLS certificate file (multigateway)
 	TLSKeyFile  string // TLS private key file (multigateway)
 
+	// ReplicaPgPort is the optional PostgreSQL replica-reads listener port (multigateway).
+	ReplicaPgPort int
+
 	// ExtraArgs holds additional command-line flags appended to the process args.
 	// Used by multigateway for buffer config, etc.
 	ExtraArgs []string
@@ -110,14 +113,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"server",
 		"--pooler-dir", p.PoolerDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
 		"--log-output", p.LogFile,
-	}
-
-	// Add HTTP port if configured
-	if p.HttpPort > 0 {
-		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
 	}
 
 	// Add pgBackRest configuration if provided
@@ -128,7 +127,7 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
 	}
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {
@@ -157,6 +156,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "default", // Required parameter (MVP only supports "default")
 		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
@@ -187,7 +187,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	}
 
 	// Start the multipooler server
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {
@@ -236,7 +236,7 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		args = append(args, "--verify-replication-timeout", "15s")
 	}
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 	if p.PoolerDir != "" {
 		p.Process.SetDir(p.PoolerDir)
 	}
@@ -284,6 +284,11 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--log-level", "debug",
 	}
 
+	// Add replica port flag if configured
+	if p.ReplicaPgPort > 0 {
+		args = append(args, "--pg-replica-port", strconv.Itoa(p.ReplicaPgPort))
+	}
+
 	// Add TLS certificate flags if configured
 	if p.TLSCertFile != "" && p.TLSKeyFile != "" {
 		args = append(args,
@@ -295,7 +300,7 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 	// Append any extra args (e.g., buffer configuration flags)
 	args = append(args, p.ExtraArgs...)
 
-	p.Process = executil.Command(ctx, p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	if len(p.Environment) > 0 {

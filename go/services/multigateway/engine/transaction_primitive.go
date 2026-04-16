@@ -34,7 +34,7 @@ import (
 // Key behaviors:
 //   - BEGIN: Deferred execution - sets TxState to InTransaction and returns a synthetic
 //     result without making a backend call. The actual BEGIN is sent with the first
-//     real query via ReserveStreamExecute.
+//     real query via StreamExecute with reservation options.
 //   - COMMIT: Concludes the transaction on all shards (removes the transaction
 //     reservation reason; connections are fully released only if no other reasons
 //     remain), syncs pending LISTEN/UNLISTEN subscriptions.

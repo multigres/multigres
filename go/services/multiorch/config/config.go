@@ -156,6 +156,7 @@ type Config struct {
 	primaryFailoverGracePeriodBase      viperutil.Value[time.Duration]
 	primaryFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 	verifyReplicationTimeout            viperutil.Value[time.Duration]
+	primaryPostgresResponseThreshold    viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -227,6 +228,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_VERIFY_REPLICATION_TIMEOUT"},
 		}),
+		primaryPostgresResponseThreshold: viperutil.Configure(reg, "primary-postgres-response-threshold", viperutil.Options[time.Duration]{
+			Default:  30 * time.Second,
+			FlagName: "primary-postgres-response-threshold",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_PRIMARY_POSTGRES_RESPONSE_THRESHOLD"},
+		}),
 	}
 }
 
@@ -272,6 +279,10 @@ func (c *Config) GetVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Get()
 }
 
+func (c *Config) GetPrimaryPostgresResponseThreshold() time.Duration {
+	return c.primaryPostgresResponseThreshold.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -314,6 +325,10 @@ func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Default()
 }
 
+func (c *Config) DefaultPrimaryPostgresResponseThreshold() time.Duration {
+	return c.primaryPostgresResponseThreshold.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -326,6 +341,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("primary-failover-grace-period-base", c.DefaultPrimaryFailoverGracePeriodBase(), "base grace period before executing primary failover")
 	fs.Duration("primary-failover-grace-period-max-jitter", c.DefaultPrimaryFailoverGracePeriodMaxJitter(), "max jitter added to primary failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
+	fs.Duration("primary-postgres-response-threshold", c.DefaultPrimaryPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -336,7 +352,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.recoveryCycleInterval,
 		c.primaryFailoverGracePeriodBase,
 		c.primaryFailoverGracePeriodMaxJitter,
-		c.verifyReplicationTimeout)
+		c.verifyReplicationTimeout,
+		c.primaryPostgresResponseThreshold)
 }
 
 // Test helper functions
@@ -403,5 +420,12 @@ func WithPrimaryFailoverGracePeriodBase(d time.Duration) func(*Config) {
 func WithPrimaryFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.primaryFailoverGracePeriodMaxJitter.Set(d)
+	}
+}
+
+// WithPrimaryPostgresResponseThreshold sets the primary postgres responded threshold for testing.
+func WithPrimaryPostgresResponseThreshold(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.primaryPostgresResponseThreshold.Set(d)
 	}
 }

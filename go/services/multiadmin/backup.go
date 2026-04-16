@@ -400,3 +400,42 @@ func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 		Backups: backups,
 	}, nil
 }
+
+// ExpireBackups removes old backups according to retention policy.
+// It finds a replica pooler and proxies the request to it.
+func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.ExpireBackupsRequest) (*multiadminpb.ExpireBackupsResponse, error) {
+	s.logger.DebugContext(ctx, "ExpireBackups request received",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard)
+
+	if req.Database == "" {
+		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
+	}
+	if req.TableGroup == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
+	}
+
+	// Find a replica pooler — all replicas for a shard share the same pgbackrest repo
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
+	}
+
+	resp, err := s.rpcClient.ExpireBackups(ctx, pooler, &multipoolermanagerdata.ExpireBackupsRequest{
+		Overrides: req.Overrides,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to expire backups: %v", err)
+	}
+
+	s.logger.InfoContext(ctx, "ExpireBackups completed",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+		"expired_backup_ids", resp.ExpiredBackupIds)
+
+	return &multiadminpb.ExpireBackupsResponse{
+		ExpiredBackupIds: resp.ExpiredBackupIds,
+	}, nil
+}

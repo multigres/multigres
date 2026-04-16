@@ -301,3 +301,46 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 		assert.Contains(t, err.Error(), "multiple primaries found")
 	})
 }
+
+// TestPoolerStore_DoUpdateRange verifies that DoUpdateRange atomically resets fields
+// on qualifying poolers while leaving others unchanged — mirroring the
+// queuePoolersHealthCheck use case.
+func TestPoolerStore_DoUpdateRange(t *testing.T) {
+	store := NewPoolerStore(nil, slog.Default())
+
+	// pooler1: IsUpToDate=true — should be reset to false
+	store.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		},
+		IsUpToDate: true,
+	})
+	// pooler2: IsUpToDate=false — should remain false and not be written back
+	store.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		},
+		IsUpToDate: false,
+	})
+
+	writeCount := 0
+	store.DoUpdateRange(func(key string, value *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool) {
+		if value.IsUpToDate {
+			value.IsUpToDate = false
+			writeCount++
+			return value, true // write and continue
+		}
+		return nil, true // no write, continue
+	})
+
+	// Only pooler1 should have triggered a write-back
+	require.Equal(t, 1, writeCount)
+
+	p1, ok := store.Get("pooler1")
+	require.True(t, ok)
+	require.False(t, p1.IsUpToDate, "pooler1 IsUpToDate should have been reset to false")
+
+	p2, ok := store.Get("pooler2")
+	require.True(t, ok)
+	require.False(t, p2.IsUpToDate, "pooler2 IsUpToDate should remain false")
+}

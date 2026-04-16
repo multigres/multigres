@@ -80,7 +80,7 @@ func waitForShardReady(t *testing.T, setup *shardsetup.ShardSetup, expectedStand
 				}
 				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 					primaryStatus = &statuses[i]
-				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
+				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresReady {
 					replicaStatuses[r.Name] = &statuses[i]
 				}
 			}

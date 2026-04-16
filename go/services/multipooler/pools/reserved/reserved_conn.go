@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -40,9 +41,10 @@ type Conn struct {
 	// pooled is the underlying pooled regular connection.
 	pooled regular.PooledConn
 
-	// ConnID is the unique identifier for this reservation.
+	// connID is the unique identifier for this reservation.
 	// Clients use this to resume their session across requests.
-	ConnID int64
+	// Exposed via the ConnID() accessor.
+	connID int64
 
 	// pool is a back-reference to the owning pool.
 	// Used for Release operations.
@@ -66,14 +68,25 @@ type Conn struct {
 func newConn(pooled regular.PooledConn, connID int64, pool *Pool) *Conn {
 	return &Conn{
 		pooled: pooled,
-		ConnID: connID,
+		connID: connID,
 		pool:   pool,
 	}
+}
+
+// ConnID returns the unique identifier for this reservation.
+func (c *Conn) ConnID() int64 {
+	return c.connID
 }
 
 // Conn returns the underlying regular connection.
 func (c *Conn) Conn() *regular.Conn {
 	return c.pooled.Conn
+}
+
+// TxnStatus returns the underlying PG protocol transaction status from the
+// most recent ReadyForQuery message.
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
+	return c.pooled.Conn.TxnStatus()
 }
 
 // State returns the connection's state.
