@@ -1543,8 +1543,11 @@ type StreamPoolerHealthResponse struct {
 	// to detect a stale/dead health stream. If no message is received within
 	// this duration, clients should mark the pooler as unhealthy.
 	RecommendedStalenessTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=recommended_staleness_timeout,json=recommendedStalenessTimeout,proto3" json:"recommended_staleness_timeout,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// replication_lag_ns is the current replication lag in nanoseconds,
+	// measured via heartbeat timestamps. Zero on the primary or when unknown.
+	ReplicationLagNs int64 `protobuf:"varint,6,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -1610,6 +1613,13 @@ func (x *StreamPoolerHealthResponse) GetRecommendedStalenessTimeout() *durationp
 		return x.RecommendedStalenessTimeout
 	}
 	return nil
+}
+
+func (x *StreamPoolerHealthResponse) GetReplicationLagNs() int64 {
+	if x != nil {
+		return x.ReplicationLagNs
+	}
+	return 0
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.
@@ -1868,13 +1878,14 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"#\n" +
 	"!ReleaseReservedConnectionResponse\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xfa\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xa8\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12W\n" +
 	"\x13primary_observation\x18\x04 \x01(\v2&.multipoolerservice.PrimaryObservationR\x12primaryObservation\x12]\n" +
-	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\"k\n" +
+	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"k\n" +
 	"\x12PrimaryObservation\x122\n" +
 	"\n" +
 	"primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12!\n" +

@@ -329,12 +329,12 @@ enum AsyncReplicationFallbackMode {
 // cohort membership, durability policy) produces a new RuleNumber.
 //
 // Compared lexicographically: higher coordinator_term takes precedence; within
-// the same coordinator_term, higher rule_subterm takes precedence. rule_subterm
+// the same coordinator_term, higher leader_subterm takes precedence. leader_subterm
 // resets to 0 when coordinator_term increases, so subterms alone are not
 // globally unique.
 message RuleNumber {
   int64 coordinator_term = 1;
-  int64 rule_subterm = 2;
+  int64 leader_subterm = 2;
 }
 
 // ShardRule is the complete, authoritative description of shard state at a
@@ -367,7 +367,7 @@ message ShardRule {
 // promotion candidate.
 //
 // Comparison: prefer the node with the higher rule (coordinator_term first,
-// then rule_subterm). Break ties by LSN.
+// then leader_subterm). Break ties by LSN.
 message NodePosition {
   // The highest shard rule this node has committed to local WAL.
   ShardRule rule = 1;

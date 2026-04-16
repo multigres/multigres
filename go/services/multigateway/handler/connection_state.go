@@ -106,6 +106,10 @@ type MultiGatewayConnectionState struct {
 	// The default is initialized from startup params (if present) or the --statement-timeout flag.
 	// Parsed at SET time to avoid repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
+
+	// targetReplica is true when this connection arrived on the replica-reads
+	// listener port. Set once at connection initialization, never changed.
+	targetReplica bool
 }
 
 type ShardState struct {
@@ -271,6 +275,12 @@ func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Dur
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// TargetReplica returns true if this connection targets a replica.
+// Set once at connection initialization based on which port the connection arrived on.
+func (m *MultiGatewayConnectionState) TargetReplica() bool {
+	return m.targetReplica
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.

@@ -670,7 +670,7 @@
   {
     "comment": "sqljson - Statement 139",
     "query": "SELECT JSON_ARRAY(SELECT FROM (VALUES (1)) foo(i))",
-    "expected": "SELECT JSON_ARRAY(SELECT * FROM (VALUES (1)) AS foo(i))"
+    "expected": "SELECT JSON_ARRAY(SELECT FROM (VALUES (1)) AS foo(i))"
   },
   {
     "comment": "sqljson - Statement 140",

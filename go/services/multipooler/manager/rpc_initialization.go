@@ -57,13 +57,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Pause monitoring during initialization to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
-
 	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
@@ -163,31 +156,27 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		PrimaryTerm: req.ConsensusTerm,
 	})
 
-	// Get final LSN position for leadership history
+	// Get final LSN position for rule history
 	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
 		return nil, err
 	}
 
-	// Write leadership history record for bootstrap
-	reason := "ShardNeedsBootstrap"
-	cohortMembers := []poolerID{leaderID} // Only the initial primary during bootstrap
-	acceptedMembers := []poolerID{leaderID}
-
-	if err := pm.insertHistoryRecord(ctx,
+	// Write rule history record for bootstrap
+	if _, err := pm.rules.updateRule(ctx, newRuleUpdate(
 		req.ConsensusTerm,
-		"promotion",
-		leaderID,
 		req.CoordinatorId,
-		finalLSN,
-		"bootstrap", // operation
-		reason,
-		cohortMembers,
-		acceptedMembers,
-		false /* force */); err != nil {
+		"promotion",
+		"ShardNeedsBootstrap",
+		time.Now()).
+		withLeader(leaderID.id).
+		withCohort([]*clustermetadatapb.ID{leaderID.id}).
+		withAcceptedMembers([]*clustermetadatapb.ID{leaderID.id}).
+		withOperation("bootstrap").
+		withWALPosition(finalLSN)); err != nil {
 		// Log but don't fail - history is for audit, not correctness
-		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+		pm.logger.WarnContext(ctx, "Failed to write rule history",
 			"term", req.ConsensusTerm,
 			"error", err)
 	}

@@ -406,8 +406,7 @@
   },
   {
     "comment": "create_am - Statement 91",
-    "query": "SELECT INTO tableam_tblselectinto_heapx FROM tableam_tbl_heapx",
-    "expected": "SELECT * INTO tableam_tblselectinto_heapx FROM tableam_tbl_heapx"
+    "query": "SELECT INTO tableam_tblselectinto_heapx FROM tableam_tbl_heapx"
   },
   {
     "comment": "create_am - Statement 92",

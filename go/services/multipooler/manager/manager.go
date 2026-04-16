@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
@@ -107,6 +108,7 @@ type MultiPoolerManager struct {
 	stateError     error
 	consensusState *ConsensusState
 	topoLoaded     bool
+	rules          ruleStorer
 	ctx            context.Context
 	cancel         context.CancelFunc
 	loadTimeout    time.Duration
@@ -140,6 +142,15 @@ type MultiPoolerManager struct {
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
+
+	// rewindPending suppresses the postgres monitor after emergency demotion until a
+	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
+	rewindPending atomic.Bool
+
+	// postgresRestartsDisabled suppresses auto-restart of a stopped PostgreSQL instance.
+	// When set, the monitor continues to run and detect problems but skips the start action.
+	// False by default (restarts enabled); tests and demos set it during controlled failovers.
+	postgresRestartsDisabled atomic.Bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
@@ -271,6 +282,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -1468,6 +1480,12 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		return
 	}
 
+	// Skip all action while awaiting a rewind after emergency demotion.
+	if pm.rewindPending.Load() {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping, awaiting rewind after demotion")
+		return
+	}
+
 	// Discover current state
 	currentState := pm.discoverPostgresState(ctx)
 
@@ -1494,6 +1512,13 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
+
+	// Re-check rewindPending after acquiring the lock: EmergencyDemote sets this flag
+	// while holding the lock, so we may have been waiting while it demoted the node.
+	if pm.rewindPending.Load() {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
+		return
+	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
 	currentState = pm.discoverPostgresState(lockCtx)
@@ -1644,6 +1669,12 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionStartPostgres:
+		// Honour the in-memory flag set by tests and demos to suppress auto-restart
+		// during controlled failovers.
+		if pm.postgresRestartsDisabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled")
+			return
+		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
@@ -1765,68 +1796,4 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"term", pm.consensusState.term.TermNumber)
 
 	return nil
-}
-
-// enableMonitorInternal starts the PostgreSQL monitoring if not already running.
-// Returns an error if preconditions are not met.
-func (pm *MultiPoolerManager) enableMonitorInternal() error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	// Check if the manager is open
-	if !pm.isOpen {
-		return errors.New("manager is not open, cannot enable monitor")
-	}
-
-	// Start the monitor runner (idempotent)
-	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
-	return nil
-}
-
-// disableMonitorInternal stops the PostgreSQL monitoring.
-func (pm *MultiPoolerManager) disableMonitorInternal() {
-	// Stop the monitor runner (idempotent)
-	pm.pgMonitor.Stop()
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres disabled successfully")
-}
-
-// PausePostgresMonitor disables monitoring if it's currently enabled and returns a function
-// that will restore the original monitoring state. If monitoring was already disabled,
-// returns a no-op function. The caller is responsible for calling the returned function
-// (typically via defer) to restore the original state.
-//
-// This method requires the action lock to be held by the caller to prevent race conditions
-// with concurrent operations that might enable or disable monitoring. The returned resume
-// function also requires the action lock to be held when called.
-//
-// Example usage:
-//
-//	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-//	if err != nil {
-//	    return err
-//	}
-//	defer resumeMonitor(ctx)
-//	// ... perform operations that require monitoring to be disabled ...
-func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(context.Context), error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, fmt.Errorf("PausePostgresMonitor requires action lock to be held: %w", err)
-	}
-
-	wasEnabled := pm.pgMonitor.Running()
-
-	if wasEnabled {
-		pm.disableMonitorInternal()
-		return func(ctx context.Context) {
-			if err := AssertActionLockHeld(ctx); err != nil {
-				pm.logger.ErrorContext(ctx, "Resume monitor called without action lock", "error", err)
-				return
-			}
-			if err := pm.enableMonitorInternal(); err != nil {
-				pm.logger.WarnContext(ctx, "Failed to re-enable monitor", "error", err)
-			}
-		}, nil
-	}
-
-	// Monitoring was already disabled, return no-op
-	return func(context.Context) {}, nil
 }

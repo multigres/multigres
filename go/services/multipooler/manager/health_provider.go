@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -68,6 +69,10 @@ type healthStreamer struct {
 
 	// recommendedStalenessTimeout is advertised to clients
 	recommendedStalenessTimeout time.Duration
+
+	// replicationLagNs holds the most recent replication lag in nanoseconds.
+	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
+	replicationLagNs atomic.Int64
 }
 
 // newHealthStreamer creates a new health streamer with the given identity.
@@ -131,6 +136,13 @@ func (hs *healthStreamer) Broadcast() {
 	hs.broadcastLocked()
 }
 
+// SetReplicationLag updates the replication lag reported in the health stream.
+// Called by the manager's heartbeat loop with the latest measured lag.
+// Safe to call concurrently with any method.
+func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
+	hs.replicationLagNs.Store(lagNs)
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
@@ -143,6 +155,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		ServingStatus:               hs.servingStatus,
 		PrimaryObservation:          hs.primaryObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
+		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}
 }
 
@@ -246,6 +259,11 @@ func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 			return
 		case <-ticker.C:
 			if pm.healthStreamer != nil {
+				// Refresh replication lag before broadcasting so clients see
+				// up-to-date lag without requiring a separate state-change event.
+				if lag, err := pm.ReplicationLag(ctx); err == nil {
+					pm.healthStreamer.SetReplicationLag(lag.Nanoseconds())
+				}
 				pm.healthStreamer.Broadcast()
 			}
 		}
