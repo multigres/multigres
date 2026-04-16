@@ -664,6 +664,150 @@ func TestSelectCandidate(t *testing.T) {
 		require.Equal(t, "node2", candidate.MultiPooler.Id.Name,
 			"should correctly compare multi-segment LSNs (segment A > segment 9)")
 	})
+
+	// -----------------------------------------------------------------------
+	// Resigned-primary avoidance tests
+	//
+	// A node that has voluntarily resigned via EmergencyDemote carries a
+	// REQUESTING_DEMOTION LeadershipStatus signal in its PoolerHealthState.
+	// The coordinator should prefer any non-resigned node over it, even if
+	// the resigned node has a higher LSN (it was the most-recent primary and
+	// therefore has the most WAL).
+	// -----------------------------------------------------------------------
+
+	t.Run("skips resigned primary in favour of non-resigned standby", func(t *testing.T) {
+		// mp1 resigned as primary at term 4 — it has the highest LSN because it
+		// was the most recent primary, but should not be re-elected.
+		// mp2 and mp3 are non-resigned standbys with lower LSNs and must win.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		resignedPooler := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "mp1-resigned"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 4,
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 4,
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      resignedPooler,
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/9000000", LeadershipTerm: 4}, // highest LSN but resigned
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/5000000", LeadershipTerm: 4},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp3"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LeadershipTerm: 4},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"must not re-elect the resigned primary; should pick the non-resigned node with highest LSN")
+	})
+
+	t.Run("selects resigned primary as last resort when it is the only candidate", func(t *testing.T) {
+		// In a 1-node cluster (or when all others have invalid WAL positions),
+		// the coordinator has no choice but to re-elect the resigned node.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		resignedPooler := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "only-node"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 3,
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 3,
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      resignedPooler,
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/5000000"},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "only-node", candidate.MultiPooler.Id.Name,
+			"when the resigned node is the only valid candidate it must still be selected")
+	})
+
+	t.Run("stale resignation signal (different term) does not disqualify node", func(t *testing.T) {
+		// A REQUESTING_DEMOTION signal from a previous election cycle (primary_term
+		// in the signal does not match the node's current consensus primary_term)
+		// is stale and should not disqualify the node.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		nodeWithStaleSignal := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "mp1-stale-signal"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 5, // current term is 5
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 3, // signal from an old term — stale
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      nodeWithStaleSignal,
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/7000000", LeadershipTerm: 5}, // highest LSN
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LeadershipTerm: 5},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "mp1-stale-signal", candidate.MultiPooler.Id.Name,
+			"a stale resignation signal must not disqualify the node; it should win on LSN")
+	})
 }
 
 func TestRecruitNodes(t *testing.T) {

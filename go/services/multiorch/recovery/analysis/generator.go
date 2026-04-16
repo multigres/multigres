@@ -432,7 +432,8 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
 		sa.PrimaryPostgresReady = topologyPrimary.IsPostgresReady
 		sa.PrimaryPostgresRunning = topologyPrimary.IsPostgresRunning
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady && !types.PrimaryNeedsReplacement(topologyPrimary)
+		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady && !sa.PrimaryHasResigned
 		if topologyPrimary.LastPostgresReadyTime != nil {
 			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}

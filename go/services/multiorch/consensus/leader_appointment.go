@@ -201,11 +201,29 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 			"no recruited poolers available for candidate selection")
 	}
 
+	// Determine whether any non-resigned candidates exist. A node that has
+	// voluntarily requested demotion (REQUESTING_DEMOTION signal at its current
+	// primary term) should not be re-elected as long as there is another option.
+	hasNonResigned := false
+	for i := range recruited {
+		if !poolerRequestingDemotion(recruited[i].pooler) {
+			hasNonResigned = true
+			break
+		}
+	}
+
 	var bestRecruit *recruitmentResult
 	var bestLSN pgutil.LSN
 
 	for i := range recruited {
 		r := &recruited[i]
+
+		// Skip resigned nodes when better alternatives exist.
+		if hasNonResigned && poolerRequestingDemotion(r.pooler) {
+			c.logger.InfoContext(ctx, "Skipping resigned candidate during selection",
+				"pooler", r.pooler.MultiPooler.Id.Name)
+			continue
+		}
 
 		lsn, ok := walPositionLSN(r.walPosition)
 		if !ok {
@@ -259,6 +277,18 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 type recruitmentResult struct {
 	pooler      *multiorchdatapb.PoolerHealthState
 	walPosition *consensusdatapb.WALPosition
+}
+
+// poolerRequestingDemotion reports whether the pooler's cached health state shows it has
+// voluntarily requested to be replaced (REQUESTING_DEMOTION signal at its current primary term).
+// This duplicates the logic in recovery/types.PrimaryNeedsReplacement to avoid a circular import
+// (recovery imports consensus; consensus cannot import recovery).
+func poolerRequestingDemotion(pooler *multiorchdatapb.PoolerHealthState) bool {
+	ls := pooler.GetConsensusStatus().GetAvailabilityStatus().GetLeadershipStatus()
+	return ls != nil &&
+		ls.Signal == clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION &&
+		ls.PrimaryTerm != 0 &&
+		ls.PrimaryTerm == pooler.GetConsensusStatus().GetPrimaryTerm()
 }
 
 // recruitNodes sends BeginTerm RPC to all poolers in parallel and returns those that accepted.
