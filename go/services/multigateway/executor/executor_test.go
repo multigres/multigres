@@ -114,6 +114,10 @@ func testConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn
 }
 
+func testConnWithDB(database string) *server.Conn {
+	return server.NewTestConn(&bytes.Buffer{}, server.WithTestDatabase(database)).Conn
+}
+
 func noopCallback(_ context.Context, _ *sqltypes.Result) error {
 	return nil
 }
@@ -372,4 +376,108 @@ func TestCrossProtocol_MixedWorkload(t *testing.T) {
 		"SELECT * FROM t WHERE y = 99", parseOne(t, "SELECT * FROM t WHERE y = 99"), noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit)
+}
+
+// ---------- Cache key isolation tests ----------
+
+func TestCacheKey_DifferentDatabasesAreSeparate(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+
+	connDB1 := testConnWithDB("db1")
+	connDB2 := testConnWithDB("db2")
+
+	sql := "SELECT * FROM users WHERE id = 1"
+	astStmt := parseOne(t, sql)
+
+	// Cache plan in db1
+	res1, err := exec.StreamExecute(ctx, connDB1, nil, sql, astStmt, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	time.Sleep(50 * time.Millisecond)
+
+	// Same query on db2 — must miss (different database)
+	res2, err := exec.StreamExecute(ctx, connDB2, nil, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res2.CacheHit, "different databases must not share cached plans")
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Same query on db1 again — should hit
+	res3, err := exec.StreamExecute(ctx, connDB1, nil, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res3.CacheHit, "same database should hit cached plan")
+}
+
+func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+
+	connDB1 := testConnWithDB("db1")
+	connDB2 := testConnWithDB("db2")
+
+	portal := makePortalInfo(t, "SELECT * FROM orders WHERE id = $1")
+
+	// Cache plan in db1
+	res1, err := exec.PortalStreamExecute(ctx, connDB1, nil, portal, 0, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	time.Sleep(50 * time.Millisecond)
+
+	// Same portal on db2 — must miss
+	res2, err := exec.PortalStreamExecute(ctx, connDB2, nil, portal, 0, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res2.CacheHit, "different databases must not share cached plans via portal")
+}
+
+func TestCrossProtocol_CasingNormalization(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+
+	// 1. Simple protocol with lowercase keywords — cache miss, populates cache.
+	res, err := exec.StreamExecute(ctx, conn, nil,
+		"select * from users where id = 1", parseOne(t, "select * from users where id = 1"), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res.CacheHit)
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. Simple protocol with UPPERCASE keywords, different value — same AST
+	//    shape, SqlString() produces the same canonical form, so cache hit.
+	res, err = exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 99", parseOne(t, "SELECT * FROM users WHERE id = 99"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit, "different keyword casing should share cached plan")
+
+	// Verify the backend got the correct literal value, not $1.
+	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
+	assert.Contains(t, backendSQL, "99", "cache hit must reconstruct SQL with current bind values")
+
+	// 3. Simple protocol with mixed casing and extra whitespace.
+	res, err = exec.StreamExecute(ctx, conn, nil,
+		"Select  *  From  users  Where  id = 7", parseOne(t, "Select  *  From  users  Where  id = 7"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit, "mixed casing and extra whitespace should share cached plan")
+
+	backendSQL, _ = mock.lastStreamExecuteSQL.Load().(string)
+	assert.Contains(t, backendSQL, "7")
+
+	// 4. Portal with uppercase keywords — should hit the plan cached
+	//    in step 1, since SqlString() produces the same canonical form.
+	portal := makePortalInfo(t, "SELECT * FROM users WHERE id = $1")
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit, "portal should share cache with simple protocol regardless of original casing")
+
+	// 5. Portal with lowercase keywords — same canonical form, cache hit.
+	portalLower := makePortalInfo(t, "select * from users where id = $1")
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portalLower, 0, noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit, "portal with different casing should share cached plan")
 }

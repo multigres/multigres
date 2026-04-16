@@ -80,9 +80,10 @@ PostgreSQL clients speak two protocols:
 - **Extended protocol**: Query arrives pre-parameterized (`SELECT * FROM t WHERE id = $1`)
   with bind values sent separately in the Bind message
 
-After normalization, both produce the same cache key. This means a plan built
-from a simple-protocol execution can be reused for an extended-protocol
-execution of the same query shape and vice versa.
+Both paths produce the cache key via `SqlString()` on the AST, which yields a
+canonical form independent of the original keyword casing or whitespace. This
+means a plan built from a simple-protocol execution can be reused for an
+extended-protocol execution of the same query shape and vice versa.
 
 ### SQL Reconstruction
 
@@ -271,12 +272,29 @@ This maximizes cache utility — a plan computed for one connection is
 immediately available to all others. The downside is that the cache must be
 thread-safe, which is handled by shard-level locking inside Theine.
 
-### Normalized SQL as Cache Key
+### Cache Key Structure
 
-Using the normalized SQL string as the cache key is simple and correct. An
-alternative would be to use the AST directly (e.g., a structural hash), but
-string keys are easier to reason about, trivially comparable, and avoid the
-complexity of defining equality over AST nodes.
+The cache key is `database + "\x00" + normalizedSQL`. The database prefix
+prevents plans from one database being reused for another (different databases
+may have different schemas and, eventually, different sharding configurations).
+The null byte separator is unambiguous since neither database names nor SQL
+strings can contain it.
+
+For cross-protocol cache sharing, both the simple protocol and extended protocol
+paths produce the normalized SQL via `SqlString()` on the AST. This ensures
+the same canonical form regardless of keyword casing or whitespace differences
+in the original client query text.
+
+> **Note**: Session variables like `search_path` are not currently included in
+> the cache key because the planner does not resolve table names — it just
+> routes queries to a tablegroup. Session settings are sent to the multipooler
+> via `ExecuteOptions` on every query execution. When shard-aware routing is
+> introduced and the planner begins resolving tables for shard selection,
+> `search_path` will need to be added to the cache key.
+
+Using string keys rather than AST structural hashes is deliberate — strings are
+easier to reason about, trivially comparable, and avoid the complexity of
+defining equality over AST nodes.
 
 ### Rough AST Size Estimate in `CachedSize`
 

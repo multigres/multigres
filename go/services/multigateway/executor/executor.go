@@ -141,7 +141,8 @@ func (e *Executor) resolvePlan(
 	// If the query has no literals, NormalizedSQL equals the original SQL
 	// and BindValues is empty — the plan is still cached by its SQL string.
 	normResult := ast.Normalize(astStmt)
-	cacheKey := normResult.NormalizedSQL
+	normalizedSQL := normResult.NormalizedSQL
+	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
 	var bindVars []*ast.A_Const
 	if normResult.WasNormalized() {
 		bindVars = normResult.BindValues
@@ -150,19 +151,19 @@ func (e *Executor) resolvePlan(
 	// Cache hit
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "plan cache hit",
-			"normalized_query", cacheKey)
+			"normalized_query", normalizedSQL)
 		return cachedPlan, bindVars, true, nil
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
-	plan, err := e.planner.Plan(cacheKey, normResult.NormalizedAST, conn)
+	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
 	e.planCache.Put(cacheKey, plan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
-		"normalized_query", cacheKey,
+		"normalized_query", normalizedSQL,
 		"plan", plan.String())
 	return plan, bindVars, false, nil
 }
@@ -210,12 +211,11 @@ func (e *Executor) PortalStreamExecute(
 	// placeholders — the same form as our normalized cache key — so portal
 	// queries share cache entries with simple protocol queries.
 	if isCacheable(astStmt) {
-		query := portalInfo.PreparedStatementInfo.Query
-		plan, cacheHit, err := e.resolvePortalPlan(ctx, query, astStmt, conn)
+		plan, cacheHit, err := e.resolvePortalPlan(ctx, astStmt, conn)
 		planTime := time.Since(planStart)
 		if err != nil {
 			e.logger.ErrorContext(ctx, "portal query planning failed",
-				"query", query, "error", err)
+				"query", portalInfo.PreparedStatementInfo.Query, "error", err)
 			return &handler.ExecuteResult{PlanTime: planTime}, err
 		}
 
@@ -260,28 +260,42 @@ func (e *Executor) PortalStreamExecute(
 }
 
 // resolvePortalPlan looks up or creates a cached plan for a portal's query.
-// The query string is used directly as the cache key (extended protocol queries
-// already have $1, $2, ... placeholders).
+// The AST's SqlString() is used as the normalized SQL portion of the cache key,
+// producing the same canonical form as the simple protocol path. This ensures
+// cross-protocol cache sharing regardless of casing or whitespace differences
+// in the original query text.
 func (e *Executor) resolvePortalPlan(
 	ctx context.Context,
-	query string,
 	astStmt ast.Stmt,
 	conn *server.Conn,
 ) (*engine.Plan, bool, error) {
-	if cachedPlan, ok := e.planCache.Get(ctx, query); ok {
-		e.logger.DebugContext(ctx, "portal plan cache hit", "query", query)
+	normalizedSQL := astStmt.SqlString()
+	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
+	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
+		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
 		return cachedPlan, true, nil
 	}
 
-	plan, err := e.planner.Plan(query, astStmt, conn)
+	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn)
 	if err != nil {
 		return nil, false, err
 	}
 
-	e.planCache.Put(query, plan)
+	e.planCache.Put(cacheKey, plan)
 	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
-		"query", query, "plan", plan.String())
+		"query", normalizedSQL, "plan", plan.String())
 	return plan, false, nil
+}
+
+// buildCacheKey constructs the plan cache key from the database name and
+// normalized SQL. Including the database prevents cross-database plan reuse
+// (different databases may have different schemas and routing).
+//
+// TODO(GuptaManan100): When shard-aware routing is introduced and the planner
+// starts resolving table names for shard selection, search_path will need to
+// be included in the cache key as well, since it affects table name resolution.
+func buildCacheKey(database, normalizedSQL string) string {
+	return database + "\x00" + normalizedSQL
 }
 
 // extractRouting returns the tablegroup and shard from a plan's Route primitive,
