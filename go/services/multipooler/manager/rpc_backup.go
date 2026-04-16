@@ -175,10 +175,10 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	// Backups missing these annotations would be silently skipped by replicas
 	// during restore, causing them to fall back to older backups.
 	if tableGroup == "" {
-		return "", mterrors.New(mtrpcpb.Code_INTERNAL, "table_group is missing")
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "table_group is missing")
 	}
 	if shard == "" {
-		return "", mterrors.New(mtrpcpb.Code_INTERNAL, "shard is missing")
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "shard is missing")
 	}
 	args = append(args, "--annotation=table_group="+tableGroup)
 	args = append(args, "--annotation=shard="+shard)
