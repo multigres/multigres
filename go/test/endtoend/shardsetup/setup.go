@@ -985,8 +985,17 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q [%s]",
-		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
+	primaryDisplay := primaryName
+	if primaryDisplay == "" {
+		primaryDisplay = "<unknown>"
+	}
+	backupDisplay := latestBackupID
+	if backupDisplay == "" {
+		backupDisplay = "<none>"
+	}
+	t.Logf("checkBootstrapStatus:\n  primary:       %s\n  initialized:   %d/%d\n  latest_backup: %s\n  poolers:\n    %s",
+		primaryDisplay, initializedCount, len(setup.Multipoolers), backupDisplay,
+		strings.Join(poolerStatuses, "\n    "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
 	logMultiOrchStatus(ctx, t, setup, "checkBootstrapStatus")
