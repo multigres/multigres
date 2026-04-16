@@ -728,9 +728,10 @@ func TestSelectCandidate(t *testing.T) {
 			"must not re-elect the resigned primary; should pick the non-resigned node with highest LSN")
 	})
 
-	t.Run("selects resigned primary as last resort when it is the only candidate", func(t *testing.T) {
-		// In a 1-node cluster (or when all others have invalid WAL positions),
-		// the coordinator has no choice but to re-elect the resigned node.
+	t.Run("returns error when all candidates have resigned", func(t *testing.T) {
+		// The resignation signal is honored unconditionally: if every recruited
+		// candidate has resigned, the election is deferred rather than re-electing
+		// a node that explicitly requested demotion.
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
@@ -758,10 +759,8 @@ func TestSelectCandidate(t *testing.T) {
 			},
 		}
 
-		candidate, err := c.selectCandidate(ctx, recruited)
-		require.NoError(t, err)
-		require.Equal(t, "only-node", candidate.MultiPooler.Id.Name,
-			"when the resigned node is the only valid candidate it must still be selected")
+		_, err := c.selectCandidate(ctx, recruited)
+		require.Error(t, err, "should return error when all candidates have resigned")
 	})
 
 	t.Run("stale resignation signal (different term) does not disqualify node", func(t *testing.T) {

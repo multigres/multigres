@@ -201,25 +201,18 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 			"no recruited poolers available for candidate selection")
 	}
 
-	// Determine whether any non-resigned candidates exist. A node that has
-	// voluntarily requested demotion (REQUESTING_DEMOTION signal at its current
-	// primary term) should not be re-elected as long as there is another option.
-	hasNonResigned := false
-	for i := range recruited {
-		if !poolerRequestingDemotion(recruited[i].pooler) {
-			hasNonResigned = true
-			break
-		}
-	}
-
 	var bestRecruit *recruitmentResult
 	var bestLSN pgutil.LSN
 
 	for i := range recruited {
 		r := &recruited[i]
 
-		// Skip resigned nodes when better alternatives exist.
-		if hasNonResigned && poolerRequestingDemotion(r.pooler) {
+		// Skip nodes that have voluntarily requested demotion. The resignation
+		// signal is a deliberate request not to be re-elected; honoring it
+		// unconditionally avoids confusing re-elections of a node that just
+		// stepped down. If all candidates are resigned the election is deferred
+		// until a non-resigned candidate is available.
+		if poolerRequestingDemotion(r.pooler) {
 			c.logger.InfoContext(ctx, "Skipping resigned candidate during selection",
 				"pooler", r.pooler.MultiPooler.Id.Name)
 			continue
