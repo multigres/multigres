@@ -1461,3 +1461,116 @@ func TestAppointLeader(t *testing.T) {
 			"StandbyIds should include the full cohort: leader, accepted standbys, and rejected nodes")
 	})
 }
+
+func TestAppointInitialLeader(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	setupDatabase := func(t *testing.T, ts topoclient.Store, policy *clustermetadatapb.DurabilityPolicy) {
+		t.Helper()
+		require.NoError(t, ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+			Name:                      "testdb",
+			BootstrapDurabilityPolicy: policy,
+		}))
+	}
+
+	t.Run("success with term 1 and ShardInit reason", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		setupDatabase(t, ts, &clustermetadatapb.DurabilityPolicy{
+			PolicyName:    "AT_LEAST_2",
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 2,
+		})
+
+		c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp1.IsInitialized = true
+		mp1.IsPostgresReady = true
+		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+
+		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp2.IsInitialized = true
+		mp2.IsPostgresReady = true
+		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp2.MultiPooler))
+
+		cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2}
+
+		err := c.AppointInitialLeader(ctx, "shard0", cohort, "testdb")
+		require.NoError(t, err)
+
+		// Verify term=1 was used (not discovered from nodes)
+		candidateKey := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
+		promoteReq, ok := fakeClient.PromoteRequests[candidateKey]
+		require.True(t, ok, "candidate should receive PromoteRequest")
+		require.Equal(t, int64(1), promoteReq.ConsensusTerm, "initial leader should use term 1")
+		require.Equal(t, "ShardInit", promoteReq.Reason)
+		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId)
+	})
+
+	t.Run("empty cohort returns error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+		err := c.AppointInitialLeader(ctx, "shard0", nil, "testdb")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cohort is empty")
+	})
+
+	t.Run("missing bootstrap policy returns error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		// Database without bootstrap policy
+		require.NoError(t, ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+			Name: "testdb",
+		}))
+
+		c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
+
+		err := c.AppointInitialLeader(ctx, "shard0", cohort, "testdb")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no bootstrap_durability_policy configured")
+	})
+
+	t.Run("pre-vote failure returns error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		// Policy requires 3, but only 1 node — preVote will fail
+		setupDatabase(t, ts, &clustermetadatapb.DurabilityPolicy{
+			PolicyName:    "AT_LEAST_3",
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 3,
+		})
+
+		c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
+
+		err := c.AppointInitialLeader(ctx, "shard0", cohort, "testdb")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "pre-vote failed")
+	})
+}

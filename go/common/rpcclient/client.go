@@ -138,13 +138,6 @@ type MultiPoolerClient interface {
 	CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error)
 
 	//
-	// Manager Service Methods - Initialization
-	//
-
-	// InitializeEmptyPrimary initializes the multipooler as an empty primary.
-	InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error)
-
-	//
 	// Manager Service Methods - Status and Monitoring
 	//
 

@@ -30,6 +30,14 @@ type ShardAnalysis struct {
 	ShardKey commontypes.ShardKey
 	Analyses []*PoolerAnalysis
 
+	// NumInitialized is the count of reachable, initialized poolers in this shard.
+	// Pre-computed by the generator for use in analyzers.
+	NumInitialized int
+
+	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
+	// May be nil if not yet configured or not available.
+	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
+
 	// Shard-level aggregates computed once by the generator.
 
 	// Primaries is the list of all reachable poolers in the shard that are reporting
@@ -131,7 +139,12 @@ type PoolerAnalysis struct {
 	IsStale          bool
 	IsInitialized    bool // Whether this pooler is fully initialized and ready to join the cohort
 	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
-	AnalyzedAt       time.Time
+	// CohortMembers are the strongly-typed IDs from the most recent
+	// multigres.leadership_history record. Nil or empty both indicate no cohort
+	// has been established. When IsInitialized=true, an empty list means the
+	// 0-member bootstrap record is present — Phase 2 is needed.
+	CohortMembers []*clustermetadatapb.ID
+	AnalyzedAt    time.Time
 
 	// Replica-specific fields
 	ReplicationStopped  bool

@@ -166,12 +166,16 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
-	// Get initial term and track it throughout the test
+	// Get initial term from primary (primary can have a higher term than standby when
+	// previous runs performed REVOKE on primary but not standby, so we must use
+	// max(primary, standby) to avoid collision with an already-accepted term).
 	consensusStatusReq := &consensusdatapb.StatusRequest{}
-	consensusStatusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), consensusStatusReq)
+	primaryStatusResp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), consensusStatusReq)
 	require.NoError(t, err)
-	expectedTerm := consensusStatusResp.CurrentTerm
-	t.Logf("Initial term: %d", expectedTerm)
+	standbyStatusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), consensusStatusReq)
+	require.NoError(t, err)
+	expectedTerm := max(primaryStatusResp.CurrentTerm, standbyStatusResp.CurrentTerm)
+	t.Logf("Initial term: %d (primary=%d, standby=%d)", expectedTerm, primaryStatusResp.CurrentTerm, standbyStatusResp.CurrentTerm)
 
 	// Run NO_ACTION tests first to verify they don't disrupt the system
 	t.Run("BeginTerm_NO_ACTION_Primary", func(t *testing.T) {

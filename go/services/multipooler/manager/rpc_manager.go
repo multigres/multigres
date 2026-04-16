@@ -304,6 +304,13 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
 
+	// Get cohort members from the current rule (best-effort).
+	if pos, err := pm.rules.observePosition(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
+	} else if pos != nil && pos.Rule != nil {
+		poolerStatus.CohortMembers = pos.Rule.CohortMembers
+	}
+
 	// Try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {

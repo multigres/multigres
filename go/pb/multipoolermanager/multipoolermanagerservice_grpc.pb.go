@@ -55,7 +55,6 @@ const (
 	MultiPoolerManager_DemoteStalePrimary_FullMethodName              = "/multipoolermanager.MultiPoolerManager/DemoteStalePrimary"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
 	MultiPoolerManager_State_FullMethodName                           = "/multipoolermanager.MultiPoolerManager/State"
-	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
@@ -123,9 +122,6 @@ type MultiPoolerManagerClient interface {
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
 	State(ctx context.Context, in *multipoolermanagerdata.StateRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StateResponse, error)
-	// InitializeEmptyPrimary initializes this pooler as an empty primary
-	// Used during bootstrap initialization of a new shard
-	InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -366,16 +362,6 @@ func (c *multiPoolerManagerClient) State(ctx context.Context, in *multipoolerman
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.InitializeEmptyPrimaryResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_InitializeEmptyPrimary_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.BackupResponse)
@@ -504,9 +490,6 @@ type MultiPoolerManagerServer interface {
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
 	State(context.Context, *multipoolermanagerdata.StateRequest) (*multipoolermanagerdata.StateResponse, error)
-	// InitializeEmptyPrimary initializes this pooler as an empty primary
-	// Used during bootstrap initialization of a new shard
-	InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -599,9 +582,6 @@ func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipool
 }
 func (UnimplementedMultiPoolerManagerServer) State(context.Context, *multipoolermanagerdata.StateRequest) (*multipoolermanagerdata.StateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method State not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InitializeEmptyPrimary not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
@@ -1023,24 +1003,6 @@ func _MultiPoolerManager_State_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_InitializeEmptyPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).InitializeEmptyPrimary(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_InitializeEmptyPrimary_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).InitializeEmptyPrimary(ctx, req.(*multipoolermanagerdata.InitializeEmptyPrimaryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.BackupRequest)
 	if err := dec(in); err != nil {
@@ -1257,10 +1219,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "State",
 			Handler:    _MultiPoolerManager_State_Handler,
-		},
-		{
-			MethodName: "InitializeEmptyPrimary",
-			Handler:    _MultiPoolerManager_InitializeEmptyPrimary_Handler,
 		},
 		{
 			MethodName: "Backup",

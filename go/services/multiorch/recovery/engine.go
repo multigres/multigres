@@ -254,6 +254,8 @@ type Engine struct {
 	// Action factory for creating recovery actions
 	actionFactory *analysis.RecoveryActionFactory
 
+	coordinator *consensus.Coordinator
+
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
 	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
 
@@ -287,6 +289,7 @@ func NewEngine(
 		healthCheckQueue:       NewQueue(logger, config),
 		shardWatchTargets:      shardWatchTargets,
 		recentPollCache:        make(map[string]time.Time),
+		coordinator:            coordinator,
 		shutdownCtx:            ctx,
 		cancel:                 cancel,
 		bookkeepingRunner:      timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),

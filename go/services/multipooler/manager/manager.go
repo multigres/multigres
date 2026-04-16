@@ -1463,6 +1463,7 @@ const (
 	remedialActionRestoreFromBackup
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
+	remedialActionCreateFirstBackup
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1471,7 +1472,6 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	const (
 		reasonPgctldUnavailable = "pgctld_unavailable"
 		reasonPostgresRunning   = "postgres_running"
-		reasonWaitingForBackup  = "waiting_for_backup"
 	)
 
 	// Wait for manager to be ready
@@ -1499,8 +1499,6 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		} else if !currentState.dirInitialized && !currentState.backupsAvailable {
-			pm.setMonitorReason(ctx, reasonWaitingForBackup, "MonitorPostgres: directory not initialized and no backups available, waiting")
 		}
 		return
 	}
@@ -1618,8 +1616,8 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		return remedialActionRestoreFromBackup
 	}
 
-	// Directory not initialized and no backups: Wait
-	return remedialActionNone
+	// Directory not initialized and no backups: try to create the first backup
+	return remedialActionCreateFirstBackup
 }
 
 // takeRemedialAction executes the specified remedial action.
@@ -1632,9 +1630,11 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	}
 
 	const (
-		reasonPostgresRunning     = "postgres_running"
-		reasonStartingPostgres    = "starting_postgres"
-		reasonRestoringFromBackup = "restoring_from_backup"
+		reasonPostgresRunning            = "postgres_running"
+		reasonStartingPostgres           = "starting_postgres"
+		reasonRestoringFromBackup        = "restoring_from_backup"
+		reasonCreatingFirstBackup        = "creating_first_backup"
+		reasonWaitingForFirstBackupLease = "waiting_for_first_backup_lease"
 	)
 
 	switch action {
@@ -1690,6 +1690,28 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+		}
+
+	case remedialActionCreateFirstBackup:
+		pm.setMonitorReason(ctx, reasonCreatingFirstBackup, "MonitorPostgres: no backup found, attempting to create one")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
+		busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(ctx)
+		if busy {
+			pm.setMonitorReason(ctx, reasonWaitingForFirstBackupLease, "MonitorPostgres: backup lease held by another pooler, waiting")
+		} else if err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to create first backup, will retry", "error", err)
+		} else if backupFound {
+			// Another pooler created the backup just before we acquired the lease.
+			// Restore immediately rather than waiting for the next monitor iteration.
+			pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: first backup found; restoring")
+			if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			}
+			if err := pm.restoreAndStartPostgres(ctx); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+			}
 		}
 	}
 }

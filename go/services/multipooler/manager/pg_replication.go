@@ -148,6 +148,26 @@ func toPoolerIDs(ids []*clustermetadatapb.ID) ([]poolerID, error) {
 	return result, firstErr
 }
 
+// poolerIDFromAppName parses a PostgreSQL application_name (format: "cell_name") into
+// a poolerID. This is the inverse of newPoolerID's appName generation.
+// On parse failure an error is returned alongside a best-effort poolerID that
+// preserves the raw appName in the Name field so callers can include it rather
+// than silently dropping the member.
+//
+// TODO: once leadership_history stores serialized clustermetadata.ID values directly
+// instead of application_name strings, this parsing and its error path can be removed.
+func poolerIDFromAppName(appName string) (poolerID, error) {
+	id, err := parseApplicationName(appName)
+	if err != nil {
+		return poolerID{
+			id:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Name: appName},
+			appName: appName,
+		}, err
+	}
+	id.Component = clustermetadatapb.ID_MULTIPOOLER
+	return poolerID{id: id, appName: appName}, nil
+}
+
 // ----------------------------------------------------------------------------
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
