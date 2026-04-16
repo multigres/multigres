@@ -221,7 +221,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 	defer conn.Close()
 
 	qs := &connQueryService{conn: conn}
-	if _, err := qs.conn.Query(ctx, "CREATE SCHEMA IF NOT EXISTS multigres"); err != nil {
+	if _, err := qs.conn.Query(ctx, "CREATE SCHEMA multigres"); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -261,7 +261,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	defer conn.Close()
 
 	qs := &connQueryService{conn: conn}
-	_, err = qs.conn.Query(ctx, "TRUNCATE multigres.current_rule, multigres.rule_history")
+	_, err = qs.conn.Query(ctx, "DROP TABLE multigres.current_rule, multigres.rule_history")
 	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

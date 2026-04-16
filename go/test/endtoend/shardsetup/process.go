@@ -110,14 +110,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"server",
 		"--pooler-dir", p.PoolerDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
 		"--log-output", p.LogFile,
-	}
-
-	// Add HTTP port if configured
-	if p.HttpPort > 0 {
-		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
 	}
 
 	// Add pgBackRest configuration if provided
@@ -157,6 +153,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "default", // Required parameter (MVP only supports "default")
 		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")

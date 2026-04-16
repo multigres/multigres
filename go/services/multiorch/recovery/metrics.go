@@ -314,12 +314,12 @@ func (m *Metrics) RecordHealthCheckCycleDuration(ctx context.Context, duration t
 }
 
 // DetectedProblemData represents a detected problem with its attributes for metric observation.
-// Each problem is tracked at per-pooler granularity.
+// Each problem is tracked per affected entity (pooler ID or shard key).
 type DetectedProblemData struct {
 	AnalysisType string
 	DBNamespace  string
 	Shard        string
-	PoolerID     string
+	EntityID     string
 }
 
 // RegisterDetectedProblemsCallback registers a callback for the detected problems observable gauge.
@@ -338,7 +338,7 @@ func (m *Metrics) RegisterDetectedProblemsCallback(getter func() []DetectedProbl
 						attribute.String("analysis_type", data.AnalysisType),
 						attribute.String("db.namespace", data.DBNamespace),
 						attribute.String("shard", data.Shard),
-						attribute.String("pooler_id", data.PoolerID),
+						attribute.String("entity_id", data.EntityID),
 					))
 			}
 			return nil

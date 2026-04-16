@@ -124,7 +124,7 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, "CREATE SCHEMA IF NOT EXISTS multigres"); err != nil {
+	if err := pm.exec(execCtx, "CREATE SCHEMA multigres"); err != nil {
 		return mterrors.Wrap(err, "failed to create multigres schema")
 	}
 	return nil
@@ -138,7 +138,7 @@ func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+	if err := pm.exec(execCtx, `CREATE TABLE multigres.heartbeat (
 		shard_id BYTEA PRIMARY KEY,
 		leader_id TEXT NOT NULL,
 		ts BIGINT NOT NULL
@@ -156,7 +156,7 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.tablegroup (
+	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup (
 		oid BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL UNIQUE,
 		type TEXT NOT NULL
@@ -170,7 +170,7 @@ func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
+	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup_table (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		name TEXT NOT NULL,
@@ -185,7 +185,7 @@ func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.shard (
+	if err := pm.exec(execCtx, `CREATE TABLE multigres.shard (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		shard_name TEXT NOT NULL,

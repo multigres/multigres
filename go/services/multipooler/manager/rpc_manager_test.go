@@ -1639,184 +1639,6 @@ func TestReplicationStatus(t *testing.T) {
 	})
 }
 
-func TestSetMonitorRPCEnable(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	t.Run("SetMonitor_Enable_Success", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Disable monitor first
-		pm.disableMonitorInternal()
-		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
-
-		// Enable monitor via RPC
-		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.True(t, pm.pgMonitor.Running(), "Monitor should be enabled")
-	})
-
-	t.Run("SetMonitor_Enable_Idempotent", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Monitor should already be running after Start
-		require.True(t, pm.pgMonitor.Running(), "Monitor should be running after Start")
-
-		// Enable monitor again - should be idempotent (no error, monitor still running)
-		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.True(t, pm.pgMonitor.Running(), "Monitor should still be enabled")
-	})
-
-	t.Run("SetMonitor_Enable_WhenNotOpen", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
-
-		// Don't start the manager - isOpen should be false
-
-		// Try to enable monitor when manager is not open
-		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-		require.Error(t, err)
-		require.Nil(t, resp)
-		require.Contains(t, err.Error(), "manager is not open")
-	})
-}
-
 func TestStopPostgresForEmergencyDemote(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -2006,140 +1828,6 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		// Verify error code
 		code := mterrors.Code(err)
 		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
-	})
-}
-
-func TestSetMonitorRPCDisable(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	t.Run("SetMonitor_Disable_Success", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Monitor should be running after Start
-		require.True(t, pm.pgMonitor.Running(), "Monitor should be running")
-
-		// Disable monitor via RPC
-		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
-	})
-
-	t.Run("SetMonitor_Disable_Idempotent", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Disable monitor
-		pm.disableMonitorInternal()
-		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
-
-		// Disable monitor again via RPC - should be idempotent
-		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.False(t, pm.pgMonitor.Running(), "Monitor should still be disabled")
 	})
 }
 
@@ -2389,7 +2077,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Start a mock pgctld server that will fail the Stop call (after Pause() is called)
+	// Start a mock pgctld server that will fail the Stop call
 	mockPgctld := &testutil.MockPgCtldService{
 		StopError: errors.New("mock error: PostgreSQL stop failed"),
 	}
@@ -2440,7 +2128,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Call RewindToSource - this should fail during the Stop call (after Pause() is called)
+	// Call RewindToSource - this should fail during the Stop call
 	_, err = manager.RewindToSource(ctx, source)
 
 	// Verify the call failed as expected
@@ -2448,11 +2136,55 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "PostgreSQL stop failed")
 
 	// CRITICAL REGRESSION TEST: Verify the manager was reopened despite the error.
-	// This is the bug we're testing for - without the defer resume() pattern,
-	// the manager would stay closed on this error path after Pause() was called.
+	// This is the bug we're testing for: if RewindToSource fails, the manager must
+	// still be reopened so the node can continue operating.
 	require.Eventually(t, func() bool {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
 		return manager.isOpen
-	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails after Pause()")
+	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
+}
+
+func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("disable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+
+		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.True(t, pm.postgresRestartsDisabled.Load(), "restarts should be disabled after RPC")
+	})
+
+	t.Run("enable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsDisabled.Store(true)
+
+		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.False(t, pm.postgresRestartsDisabled.Load(), "restarts should be enabled after RPC")
+	})
+
+	t.Run("idempotent_disable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+
+		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		assert.True(t, pm.postgresRestartsDisabled.Load())
+	})
+
+	t.Run("idempotent_enable", func(t *testing.T) {
+		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm.postgresRestartsDisabled.Store(true)
+
+		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		_, err = pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		assert.False(t, pm.postgresRestartsDisabled.Load())
+	})
 }
