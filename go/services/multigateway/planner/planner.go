@@ -117,29 +117,29 @@ func (p *Planner) Plan(
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_SelectStmt:
 		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	default:
 		// Default: simple route to PostgreSQL
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 	}
 
 	if err != nil {
@@ -148,6 +148,7 @@ func (p *Planner) Plan(
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
+
 	return plan, nil
 }
 
@@ -162,8 +163,8 @@ func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.
 
 // planDefault creates a simple route plan for queries without special handling.
 // This is the fallback for most SQL statements.
-func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*engine.Plan, error) {
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 	plan := engine.NewPlan(sql, route)
 
 	p.logger.Debug("created default route plan",
@@ -302,5 +303,5 @@ func (p *Planner) planUnlistenStmt(sql string, stmt *ast.UnlistenStmt) (*engine.
 
 // planNotifyStmt routes NOTIFY to the default table group as a regular query.
 func (p *Planner) planNotifyStmt(sql string) (*engine.Plan, error) {
-	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)), nil
+	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)), nil
 }

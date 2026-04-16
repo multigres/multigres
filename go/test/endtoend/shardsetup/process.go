@@ -66,6 +66,9 @@ type ProcessInstance struct {
 	TLSCertFile string // TLS certificate file (multigateway)
 	TLSKeyFile  string // TLS private key file (multigateway)
 
+	// ReplicaPgPort is the optional PostgreSQL replica-reads listener port (multigateway).
+	ReplicaPgPort int
+
 	// ExtraArgs holds additional command-line flags appended to the process args.
 	// Used by multigateway for buffer config, etc.
 	ExtraArgs []string
@@ -110,14 +113,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"server",
 		"--pooler-dir", p.PoolerDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
 		"--log-output", p.LogFile,
-	}
-
-	// Add HTTP port if configured
-	if p.HttpPort > 0 {
-		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
 	}
 
 	// Add pgBackRest configuration if provided
@@ -157,6 +156,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "default", // Required parameter (MVP only supports "default")
 		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
@@ -282,6 +282,11 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
 		"--log-level", "debug",
+	}
+
+	// Add replica port flag if configured
+	if p.ReplicaPgPort > 0 {
+		args = append(args, "--pg-replica-port", strconv.Itoa(p.ReplicaPgPort))
 	}
 
 	// Add TLS certificate flags if configured

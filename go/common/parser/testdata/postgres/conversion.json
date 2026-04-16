@@ -1,8 +1,7 @@
 [
   {
     "comment": "conversion - Statement 1",
-    "query": "SELECT FROM test_enc_setup()",
-    "expected": "SELECT * FROM test_enc_setup()"
+    "query": "SELECT FROM test_enc_setup()"
   },
   {
     "comment": "conversion - Statement 2",

@@ -68,6 +68,7 @@ type SetupConfig struct {
 	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                      string   // S3 region
 	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 }
@@ -127,6 +128,15 @@ func WithoutInitialization() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithMultigatewayReplicaPort enables the replica-reads listener port on multigateway.
+// Connections on this port target replicas. Implies WithMultigateway().
+func WithMultigatewayReplicaPort() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayReplicaPort = true
 	}
 }
 
@@ -448,8 +458,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		httpPort := utils.GetFreePort(t)
 		grpcPort := utils.GetFreePort(t)
 
+		// Allocate replica port if enabled
+		var replicaPgPort int
+		if config.EnableMultigatewayReplicaPort {
+			replicaPgPort = utils.GetFreePort(t)
+		}
+
 		// Create multigateway instance (doesn't start it)
 		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
+		mgw.ReplicaPgPort = replicaPgPort
+		setup.MultigatewayReplicaPgPort = replicaPgPort
 		mgw.ExtraArgs = config.MultigatewayExtraArgs
 
 		// Configure OTel trace export if an endpoint was provided.
@@ -461,7 +479,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 				"OTEL_TRACES_SAMPLER=always_on",
 			)
 		}
-		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
+		t.Logf("Created multigateway instance: PG=%d, ReplicaPG=%d, HTTP=%d, gRPC=%d", pgPort, replicaPgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)
 		// Use setupCtx for process lifetime, passed ctx only for tracing

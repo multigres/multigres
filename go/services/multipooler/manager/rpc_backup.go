@@ -171,13 +171,17 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	}
 	args = append(args, pg2Args...)
 
-	// Add annotations if table_group and shard are provided
-	if tableGroup != "" {
-		args = append(args, "--annotation=table_group="+tableGroup)
+	// Reject backups with empty table_group or shard to prevent corrupt metadata.
+	// Backups missing these annotations would be silently skipped by replicas
+	// during restore, causing them to fall back to older backups.
+	if tableGroup == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "table_group is missing")
 	}
-	if shard != "" {
-		args = append(args, "--annotation=shard="+shard)
+	if shard == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "shard is missing")
 	}
+	args = append(args, "--annotation=table_group="+tableGroup)
+	args = append(args, "--annotation=shard="+shard)
 
 	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
 	args = append(args, "--annotation=multipooler_id="+multipoolerName)

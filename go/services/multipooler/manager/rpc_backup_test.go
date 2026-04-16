@@ -1134,6 +1134,112 @@ pg1-path=/tmp/pg_data
 	}
 }
 
+func TestBackup_RejectsEmptyTableGroup(t *testing.T) {
+	// Regression test for MUL-223: backups with empty table_group produce
+	// corrupt metadata that causes replicas to skip valid backups.
+	// The backup must be rejected loudly rather than silently omitting
+	// the table_group annotation.
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create mock pgbackrest binary that succeeds for both backup and info.
+	// After the fix, pgbackrest should never be reached because the backup
+	// is rejected early due to empty table_group/shard.
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+    cat << 'JSONEOF'
+[{
+    "backup": [{
+        "label": "20250104-100000F",
+        "type": "full",
+        "error": false,
+        "timestamp": {"start": 1735970400, "stop": 1735970500},
+        "annotation": {
+            "multipooler_id": "test-multipooler",
+            "job_id": "test-job-id"
+        }
+    }]
+}]
+JSONEOF
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+
+	tests := []struct {
+		name       string
+		tableGroup string
+		shard      string
+		wantErr    string
+	}{
+		{
+			name:       "empty table_group",
+			tableGroup: "",
+			shard:      "0-inf",
+			wantErr:    "table_group",
+		},
+		{
+			name:       "empty shard",
+			tableGroup: "default",
+			shard:      "",
+			wantErr:    "shard",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Build the manager directly to bypass createTestManager's
+			// default-substitution for empty table_group/shard.
+			multipoolerID := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "test-multipooler",
+			}
+			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+			_ = ts.CreateDatabase(ctx, "test-database", &clustermetadatapb.Database{
+				Name:           "test-database",
+				BackupLocation: utils.FilesystemBackupLocation(tmpDir),
+			})
+			backupConfig, _ := backup.NewConfig(
+				utils.FilesystemBackupLocation(tmpDir),
+			)
+
+			pm := &MultiPoolerManager{
+				config:     &Config{},
+				serviceID:  multipoolerID,
+				topoClient: ts,
+				multipooler: &clustermetadatapb.MultiPooler{
+					Id:         multipoolerID,
+					Type:       clustermetadatapb.PoolerType_PRIMARY,
+					TableGroup: tt.tableGroup,
+					Shard:      tt.shard,
+					Database:   "test-database",
+					PoolerDir:  poolerDir,
+				},
+				state:                ManagerStateReady,
+				backupConfig:         backupConfig,
+				actionLock:           NewActionLock(),
+				logger:               slog.Default(),
+				pgMonitor:            timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
+				pgBackRestConfigPath: configPath,
+			}
+
+			_, err := pm.Backup(ctx, true, "full", "test-job-id", nil)
+			require.Error(t, err, "backup with empty %s should be rejected", tt.name)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestGetPrimaryAsPg2Args(t *testing.T) {
 	tests := []struct {
 		name                    string

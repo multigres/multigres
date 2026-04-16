@@ -39,7 +39,7 @@ func (p *Planner) planVariableSetStmt(
 	if stmt.IsLocal {
 		p.logger.Debug("SET LOCAL detected, passing through",
 			"variable", stmt.Name)
-		return p.planDefault(sql, conn)
+		return p.planDefault(sql, stmt, conn)
 	}
 
 	// Gateway-managed variables are handled locally without routing to PostgreSQL.
@@ -81,7 +81,7 @@ func (p *Planner) planVariableSetStmt(
 		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
 		p.logger.Debug("passing through to PostgreSQL",
 			"kind", stmt.Kind, "variable", stmt.Name)
-		return p.planDefault(sql, conn)
+		return p.planDefault(sql, stmt, conn)
 
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
