@@ -46,8 +46,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
-	// Refuse to run on an already-initialized data directory — initdb would
-	// destroy existing data and this node should be restoring from backup instead.
+	// Refuse to run on an already-initialized data directory. This node is already initialized
 	if pm.hasDataDirectory() {
 		return false, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"data directory already exists; cannot create first backup on an initialized node")
