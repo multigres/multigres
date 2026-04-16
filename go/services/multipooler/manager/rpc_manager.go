@@ -961,7 +961,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
 	if term, err := pm.consensusState.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
-		pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
+		if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
+		}
 	}
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
@@ -1277,7 +1279,9 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// explicitly re-promoted us at a new term. A higher primary_term implicitly
 	// invalidates the old signal, but clearing eagerly avoids a window where
 	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
-	pm.clearResignedPrimaryAtTerm()
+	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
+	}
 
 	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
 		PrimaryID:   pm.serviceID,

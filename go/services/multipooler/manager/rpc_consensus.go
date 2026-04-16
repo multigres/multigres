@@ -279,19 +279,29 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 // setResignedPrimaryAtTerm records that this node is requesting demotion as primary
 // for the given term. The signal is included in subsequent StatusResponses so the
 // coordinator can trigger an immediate election.
-func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(term int64) {
+// Requires the action lock (ctx must be an action-lock context).
+func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(ctx context.Context, term int64) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	pm.mu.Lock()
 	pm.resignedPrimaryAtTerm = term
 	pm.mu.Unlock()
+	return nil
 }
 
 // clearResignedPrimaryAtTerm clears the leadership demotion request. Called by
 // coordinator-driven promotion (SetPrimaryTerm) when this node is explicitly
 // re-appointed as primary at a new term.
-func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm() {
+// Requires the action lock (ctx must be an action-lock context).
+func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm(ctx context.Context) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	pm.mu.Lock()
 	pm.resignedPrimaryAtTerm = 0
 	pm.mu.Unlock()
+	return nil
 }
 
 // ConsensusStatus returns the current status of this node for consensus

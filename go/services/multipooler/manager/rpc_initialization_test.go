@@ -474,10 +474,12 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
 	tests := []struct {
-		name           string
-		state          postgresState
-		poolerType     clustermetadatapb.PoolerType
-		expectedAction remedialAction
+		name                string
+		state               postgresState
+		poolerType          clustermetadatapb.PoolerType
+		primaryTerm         int64
+		resignedPrimaryTerm int64
+		expectedAction      remedialAction
 	}{
 		{
 			name:           "pgctld_unavailable",
@@ -516,7 +518,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToReplica,
 		},
 		{
-			name: "postgres_ready_type_matches_replica",
+			name: "postgres_ready_type_matches_replica_no_primary_term",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -524,6 +526,33 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			expectedAction: remedialActionNone,
+		},
+		{
+			// After EmergencyDemote + process restart, resignedPrimaryAtTerm is lost.
+			// The monitor should re-publish it by triggering the replica adjustment action.
+			name: "postgres_ready_replica_missing_resignation_signal",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 0,
+			expectedAction:      remedialActionAdjustTypeToReplica,
+		},
+		{
+			// Signal already published — no action needed.
+			name: "postgres_ready_replica_resignation_signal_present",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 5,
+			expectedAction:      remedialActionNone,
 		},
 		{
 			name: "postgres_stopped_start",
@@ -566,6 +595,14 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				},
 			}
+			cs := NewConsensusState("", nil)
+			if tt.primaryTerm != 0 {
+				cs.mu.Lock()
+				cs.term = &multipoolermanagerdatapb.ConsensusTerm{PrimaryTerm: tt.primaryTerm}
+				cs.mu.Unlock()
+			}
+			pm.consensusState = cs
+			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
 			require.Equal(t, tt.expectedAction, got)
@@ -801,13 +838,13 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			cs.mu.Unlock()
 			pm.consensusState = cs
 
-			if tc.resignedBefore != 0 {
-				pm.setResignedPrimaryAtTerm(tc.resignedBefore)
-			}
-
 			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 			require.NoError(t, err)
 			defer pm.actionLock.Release(lockCtx)
+
+			if tc.resignedBefore != 0 {
+				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
+			}
 
 			pm.takeRemedialAction(lockCtx, tc.action)
 

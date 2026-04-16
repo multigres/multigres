@@ -1359,9 +1359,9 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Nil(t, pm.buildAvailabilityStatus())
 	})
 
-	t.Run("setResignedPrimaryAtTerm makes buildAvailabilityStatus return the term", func(t *testing.T) {
+	t.Run("resignedPrimaryAtTerm set makes buildAvailabilityStatus return the term", func(t *testing.T) {
 		pm := &MultiPoolerManager{}
-		pm.setResignedPrimaryAtTerm(7)
+		pm.resignedPrimaryAtTerm = 7
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
@@ -1369,10 +1369,10 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 	})
 
-	t.Run("clearResignedPrimaryAtTerm removes the signal", func(t *testing.T) {
+	t.Run("resignedPrimaryAtTerm cleared makes buildAvailabilityStatus return nil", func(t *testing.T) {
 		pm := &MultiPoolerManager{}
-		pm.setResignedPrimaryAtTerm(3)
-		pm.clearResignedPrimaryAtTerm()
+		pm.resignedPrimaryAtTerm = 3
+		pm.resignedPrimaryAtTerm = 0
 		assert.Nil(t, pm.buildAvailabilityStatus())
 	})
 }

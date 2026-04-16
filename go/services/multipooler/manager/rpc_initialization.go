@@ -154,7 +154,9 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	if err := pm.consensusState.SetPrimaryTerm(ctx, req.ConsensusTerm, false /* force */); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
-	pm.clearResignedPrimaryAtTerm()
+	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
+	}
 
 	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
 		PrimaryID:   pm.serviceID,

@@ -1569,6 +1569,18 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToReplica
 		}
+		// Postgres is standby and type is already REPLICA, but check if the resignation
+		// signal needs to be (re-)published. This handles the case where the signal was
+		// lost after a process restart following EmergencyDemote.
+		if !currentState.isPrimary {
+			term, _ := pm.consensusState.GetInconsistentTerm()
+			pm.mu.Lock()
+			resigned := pm.resignedPrimaryAtTerm
+			pm.mu.Unlock()
+			if term.GetPrimaryTerm() != 0 && resigned == 0 {
+				return remedialActionAdjustTypeToReplica
+			}
+		}
 		return remedialActionNone // Pooler type already matches
 	}
 
@@ -1623,7 +1635,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
 		// consensus term from there for a more precise resignation signal.
 		if term, err := pm.consensusState.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
-			pm.setResignedPrimaryAtTerm(term.GetPrimaryTerm())
+			if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+			}
 		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
