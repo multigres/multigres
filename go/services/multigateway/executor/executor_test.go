@@ -280,6 +280,60 @@ func TestCrossProtocol_PortalCachesForSimpleProtocol(t *testing.T) {
 	assert.True(t, res2.CacheHit, "simple protocol should hit plan cached by portal")
 }
 
+func TestCrossProtocol_PortalCachedPlanReconstructsSQL(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+
+	// Extended protocol first — caches plan for "SELECT * FROM orders WHERE id = $1"
+	portal := makePortalInfo(t, "SELECT * FROM orders WHERE id = $1")
+	_, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Simple protocol with literal value — should hit the portal-cached plan
+	// and reconstruct SQL with the bind value substituted back in.
+	res, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM orders WHERE id = 7", parseOne(t, "SELECT * FROM orders WHERE id = 7"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit)
+
+	// The SQL sent to the backend must have the literal value, not $1.
+	backendSQL, ok := mock.lastStreamExecuteSQL.Load().(string)
+	require.True(t, ok)
+	assert.Equal(t, "SELECT * FROM orders WHERE id = 7", backendSQL,
+		"cross-protocol cache hit must reconstruct SQL with bind values")
+}
+
+func TestCrossProtocol_SimpleCachedPlanReconstructsSQL(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+
+	// Simple protocol first — normalizes and caches.
+	_, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE name = 'alice'", parseOne(t, "SELECT * FROM users WHERE name = 'alice'"), noopCallback)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Same shape, different value — cache hit, must reconstruct.
+	res, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE name = 'bob'", parseOne(t, "SELECT * FROM users WHERE name = 'bob'"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res.CacheHit)
+
+	backendSQL, ok := mock.lastStreamExecuteSQL.Load().(string)
+	require.True(t, ok)
+	assert.Equal(t, "SELECT * FROM users WHERE name = 'bob'", backendSQL,
+		"cache hit must reconstruct SQL with current bind values")
+}
+
 func TestCrossProtocol_MixedWorkload(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)

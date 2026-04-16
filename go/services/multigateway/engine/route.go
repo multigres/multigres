@@ -45,11 +45,15 @@ type Route struct {
 }
 
 // NewRoute creates a new Route primitive.
-func NewRoute(tableGroup, shard, query string) *Route {
+// The astStmt parameter is stored as NormalizedAST for SQL reconstruction at
+// execution time (substituting bind values into ParamRef placeholders). Pass
+// nil for routes that don't need SQL reconstruction (e.g., non-cached plans).
+func NewRoute(tableGroup, shard, query string, astStmt ast.Stmt) *Route {
 	return &Route{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Query:      query,
+		TableGroup:    tableGroup,
+		Shard:         shard,
+		Query:         query,
+		NormalizedAST: astStmt,
 	}
 }
 

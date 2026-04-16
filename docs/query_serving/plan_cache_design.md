@@ -24,6 +24,10 @@ a given query shape — `SELECT * FROM users WHERE id = 1` and
 the planning cost on every execution is wasteful when the same query pattern
 arrives thousands of times per second.
 
+> **Note**: When shard-aware routing is introduced, literal values in shard key
+> columns will affect routing, and the normalization/caching strategy will need
+> to account for this.
+
 The plan cache avoids replanning by mapping a normalized query string to a
 previously computed `Plan` object.
 
@@ -63,7 +67,7 @@ affects planning, not just execution:
 | `VariableSetStmt`         | `SET work_mem = '64MB'` — value is part of the command                          |
 | `VariableShowStmt`        | `SHOW <variable>` — name is the operand                                         |
 | `DefElem`                 | Used inside DDL option lists where literal values affect the DDL itself         |
-| `SELECT INTO` temp tables | Temporary table semantics depend on literal names                               |
+| `SELECT INTO`             | Temp-table variants use a different primitive (`TempTableRoute`); non-temp variants are DDL-like, so caching is skipped for all `SELECT INTO` |
 
 Queries that cannot be normalized fall through to the normal (uncached) path.
 

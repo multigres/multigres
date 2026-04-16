@@ -33,7 +33,7 @@ func newForTest(capacity int) *PlanCache {
 }
 
 func makePlan(sql string) *engine.Plan {
-	return engine.NewPlan(sql, engine.NewRoute("default", "0", sql))
+	return engine.NewPlan(sql, engine.NewRoute("default", "0", sql, nil))
 }
 
 func TestGetPut(t *testing.T) {

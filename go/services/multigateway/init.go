@@ -442,6 +442,11 @@ func (mg *MultiGateway) Shutdown() {
 		mg.cancelManager.Close()
 	}
 
+	// Close executor (plan cache cleanup)
+	if mg.executor != nil {
+		mg.executor.Close()
+	}
+
 	// Stop failover buffer
 	if mg.buffer != nil {
 		mg.buffer.Shutdown()

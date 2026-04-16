@@ -160,13 +160,6 @@ func (e *Executor) resolvePlan(
 		return nil, nil, false, err
 	}
 
-	// Set the normalized AST on Route for execution-time SQL reconstruction
-	if normResult.WasNormalized() {
-		if route, ok := plan.Primitive.(*engine.Route); ok {
-			route.NormalizedAST = normResult.NormalizedAST
-		}
-	}
-
 	e.planCache.Put(cacheKey, plan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
 		"normalized_query", cacheKey,
@@ -179,7 +172,9 @@ func (e *Executor) resolvePlan(
 func isCacheable(stmt ast.Stmt) bool {
 	switch stmt.NodeTag() {
 	case ast.T_SelectStmt:
-		// Exclude SELECT INTO temp table (has special planning)
+		// Exclude SELECT INTO — temp-table variants use a different primitive
+		// (TempTableRoute), and non-temp variants are DDL-like (they create a
+		// table), so caching their plans is not useful.
 		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.IntoClause != nil {
 			return false
 		}
@@ -330,6 +325,11 @@ func (e *Executor) ReleaseAll(
 	state *handler.MultiGatewayConnectionState,
 ) error {
 	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
+}
+
+// Close shuts down the executor, releasing resources such as the plan cache.
+func (e *Executor) Close() {
+	e.planCache.Close()
 }
 
 // Ensure Executor implements handler.Executor interface.
