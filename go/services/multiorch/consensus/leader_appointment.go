@@ -137,12 +137,17 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pgutil.LSN, bool) {
 	// standbys). Both field may be empty if the server is not a primary or
 	// standby, or if the pooler hasn't fully initialized and fetched WAL
 	// position yet.
+	// Use the most advanced LSN available: current (primary), receive (streaming standby),
+	// or replay (standby that has replayed from backup but not yet streaming).
 	lsnStr := pos.CurrentLsn
 	if lsnStr == "" {
 		lsnStr = pos.LastReceiveLsn
 	}
+	if lsnStr == "" {
+		lsnStr = pos.LastReplayLsn
+	}
 
-	// If both LSN fields are empty, we consider the WAL position invalid for
+	// If all LSN fields are empty, we consider the WAL position invalid for
 	// selection purposes.
 	if lsnStr == "" {
 		return 0, false

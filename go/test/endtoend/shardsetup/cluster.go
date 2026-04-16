@@ -442,10 +442,19 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Cancel the context to terminate all processes. Processes started directly with
-	// executil.Command will be killed. Processes wrapped in run_in_test.sh (etcd) are
-	// started with context.Background() and use a separate goroutine to detect context
-	// cancellation and call Stop() gracefully so the wrapper can clean up its child.
+	// Stop PostgreSQL on each pgctld instance before killing processes.
+	// pg_ctl stop releases System V shared memory; without this, shared memory
+	// segments leak on every test run and eventually exhaust the OS limit.
+	for _, inst := range s.Multipoolers {
+		if inst.Pgctld != nil {
+			inst.Pgctld.Stop()
+		}
+		if inst.Multipooler != nil {
+			inst.Multipooler.Stop()
+		}
+	}
+
+	// Cancel the context to terminate all remaining processes.
 	if s.cancel != nil {
 		s.cancel()
 	}

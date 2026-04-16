@@ -163,9 +163,11 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		"--type=" + pgBackRestType,
 	}
 
-	// Get pg2 args for replica backups (empty for primary)
-	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one
-	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides)
+	// Get pg2 args for replica backups (empty for primary).
+	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one.
+	// Pass forcePrimary through so that a freshly-initialised node (type=UNKNOWN)
+	// that is acting as a primary can still do a local backup without pg2 args.
+	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides, forcePrimary)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get primary as pg2 arguments")
 	}
@@ -857,11 +859,13 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	ctx context.Context,
 	overrides map[string]string,
+	forcePrimary bool,
 ) ([]string, error) {
 	poolerType := pm.getPoolerType()
 
-	// Primary poolers backup locally from pg1 - no pg2 needed
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
+	// backup locally from pg1 — no pg2 needed.
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 

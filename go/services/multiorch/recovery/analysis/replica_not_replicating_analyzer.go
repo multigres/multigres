@@ -54,7 +54,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 		return nil, nil
 	}
 
-	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
+	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
 	if !poolerAnalysis.IsInitialized {
 		return nil, nil
 	}

@@ -319,7 +319,7 @@ func (x ID_ComponentType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ID_ComponentType.Descriptor instead.
 func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{9, 0}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{10, 0}
 }
 
 // TopoConfig defines the connection parameters for a topology service.
@@ -532,6 +532,64 @@ func (x *Database) GetBootstrapDurabilityPolicy() *DurabilityPolicy {
 	return nil
 }
 
+// ShardInitClaim records which coordinator claimed the right to initialize a shard
+// and the cohort it intends to use. Stored as a create-if-not-exists node in the
+// global topology so that only one coordinator can initialize a given shard.
+type ShardInitClaim struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The coordinator that claimed this shard initialization.
+	ClaimerId *ID `protobuf:"bytes,1,opt,name=claimer_id,json=claimerId,proto3" json:"claimer_id,omitempty"`
+	// The cohort of poolers the claimer will use for initial leader appointment.
+	// Persisted so that a crash-retry uses the same cohort for idempotency.
+	CohortMembers []*ID `protobuf:"bytes,2,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardInitClaim) Reset() {
+	*x = ShardInitClaim{}
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardInitClaim) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardInitClaim) ProtoMessage() {}
+
+func (x *ShardInitClaim) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardInitClaim.ProtoReflect.Descriptor instead.
+func (*ShardInitClaim) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ShardInitClaim) GetClaimerId() *ID {
+	if x != nil {
+		return x.ClaimerId
+	}
+	return nil
+}
+
+func (x *ShardInitClaim) GetCohortMembers() []*ID {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
 // BackupLocation specifies where backups are stored
 type BackupLocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -546,7 +604,7 @@ type BackupLocation struct {
 
 func (x *BackupLocation) Reset() {
 	*x = BackupLocation{}
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -558,7 +616,7 @@ func (x *BackupLocation) String() string {
 func (*BackupLocation) ProtoMessage() {}
 
 func (x *BackupLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -571,7 +629,7 @@ func (x *BackupLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupLocation.ProtoReflect.Descriptor instead.
 func (*BackupLocation) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BackupLocation) GetLocation() isBackupLocation_Location {
@@ -626,7 +684,7 @@ type FilesystemBackup struct {
 
 func (x *FilesystemBackup) Reset() {
 	*x = FilesystemBackup{}
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +696,7 @@ func (x *FilesystemBackup) String() string {
 func (*FilesystemBackup) ProtoMessage() {}
 
 func (x *FilesystemBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +709,7 @@ func (x *FilesystemBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilesystemBackup.ProtoReflect.Descriptor instead.
 func (*FilesystemBackup) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FilesystemBackup) GetPath() string {
@@ -687,7 +745,7 @@ type S3Backup struct {
 
 func (x *S3Backup) Reset() {
 	*x = S3Backup{}
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -699,7 +757,7 @@ func (x *S3Backup) String() string {
 func (*S3Backup) ProtoMessage() {}
 
 func (x *S3Backup) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -712,7 +770,7 @@ func (x *S3Backup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use S3Backup.ProtoReflect.Descriptor instead.
 func (*S3Backup) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *S3Backup) GetBucket() string {
@@ -783,7 +841,7 @@ type MultiPooler struct {
 
 func (x *MultiPooler) Reset() {
 	*x = MultiPooler{}
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +853,7 @@ func (x *MultiPooler) String() string {
 func (*MultiPooler) ProtoMessage() {}
 
 func (x *MultiPooler) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +866,7 @@ func (x *MultiPooler) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiPooler.ProtoReflect.Descriptor instead.
 func (*MultiPooler) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MultiPooler) GetId() *ID {
@@ -906,7 +964,7 @@ type MultiGateway struct {
 
 func (x *MultiGateway) Reset() {
 	*x = MultiGateway{}
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -918,7 +976,7 @@ func (x *MultiGateway) String() string {
 func (*MultiGateway) ProtoMessage() {}
 
 func (x *MultiGateway) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -931,7 +989,7 @@ func (x *MultiGateway) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiGateway.ProtoReflect.Descriptor instead.
 func (*MultiGateway) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MultiGateway) GetId() *ID {
@@ -977,7 +1035,7 @@ type MultiOrch struct {
 
 func (x *MultiOrch) Reset() {
 	*x = MultiOrch{}
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -989,7 +1047,7 @@ func (x *MultiOrch) String() string {
 func (*MultiOrch) ProtoMessage() {}
 
 func (x *MultiOrch) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1002,7 +1060,7 @@ func (x *MultiOrch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiOrch.ProtoReflect.Descriptor instead.
 func (*MultiOrch) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MultiOrch) GetId() *ID {
@@ -1042,7 +1100,7 @@ type ID struct {
 
 func (x *ID) Reset() {
 	*x = ID{}
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1054,7 +1112,7 @@ func (x *ID) String() string {
 func (*ID) ProtoMessage() {}
 
 func (x *ID) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1067,7 +1125,7 @@ func (x *ID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ID.ProtoReflect.Descriptor instead.
 func (*ID) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ID) GetComponent() ID_ComponentType {
@@ -1104,7 +1162,7 @@ type KeyRange struct {
 
 func (x *KeyRange) Reset() {
 	*x = KeyRange{}
-	mi := &file_clustermetadata_proto_msgTypes[10]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1116,7 +1174,7 @@ func (x *KeyRange) String() string {
 func (*KeyRange) ProtoMessage() {}
 
 func (x *KeyRange) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[10]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1129,7 +1187,7 @@ func (x *KeyRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyRange.ProtoReflect.Descriptor instead.
 func (*KeyRange) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *KeyRange) GetStart() []byte {
@@ -1173,7 +1231,7 @@ type DurabilityPolicy struct {
 
 func (x *DurabilityPolicy) Reset() {
 	*x = DurabilityPolicy{}
-	mi := &file_clustermetadata_proto_msgTypes[11]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1243,7 @@ func (x *DurabilityPolicy) String() string {
 func (*DurabilityPolicy) ProtoMessage() {}
 
 func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[11]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1256,7 @@ func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DurabilityPolicy.ProtoReflect.Descriptor instead.
 func (*DurabilityPolicy) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DurabilityPolicy) GetPolicyName() string {
@@ -1261,7 +1319,7 @@ type RuleNumber struct {
 
 func (x *RuleNumber) Reset() {
 	*x = RuleNumber{}
-	mi := &file_clustermetadata_proto_msgTypes[12]
+	mi := &file_clustermetadata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1331,7 @@ func (x *RuleNumber) String() string {
 func (*RuleNumber) ProtoMessage() {}
 
 func (x *RuleNumber) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[12]
+	mi := &file_clustermetadata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1344,7 @@ func (x *RuleNumber) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleNumber.ProtoReflect.Descriptor instead.
 func (*RuleNumber) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{12}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RuleNumber) GetCoordinatorTerm() int64 {
@@ -1327,7 +1385,7 @@ type ShardRule struct {
 
 func (x *ShardRule) Reset() {
 	*x = ShardRule{}
-	mi := &file_clustermetadata_proto_msgTypes[13]
+	mi := &file_clustermetadata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1339,7 +1397,7 @@ func (x *ShardRule) String() string {
 func (*ShardRule) ProtoMessage() {}
 
 func (x *ShardRule) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[13]
+	mi := &file_clustermetadata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1352,7 +1410,7 @@ func (x *ShardRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardRule.ProtoReflect.Descriptor instead.
 func (*ShardRule) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{13}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ShardRule) GetRuleNumber() *RuleNumber {
@@ -1419,7 +1477,7 @@ type NodePosition struct {
 
 func (x *NodePosition) Reset() {
 	*x = NodePosition{}
-	mi := &file_clustermetadata_proto_msgTypes[14]
+	mi := &file_clustermetadata_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1489,7 @@ func (x *NodePosition) String() string {
 func (*NodePosition) ProtoMessage() {}
 
 func (x *NodePosition) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[14]
+	mi := &file_clustermetadata_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1444,7 +1502,7 @@ func (x *NodePosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodePosition.ProtoReflect.Descriptor instead.
 func (*NodePosition) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{14}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *NodePosition) GetRule() *ShardRule {
@@ -1485,7 +1543,7 @@ type HighestKnownRule struct {
 
 func (x *HighestKnownRule) Reset() {
 	*x = HighestKnownRule{}
-	mi := &file_clustermetadata_proto_msgTypes[15]
+	mi := &file_clustermetadata_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1497,7 +1555,7 @@ func (x *HighestKnownRule) String() string {
 func (*HighestKnownRule) ProtoMessage() {}
 
 func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[15]
+	mi := &file_clustermetadata_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1510,7 +1568,7 @@ func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HighestKnownRule.ProtoReflect.Descriptor instead.
 func (*HighestKnownRule) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{15}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *HighestKnownRule) GetRule() *ShardRule {
@@ -1551,7 +1609,7 @@ type HighestCoordinatorPromise struct {
 
 func (x *HighestCoordinatorPromise) Reset() {
 	*x = HighestCoordinatorPromise{}
-	mi := &file_clustermetadata_proto_msgTypes[16]
+	mi := &file_clustermetadata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1621,7 @@ func (x *HighestCoordinatorPromise) String() string {
 func (*HighestCoordinatorPromise) ProtoMessage() {}
 
 func (x *HighestCoordinatorPromise) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[16]
+	mi := &file_clustermetadata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1634,7 @@ func (x *HighestCoordinatorPromise) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HighestCoordinatorPromise.ProtoReflect.Descriptor instead.
 func (*HighestCoordinatorPromise) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{16}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *HighestCoordinatorPromise) GetTermNumber() int64 {
@@ -1619,7 +1677,7 @@ type ConsensusStatus struct {
 
 func (x *ConsensusStatus) Reset() {
 	*x = ConsensusStatus{}
-	mi := &file_clustermetadata_proto_msgTypes[17]
+	mi := &file_clustermetadata_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1631,7 +1689,7 @@ func (x *ConsensusStatus) String() string {
 func (*ConsensusStatus) ProtoMessage() {}
 
 func (x *ConsensusStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[17]
+	mi := &file_clustermetadata_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1644,7 +1702,7 @@ func (x *ConsensusStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsensusStatus.ProtoReflect.Descriptor instead.
 func (*ConsensusStatus) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{17}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ConsensusStatus) GetPromise() *HighestCoordinatorPromise {
@@ -1685,7 +1743,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
 	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12\x14\n" +
 	"\x05cells\x18\x03 \x03(\tR\x05cells\x12a\n" +
-	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\"\x8e\x01\n" +
+	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\"\x80\x01\n" +
+	"\x0eShardInitClaim\x122\n" +
+	"\n" +
+	"claimer_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tclaimerId\x12:\n" +
+	"\x0ecohort_members\x18\x02 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\"\x8e\x01\n" +
 	"\x0eBackupLocation\x12C\n" +
 	"\n" +
 	"filesystem\x18\x01 \x01(\v2!.clustermetadata.FilesystemBackupH\x00R\n" +
@@ -1819,7 +1881,7 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 }
 
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
 	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
@@ -1829,61 +1891,64 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*GlobalTopoConfig)(nil),          // 5: clustermetadata.GlobalTopoConfig
 	(*Cell)(nil),                      // 6: clustermetadata.Cell
 	(*Database)(nil),                  // 7: clustermetadata.Database
-	(*BackupLocation)(nil),            // 8: clustermetadata.BackupLocation
-	(*FilesystemBackup)(nil),          // 9: clustermetadata.FilesystemBackup
-	(*S3Backup)(nil),                  // 10: clustermetadata.S3Backup
-	(*MultiPooler)(nil),               // 11: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),              // 12: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),                 // 13: clustermetadata.MultiOrch
-	(*ID)(nil),                        // 14: clustermetadata.ID
-	(*KeyRange)(nil),                  // 15: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),          // 16: clustermetadata.DurabilityPolicy
-	(*RuleNumber)(nil),                // 17: clustermetadata.RuleNumber
-	(*ShardRule)(nil),                 // 18: clustermetadata.ShardRule
-	(*NodePosition)(nil),              // 19: clustermetadata.NodePosition
-	(*HighestKnownRule)(nil),          // 20: clustermetadata.HighestKnownRule
-	(*HighestCoordinatorPromise)(nil), // 21: clustermetadata.HighestCoordinatorPromise
-	(*ConsensusStatus)(nil),           // 22: clustermetadata.ConsensusStatus
-	nil,                               // 23: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 24: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 25: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
+	(*ShardInitClaim)(nil),            // 8: clustermetadata.ShardInitClaim
+	(*BackupLocation)(nil),            // 9: clustermetadata.BackupLocation
+	(*FilesystemBackup)(nil),          // 10: clustermetadata.FilesystemBackup
+	(*S3Backup)(nil),                  // 11: clustermetadata.S3Backup
+	(*MultiPooler)(nil),               // 12: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),              // 13: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),                 // 14: clustermetadata.MultiOrch
+	(*ID)(nil),                        // 15: clustermetadata.ID
+	(*KeyRange)(nil),                  // 16: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),          // 17: clustermetadata.DurabilityPolicy
+	(*RuleNumber)(nil),                // 18: clustermetadata.RuleNumber
+	(*ShardRule)(nil),                 // 19: clustermetadata.ShardRule
+	(*NodePosition)(nil),              // 20: clustermetadata.NodePosition
+	(*HighestKnownRule)(nil),          // 21: clustermetadata.HighestKnownRule
+	(*HighestCoordinatorPromise)(nil), // 22: clustermetadata.HighestCoordinatorPromise
+	(*ConsensusStatus)(nil),           // 23: clustermetadata.ConsensusStatus
+	nil,                               // 24: clustermetadata.MultiPooler.PortMapEntry
+	nil,                               // 25: clustermetadata.MultiGateway.PortMapEntry
+	nil,                               // 26: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil),     // 27: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	8,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
-	16, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	9,  // 2: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
-	10, // 3: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
-	14, // 4: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	15, // 5: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	0,  // 6: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	1,  // 7: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	23, // 8: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	14, // 9: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	24, // 10: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	14, // 11: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	25, // 12: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	4,  // 13: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	2,  // 14: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
-	3,  // 15: clustermetadata.DurabilityPolicy.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	17, // 16: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
-	14, // 17: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
-	14, // 18: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
-	16, // 19: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	14, // 20: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
-	26, // 21: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
-	18, // 22: clustermetadata.NodePosition.rule:type_name -> clustermetadata.ShardRule
-	18, // 23: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
-	14, // 24: clustermetadata.HighestCoordinatorPromise.accepted_coordinator_id:type_name -> clustermetadata.ID
-	26, // 25: clustermetadata.HighestCoordinatorPromise.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	21, // 26: clustermetadata.ConsensusStatus.promise:type_name -> clustermetadata.HighestCoordinatorPromise
-	19, // 27: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.NodePosition
-	20, // 28: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	9,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
+	17, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	15, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
+	15, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
+	10, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
+	11, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
+	15, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	16, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	0,  // 8: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	1,  // 9: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	24, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	15, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	25, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	15, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	26, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
+	3,  // 17: clustermetadata.DurabilityPolicy.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
+	18, // 18: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	15, // 19: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
+	15, // 20: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	17, // 21: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	15, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	27, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	19, // 24: clustermetadata.NodePosition.rule:type_name -> clustermetadata.ShardRule
+	19, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	15, // 26: clustermetadata.HighestCoordinatorPromise.accepted_coordinator_id:type_name -> clustermetadata.ID
+	27, // 27: clustermetadata.HighestCoordinatorPromise.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	22, // 28: clustermetadata.ConsensusStatus.promise:type_name -> clustermetadata.HighestCoordinatorPromise
+	20, // 29: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.NodePosition
+	21, // 30: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -1891,7 +1956,7 @@ func file_clustermetadata_proto_init() {
 	if File_clustermetadata_proto != nil {
 		return
 	}
-	file_clustermetadata_proto_msgTypes[3].OneofWrappers = []any{
+	file_clustermetadata_proto_msgTypes[4].OneofWrappers = []any{
 		(*BackupLocation_Filesystem)(nil),
 		(*BackupLocation_S3)(nil),
 	}
@@ -1901,7 +1966,7 @@ func file_clustermetadata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

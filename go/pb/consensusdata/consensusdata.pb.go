@@ -434,7 +434,7 @@ type StatusResponse struct {
 	// Timeline information for divergence detection
 	TimelineInfo *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
 	// The term for which this multipooler was promoted to primary.
-	// Set during promotion (InitializeEmptyPrimary or Promote).
+	// Set during promotion (Promote).
 	// Preserved when consensus term increases (new elections).
 	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
 	// 0 if never primary. For current primaries, must be non-zero.

@@ -51,15 +51,20 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 type AnalysisGenerator struct {
 	poolerStore    *store.PoolerStore
 	poolersByShard PoolersByShard
-	now            func() time.Time
+	// policyLookup returns the bootstrap durability policy for a database name.
+	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
+	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
+	now          func() time.Time
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
-func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
+// policyLookup is optional; pass nil if the bootstrap policy is unavailable.
+func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
-		poolerStore: poolerStore,
-		now:         time.Now,
+		poolerStore:  poolerStore,
+		policyLookup: policyLookup,
+		now:          time.Now,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	return g
@@ -219,6 +224,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
 		HasDataDirectory: pooler.HasDataDirectory,
+		CohortMembers:    pooler.CohortMembers,
 		AnalyzedAt:       time.Now(),
 	}
 
@@ -413,6 +419,18 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 // analyses have been built. These fields describe the shard as a whole rather than
 // any individual pooler, so they are computed once here rather than per-pooler.
 func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[string]*multiorchdatapb.PoolerHealthState) {
+	// Bootstrap durability policy lookup.
+	if g.policyLookup != nil {
+		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
+	}
+
+	// Count reachable, initialized poolers for bootstrap analysis.
+	for _, pa := range sa.Analyses {
+		if pa.LastCheckValid && pa.IsInitialized {
+			sa.NumInitialized++
+		}
+	}
+
 	// Collect all reachable primaries in the shard.
 	for _, pa := range sa.Analyses {
 		if pa.IsPrimary && pa.LastCheckValid {

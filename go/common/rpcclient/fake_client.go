@@ -60,7 +60,6 @@ type FakeClient struct {
 	CanReachPrimaryResponses map[string]*consensusdatapb.CanReachPrimaryResponse
 
 	// Manager service responses - keyed by pooler ID
-	InitializeEmptyPrimaryResponses          map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
 	StateResponses                           map[string]*multipoolermanagerdatapb.StateResponse
 	WaitForLSNResponses                      map[string]*multipoolermanagerdatapb.WaitForLSNResponse
 	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
@@ -105,7 +104,6 @@ func NewFakeClient() *FakeClient {
 		ConsensusStatusResponses:                 make(map[string]*consensusdatapb.StatusResponse),
 		LeadershipViewResponses:                  make(map[string]*consensusdatapb.LeadershipViewResponse),
 		CanReachPrimaryResponses:                 make(map[string]*consensusdatapb.CanReachPrimaryResponse),
-		InitializeEmptyPrimaryResponses:          make(map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse),
 		StateResponses:                           make(map[string]*multipoolermanagerdatapb.StateResponse),
 		WaitForLSNResponses:                      make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
@@ -272,26 +270,6 @@ func (f *FakeClient) CanReachPrimary(ctx context.Context, pooler *clustermetadat
 		return resp, nil
 	}
 	return &consensusdatapb.CanReachPrimaryResponse{}, nil
-}
-
-//
-// Manager Service Methods - Initialization
-//
-
-func (f *FakeClient) InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("InitializeEmptyPrimary", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.InitializeEmptyPrimaryResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{}, nil
 }
 
 //

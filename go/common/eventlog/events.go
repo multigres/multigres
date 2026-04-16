@@ -16,16 +16,6 @@ package eventlog
 
 import "log/slog"
 
-type PrimaryInit struct{}
-
-func (PrimaryInit) EventType() string     { return "primary.init" }
-func (PrimaryInit) LogAttrs() []slog.Attr { return nil }
-
-type StandbyInit struct{}
-
-func (StandbyInit) EventType() string     { return "standby.init" }
-func (StandbyInit) LogAttrs() []slog.Attr { return nil }
-
 type NodeJoin struct{ NodeName string }
 
 func (NodeJoin) EventType() string       { return "node.join" }
