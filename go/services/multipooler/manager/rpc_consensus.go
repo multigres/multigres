@@ -333,7 +333,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	walPosition := &consensusdatapb.WALPosition{
 		Timestamp: timestamppb.New(time.Now()),
 	}
-	role := "unknown"
+	role := consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED
 
 	if isHealthy {
 		// Check role and get appropriate WAL position
@@ -341,13 +341,13 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		if err == nil {
 			if isPrimary {
 				// On primary: get current write position
-				role = "primary"
+				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY
 				currentLsn, err := pm.getPrimaryLSN(ctx)
 				if err == nil {
 					walPosition.CurrentLsn = currentLsn
 				}
 			} else {
-				role = "replica"
+				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
 				// On standby: get receive and replay positions
 				status, err := pm.queryReplicationStatus(ctx)
 				if err == nil {

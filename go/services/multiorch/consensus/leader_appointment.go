@@ -421,7 +421,7 @@ func (c *Coordinator) EstablishLeadership(
 
 	expectedLSN := ""
 	if status.WalPosition != nil {
-		if status.Role == "primary" {
+		if status.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
 			expectedLSN = status.WalPosition.CurrentLsn
 		} else {
 			// For standbys, use receive position (includes unreplayed WAL)
