@@ -1067,7 +1067,9 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 
 	// Notify the topology publisher of the new state. The write to etcd happens
 	// asynchronously so that a temporarily unreachable etcd does not block demotion.
-	pm.topoPublisher.Notify(pm.multipooler)
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
+	}
 
 	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
 	return nil
@@ -1399,7 +1401,9 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 
 	// Notify the topology publisher of the new state. The write to etcd happens
 	// asynchronously so that a temporarily unreachable etcd does not block promotion.
-	pm.topoPublisher.Notify(pm.multipooler)
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
+	}
 
 	return nil
 }

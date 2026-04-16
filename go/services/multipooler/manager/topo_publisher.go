@@ -59,7 +59,15 @@ func newTopoPublisher(logger *slog.Logger, topoClient topoRegistrar) *topoPublis
 
 // Notify records mp as the desired topology state and schedules an immediate
 // publish attempt. mp is cloned so the caller may reuse the original.
-func (tp *topoPublisher) Notify(mp *clustermetadatapb.MultiPooler) {
+//
+// ctx must carry an action lock (see AssertActionLockHeld). The action lock
+// serialises state transitions, preventing concurrent calls from racing to
+// overwrite each other's desired state.
+func (tp *topoPublisher) Notify(ctx context.Context, mp *clustermetadatapb.MultiPooler) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
 	tp.mu.Lock()
 	tp.desired = proto.Clone(mp).(*clustermetadatapb.MultiPooler)
 	tp.mu.Unlock()
@@ -70,6 +78,7 @@ func (tp *topoPublisher) Notify(mp *clustermetadatapb.MultiPooler) {
 	case tp.wakeup <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 // Run is the background loop. It blocks until ctx is cancelled. Call it in a

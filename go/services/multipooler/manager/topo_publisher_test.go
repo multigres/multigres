@@ -53,6 +53,17 @@ func (f *fakeRegistrar) clearError() {
 	f.err.Store(nil)
 }
 
+// newActionLockedCtx returns a context that satisfies AssertActionLockHeld,
+// and releases the lock automatically when the test ends.
+func newActionLockedCtx(t *testing.T) context.Context {
+	t.Helper()
+	al := NewActionLock()
+	ctx, err := al.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	t.Cleanup(func() { al.Release(ctx) })
+	return ctx
+}
+
 func newTestPooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -71,7 +82,7 @@ func TestTopoPublisher_PublishIfNeeded_WritesOnFirstCall(t *testing.T) {
 	reg := &fakeRegistrar{}
 	tp := newTopoPublisher(newTestLogger(), reg)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)))
 	tp.publishIfNeeded(t.Context())
 
 	assert.Equal(t, int32(1), reg.calls.Load())
@@ -85,7 +96,7 @@ func TestTopoPublisher_PublishIfNeeded_NoopWhenStateUnchanged(t *testing.T) {
 	reg := &fakeRegistrar{}
 	tp := newTopoPublisher(newTestLogger(), reg)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)))
 	tp.publishIfNeeded(t.Context())
 	require.Equal(t, int32(1), reg.calls.Load())
 
@@ -98,11 +109,11 @@ func TestTopoPublisher_PublishIfNeeded_WritesOnStateChange(t *testing.T) {
 	reg := &fakeRegistrar{}
 	tp := newTopoPublisher(newTestLogger(), reg)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)))
 	tp.publishIfNeeded(t.Context())
 	require.Equal(t, int32(1), reg.calls.Load())
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)))
 	tp.publishIfNeeded(t.Context())
 	assert.Equal(t, int32(2), reg.calls.Load())
 
@@ -116,7 +127,7 @@ func TestTopoPublisher_PublishIfNeeded_RetriesAfterFailure(t *testing.T) {
 	reg.setError(errors.New("etcd unavailable"))
 	tp := newTopoPublisher(newTestLogger(), reg)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)))
 
 	// First attempt fails.
 	tp.publishIfNeeded(t.Context())
@@ -151,7 +162,7 @@ func TestTopoPublisher_NotifyWakesGoroutine(t *testing.T) {
 	defer cancel()
 	go tp.run(ctx, tickC)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)))
 
 	require.Eventually(t, func() bool {
 		return reg.calls.Load() == 1
@@ -175,7 +186,7 @@ func TestTopoPublisher_TickerDrivesRetry(t *testing.T) {
 	defer cancel()
 	go tp.run(ctx, tickC)
 
-	tp.Notify(newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, tp.Notify(newActionLockedCtx(t), newTestPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)))
 
 	// Wait for the goroutine to attempt (and fail) the wakeup-triggered write.
 	require.Eventually(t, func() bool {
