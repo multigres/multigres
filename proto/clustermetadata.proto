@@ -423,37 +423,6 @@ message HighestCoordinatorPromise {
   google.protobuf.Timestamp last_acceptance_time = 3;
 }
 
-// NodeSignal describes a node's general availability, independent of any specific
-// term or leadership role. 0 (UNKNOWN) means the field was not intentionally set;
-// coordinators treat it as "no concern known," not as "definitely healthy."
-enum NodeSignal {
-  NODE_SIGNAL_UNKNOWN = 0;
-
-  // Node is fully available and fit for any role.
-  NODE_SIGNAL_AVAILABLE = 1;
-
-  // Node is transiently unavailable but expected to recover without operator
-  // intervention. Coordinator should not elect this node and should not add it
-  // to the sync standby list.
-  //
-  // Examples: backup or restore in progress, postgres bouncing between restarts.
-  //
-  // TODO: coordinator should synthesize TEMPORARILY_UNAVAILABLE into
-  // PoolerHealthState.AvailabilityStatus when a node has been unreachable past
-  // a configurable threshold, so the analyzer reads from one place regardless
-  // of whether the signal is self-reported or synthesized.
-  NODE_SIGNAL_TEMPORARILY_UNAVAILABLE = 2;
-
-  // Node is leaving the cluster entirely (e.g. graceful pod shutdown).
-  // Coordinator should remove this node from the sync standby list. Because
-  // LEAVING_COHORT implies a leadership demotion request, a leader publishing
-  // this signal should also set LeadershipStatus.signal = REQUESTING_DEMOTION.
-  //
-  // TODO: implement in the multipooler SIGTERM handler.
-  // TODO: implement coordinator handling: remove from sync standby list immediately.
-  NODE_SIGNAL_LEAVING_COHORT = 3;
-}
-
 // LeadershipSignal describes a leader's self-reported status for its current term.
 // Only published by nodes that are or were primary (primary_term != 0).
 // 0 (UNKNOWN) means the field was not intentionally set.
@@ -486,20 +455,14 @@ message LeadershipStatus {
   LeadershipSignal signal = 2;
 }
 
-// NodeStatus describes a node's general operational availability,
-// independent of any specific term or leadership role.
-message NodeStatus {
-  NodeSignal signal = 1;
-}
-
-// AvailabilityStatus carries best-effort operational fitness signals for a node.
+// AvailabilityStatus carries best-effort operational fitness signals for a pooler.
 // Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
 // on-disk state), AvailabilityStatus is in-memory and may be absent after a
 // process restart. Coordinators must treat absence as "unknown," not "unfit."
 //
 // Signals are re-derivable from continuous health polling, so process restarts
-// do not create permanent unavailability. See NodeSignal and LeadershipSignal
-// for re-derivation rules.
+// do not create permanent unavailability. See LeadershipSignal for re-derivation
+// rules.
 //
 // Sources: self-reported by the pooler (fast path) or synthesized by the
 // coordinator from observed health state.
@@ -507,11 +470,8 @@ message NodeStatus {
 // PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
 // regardless of source.
 message AvailabilityStatus {
-  // node_status describes general availability, always published.
-  NodeStatus node_status = 1;
-
-  // leadership_status is only set by nodes that are or have been primary.
-  LeadershipStatus leadership_status = 2;
+  // leadership_status is only set by poolers that are or have been primary.
+  LeadershipStatus leadership_status = 1;
 }
 
 // ConsensusStatus is a node's complete view of its position in the distributed
