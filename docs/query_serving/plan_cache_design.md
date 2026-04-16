@@ -61,13 +61,13 @@ Bind:   [42, 'us-east']
 Normalization is intentionally skipped for nodes where the literal value
 affects planning, not just execution:
 
-| Node type                 | Reason                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------- |
-| `NULL` constants          | Semantic keyword; `WHERE x = NULL` and `WHERE x = $1` can mean different things |
-| `VariableSetStmt`         | `SET work_mem = '64MB'` — value is part of the command                          |
-| `VariableShowStmt`        | `SHOW <variable>` — name is the operand                                         |
-| `DefElem`                 | Used inside DDL option lists where literal values affect the DDL itself         |
-| `SELECT INTO`             | Temp-table variants use a different primitive (`TempTableRoute`); non-temp variants are DDL-like, so caching is skipped for all `SELECT INTO` |
+| Node type          | Reason                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NULL` constants   | Semantic keyword; `WHERE x = NULL` and `WHERE x = $1` can mean different things                                                               |
+| `VariableSetStmt`  | `SET work_mem = '64MB'` — value is part of the command                                                                                        |
+| `VariableShowStmt` | `SHOW <variable>` — name is the operand                                                                                                       |
+| `DefElem`          | Used inside DDL option lists where literal values affect the DDL itself                                                                       |
+| `SELECT INTO`      | Temp-table variants use a different primitive (`TempTableRoute`); non-temp variants are DDL-like, so caching is skipped for all `SELECT INTO` |
 
 Queries that cannot be normalized fall through to the normal (uncached) path.
 
