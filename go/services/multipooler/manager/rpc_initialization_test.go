@@ -590,12 +590,13 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	t.Cleanup(func() { ts.Close() })
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 	return &MultiPoolerManager{
-		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
-		multipooler:  multipooler,
-		serviceID:    multipooler.Id,
-		topoClient:   ts,
-		servingState: NewStateManager(slog.Default(), multipooler),
+		logger:        slog.Default(),
+		actionLock:    NewActionLock(),
+		multipooler:   multipooler,
+		serviceID:     multipooler.Id,
+		topoClient:    ts,
+		servingState:  NewStateManager(slog.Default(), multipooler),
+		topoPublisher: newTopoPublisher(slog.Default(), ts),
 	}
 }
 
