@@ -57,31 +57,6 @@ func TestEmit(t *testing.T) {
 		wantAttrs     map[string]any
 	}{
 		{
-			name:          "success at INFO",
-			outcome:       Success,
-			event:         PrimaryInit{},
-			wantLevel:     slog.LevelInfo,
-			wantEventType: "primary.init",
-			wantAttrs:     map[string]any{"outcome": "success"},
-		},
-		{
-			name:          "failed at ERROR",
-			outcome:       Failed,
-			event:         PrimaryInit{},
-			extra:         []any{"error", "disk full"},
-			wantLevel:     slog.LevelError,
-			wantEventType: "primary.init",
-			wantAttrs:     map[string]any{"outcome": "failed", "error": "disk full"},
-		},
-		{
-			name:          "started at INFO",
-			outcome:       Started,
-			event:         PrimaryInit{},
-			wantLevel:     slog.LevelInfo,
-			wantEventType: "primary.init",
-			wantAttrs:     map[string]any{"outcome": "started"},
-		},
-		{
 			name:          "event with fields",
 			outcome:       Success,
 			event:         PrimaryPromotion{NewPrimary: "pg-1"},

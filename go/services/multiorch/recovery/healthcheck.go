@@ -201,6 +201,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		existing.IsInitialized = status.IsInitialized
 		existing.HasDataDirectory = status.HasDataDirectory
 		existing.ConsensusTerm = status.ConsensusTerm
+		existing.CohortMembers = status.CohortMembers
 
 		existing.ConsensusStatus = consensusState
 		return existing

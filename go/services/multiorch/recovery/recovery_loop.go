@@ -39,7 +39,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	defer span.End()
 
 	// Create generator - this builds the poolersByTG map once
-	generator := analysis.NewAnalysisGenerator(re.poolerStore)
+	generator := analysis.NewAnalysisGenerator(re.poolerStore, re.makePolicyLookup(ctx))
 	shardAnalyses := generator.GenerateShardAnalyses()
 
 	// Run all analyzers to detect problems
@@ -349,7 +349,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	// A new generator is created to capture the updated store state from the re-poll above.
 	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
 	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
-	generator := analysis.NewAnalysisGenerator(re.poolerStore)
+	generator := analysis.NewAnalysisGenerator(re.poolerStore, re.makePolicyLookup(ctx))
 	shardAnalysis, err := generator.GenerateShardAnalysis(problem.ShardKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
@@ -393,6 +393,28 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	}
 
 	return false, fmt.Errorf("analyzer %s not found", problem.CheckName)
+}
+
+// makePolicyLookup returns a closure that fetches the bootstrap durability policy
+// for a given database. The lookup uses a short per-call timeout so a slow etcd
+// read doesn't stall a full recovery cycle.
+//
+// A nil return value is not a correctness issue: analyzers that require a policy
+// (e.g. ShardNeedsInitialization) refuse to fire when policy is nil, so a transient
+// failure simply delays bootstrap until the next cycle. GetBootstrapPolicy caches
+// successful results in a sync.Map, so a healthy cluster never hits the error path.
+func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermetadatapb.DurabilityPolicy {
+	return func(database string) *clustermetadatapb.DurabilityPolicy {
+		lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		policy, err := re.coordinator.GetBootstrapPolicy(lookupCtx, database)
+		if err != nil {
+			re.logger.WarnContext(ctx, "failed to load bootstrap policy; bootstrap will be skipped this cycle",
+				"database", database,
+				"error", err)
+		}
+		return policy
+	}
 }
 
 // findPrimaryInShard finds the primary pooler ID for a given shard.

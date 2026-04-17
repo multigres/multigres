@@ -74,6 +74,18 @@ message Database {
   DurabilityPolicy bootstrap_durability_policy = 4;
 }
 
+// ShardInitClaim records which coordinator claimed the right to initialize a shard
+// and the cohort it intends to use. Stored as a create-if-not-exists node in the
+// global topology so that only one coordinator can initialize a given shard.
+message ShardInitClaim {
+  // The coordinator that claimed this shard initialization.
+  ID claimer_id = 1;
+
+  // The cohort of poolers the claimer will use for initial leader appointment.
+  // Persisted so that a crash-retry uses the same cohort for idempotency.
+  repeated ID cohort_members = 2;
+}
+
 // BackupLocation specifies where backups are stored
 message BackupLocation {
   oneof location {
@@ -421,6 +433,57 @@ message HighestCoordinatorPromise {
 
   // When this promise was last recorded.
   google.protobuf.Timestamp last_acceptance_time = 3;
+}
+
+// LeadershipSignal describes a leader's self-reported status for its current term.
+// Only published by nodes that are or were primary (primary_term != 0).
+// 0 (UNKNOWN) means the field was not intentionally set.
+enum LeadershipSignal {
+  LEADERSHIP_SIGNAL_UNKNOWN = 0;
+
+  // Node is actively and healthily serving as primary for primary_term.
+  // Published each poll cycle so the coordinator can distinguish a confirmed
+  // healthy primary from one that restarted and hasn't re-published yet.
+  LEADERSHIP_SIGNAL_ACTIVE = 1;
+
+  // Node is requesting demotion from leadership for primary_term. Coordinator
+  // should trigger an immediate election rather than waiting for a heartbeat
+  // timeout. The node may continue as a replica after demotion.
+  //
+  // Staleness check: coordinator verifies leadership_status.primary_term matches
+  // the node's known primary_term before acting, to ignore signals left over from
+  // a previous election cycle.
+  LEADERSHIP_SIGNAL_REQUESTING_DEMOTION = 2;
+}
+
+// LeadershipStatus is published only by nodes that are or have been primary.
+// It lets the coordinator distinguish an actively healthy primary, a primary
+// requesting demotion, and a node that has never held leadership.
+message LeadershipStatus {
+  // The primary_term at which this node was most recently elected.
+  // Non-zero only on nodes that have been elected primary.
+  int64 primary_term = 1;
+
+  LeadershipSignal signal = 2;
+}
+
+// AvailabilityStatus carries best-effort operational fitness signals for a pooler.
+// Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
+// on-disk state), AvailabilityStatus is in-memory and may be absent after a
+// process restart. Coordinators must treat absence as "unknown," not "unfit."
+//
+// Signals are re-derivable from continuous health polling, so process restarts
+// do not create permanent unavailability. See LeadershipSignal for re-derivation
+// rules.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state.
+// TODO: coordinator should synthesize AvailabilityStatus into
+// PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
+// regardless of source.
+message AvailabilityStatus {
+  // leadership_status is only set by poolers that are or have been primary.
+  LeadershipStatus leadership_status = 1;
 }
 
 // ConsensusStatus is a node's complete view of its position in the distributed

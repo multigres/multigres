@@ -18,6 +18,7 @@ Development commands for the multigres project.
 When executing commands:
 
 - Always run `make build` before integration tests
+- **Port pool**: Before integration tests, run `scripts/portpool.sh start` (idempotent, safe to call every time). Then prefix the `go test` command with `MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock` to coordinate port allocation and avoid flaky collisions. If the socket already exists (e.g. from a previous session), just set the env var — no need to restart.
 - Show the actual command being executed before running it
 - Summarize test results (passed/failed counts, execution time)
 - If tests fail, offer to show detailed output or logs
@@ -539,7 +540,7 @@ go test [flags] [-run TestName] <package-path>
 **Integration tests:**
 
 ```bash
-make build && go test [flags] [-run TestName] ./go/test/endtoend/<package>/...
+make build && scripts/portpool.sh start && MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock go test [flags] [-run TestName] ./go/test/endtoend/<package>/...
 ```
 
 ### Output Handling

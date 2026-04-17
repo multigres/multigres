@@ -92,6 +92,56 @@ func (BeginTermAction) EnumDescriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{0}
 }
 
+// PostgresRole identifies the role of the PostgreSQL instance on a pooler node.
+type PostgresRole int32
+
+const (
+	PostgresRole_POSTGRES_ROLE_UNSPECIFIED PostgresRole = 0
+	PostgresRole_POSTGRES_ROLE_PRIMARY     PostgresRole = 1
+	PostgresRole_POSTGRES_ROLE_REPLICA     PostgresRole = 2
+)
+
+// Enum value maps for PostgresRole.
+var (
+	PostgresRole_name = map[int32]string{
+		0: "POSTGRES_ROLE_UNSPECIFIED",
+		1: "POSTGRES_ROLE_PRIMARY",
+		2: "POSTGRES_ROLE_REPLICA",
+	}
+	PostgresRole_value = map[string]int32{
+		"POSTGRES_ROLE_UNSPECIFIED": 0,
+		"POSTGRES_ROLE_PRIMARY":     1,
+		"POSTGRES_ROLE_REPLICA":     2,
+	}
+)
+
+func (x PostgresRole) Enum() *PostgresRole {
+	p := new(PostgresRole)
+	*p = x
+	return p
+}
+
+func (x PostgresRole) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PostgresRole) Descriptor() protoreflect.EnumDescriptor {
+	return file_consensusdata_proto_enumTypes[1].Descriptor()
+}
+
+func (PostgresRole) Type() protoreflect.EnumType {
+	return &file_consensusdata_proto_enumTypes[1]
+}
+
+func (x PostgresRole) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PostgresRole.Descriptor instead.
+func (PostgresRole) EnumDescriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{1}
+}
+
 // WAL position for tracking replication state
 type WALPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -429,18 +479,22 @@ type StatusResponse struct {
 	IsEligible bool `protobuf:"varint,6,opt,name=is_eligible,json=isEligible,proto3" json:"is_eligible,omitempty"`
 	// Cell identifier
 	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
-	// Current role (primary/replica)
-	Role string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
+	// Current role of the PostgreSQL instance on this node.
+	Role PostgresRole `protobuf:"varint,9,opt,name=role,proto3,enum=consensusdata.PostgresRole" json:"role,omitempty"`
 	// Timeline information for divergence detection
 	TimelineInfo *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
 	// The term for which this multipooler was promoted to primary.
-	// Set during promotion (InitializeEmptyPrimary or Promote).
+	// Set during promotion (Promote).
 	// Preserved when consensus term increases (new elections).
 	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
 	// 0 if never primary. For current primaries, must be non-zero.
-	PrimaryTerm   int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PrimaryTerm int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	// Best-effort operational fitness signals for this node. These signals are
+	// in-memory and may be absent after a process restart. Coordinators treat
+	// absence as "unknown," not "unfit."
+	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,13,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -515,11 +569,11 @@ func (x *StatusResponse) GetCell() string {
 	return ""
 }
 
-func (x *StatusResponse) GetRole() string {
+func (x *StatusResponse) GetRole() PostgresRole {
 	if x != nil {
 		return x.Role
 	}
-	return ""
+	return PostgresRole_POSTGRES_ROLE_UNSPECIFIED
 }
 
 func (x *StatusResponse) GetTimelineInfo() *TimelineInfo {
@@ -534,6 +588,13 @@ func (x *StatusResponse) GetPrimaryTerm() int64 {
 		return x.PrimaryTerm
 	}
 	return 0
+}
+
+func (x *StatusResponse) GetAvailabilityStatus() *clustermetadata.AvailabilityStatus {
+	if x != nil {
+		return x.AvailabilityStatus
+	}
+	return nil
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -828,7 +889,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xdc\x02\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xcf\x03\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -837,11 +898,12 @@ const file_consensusdata_proto_rawDesc = "" +
 	"is_healthy\x18\x05 \x01(\bR\tisHealthy\x12\x1f\n" +
 	"\vis_eligible\x18\x06 \x01(\bR\n" +
 	"isEligible\x12\x12\n" +
-	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
-	"\x04role\x18\t \x01(\tR\x04role\x12@\n" +
+	"\x04cell\x18\a \x01(\tR\x04cell\x12/\n" +
+	"\x04role\x18\t \x01(\x0e2\x1b.consensusdata.PostgresRoleR\x04role\x12@\n" +
 	"\rtimeline_info\x18\n" +
 	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
-	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\"2\n" +
+	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12T\n" +
+	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
@@ -860,7 +922,11 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x0fBeginTermAction\x12!\n" +
 	"\x1dBEGIN_TERM_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bBEGIN_TERM_ACTION_NO_ACTION\x10\x01\x12\x1c\n" +
-	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
+	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02*c\n" +
+	"\fPostgresRole\x12\x1d\n" +
+	"\x19POSTGRES_ROLE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15POSTGRES_ROLE_PRIMARY\x10\x01\x12\x19\n" +
+	"\x15POSTGRES_ROLE_REPLICA\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
 	file_consensusdata_proto_rawDescOnce sync.Once
@@ -874,36 +940,40 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 	return file_consensusdata_proto_rawDescData
 }
 
-var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_consensusdata_proto_goTypes = []any{
-	(BeginTermAction)(0),            // 0: consensusdata.BeginTermAction
-	(*WALPosition)(nil),             // 1: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),        // 2: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),       // 3: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),           // 4: consensusdata.StatusRequest
-	(*StatusResponse)(nil),          // 5: consensusdata.StatusResponse
-	(*LeadershipViewRequest)(nil),   // 6: consensusdata.LeadershipViewRequest
-	(*LeadershipViewResponse)(nil),  // 7: consensusdata.LeadershipViewResponse
-	(*CanReachPrimaryRequest)(nil),  // 8: consensusdata.CanReachPrimaryRequest
-	(*CanReachPrimaryResponse)(nil), // 9: consensusdata.CanReachPrimaryResponse
-	(*TimelineInfo)(nil),            // 10: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),      // 12: clustermetadata.ID
+	(BeginTermAction)(0),                       // 0: consensusdata.BeginTermAction
+	(PostgresRole)(0),                          // 1: consensusdata.PostgresRole
+	(*WALPosition)(nil),                        // 2: consensusdata.WALPosition
+	(*BeginTermRequest)(nil),                   // 3: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),                  // 4: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),                      // 5: consensusdata.StatusRequest
+	(*StatusResponse)(nil),                     // 6: consensusdata.StatusResponse
+	(*LeadershipViewRequest)(nil),              // 7: consensusdata.LeadershipViewRequest
+	(*LeadershipViewResponse)(nil),             // 8: consensusdata.LeadershipViewResponse
+	(*CanReachPrimaryRequest)(nil),             // 9: consensusdata.CanReachPrimaryRequest
+	(*CanReachPrimaryResponse)(nil),            // 10: consensusdata.CanReachPrimaryResponse
+	(*TimelineInfo)(nil),                       // 11: consensusdata.TimelineInfo
+	(*timestamppb.Timestamp)(nil),              // 12: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                 // 13: clustermetadata.ID
+	(*clustermetadata.AvailabilityStatus)(nil), // 14: clustermetadata.AvailabilityStatus
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	12, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	12, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	13, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
 	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
-	1,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
-	1,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	10, // 5: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	11, // 6: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	7,  // [7:7] is the sub-list for method output_type
-	7,  // [7:7] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	2,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
+	2,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	1,  // 5: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
+	11, // 6: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	14, // 7: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	12, // 8: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -916,7 +986,7 @@ func file_consensusdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,

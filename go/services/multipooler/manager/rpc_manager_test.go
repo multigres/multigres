@@ -1372,6 +1372,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1459,6 +1460,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1541,6 +1543,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1558,6 +1561,77 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
 		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
 		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
+	})
+
+	t.Run("Status_returns_cohort_members_from_leadership_history", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		t.Cleanup(func() { pm.Shutdown() })
+
+		mockQueryService := mock.NewQueryService()
+
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1000000"}}))
+		mockQueryService.AddQueryPattern("SELECT application_name",
+			mock.MakeQueryResult([]string{"application_name"}, nil))
+		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
+			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
+		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
+			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{
+			pos: &clustermetadatapb.NodePosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					CohortMembers: []*clustermetadatapb.ID{
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-a"},
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-b"},
+					},
+				},
+				Lsn: "0/1000000",
+			},
+		}
+
+		status, err := pm.Status(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, status)
+
+		require.Len(t, status.CohortMembers, 2)
+		assert.Equal(t, "zone1", status.CohortMembers[0].Cell)
+		assert.Equal(t, "pooler-a", status.CohortMembers[0].Name)
+		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.CohortMembers[0].Component)
+		assert.Equal(t, "zone1", status.CohortMembers[1].Cell)
+		assert.Equal(t, "pooler-b", status.CohortMembers[1].Name)
 	})
 
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
@@ -1619,6 +1693,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1636,198 +1711,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
 		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
 		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
-	})
-}
-
-func TestStopPostgresForEmergencyDemote(t *testing.T) {
-	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	t.Run("Success_StopsPostgres", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		defer pm.Shutdown()
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create demotion state indicating postgres is running as primary (not read-only)
-		state := &demotionState{
-			isReadOnly: false,
-		}
-
-		// Verify monitoring is initially running
-		require.True(t, pm.pgMonitor.Running(), "Monitor should be running initially")
-
-		// Acquire action lock before calling stopPostgresForEmergencyDemote
-		lockCtx, err := pm.actionLock.Acquire(ctx, "StopPostgresForEmergencyDemote")
-		require.NoError(t, err)
-		defer pm.actionLock.Release(lockCtx)
-
-		// Call stopPostgresForEmergencyDemote - should succeed
-		err = pm.stopPostgresForEmergencyDemote(lockCtx, state)
-		require.NoError(t, err, "Should successfully stop postgres for emergency demotion")
-
-		// Verify monitoring remains enabled after emergency demotion to allow node to detect changes and rejoin
-		require.True(t, pm.pgMonitor.Running(), "Monitor should remain running after emergency demotion to allow node to rejoin")
-	})
-
-	t.Run("Error_AlreadyInStandbyMode", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-		t.Cleanup(cleanupPgctld)
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		defer pm.Shutdown()
-
-		err = pm.setInitialized()
-		require.NoError(t, err)
-
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create demotion state indicating postgres is already in standby mode
-		state := &demotionState{
-			isReadOnly: true,
-		}
-
-		// Call stopPostgresForEmergencyDemote - should fail with unexpected state error
-		err = pm.stopPostgresForEmergencyDemote(ctx, state)
-		require.Error(t, err, "Should fail when postgres is already in standby mode")
-		assert.Contains(t, err.Error(), "unexpected state")
-		assert.Contains(t, err.Error(), "standby mode")
-
-		// Verify error code
-		code := mterrors.Code(err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
-	})
-
-	t.Run("Error_PgctldClientNotInitialized", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		createPgDataDir(t, tmpDir)
-		multipooler.PoolerDir = tmpDir
-
-		// No pgctld address - client will not be initialized
-		config := &Config{
-			TopoClient: ts,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		defer pm.Shutdown()
-
-		// Create demotion state
-		state := &demotionState{
-			isReadOnly: false,
-		}
-
-		// Call stopPostgresForEmergencyDemote - should fail because pgctld client is nil
-		err = pm.stopPostgresForEmergencyDemote(ctx, state)
-		require.Error(t, err, "Should fail when pgctld client is not initialized")
-		assert.Contains(t, err.Error(), "pgctld client not initialized")
-
-		// Verify error code
-		code := mterrors.Code(err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
 	})
 }
 
