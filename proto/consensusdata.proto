@@ -110,6 +110,13 @@ message BeginTermResponse {
   clustermetadata.ConsensusStatus consensus_status = 5;
 }
 
+// PostgresRole identifies the role of the PostgreSQL instance on a pooler node.
+enum PostgresRole {
+  POSTGRES_ROLE_UNSPECIFIED = 0;
+  POSTGRES_ROLE_PRIMARY = 1;
+  POSTGRES_ROLE_REPLICA = 2;
+}
+
 // Status returns the current status of a node
 message StatusRequest {
   // Optional term to include in response
@@ -138,14 +145,14 @@ message StatusResponse {
   // Cell identifier
   string cell = 7;
 
-  // Current role (primary/replica)
-  string role = 9;
+  // Current role of the PostgreSQL instance on this node.
+  PostgresRole role = 9;
 
   // Timeline information for divergence detection
   TimelineInfo timeline_info = 10;
 
   // The term for which this multipooler was promoted to primary.
-  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Set during promotion (Promote).
   // Preserved when consensus term increases (new elections).
   // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
   // 0 if never primary. For current primaries, must be non-zero.
@@ -155,6 +162,11 @@ message StatusResponse {
   // rule position, and highest known rule. Authoritative view of where this
   // pooler stands in the distributed system.
   clustermetadata.ConsensusStatus consensus_status = 12;
+
+  // Best-effort operational fitness signals for this node. These signals are
+  // in-memory and may be absent after a process restart. Coordinators treat
+  // absence as "unknown," not "unfit."
+  clustermetadata.AvailabilityStatus availability_status = 13;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table

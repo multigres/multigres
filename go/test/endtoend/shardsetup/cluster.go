@@ -76,8 +76,9 @@ type ShardSetup struct {
 	MultiOrchInstances map[string]*ProcessInstance
 
 	// Multigateway instance (optional, enabled via WithMultigateway)
-	Multigateway       *ProcessInstance
-	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
+	Multigateway              *ProcessInstance
+	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
+	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
@@ -224,13 +225,16 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Allocate an HTTP port for pgctld health endpoints
 	pgctldHttpPort := utils.GetFreePort(t)
 
+	// Allocate an HTTP port for multipooler (prevents port collision with dynamic allocation)
+	multipoolerHttpPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
 	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgctldHttpPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
-	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
+	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort, multipoolerHttpPort,
 		"localhost:"+strconv.Itoa(grpcPort), pgctld.PoolerDir, pgPort, s.EtcdClientAddr, s.CellName,
 		s.PgBackRestCertPaths, pgbackrestPort)
 
@@ -273,7 +277,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort, httpPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -286,6 +290,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		Cell:        cell,
 		LogFile:     logFile,
 		GrpcPort:    grpcPort,
+		HttpPort:    httpPort,
 		PgPort:      pgPort,
 		PgctldAddr:  pgctldAddr,
 		PoolerDir:   pgctldDataDir,
@@ -437,10 +442,19 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Cancel the context to terminate all processes. Processes started directly with
-	// executil.Command will be killed. Processes wrapped in run_in_test.sh (etcd) are
-	// started with context.Background() and use a separate goroutine to detect context
-	// cancellation and call Stop() gracefully so the wrapper can clean up its child.
+	// Stop PostgreSQL on each pgctld instance before killing processes.
+	// pg_ctl stop releases System V shared memory; without this, shared memory
+	// segments leak on every test run and eventually exhaust the OS limit.
+	for _, inst := range s.Multipoolers {
+		if inst.Pgctld != nil {
+			inst.Pgctld.Stop()
+		}
+		if inst.Multipooler != nil {
+			inst.Multipooler.Stop()
+		}
+	}
+
+	// Cancel the context to terminate all remaining processes.
 	if s.cancel != nil {
 		s.cancel()
 	}

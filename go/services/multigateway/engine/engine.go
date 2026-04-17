@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -211,11 +212,15 @@ type IExecute interface {
 type Primitive interface {
 	// StreamExecute executes the primitive and streams results via callback.
 	// The IExecute interface provides access to execution resources.
+	// bindVars contains literal values extracted during query normalization;
+	// it is nil for non-cached execution paths. Primitives that need it
+	// (e.g., Route) use bindVars to reconstruct the final SQL.
 	StreamExecute(
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
+		bindVars []*ast.A_Const,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

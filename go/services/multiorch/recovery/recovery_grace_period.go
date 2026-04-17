@@ -145,6 +145,22 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, entityID s
 	// If unhealthy and exists, freeze (do nothing - deadline unchanged)
 }
 
+// ForceExpireAll immediately expires all tracked grace period deadlines.
+// After this call, ShouldExecute returns true for all tracked problems regardless
+// of their original deadline.
+//
+// Intended for use in TriggerRecoveryNow so that an explicit operator request
+// can bypass the normal grace period wait and act on detected problems immediately.
+func (dt *RecoveryGracePeriodTracker) ForceExpireAll() {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	past := time.Time{} // zero value is before all real timestamps
+	for key := range dt.deadlines {
+		dt.deadlines[key] = past
+	}
+}
+
 // ShouldExecute checks if recovery action should execute for this problem.
 // Returns true if action should execute (deadline expired or no grace period needed).
 // Returns false if still within grace period window (should wait longer).

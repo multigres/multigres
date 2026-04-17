@@ -604,6 +604,8 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 		resp.RecommendedStalenessTimeout = durationpb.New(state.RecommendedStalenessTimeout)
 	}
 
+	resp.ReplicationLagNs = state.ReplicationLagNs
+
 	return resp
 }
 

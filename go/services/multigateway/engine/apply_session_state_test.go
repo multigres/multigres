@@ -51,7 +51,7 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("SET work_mem = '256MB'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.NoError(t, err)
 
 	val, exists := state.GetSessionVariable("work_mem")
@@ -78,7 +78,7 @@ func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 	ssr := NewApplySessionState("SET totally_invalid_variable = 'whatever'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.NoError(t, err, "SET with invalid param should succeed locally")
 
 	val, exists := state.GetSessionVariable("totally_invalid_variable")
@@ -103,7 +103,7 @@ func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 	ssr := NewApplySessionState("RESET never_set_var", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.NoError(t, err, "RESET of never-set variable should succeed")
 
 	_, exists := state.GetSessionVariable("never_set_var")
@@ -128,7 +128,7 @@ func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("RESET work_mem", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.NoError(t, err)
 
 	// Variable should be removed
@@ -156,7 +156,7 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 	ssr := NewApplySessionState("RESET ALL", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.NoError(t, err)
 
 	// All variables should be cleared
@@ -185,7 +185,7 @@ func TestApplySessionState_UnsupportedKind(t *testing.T) {
 	ssr := NewApplySessionState("SET work_mem TO DEFAULT", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
 	require.Error(t, err)
 
 	var pgDiag *mterrors.PgDiagnostic

@@ -149,7 +149,7 @@ func planAndExecute(t *testing.T, s *testSetup, sql string) (*sqltypes.Result, e
 		state = st
 	}
 	var result *sqltypes.Result
-	err = plan.StreamExecute(context.Background(), s.exec, s.conn.Conn, state.(*handler.MultiGatewayConnectionState), func(_ context.Context, r *sqltypes.Result) error {
+	err = plan.StreamExecute(context.Background(), s.exec, s.conn.Conn, state.(*handler.MultiGatewayConnectionState), nil, func(_ context.Context, r *sqltypes.Result) error {
 		result = r
 		return nil
 	})
