@@ -346,6 +346,13 @@ func (l *Listener) CancelLocalConnection(pid, secret uint32) bool {
 }
 
 // Addr returns the listener's network address.
+// ConnectionCount returns the number of active client connections.
+func (l *Listener) ConnectionCount() int {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	return len(l.conns)
+}
+
 func (l *Listener) Addr() net.Addr {
 	return l.listener.Addr()
 }

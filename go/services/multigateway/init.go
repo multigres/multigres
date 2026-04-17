@@ -362,6 +362,17 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
 	}
 
+	// Register client connection metrics.
+	gatewayMetrics, err := NewGatewayMetrics()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
+	}
+	if gatewayMetrics != nil {
+		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount); err != nil {
+			logger.WarnContext(ctx, "failed to register client connections callback", "error", err)
+		}
+	}
+
 	// Set up cross-gateway cancel request handling.
 	mg.cancelManager = NewCancelManager(
 		mg.pgListener.CancelLocalConnection,

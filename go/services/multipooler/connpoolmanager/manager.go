@@ -156,6 +156,11 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(ctx)
 	m.startRebalancer()
 
+	// Register observable metric callbacks for pool statistics.
+	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.config.GlobalCapacity); err != nil {
+		m.logger.WarnContext(ctx, "failed to register pool metrics callbacks", "error", err)
+	}
+
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"pg_user", m.config.PgUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
