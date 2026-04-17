@@ -579,3 +579,14 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 
 	return true, ""
 }
+
+// poolerIDs extracts the clustermetadata IDs from a slice of PoolerHealthState.
+// Used at the boundary where poolers cross into the durability-policy layer,
+// which operates on bare *clustermetadatapb.ID values.
+func poolerIDs(poolers []*multiorchdatapb.PoolerHealthState) []*clustermetadatapb.ID {
+	out := make([]*clustermetadatapb.ID, len(poolers))
+	for i, p := range poolers {
+		out[i] = p.MultiPooler.Id
+	}
+	return out
+}

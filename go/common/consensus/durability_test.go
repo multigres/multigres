@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -60,4 +61,50 @@ func TestParseUserSpecifiedDurabilityPolicy(t *testing.T) {
 		assert.Nil(t, policy)
 		assert.Contains(t, err.Error(), "unsupported durability policy")
 	})
+}
+
+func TestPolicyFromProto(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  *clustermetadatapb.DurabilityPolicy
+		wantErr string
+		wantOK  func(DurabilityPolicy) bool
+	}{
+		{
+			name:   "AT_LEAST_N returns AtLeastNPolicy",
+			policy: topoclient.AtLeastN(2),
+			wantOK: func(p DurabilityPolicy) bool { _, ok := p.(AtLeastNPolicy); return ok },
+		},
+		{
+			name:   "MULTI_CELL_AT_LEAST_N returns MultiCellPolicy",
+			policy: topoclient.MultiCellAtLeastN(2),
+			wantOK: func(p DurabilityPolicy) bool { _, ok := p.(MultiCellPolicy); return ok },
+		},
+		{
+			name:    "nil policy returns error",
+			policy:  nil,
+			wantErr: "nil",
+		},
+		{
+			name: "unknown quorum type returns error",
+			policy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN,
+				RequiredCount: 2,
+			},
+			wantErr: "unsupported quorum type",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := PolicyFromProto(tc.policy)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, tc.wantOK(p))
+		})
+	}
 }
