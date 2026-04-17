@@ -50,10 +50,6 @@ type DurabilityPolicy interface {
 	//     preventing two coordinators from both "successfully" recruiting
 	//     disjoint sets at the same time.
 	//
-	// For uniform durability policies, candidacy + revocation mathematically
-	// imply competing-recruitment overlap, so one combined check suffices.
-	// Per-leader policies (not yet supported) would require explicit overlap
-	// checks against every admissible policy.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
 	// Description returns a human-readable summary of the policy.
