@@ -77,10 +77,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	// Term Acceptance (Consensus Rules)
 	// ========================================================================
 
-	pm.mu.Lock()
 	cs := pm.consensusState
-	pm.mu.Unlock()
-
 	if cs == nil {
 		return nil, errors.New("consensus state not initialized")
 	}
@@ -308,9 +305,7 @@ func buildConsensusStatus(term *multipoolermanagerdatapb.ConsensusTerm, pos *clu
 // Returns an error if postgres is unreachable, since a partial status (term revocation
 // without current_position) could mislead callers about this pooler's rule position.
 func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	pm.mu.Lock()
 	cs := pm.consensusState
-	pm.mu.Unlock()
 
 	var term *multipoolermanagerdatapb.ConsensusTerm
 	if cs != nil {
@@ -335,9 +330,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 // Returns nil if no position has been cached yet (i.e. observePosition or updateRule
 // has never been called).
 func (pm *MultiPoolerManager) getCachedConsensusStatus(ctx context.Context) *clustermetadatapb.ConsensusStatus {
-	pm.mu.Lock()
 	cs := pm.consensusState
-	pm.mu.Unlock()
 
 	var term *multipoolermanagerdatapb.ConsensusTerm
 	if cs != nil {
@@ -358,9 +351,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus(ctx context.Context) *clu
 //
 // Returns (nil, err) if postgres is unreachable; callers should log and continue.
 func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	pm.mu.Lock()
 	cs := pm.consensusState
-	pm.mu.Unlock()
 
 	var term *multipoolermanagerdatapb.ConsensusTerm
 	if cs != nil {
