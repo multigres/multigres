@@ -1333,12 +1333,13 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedPrimaryTerm, persistedTerm.PrimaryTerm,
 				"Primary term should be %d but got %d", tt.expectedPrimaryTerm, persistedTerm.PrimaryTerm)
 
-			// Verify topology was updated to REPLICA (only on success)
+			// Verify topology was updated to REPLICA (only on success).
+			// The write is asynchronous so we poll until the publisher catches up.
 			if !tt.expectedError {
-				updatedPooler, err := ts.GetMultiPooler(ctx, serviceID)
-				require.NoError(t, err)
-				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type,
-					"Pooler type should be updated to REPLICA in topology")
+				require.Eventually(t, func() bool {
+					updatedPooler, err := ts.GetMultiPooler(ctx, serviceID)
+					return err == nil && updatedPooler.Type == clustermetadatapb.PoolerType_REPLICA
+				}, 500*time.Millisecond, 50*time.Millisecond, "Pooler type should be updated to REPLICA in topology")
 
 				// Verify health streamer reports the new primary (source)
 				healthState := pm.healthStreamer.getState()
