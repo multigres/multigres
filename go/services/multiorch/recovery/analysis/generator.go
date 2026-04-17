@@ -23,6 +23,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -449,7 +450,8 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
 		sa.PrimaryPostgresReady = topologyPrimary.IsPostgresReady
 		sa.PrimaryPostgresRunning = topologyPrimary.IsPostgresRunning
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady
+		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady && !sa.PrimaryHasResigned
 		if topologyPrimary.LastPostgresReadyTime != nil {
 			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}

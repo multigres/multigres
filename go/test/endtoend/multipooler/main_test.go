@@ -132,21 +132,21 @@ func getSetupForBackend(t *testing.T, backendName string) *MultipoolerTestSetup 
 }
 
 // restoreAfterEmergencyDemotion restores a pooler to a working state after emergency demotion.
-// Emergency demotion stops postgres and disables monitoring but doesn't update topology.
+// Emergency demotion restarts postgres as standby but doesn't update topology.
 // This helper:
-// 1. Restarts postgres as standby
+// 1. Restarts postgres as standby (idempotent — emergency demotion already did this, but ensures consistent state)
 // 2. Updates topology to REPLICA
 // 3. Restarts the multipooler to pick up topology changes
 // 4. Resets synchronous replication configuration (clears synchronous_standby_names)
 func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pgctld *ProcessInstance, multipooler *ProcessInstance, multipoolerName string) {
 	t.Helper()
 
-	// Step 1: Restart postgres as standby (emergency demotion stopped it)
+	// Step 1: Restart postgres as standby (ensures consistent state regardless of demotion outcome)
 	pgctldClient, err := shardsetup.NewPgctldClient(pgctld.GrpcPort)
 	require.NoError(t, err)
 	defer pgctldClient.Close()
 
-	t.Logf("Restarting stopped postgres as standby for pooler %s...", multipoolerName)
+	t.Logf("Restarting postgres as standby for pooler %s...", multipoolerName)
 	restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer restartCancel()
 	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{

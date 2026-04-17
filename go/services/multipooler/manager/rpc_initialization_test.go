@@ -27,8 +27,10 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -292,10 +294,12 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
 	tests := []struct {
-		name           string
-		state          postgresState
-		poolerType     clustermetadatapb.PoolerType
-		expectedAction remedialAction
+		name                string
+		state               postgresState
+		poolerType          clustermetadatapb.PoolerType
+		primaryTerm         int64
+		resignedPrimaryTerm int64
+		expectedAction      remedialAction
 	}{
 		{
 			name:           "pgctld_unavailable",
@@ -334,7 +338,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToReplica,
 		},
 		{
-			name: "postgres_ready_type_matches_replica",
+			name: "postgres_ready_type_matches_replica_no_primary_term",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -342,6 +346,33 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			expectedAction: remedialActionNone,
+		},
+		{
+			// After EmergencyDemote + process restart, resignedPrimaryAtTerm is lost.
+			// The monitor should re-publish it by triggering the replica adjustment action.
+			name: "postgres_ready_replica_missing_resignation_signal",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 0,
+			expectedAction:      remedialActionAdjustTypeToReplica,
+		},
+		{
+			// Signal already published — no action needed.
+			name: "postgres_ready_replica_resignation_signal_present",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 5,
+			expectedAction:      remedialActionNone,
 		},
 		{
 			name: "postgres_stopped_start",
@@ -384,6 +415,14 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				},
 			}
+			cs := NewConsensusState("", nil)
+			if tt.primaryTerm != 0 {
+				cs.mu.Lock()
+				cs.term = &multipoolermanagerdatapb.ConsensusTerm{PrimaryTerm: tt.primaryTerm}
+				cs.mu.Unlock()
+			}
+			pm.consensusState = cs
+			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
 			require.Equal(t, tt.expectedAction, got)
@@ -542,6 +581,96 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 // Note: Type adjustment action execution (AdjustTypeToPrimary, AdjustTypeToReplica) is tested in
 // integration tests because it requires topoClient and full infrastructure.
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
+// The resignation signal behavior is tested below without full infrastructure.
+
+func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler) *MultiPoolerManager {
+	t.Helper()
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	return &MultiPoolerManager{
+		logger:       slog.Default(),
+		actionLock:   NewActionLock(),
+		multipooler:  multipooler,
+		serviceID:    multipooler.Id,
+		topoClient:   ts,
+		servingState: NewStateManager(slog.Default(), multipooler),
+	}
+}
+
+func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         remedialAction
+		poolerType     clustermetadatapb.PoolerType
+		primaryTerm    int64 // set in consensus state before action
+		resignedBefore int64 // set resignedPrimaryAtTerm before action (0 = don't set)
+		wantAvStatus   *clustermetadatapb.AvailabilityStatus
+	}{
+		{
+			name:        "AdjustTypeToReplica sets resignation at primary_term",
+			action:      remedialActionAdjustTypeToReplica,
+			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
+			primaryTerm: 5,
+			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+					PrimaryTerm: 5,
+					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+			},
+		},
+		{
+			name:         "AdjustTypeToReplica sets no resignation when primary_term is zero",
+			action:       remedialActionAdjustTypeToReplica,
+			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
+			primaryTerm:  0,
+			wantAvStatus: nil,
+		},
+		{
+			name:           "AdjustTypeToPrimary does not clear existing resignation signal",
+			action:         remedialActionAdjustTypeToPrimary,
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			resignedBefore: 7,
+			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+					PrimaryTerm: 7,
+					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			multipooler := &clustermetadatapb.MultiPooler{
+				Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+				Type: tc.poolerType,
+			}
+			pm := newRemedialActionTestManager(t, multipooler)
+
+			cs := NewConsensusState("", nil)
+			cs.mu.Lock()
+			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1, PrimaryTerm: tc.primaryTerm}
+			cs.mu.Unlock()
+			pm.consensusState = cs
+
+			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+			require.NoError(t, err)
+			defer pm.actionLock.Release(lockCtx)
+
+			if tc.resignedBefore != 0 {
+				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
+			}
+
+			pm.takeRemedialAction(lockCtx, tc.action)
+
+			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
+		})
+	}
+}
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := t.Context()

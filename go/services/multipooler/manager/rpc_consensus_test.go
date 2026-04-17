@@ -927,7 +927,7 @@ func TestConsensusStatus(t *testing.T) {
 		setupMock           func(*mock.QueryService)
 		expectedCurrentTerm int64
 		expectedIsHealthy   bool
-		expectedRole        string
+		expectedRole        consensusdatapb.PostgresRole
 		expectedWALLsn      string
 		description         string
 	}{
@@ -950,7 +950,7 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			expectedCurrentTerm: 5,
 			expectedIsHealthy:   true,
-			expectedRole:        "primary",
+			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY,
 			expectedWALLsn:      "0/4000000",
 			description:         "Healthy primary should return correct status with WAL position",
 		},
@@ -984,7 +984,7 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			expectedCurrentTerm: 3,
 			expectedIsHealthy:   true,
-			expectedRole:        "replica",
+			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA,
 			expectedWALLsn:      "0/5000000", // receive LSN
 			description:         "Healthy standby should return correct status with receive/replay LSNs",
 		},
@@ -999,7 +999,7 @@ func TestConsensusStatus(t *testing.T) {
 			setupMock:           func(m *mock.QueryService) {},
 			expectedCurrentTerm: 7,
 			expectedIsHealthy:   false,
-			expectedRole:        "unknown", // no database, we can't check the postgres role
+			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED, // no database, we can't check the postgres role
 			description:         "Should handle missing database connection gracefully",
 		},
 		{
@@ -1015,7 +1015,7 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			expectedCurrentTerm: 4,
 			expectedIsHealthy:   false,
-			expectedRole:        "unknown",
+			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED,
 			description:         "Should handle database query failure gracefully",
 		},
 	}
@@ -1065,9 +1065,9 @@ func TestConsensusStatus(t *testing.T) {
 			// Verify WAL position if expected
 			require.NotNil(t, resp.WalPosition)
 			if tt.expectedWALLsn != "" {
-				if tt.expectedRole == "primary" {
+				if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
 					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.CurrentLsn)
-				} else if tt.expectedRole == "replica" && tt.expectedIsHealthy {
+				} else if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA && tt.expectedIsHealthy {
 					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.LastReceiveLsn)
 				}
 			}
@@ -1353,4 +1353,28 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestAvailabilityStatus(t *testing.T) {
+	t.Run("buildAvailabilityStatus returns nil when no resignation is set", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		assert.Nil(t, pm.buildAvailabilityStatus())
+	})
+
+	t.Run("resignedPrimaryAtTerm set makes buildAvailabilityStatus return the term", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.resignedPrimaryAtTerm = 7
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		require.NotNil(t, av.LeadershipStatus)
+		assert.Equal(t, int64(7), av.LeadershipStatus.PrimaryTerm)
+		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
+	})
+
+	t.Run("resignedPrimaryAtTerm cleared makes buildAvailabilityStatus return nil", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.resignedPrimaryAtTerm = 3
+		pm.resignedPrimaryAtTerm = 0
+		assert.Nil(t, pm.buildAvailabilityStatus())
+	})
 }
