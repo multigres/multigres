@@ -61,6 +61,11 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
 			wantErrMsg:     "proposed cohort has 1 poolers, required 2",
 		},
+		{
+			name:           "AT_LEAST_1 with 1 pooler in proposed cohort is achievable",
+			n:              1,
+			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
+		},
 	}
 
 	for _, tc := range tests {
@@ -351,6 +356,21 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1a", "cell1"),
 				id("pooler-2a", "cell2"),
 				id("pooler-3a", "cell3"),
+			},
+			wantErrMsg: "revocation not satisfied",
+		},
+		{
+			name: "MULTI_CELL_2 a cell with more than one pooler, requires recruiting all poolers from that cell",
+			n:    2,
+			cohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-4", "cell1"),
+				id("pooler-2", "cell2"),
+				id("pooler-3", "cell3"),
+			},
+			recruited: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell2"),
 			},
 			wantErrMsg: "revocation not satisfied",
 		},
