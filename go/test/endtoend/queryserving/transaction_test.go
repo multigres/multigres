@@ -476,8 +476,12 @@ func ddlTransactionTestCases() []transactionTestCase {
 
 				var diag *mterrors.PgDiagnostic
 				require.True(t, errors.As(err, &diag), "Expected PostgreSQL error")
-				assert.Equal(t, "25001", diag.Code,
-					"Expected active_sql_transaction error for CREATE DATABASE in transaction")
+				// PostgreSQL returns 25001 (active_sql_transaction) because CREATE DATABASE
+				// cannot run inside a transaction block. Multigateway returns 0A000
+				// (feature_not_supported) because CREATE DATABASE is rejected at plan time
+				// before the transaction check runs.
+				assert.Contains(t, []string{"25001", "0A000"}, diag.Code,
+					"Expected active_sql_transaction or feature_not_supported error for CREATE DATABASE in transaction")
 
 				_, _ = conn.Query(ctx, "ROLLBACK")
 				return err
