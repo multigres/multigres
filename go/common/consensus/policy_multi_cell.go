@@ -17,6 +17,8 @@ package consensus
 import (
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/topoclient"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -66,7 +68,7 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 	recruitedKeys := poolerKeysOf(recruited)
 	unrecruitedCells := make(map[string]struct{})
 	for _, pooler := range cohort {
-		if _, ok := recruitedKeys[poolerKey(pooler)]; ok {
+		if _, ok := recruitedKeys[topoclient.ClusterIDString(pooler)]; ok {
 			continue
 		}
 		unrecruitedCells[pooler.GetCell()] = struct{}{}
@@ -93,33 +95,4 @@ func cellsOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
 		cells[p.GetCell()] = struct{}{}
 	}
 	return cells
-}
-
-// poolerKeysOf returns the set of pooler keys (cell + name) present in poolers.
-// Name alone is insufficient because names are only unique within a cell.
-func poolerKeysOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
-	out := make(map[string]struct{}, len(poolers))
-	for _, p := range poolers {
-		out[poolerKey(p)] = struct{}{}
-	}
-	return out
-}
-
-// poolerKey returns a cluster-unique identifier for a pooler.
-func poolerKey(id *clustermetadatapb.ID) string {
-	return id.GetCell() + "/" + id.GetName()
-}
-
-// validateRecruitedSubset returns an error if any recruited pooler is not a
-// member of the cohort. All durability policies assume recruited ⊆ cohort so
-// that candidacy counts reflect only policy-eligible poolers. This is a
-// defensive invariant check; call sites should already enforce it upstream.
-func validateRecruitedSubset(cohort, recruited []*clustermetadatapb.ID) error {
-	cohortKeys := poolerKeysOf(cohort)
-	for _, p := range recruited {
-		if _, ok := cohortKeys[poolerKey(p)]; !ok {
-			return fmt.Errorf("recruited pooler %s is not in cohort", poolerKey(p))
-		}
-	}
-	return nil
 }

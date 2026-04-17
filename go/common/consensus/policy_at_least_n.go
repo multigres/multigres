@@ -17,6 +17,8 @@ package consensus
 import (
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/topoclient"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -39,7 +41,7 @@ func (p AtLeastNPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) 
 //   - Candidacy: recruited has at least N poolers, so the new leader can form a
 //     fresh quorum.
 //   - Revocation: fewer than N cohort poolers are absent from recruited, so no
-//     N-subset of the cohort avoids our recruitment — no parallel quorum can
+//     N-subset of the cohort avoids our recruitment,  no parallel quorum can
 //     still form outside our recruited set.
 func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
@@ -54,7 +56,7 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 	recruitedKeys := poolerKeysOf(recruited)
 	missing := 0
 	for _, pooler := range cohort {
-		if _, ok := recruitedKeys[poolerKey(pooler)]; !ok {
+		if _, ok := recruitedKeys[topoclient.ClusterIDString(pooler)]; !ok {
 			missing++
 		}
 	}

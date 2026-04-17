@@ -184,7 +184,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("stranger", "cell1"),
 			},
-			wantErrMsg: "recruited pooler cell1/stranger is not in cohort",
+			wantErrMsg: "recruited pooler cell1_stranger is not in cohort",
 		},
 		{
 			name: "AT_LEAST_1 needs the whole cohort recruited because any single pooler can be an old quorum",
@@ -366,7 +366,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("stranger", "cell2"),
 			},
-			wantErrMsg: "recruited pooler cell2/stranger is not in cohort",
+			wantErrMsg: "recruited pooler cell2_stranger is not in cohort",
 		},
 		{
 			name: "MULTI_CELL_3 with only 2 of 3 cohort cells covered fails candidacy",

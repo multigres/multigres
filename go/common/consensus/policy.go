@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/topoclient"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -26,30 +28,24 @@ import (
 // It exposes two checks a coordinator needs to safely appoint a new leader
 // under the generalized-consensus model:
 //
-//  1. Achievability: a pre-flight feasibility gate — the proposed cohort could
-//     ever satisfy this policy under ideal conditions.
+//  1. Achievability: a pre-flight feasibility gate. Checks if  the proposed cohort could
+//     satisfy this policy durability conditions.
 //  2. Sufficient recruitment: the recruited subset of a committed cohort can
 //     form a fresh quorum (candidacy) AND intersects every other quorum the
 //     cohort could form (revocation).
 type DurabilityPolicy interface {
-	// CheckAchievable returns nil if the proposed cohort could ever satisfy
-	// this policy under ideal conditions. Used as a pre-flight feasibility
+	// CheckAchievable returns nil if the proposed cohort could satisfy
+	// this policy. Used as a pre-flight feasibility
 	// gate before attempting recruitment.
 	CheckAchievable(proposedCohort []*clustermetadatapb.ID) error
-
 	// CheckSufficientRecruitment returns nil if recruited is sufficient to
-	// safely establish a new leader. This has three conceptual obligations:
+	// safely establish a new leader. This has two obligations:
 	//
 	//   - Candidacy: recruited can form a fresh quorum under this policy, so
 	//     the new leader has forward progress.
 	//   - Revocation: recruited intersects every other quorum the cohort
 	//     could form under this policy, so no parallel quorum can still
 	//     commit outside our recruitment.
-	//   - Competing-recruitment overlap: recruited intersects any other
-	//     sufficient recruitment a competing coordinator could form,
-	//     preventing two coordinators from both "successfully" recruiting
-	//     disjoint sets at the same time.
-	//
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
 	// Description returns a human-readable summary of the policy.
@@ -71,4 +67,28 @@ func PolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityPoli
 	default:
 		return nil, fmt.Errorf("unsupported quorum type: %v", policy.QuorumType)
 	}
+}
+
+// poolerKeysOf returns the set of cluster-unique keys present in poolers.
+func poolerKeysOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
+	out := make(map[string]struct{}, len(poolers))
+	for _, p := range poolers {
+		out[topoclient.ClusterIDString(p)] = struct{}{}
+	}
+	return out
+}
+
+// validateRecruitedSubset returns an error if any recruited pooler is not a
+// member of the cohort. All durability policies assume recruited ⊆ cohort so
+// that candidacy counts reflect only policy-eligible poolers. This is a
+// defensive invariant check; call sites should already enforce it upstream.
+func validateRecruitedSubset(cohort, recruited []*clustermetadatapb.ID) error {
+	cohortKeys := poolerKeysOf(cohort)
+	for _, p := range recruited {
+		key := topoclient.ClusterIDString(p)
+		if _, ok := cohortKeys[key]; !ok {
+			return fmt.Errorf("recruited pooler %s is not in cohort", key)
+		}
+	}
+	return nil
 }
