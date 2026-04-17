@@ -41,9 +41,12 @@ func (p MultiCellPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID)
 // CheckSufficientRecruitment enforces both candidacy and revocation:
 //   - Candidacy: recruited spans at least N distinct cells, so the new leader
 //     can form a fresh quorum.
-//   - Revocation: fewer than N cohort cells are left uncovered by recruited, so
-//     no N-cell subset of the cohort avoids our recruitment — a prior leader
-//     cannot still commit under any of its possible cell quorums.
+//   - Revocation: the un-recruited cohort poolers span fewer than N distinct
+//     cells, so they cannot themselves form a commit quorum satisfying the
+//     policy. Cell coverage by recruited is not enough when a cell holds
+//     multiple poolers: a recruited pooler in a cell does not block an
+//     un-recruited pooler in the same cell from participating in a separate
+//     quorum elsewhere.
 func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
@@ -55,27 +58,22 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 			len(recruitedCells), p.N, p.Desc)
 	}
 
-	uncovered := 0
-	seen := make(map[string]struct{})
+	// Revocation: if the un-recruited cohort poolers themselves span N or more cells, they could
+	// form a commit quorum on their own under this policy. We can't allow that.
+	// Example: MULTI_CELL_AT_LEAST_2 and a cohort of 6 poolers (2 per cell across 3 cells).
+	// Recruiting one pooler from each cell covers every cohort cell, but the 3 un-recruited
+	// poolers still span 3 cells — enough to form a separate 2-cell quorum on their own.
+	recruitedKeys := poolerKeysOf(recruited)
+	unrecruitedCells := make(map[string]struct{})
 	for _, pooler := range cohort {
-		cell := pooler.GetCell()
-		if _, already := seen[cell]; already {
+		if _, ok := recruitedKeys[poolerKey(pooler)]; ok {
 			continue
 		}
-		seen[cell] = struct{}{}
-		if _, covered := recruitedCells[cell]; !covered {
-			uncovered++
-		}
+		unrecruitedCells[pooler.GetCell()] = struct{}{}
 	}
-	// If we have N or more cohort cells uncovered by recruited, those cells could form a quorum on
-	// their own. We can't allow that.
-	// Example: MULTI_CELL_AT_LEAST_2 and the cohort spans 3 cells (cell1,
-	// cell2, cell3). If we only recruit poolers in cell1, cells cell2 and
-	// cell3 are uncovered — together they could form a 2-cell quorum that
-	// still satisfies the durability policy.
-	if uncovered >= p.N {
-		return fmt.Errorf("revocation not satisfied: %d cohort cells not covered by recruited, another possible quorum could span %d cells (%s)",
-			uncovered, p.N, p.Desc)
+	if len(unrecruitedCells) >= p.N {
+		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers span %d cells, another possible quorum could be formed spanning %d cells (%s)",
+			len(unrecruitedCells), p.N, p.Desc)
 	}
 	return nil
 }

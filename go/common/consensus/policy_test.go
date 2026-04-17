@@ -332,6 +332,29 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			wantErrMsg: "candidacy not satisfied: recruited poolers span 1 cells, required 2",
 		},
 		{
+			name: "MULTI_CELL_2 with cohort of 2 poolers per cell across 3 cells, recruiting one per cell fails revocation",
+			n:    2,
+			// 3 cells × 2 poolers per cell = 6 poolers.
+			cohort: []*clustermetadatapb.ID{
+				id("pooler-1a", "cell1"),
+				id("pooler-1b", "cell1"),
+				id("pooler-2a", "cell2"),
+				id("pooler-2b", "cell2"),
+				id("pooler-3a", "cell3"),
+				id("pooler-3b", "cell3"),
+			},
+			// Recruit one pooler from each cell — candidacy passes (3 cells
+			// covered) and every cohort cell is represented, but the 3
+			// un-recruited poolers also span all 3 cells and could form a
+			// separate 2-cell quorum on their own.
+			recruited: []*clustermetadatapb.ID{
+				id("pooler-1a", "cell1"),
+				id("pooler-2a", "cell2"),
+				id("pooler-3a", "cell3"),
+			},
+			wantErrMsg: "revocation not satisfied",
+		},
+		{
 			name: "MULTI_CELL_2 with a recruited pooler outside the cohort is rejected",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{

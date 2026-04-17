@@ -39,8 +39,8 @@ func (p AtLeastNPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) 
 //   - Candidacy: recruited has at least N poolers, so the new leader can form a
 //     fresh quorum.
 //   - Revocation: fewer than N cohort poolers are absent from recruited, so no
-//     N-subset of the cohort avoids our recruitment — a prior leader cannot
-//     still commit under any of its possible quorums.
+//     N-subset of the cohort avoids our recruitment — no parallel quorum can
+//     still form outside our recruited set.
 func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err

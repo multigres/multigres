@@ -29,8 +29,8 @@ import (
 //  1. Achievability: a pre-flight feasibility gate — the proposed cohort could
 //     ever satisfy this policy under ideal conditions.
 //  2. Sufficient recruitment: the recruited subset of a committed cohort can
-//     form a fresh quorum (candidacy) AND intersects every quorum a prior
-//     leader could have formed (revocation).
+//     form a fresh quorum (candidacy) AND intersects every other quorum the
+//     cohort could form (revocation).
 type DurabilityPolicy interface {
 	// CheckAchievable returns nil if the proposed cohort could ever satisfy
 	// this policy under ideal conditions. Used as a pre-flight feasibility
@@ -42,8 +42,9 @@ type DurabilityPolicy interface {
 	//
 	//   - Candidacy: recruited can form a fresh quorum under this policy, so
 	//     the new leader has forward progress.
-	//   - Revocation: recruited intersects every quorum a prior leader could
-	//     have formed, so no older-term write can still commit.
+	//   - Revocation: recruited intersects every other quorum the cohort
+	//     could form under this policy, so no parallel quorum can still
+	//     commit outside our recruitment.
 	//   - Competing-recruitment overlap: recruited intersects any other
 	//     sufficient recruitment a competing coordinator could form,
 	//     preventing two coordinators from both "successfully" recruiting
@@ -52,7 +53,7 @@ type DurabilityPolicy interface {
 	// For uniform durability policies, candidacy + revocation mathematically
 	// imply competing-recruitment overlap, so one combined check suffices.
 	// Per-leader policies (not yet supported) would require explicit overlap
-	// checks against every admissible prior policy.
+	// checks against every admissible policy.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
 	// Description returns a human-readable summary of the policy.
