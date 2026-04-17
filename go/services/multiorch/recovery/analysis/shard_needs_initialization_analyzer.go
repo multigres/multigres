@@ -21,6 +21,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // ShardNeedsInitializationAnalyzer detects Phase 2 of shard bootstrap: the shard has
@@ -64,8 +66,19 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	}
 
 	// Not enough initialized poolers to satisfy the durability policy yet.
-	if !consensus.IsDurabilityPolicyAchievable(sa.BootstrapDurabilityPolicy, sa.NumInitialized) {
-		return nil, nil
+	durabilityPolicy, err := consensus.PolicyFromProto(sa.BootstrapDurabilityPolicy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse bootstrap durability policy: %w", err)
+	}
+	initializedIDs := make([]*clustermetadatapb.ID, 0, sa.NumInitialized)
+	for _, pa := range sa.Analyses {
+		if pa.LastCheckValid && pa.IsInitialized {
+			initializedIDs = append(initializedIDs, pa.PoolerID)
+		}
+	}
+	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
+		// Not achievable yet — silently skip; the analyzer re-evaluates as poolers come online.
+		return nil, nil //nolint:nilerr
 	}
 
 	return []types.Problem{{
