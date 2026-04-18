@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -65,6 +66,7 @@ func (g *GatewaySessionState) StreamExecute(
 	_ IExecute,
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	commandTag := "SET"

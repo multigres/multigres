@@ -259,11 +259,16 @@ message Status {
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
 
+  // Cohort members from the most recent multigres.rule_history record.
+  // Empty if the table has no records or the database is unreachable.
+  // A record with an empty list (written during first-backup creation) signals
+  // that the shard has been initialized but not yet had its cohort established.
+  repeated clustermetadata.ID cohort_members = 13;
+
   // Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
-  bool postgres_ready = 13;
-
+  bool postgres_ready = 14;
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
@@ -274,6 +279,8 @@ enum PostgresAction {
   POSTGRES_ACTION_STARTING = 1;
   // A pgBackRest restore is running to initialize the data directory.
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
+  // No backup exists yet; running initdb and creating the first pgBackRest backup.
+  POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -631,33 +638,11 @@ message ConsensusTerm {
   clustermetadata.ID leader_id = 4;
 
   // The term for which this pooler was promoted to primary.
-  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Set during promotion (Promote).
   // Preserved when consensus term increases (new elections).
   // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
   // 0 if never primary.
   int64 primary_term = 5;
-}
-
-// InitializeEmptyPrimary initializes this pooler as an empty primary
-// Used during bootstrap initialization of a new shard
-message InitializeEmptyPrimaryRequest {
-  // Consensus term to set for this primary
-  int64 consensus_term = 1;
-
-  // ID of the multiorch coordinator performing the bootstrap
-  clustermetadata.ID coordinator_id = 2;
-}
-
-message InitializeEmptyPrimaryResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Backup ID of the initial backup created during initialization
-  // This can be used by standbys to restore from the same backup
-  string backup_id = 3;
 }
 
 // Backup operations
@@ -828,14 +813,16 @@ message RewindToSourceResponse {
 // PostgreSQL Monitoring Control APIs
 // =============================================================================
 
-// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
-message SetMonitorRequest {
-  // Whether to enable monitoring (true) or disable it (false)
+// SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
+// by the postgres monitor. When disabled, the monitor will still run and detect problems,
+// but will not automatically restart a stopped PostgreSQL instance.
+message SetPostgresRestartsEnabledRequest {
+  // Whether automatic restarts are enabled (true) or suppressed (false)
   bool enabled = 1;
 }
 
 // SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
-message SetMonitorResponse {
+message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }

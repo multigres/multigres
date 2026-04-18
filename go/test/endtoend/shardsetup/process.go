@@ -66,6 +66,9 @@ type ProcessInstance struct {
 	TLSCertFile string // TLS certificate file (multigateway)
 	TLSKeyFile  string // TLS private key file (multigateway)
 
+	// ReplicaPgPort is the optional PostgreSQL replica-reads listener port (multigateway).
+	ReplicaPgPort int
+
 	// ExtraArgs holds additional command-line flags appended to the process args.
 	// Used by multigateway for buffer config, etc.
 	ExtraArgs []string
@@ -110,14 +113,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"server",
 		"--pooler-dir", p.PoolerDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
 		"--log-output", p.LogFile,
-	}
-
-	// Add HTTP port if configured
-	if p.HttpPort > 0 {
-		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
 	}
 
 	// Add pgBackRest configuration if provided
@@ -157,6 +156,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "default", // Required parameter (MVP only supports "default")
 		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
@@ -284,6 +284,11 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--log-level", "debug",
 	}
 
+	// Add replica port flag if configured
+	if p.ReplicaPgPort > 0 {
+		args = append(args, "--pg-replica-port", strconv.Itoa(p.ReplicaPgPort))
+	}
+
 	// Add TLS certificate flags if configured
 	if p.TLSCertFile != "" && p.TLSKeyFile != "" {
 		args = append(args,
@@ -409,24 +414,6 @@ func (p *ProcessInstance) LogRecentOutput(t *testing.T, context string) {
 	t.Logf("%s %s - Recent log output from %s:\n%s", p.Name, context, p.LogFile, logContent)
 }
 
-// Stop stops the process instance.
-// Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) Stop() {
-	if p.Process == nil || p.Process.ProcessState != nil {
-		return // Process not running
-	}
-
-	// If this is pgctld, stop PostgreSQL first via gRPC
-	if p.Binary == "pgctld" {
-		p.stopPostgreSQL()
-	}
-
-	// Then kill the process
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	_, _ = p.Process.Stop(ctx)
-	cancel()
-}
-
 // IsRunning checks if the process is still running.
 // Returns false if the process has exited or was never started.
 // Copied from multipooler/setup_test.go.
@@ -464,40 +451,45 @@ func (p *ProcessInstance) stopPostgreSQL() {
 
 	client := pgctldservice.NewPgCtldClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// pg_ctl stop -m fast takes a checkpoint before stopping, which can
+	// take several seconds under load.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Stop PostgreSQL
 	_, _ = client.Stop(ctx, &pgctldservice.StopRequest{Mode: "fast"})
 }
 
 // TerminateGracefully gracefully terminates a process by first sending SIGTERM,
 // waiting for graceful shutdown, and only using SIGKILL if necessary.
-// Follows the pattern from multiorch/multiorch_helpers.go:terminateProcess.
-func (p *ProcessInstance) TerminateGracefully(t *testing.T, timeout time.Duration) {
-	t.Helper()
+// For pgctld, it first stops PostgreSQL via gRPC so that System V shared memory
+// segments are released (macOS kern.sysv.shmmni defaults to 32).
+func (p *ProcessInstance) TerminateGracefully(logf func(string, ...any), timeout time.Duration) {
 	if p.Process == nil || p.Process.Process == nil {
 		return
 	}
 
-	// Try graceful shutdown with SIGTERM first, with configurable timeout
+	// For pgctld, stop PostgreSQL first via gRPC. pg_ctl stop -m fast
+	// releases SysV shared memory segments that would otherwise leak.
+	if p.Binary == "pgctld" {
+		p.stopPostgreSQL()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	exitErr, stopped := p.Process.Stop(ctx)
 	if !stopped {
-		t.Logf("%s did not terminate within %v (SIGKILL timeout - very rare)", p.Name, timeout)
+		logf("WARNING: %s did not terminate within %v (shared memory segments may leak)", p.Name, timeout)
 	} else if exitErr != nil {
-		t.Logf("%s terminated with error: %v", p.Name, exitErr)
+		logf("%s terminated with error: %v", p.Name, exitErr)
 	} else {
-		t.Logf("%s terminated gracefully", p.Name)
+		logf("%s terminated gracefully", p.Name)
 	}
 }
 
 // CleanupFunc returns a cleanup function that gracefully terminates the process.
-// Use this to get a cleanup function for an existing ProcessInstance.
-func (p *ProcessInstance) CleanupFunc(t *testing.T) func() {
-	return func() { p.TerminateGracefully(t, 5*time.Second) }
+func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
+	return func() { p.TerminateGracefully(logf, 5*time.Second) }
 }
 
 // WaitForPortReady waits for a process to be ready by checking its gRPC port.

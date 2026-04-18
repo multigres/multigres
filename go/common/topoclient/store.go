@@ -92,11 +92,12 @@ const (
 
 // Filenames for all object types.
 const (
-	CellFile     = "Cell"
-	DatabaseFile = "Database"
-	GatewayFile  = "Gateway"
-	PoolerFile   = "Pooler"
-	OrchFile     = "Orch"
+	CellFile           = "Cell"
+	DatabaseFile       = "Database"
+	GatewayFile        = "Gateway"
+	PoolerFile         = "Pooler"
+	OrchFile           = "Orch"
+	ShardInitClaimFile = "ShardInitClaim"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -215,6 +216,12 @@ type Store interface {
 	// TryLockBackup attempts to acquire a backup lock on the specified shard without blocking.
 	// See backup_lock.go for full documentation.
 	TryLockBackup(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
+
+	// ClaimShardInitialization atomically claims the right to initialize a shard.
+	// Persists both the claimer ID and the proposed cohort. On crash-retry the
+	// committed cohort is returned so the caller reuses the same members.
+	// Returns won=false if a different coordinator already owns the claim.
+	ClaimShardInitialization(ctx context.Context, shardKey types.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
 
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.

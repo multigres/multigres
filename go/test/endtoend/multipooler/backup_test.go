@@ -16,7 +16,6 @@ package multipooler
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,13 +26,10 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/pb/pgctldservice"
 	adminserver "github.com/multigres/multigres/go/services/multiadmin"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -203,19 +199,10 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil")
 					assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm.TermNumber, "Term should be updated to higher value")
 					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
-					// Connect to standby's pgctld to stop PostgreSQL
-					standbyPgctldConn, err := grpc.NewClient(
-						fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
-						grpc.WithTransportCredentials(insecure.NewCredentials()),
-					)
-					require.NoError(t, err)
-					defer standbyPgctldConn.Close()
-					standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
-
-					// Stop PostgreSQL on standby
-					stopCtx := utils.WithTimeout(t, 2*time.Minute)
-					_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
-					require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
+					standbyInst := setup.GetStandbys()
+					require.NotEmpty(t, standbyInst, "expected at least one standby")
+					resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
+					defer resumeStandby()
 
 					// Remove pg_data directory
 					removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
@@ -459,16 +446,9 @@ func TestBackup_FromStandby(t *testing.T) {
 			// Create backup client connection to standby
 			backupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
 
-			// For local mode (tests without TLS), we need to pass pg2_path override
-			// so pgBackRest can connect to the primary's postgres to get WAL files
-			primaryDataPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data")
-			overrides := map[string]string{
-				"pg2_path": primaryDataPath,
-			}
-
 			t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating full backup from standby...")
-				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, overrides)
+				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
 				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
@@ -477,7 +457,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating incremental backup from standby...")
-				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, overrides)
+				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, nil)
 			})
 		})
 	}
@@ -579,31 +559,17 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				backupID := backupStatus.BackupId
 				t.Logf("Backup completed with ID: %s", backupID)
 
+				standbys := setup.GetStandbys()
+				require.NotEmpty(t, standbys, "Should have at least one standby")
+
 				t.Log("Step 2: Stopping standby PostgreSQL...")
-
-				// Connect to standby's pgctld to stop PostgreSQL
-				standbyPgctldConn, err := grpc.NewClient(
-					fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
-					grpc.WithTransportCredentials(insecure.NewCredentials()),
-				)
-				require.NoError(t, err)
-				defer standbyPgctldConn.Close()
-				standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
-
-				stopCtx, stopCancel := context.WithTimeout(t.Context(), 2*time.Minute)
-				defer stopCancel()
-				_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
-				require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
-				t.Log("PostgreSQL stopped on standby")
+				resumeStandby := setup.StopPostgres(t, standbys[0].Name, "fast")
+				defer resumeStandby()
 
 				t.Log("Step 3: Removing standby pg_data directory...")
 				removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
 
 				t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
-
-				// Create restore request targeting the standby pooler
-				standbys := setup.GetStandbys()
-				require.NotEmpty(t, standbys, "Should have at least one standby")
 				restoreReq := &multiadminpb.RestoreFromBackupRequest{
 					Database:   "postgres",
 					TableGroup: "default",

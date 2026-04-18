@@ -7,7 +7,7 @@
   {
     "comment": "errors - Statement 2",
     "query": "select",
-    "expected": "SELECT *"
+    "expected": "SELECT"
   },
   {
     "comment": "errors - Statement 3",

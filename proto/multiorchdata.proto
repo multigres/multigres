@@ -79,13 +79,18 @@ message PoolerHealthState {
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   consensusdata.StatusResponse consensus_status = 14;
 
+  // Cohort members from the most recent multigres.rule_history record,
+  // populated from the Status RPC response. An empty list (not nil) on an
+  // initialized pooler signals the shard needs its initial cohort established.
+  repeated clustermetadata.ID cohort_members = 15;
+
   // Timestamp of the last time PostgreSQL specifically responded as healthy
   // (i.e. pg_isready passed). Never cleared on failure — callers must compare
   // against time.Now() to detect staleness.
-  google.protobuf.Timestamp last_postgres_ready_time = 15;
+  google.protobuf.Timestamp last_postgres_ready_time = 16;
 
   // Whether the PostgreSQL process exists on this node, regardless of whether
   // it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
   // Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
-  bool is_postgres_running = 16;
+  bool is_postgres_running = 17;
 }

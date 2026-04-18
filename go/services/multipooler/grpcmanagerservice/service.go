@@ -313,21 +313,12 @@ func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermana
 	}, nil
 }
 
-// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
-func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)
 }
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine
-func (s *managerService) SetMonitor(ctx context.Context, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
-	return s.manager.SetMonitor(ctx, req)
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
+func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	return s.manager.SetPostgresRestartsEnabled(ctx, req)
 }

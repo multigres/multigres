@@ -89,4 +89,10 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topoc
 	t.Log("=== checkList")
 	checkList(t, ctx, ts)
 	_ = ts.Close()
+
+	// ShardInitClaim is part of the shard initialization API.
+	t.Log("=== (ShardInitClaim) checkShardInitClaim")
+	ts = factory()
+	checkShardInitClaim(t, ctx, ts)
+	_ = ts.Close()
 }

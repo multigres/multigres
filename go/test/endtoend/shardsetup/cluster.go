@@ -76,8 +76,9 @@ type ShardSetup struct {
 	MultiOrchInstances map[string]*ProcessInstance
 
 	// Multigateway instance (optional, enabled via WithMultigateway)
-	Multigateway       *ProcessInstance
-	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
+	Multigateway              *ProcessInstance
+	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
+	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
@@ -228,13 +229,16 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Allocate an HTTP port for pgctld health endpoints
 	pgctldHttpPort := utils.GetFreePort(t)
 
+	// Allocate an HTTP port for multipooler (prevents port collision with dynamic allocation)
+	multipoolerHttpPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
 	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgctldHttpPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
-	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
+	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort, multipoolerHttpPort,
 		"localhost:"+strconv.Itoa(grpcPort), pgctld.PoolerDir, pgPort, s.EtcdClientAddr, s.CellName,
 		s.PgBackRestCertPaths, pgbackrestPort)
 
@@ -277,7 +281,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort, httpPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -290,6 +294,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		Cell:        cell,
 		LogFile:     logFile,
 		GrpcPort:    grpcPort,
+		HttpPort:    httpPort,
 		PgPort:      pgPort,
 		PgctldAddr:  pgctldAddr,
 		PoolerDir:   pgctldDataDir,
@@ -351,7 +356,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 
 	s.MultiOrchInstances[name] = instance
 
-	return instance, instance.CleanupFunc(t)
+	return instance, instance.CleanupFunc(t.Logf)
 }
 
 // CreateMultigatewayInstance creates a multigateway process instance.
@@ -441,10 +446,35 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Cancel the context to terminate all processes. Processes started directly with
-	// executil.Command will be killed. Processes wrapped in run_in_test.sh (etcd) are
-	// started with context.Background() and use a separate goroutine to detect context
-	// cancellation and call Stop() gracefully so the wrapper can clean up its child.
+	logf := func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
+	}
+
+	// Gracefully terminate all processes BEFORE cancelling the context.
+	// For pgctld this issues pg_ctl stop via gRPC, which releases System V
+	// shared memory segments. The gRPC call must happen while the context
+	// is still active so it can reach the running pgctld.
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler != nil {
+			inst.Multipooler.TerminateGracefully(logf, 5*time.Second)
+		}
+		if inst.Pgctld != nil {
+			// pgctld needs longer: stopPostgreSQL issues pg_ctl stop
+			// via gRPC (10s timeout) before SIGTERM is sent.
+			inst.Pgctld.TerminateGracefully(logf, 15*time.Second)
+		}
+	}
+	if s.Multigateway != nil {
+		s.Multigateway.TerminateGracefully(logf, 5*time.Second)
+	}
+	for _, mo := range s.MultiOrchInstances {
+		mo.TerminateGracefully(logf, 5*time.Second)
+	}
+
+	// Cancel the context to terminate any remaining processes. Processes
+	// wrapped in run_in_test.sh (etcd) are started with
+	// context.Background() and use a separate goroutine to detect context
+	// cancellation and clean up.
 	if s.cancel != nil {
 		s.cancel()
 	}

@@ -89,11 +89,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
 
-	// Disable monitoring so multiorch orchestrates recovery instead
-	// of each multipooler's local postgres monitor. This could create races for
-	// this test.
-	disableMonitoringOnAllNodes(t, setup)
-
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	gatewayDB, err := sql.Open("postgres", connStr)
@@ -128,6 +123,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, currentPrimary, "current primary should exist")
 		currentPrimaryName := currentPrimary.Name
 
+		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
+		// between the kill and when emergencyDemoteLocked sets rewindPending.
+		primaryManagerClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+
 		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
 		setup.KillPostgres(t, currentPrimaryName)
@@ -137,6 +139,17 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 15*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
+
+		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
+		// so the monitor will not restart postgres before DemoteStalePrimary runs.
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		primaryManagerClient.Close()
+
+		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
+		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
+		// before the next iteration begins — otherwise the grace period would carry over.
+		setup.RequireRecovery(t, "multiorch", 20*time.Second)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
 		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
@@ -156,11 +169,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
-
-		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
-		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
-		disableMonitoringOnAllNodes(t, setup)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
 
 		// No need to restart validator or switch connections - multigateway automatically routes to new primary
 		// We track failed writes just for debugging purposes, but during a failover it is expected
@@ -229,10 +238,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 	// Wait for emergency demoted primary to rejoin as standby
 	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
-
-	// Ensure monitoring is disabled on all multipoolers
-	t.Logf("Re-disabling monitoring on all multipoolers after failover 4...")
-	disableMonitoringOnAllNodes(t, setup)
 
 	successWrites, failedWrites := validator.Stats()
 	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
@@ -503,89 +508,31 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
 }
 
-// disableMultipoolerMonitoring disables postgres monitoring on a single multipooler.
-func disableMultipoolerMonitoring(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
-	t.Helper()
-	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer client.Close()
-
-	_, err = client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-}
-
-// disableMonitoringOnAllNodes disables postgres monitoring on all multipoolers.
-func disableMonitoringOnAllNodes(t *testing.T, setup *shardsetup.ShardSetup) {
-	t.Helper()
-	for name, inst := range setup.Multipoolers {
-		disableMultipoolerMonitoring(t, name, inst)
-	}
-}
-
 // checkPrimary checks if a specific multipooler is the primary.
 // Returns the multipooler name if it's a primary, empty string otherwise.
-func checkPrimary(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, oldPrimaryName string) string {
-	t.Helper()
-	if name == oldPrimaryName {
-		return ""
-	}
-
-	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-	if err != nil {
-		return ""
-	}
-	defer client.Close()
-
-	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return ""
-	}
-
-	if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-		t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
-		return name
-	}
-
-	return ""
-}
-
 // waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
 func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
 
-	checkForNewPrimary := func() string {
-		for name, inst := range setup.Multipoolers {
-			if primaryName := checkPrimary(t, name, inst, oldPrimaryName); primaryName != "" {
-				return primaryName
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					return r.Name, true, ""
+				}
 			}
-		}
-		return ""
-	}
-
-	// Check immediately
-	if name := checkForNewPrimary(); name != "" {
-		return name
-	}
-
-	checkInterval := 2 * time.Second
-	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ticker.C:
-			if name := checkForNewPrimary(); name != "" {
-				return name
-			}
-			t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
-
-		case <-timeoutCh:
-			t.Fatalf("Timeout: new primary not elected within %v", timeout)
-			return ""
-		}
-	}
+			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
+		},
+		"new primary not elected within %v", timeout,
+	)
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
