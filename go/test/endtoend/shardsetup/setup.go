@@ -70,6 +70,7 @@ type SetupConfig struct {
 	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport                 bool     // Enable Prometheus metrics export on all services
 }
 
 // SetupOption is a function that configures setup creation.
@@ -186,6 +187,16 @@ func WithOTelExport(endpoint string) SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.OTelCollectorEndpoint = endpoint
+	}
+}
+
+// WithMetricsExport enables Prometheus metrics export on multipooler and multigateway.
+// Each service gets its own Prometheus port, accessible via ShardSetup.MetricsPorts.
+// Implies WithMultigateway().
+func WithMetricsExport() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMetricsExport = true
 	}
 }
 
@@ -421,6 +432,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
+		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 	}
 
@@ -433,6 +445,17 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+
+		// Configure Prometheus metrics export on multipooler if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts[name] = metricsPort
+			inst.Multipooler.Environment = append(inst.Multipooler.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
+			)
+		}
+
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -469,6 +492,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 				"OTEL_EXPORTER_OTLP_ENDPOINT="+config.OTelCollectorEndpoint,
 				"OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
 				"OTEL_TRACES_SAMPLER=always_on",
+			)
+		}
+
+		// Configure Prometheus metrics export if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts["multigateway"] = metricsPort
+			mgw.Environment = append(mgw.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
 			)
 		}
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
