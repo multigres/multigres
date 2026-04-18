@@ -17,8 +17,6 @@ package consensus
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/common/topoclient"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -40,24 +38,28 @@ func (p MultiCellPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID)
 	return nil
 }
 
-// CheckSufficientRecruitment enforces both candidacy and revocation:
-//   - Candidacy: recruited spans at least N distinct cells, so the new leader
-//     can form a fresh quorum.
+// CheckSufficientRecruitment enforces two proposal-agnostic invariants:
 //   - Revocation: the un-recruited cohort poolers span fewer than N distinct
 //     cells, so they cannot themselves form a commit quorum satisfying the
 //     policy. Cell coverage by recruited is not enough when a cell holds
 //     multiple poolers: a recruited pooler in a cell does not block an
 //     un-recruited pooler in the same cell from participating in a separate
 //     quorum elsewhere.
+//   - Majority: recruited is a pooler-majority of cohort, so any two
+//     concurrent recruitments must share at least one pooler. Cell-level
+//     intersection is not sufficient here because two pooler-disjoint
+//     recruitments can share cells when a cell has multiple poolers.
+//
+// Candidacy (whether recruited spans enough cells for the *proposed*
+// leadership change) is not checked here — that is a proposal-specific
+// concern handled by the leader-appointment layer via CheckAchievable.
 func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
 	}
 
-	recruitedCells := cellsOf(recruited)
-	if len(recruitedCells) < p.N {
-		return fmt.Errorf("candidacy not satisfied: recruited poolers span %d cells, required %d (%s)",
-			len(recruitedCells), p.N, p.Desc)
+	if err := validateMajority(cohort, recruited); err != nil {
+		return err
 	}
 
 	// Revocation: if the un-recruited cohort poolers themselves span N or more cells, they could
@@ -65,14 +67,7 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 	// Example: MULTI_CELL_AT_LEAST_2 and a cohort of 6 poolers (2 per cell across 3 cells).
 	// Recruiting one pooler from each cell covers every cohort cell, but the 3 un-recruited
 	// poolers still span 3 cells — enough to form a separate 2-cell quorum on their own.
-	recruitedKeys := poolerKeysOf(recruited)
-	unrecruitedCells := make(map[string]struct{})
-	for _, pooler := range cohort {
-		if _, ok := recruitedKeys[topoclient.ClusterIDString(pooler)]; ok {
-			continue
-		}
-		unrecruitedCells[pooler.GetCell()] = struct{}{}
-	}
+	unrecruitedCells := unrecruitedKeys(cohort, recruited, func(id *clustermetadatapb.ID) string { return id.GetCell() })
 	if len(unrecruitedCells) >= p.N {
 		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers span %d cells, another possible quorum could be formed spanning %d cells (%s)",
 			len(unrecruitedCells), p.N, p.Desc)

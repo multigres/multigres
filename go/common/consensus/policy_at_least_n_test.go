@@ -63,6 +63,15 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 			wantErrMsg:     "proposed cohort has 1 poolers, required 2",
 		},
 		{
+			name: "AT_LEAST_3 with 2 poolers in proposed cohort is not achievable",
+			n:    3,
+			proposedCohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+			},
+			wantErrMsg: "proposed cohort has 2 poolers, required 3",
+		},
+		{
 			name:           "AT_LEAST_1 with 1 pooler in proposed cohort is achievable",
 			n:              1,
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
@@ -106,7 +115,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			},
 		},
 		{
-			name: "AT_LEAST_2 with exactly 2 of 3 cohort poolers recruited is sufficient",
+			name: "AT_LEAST_2 with 2 of 3 cohort poolers is sufficient (majority + revocation both hold)",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -119,7 +128,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			},
 		},
 		{
-			name: "AT_LEAST_2 with only 1 of 3 cohort poolers recruited fails candidacy",
+			name: "AT_LEAST_2 with 1 of 3 cohort poolers fails majority",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -129,24 +138,10 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			recruited: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 			},
-			wantErrMsg: "candidacy not satisfied: recruited 1 poolers, required 2",
+			wantErrMsg: "majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
 		},
 		{
-			name: "AT_LEAST_3 with only 2 of 3 cohort poolers recruited fails candidacy",
-			n:    3,
-			cohort: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell1"),
-				id("pooler-3", "cell1"),
-			},
-			recruited: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell1"),
-			},
-			wantErrMsg: "candidacy not satisfied: recruited 2 poolers, required 3",
-		},
-		{
-			name: "AT_LEAST_2 with 2 of 5 cohort poolers recruited passes candidacy but fails revocation (3 missing >= 2)",
+			name: "AT_LEAST_2 with 2 of 5 cohort poolers fails majority",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -159,10 +154,27 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 3 cohort poolers not recruited",
+			wantErrMsg: "majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
 		},
 		{
-			name: "AT_LEAST_2 with 4 of 5 cohort poolers recruited is sufficient (1 missing < 2)",
+			name: "AT_LEAST_2 with 3 of 5 cohort poolers passes majority but fails revocation (2 missing >= 2)",
+			n:    2,
+			cohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+				id("pooler-3", "cell1"),
+				id("pooler-4", "cell1"),
+				id("pooler-5", "cell1"),
+			},
+			recruited: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+				id("pooler-3", "cell1"),
+			},
+			wantErrMsg: "revocation not satisfied: 2 cohort poolers not recruited",
+		},
+		{
+			name: "AT_LEAST_2 with 4 of 5 cohort poolers is sufficient (1 missing < 2)",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -193,16 +205,11 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			wantErrMsg: "recruited pooler cell1_stranger is not in cohort",
 		},
 		{
-			// With AT_LEAST_N=8 and cohort=10, revocation alone only requires
-			// |missing| < 8, i.e. recruited >= 3. That would let two
-			// coordinators each recruit disjoint sets of 3 at the same
-			// proposed term, both pass revocation, and both attempt to promote
-			// — split-brain. Candidacy's >=N requirement kicks recruited up to
-			// 8 of 10, which forces any two concurrent recruitments to share
-			// at least one pooler (each accepts a term once, so one of them
-			// loses). This case locks in that interaction: 3 recruited must
-			// fail here via candidacy, not pass via revocation.
-			name: "AT_LEAST_8 with 3 of 10 cohort poolers fails candidacy even though revocation would pass alone",
+			// N=8 is > half the cohort. Revocation alone would accept 3
+			// recruited (since 10-8=2 missing cap). Majority forces 6+,
+			// preventing two coordinators from recruiting disjoint sets of 3
+			// at the same term.
+			name: "AT_LEAST_8 with 3 of 10 cohort poolers fails majority even though revocation would pass alone",
 			n:    8,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"), id("pooler-2", "cell1"),
@@ -215,15 +222,12 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"), id("pooler-2", "cell1"),
 				id("pooler-3", "cell1"),
 			},
-			wantErrMsg: "candidacy not satisfied: recruited 3 poolers, required 8",
+			wantErrMsg: "majority not satisfied: recruited 3 of 10 cohort poolers, need at least 6",
 		},
 		{
-			// Mirror of the AT_LEAST_8 case above with a flipped failure mode.
-			// With AT_LEAST_N=2 and cohort=10, candidacy is cheap (>=2) so 3
-			// recruited clears it easily. But revocation requires |missing| < 2,
-			// i.e. recruited >= 9. The 7 unrecruited poolers could form their
-			// own 2-pooler quorum and form a new term.
-			name: "AT_LEAST_2 with 3 of 10 cohort poolers passes candidacy but fails revocation",
+			// Flip side: N=2 is small, so revocation binds above majority.
+			// Majority alone accepts 6; revocation requires 9.
+			name: "AT_LEAST_2 with 6 of 10 cohort poolers passes majority but fails revocation",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"), id("pooler-2", "cell1"),
@@ -234,9 +238,10 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			},
 			recruited: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"), id("pooler-2", "cell1"),
-				id("pooler-3", "cell1"),
+				id("pooler-3", "cell1"), id("pooler-4", "cell1"),
+				id("pooler-5", "cell1"), id("pooler-6", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 7 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: 4 cohort poolers not recruited",
 		},
 		{
 			name: "AT_LEAST_1 needs the whole cohort recruited because any single pooler can be an old quorum",

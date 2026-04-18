@@ -37,38 +37,46 @@ func (p AtLeastNPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) 
 	return nil
 }
 
-// CheckSufficientRecruitment enforces both candidacy and revocation:
-//   - Candidacy: recruited has at least N poolers, so the new leader can form a
-//     fresh quorum.
+// CheckSufficientRecruitment enforces two proposal-agnostic invariants:
 //   - Revocation: fewer than N cohort poolers are absent from recruited, so no
-//     N-subset of the cohort avoids our recruitment,  no parallel quorum can
+//     N-subset of the cohort avoids our recruitment — no parallel quorum can
 //     still form outside our recruited set.
+//   - Majority: recruited is a strict majority of cohort, so any two
+//     concurrent recruitments must share at least one pooler and, via
+//     "one accept per term", cannot both complete.
+//
+// Candidacy (whether the recruited set satisfies the policy's quorum under
+// the *proposed* leadership change) is not checked here — that is a
+// proposal-specific concern handled by the leader-appointment layer via
+// CheckAchievable.
 func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
 	}
 
-	if len(recruited) < p.N {
-		return fmt.Errorf("candidacy not satisfied: recruited %d poolers, required %d (%s)",
-			len(recruited), p.N, p.Desc)
+	// The two obligations below combine into a single binding threshold:
+	//
+	//   |recruited| >= max(
+	//     len(cohort)/2 + 1,   // majority — any two recruitments must share a pooler
+	//     len(cohort) - N + 1, // revocation — un-recruited cannot form an N-quorum
+	//   )
+	//
+	// We check each separately so failures report the specific reason.
+
+	// Majority: prevents two coordinators from recruiting disjoint sets at the same term.
+	if err := validateMajority(cohort, recruited); err != nil {
+		return err
 	}
 
-	recruitedKeys := poolerKeysOf(recruited)
-	missing := 0
-	for _, pooler := range cohort {
-		if _, ok := recruitedKeys[topoclient.ClusterIDString(pooler)]; !ok {
-			missing++
-		}
-	}
-	// If we have N or more nodes missing in the recruitment, they could form a quorum on their own.
-	// We can't allow that.
-	// Example: AT_LEAST_N with N=2 and a cohort of 5 poolers. After recruiting
-	// pooler-1, pooler-2, and pooler-3, we still need to recruit pooler-4 OR
-	// pooler-5 — otherwise the 2 unrecruited poolers could form their own
-	// 2-pooler quorum that still satisfies the durability policy.
-	if missing >= p.N {
+	// Revocation: if N or more cohort poolers are un-recruited, they could form a
+	// quorum on their own. Example: AT_LEAST_N with N=2 and a cohort of 5 poolers.
+	// After recruiting pooler-1, pooler-2, and pooler-3, we still need to recruit
+	// pooler-4 OR pooler-5 — otherwise the 2 unrecruited poolers could form their
+	// own 2-pooler quorum that still satisfies the durability policy.
+	unrecruited := unrecruitedKeys(cohort, recruited, topoclient.ClusterIDString)
+	if len(unrecruited) >= p.N {
 		return fmt.Errorf("revocation not satisfied: %d cohort poolers not recruited, another possible quorum could be formed of %d (%s)",
-			missing, p.N, p.Desc)
+			len(unrecruited), p.N, p.Desc)
 	}
 	return nil
 }

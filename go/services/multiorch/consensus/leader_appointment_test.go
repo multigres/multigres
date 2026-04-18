@@ -898,7 +898,7 @@ func TestBeginTerm(t *testing.T) {
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum")
+		require.Contains(t, err.Error(), "recruitment validation failed")
 	})
 
 	t.Run("success - selects node with highest LSN from recruited nodes", func(t *testing.T) {
@@ -1109,8 +1109,8 @@ func TestBeginTerm(t *testing.T) {
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum",
-			"should fail quorum validation when only 1 node recruited but need 2")
+		require.Contains(t, err.Error(), "recruitment validation failed",
+			"should fail recruitment validation when only 1 node recruited but need 2")
 	})
 }
 

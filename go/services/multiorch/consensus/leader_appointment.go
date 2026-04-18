@@ -79,13 +79,20 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 		recruitedPoolers = append(recruitedPoolers, r.pooler)
 	}
 
-	// Validate recruitment (candidacy + revocation).
+	// Validate recruitment: proposal-agnostic invariants (revocation + majority)
+	// plus the candidacy check for this failover (does the recruited set satisfy
+	// the durability policy's quorum?). Candidacy is proposal-specific and
+	// lives at this layer rather than inside the policy method.
 	c.logger.InfoContext(ctx, "Validating recruitment",
 		"shard", shardID,
 		"policy", policy.Description())
 
-	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), poolerIDs(recruitedPoolers)); err != nil {
+	recruitedIDs := poolerIDs(recruitedPoolers)
+	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), recruitedIDs); err != nil {
 		return nil, nil, 0, mterrors.Wrapf(err, "recruitment validation failed for shard %s", shardID)
+	}
+	if err := policy.CheckAchievable(recruitedIDs); err != nil {
+		return nil, nil, 0, mterrors.Wrapf(err, "candidacy validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys
@@ -545,7 +552,11 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// If we attempted recruitment right now with the eligible poolers, would
 	// the result be sufficient (candidacy + revocation) under the policy?
 	// If not, abort early rather than disrupt the cluster with a doomed election.
-	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), poolerIDs(eligiblePoolers)); err != nil {
+	eligibleIDs := poolerIDs(eligiblePoolers)
+	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), eligibleIDs); err != nil {
+		return false, fmt.Sprintf("not enough eligible poolers to achieve valid recruitment: %v", err)
+	}
+	if err := policy.CheckAchievable(eligibleIDs); err != nil {
 		return false, fmt.Sprintf("not enough eligible poolers to achieve valid recruitment: %v", err)
 	}
 

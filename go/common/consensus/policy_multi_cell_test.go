@@ -56,6 +56,15 @@ func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
 			},
 			wantErrMsg: "proposed cohort spans 1 cells, required 2",
 		},
+		{
+			name: "MULTI_CELL_3 with poolers in 2 cells is not achievable",
+			n:    3,
+			proposedCohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell2"),
+			},
+			wantErrMsg: "proposed cohort spans 2 cells, required 3",
+		},
 	}
 
 	for _, tc := range tests {
@@ -108,7 +117,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			},
 		},
 		{
-			name: "MULTI_CELL_2 with multiple poolers in cell1 plus one in cell2 counts as 2 distinct cells",
+			name: "MULTI_CELL_2 with 3 of 4 cohort poolers (both cell1 poolers plus one cell2) is sufficient",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -123,7 +132,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			},
 		},
 		{
-			name: "MULTI_CELL_2 with recruited poolers all in cell1 fails candidacy",
+			name: "MULTI_CELL_2 with 2 of 4 cohort poolers all in cell1 fails majority",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
@@ -135,12 +144,15 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-4", "cell1"),
 			},
-			wantErrMsg: "candidacy not satisfied: recruited poolers span 1 cells, required 2",
+			wantErrMsg: "majority not satisfied: recruited 2 of 4 cohort poolers, need at least 3",
 		},
 		{
-			name: "MULTI_CELL_2 with cohort of 2 poolers per cell across 3 cells, recruiting one per cell fails revocation",
+			// 6 poolers, 3 cells × 2 per cell. Recruiting one pooler per cell
+			// covers every cohort cell but is a pooler-minority (3 of 6), so
+			// two coordinators could recruit disjoint halves at the same term.
+			// Majority catches this.
+			name: "MULTI_CELL_2 with 3 of 6 cohort poolers (one per cell) fails majority",
 			n:    2,
-			// 3 cells × 2 poolers per cell = 6 poolers.
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1a", "cell1"),
 				id("pooler-1b", "cell1"),
@@ -149,31 +161,33 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-3a", "cell3"),
 				id("pooler-3b", "cell3"),
 			},
-			// Recruit one pooler from each cell — candidacy passes (3 cells
-			// covered) and every cohort cell is represented, but the 3
-			// un-recruited poolers also span all 3 cells and could form a
-			// separate 2-cell quorum on their own.
 			recruited: []*clustermetadatapb.ID{
 				id("pooler-1a", "cell1"),
 				id("pooler-2a", "cell2"),
 				id("pooler-3a", "cell3"),
 			},
-			wantErrMsg: "revocation not satisfied",
+			wantErrMsg: "majority not satisfied: recruited 3 of 6 cohort poolers, need at least 4",
 		},
 		{
-			name: "MULTI_CELL_2 a cell with more than one pooler, requires recruiting all poolers from that cell",
+			// Cohort: 3 poolers in cell1, 1 in cell2, 1 in cell3. N=2.
+			// Recruiting all 3 cell1 poolers clears majority (3 of 5, need 3)
+			// but leaves un-recruited cells {cell2, cell3} = 2 cells, enough
+			// for a parallel 2-cell quorum. Revocation catches it.
+			name: "MULTI_CELL_2 with 3 of 5 cohort poolers passes majority but fails revocation",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-4", "cell1"),
+				id("pooler-1a", "cell1"),
+				id("pooler-1b", "cell1"),
+				id("pooler-1c", "cell1"),
 				id("pooler-2", "cell2"),
 				id("pooler-3", "cell3"),
 			},
 			recruited: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell2"),
+				id("pooler-1a", "cell1"),
+				id("pooler-1b", "cell1"),
+				id("pooler-1c", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers span 2 cells",
 		},
 		{
 			name: "MULTI_CELL_2 with a recruited pooler outside the cohort is rejected",
@@ -188,20 +202,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("stranger", "cell2"),
 			},
 			wantErrMsg: "recruited pooler cell2_stranger is not in cohort",
-		},
-		{
-			name: "MULTI_CELL_3 with only 2 of 3 cohort cells covered fails candidacy",
-			n:    3,
-			cohort: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell2"),
-				id("pooler-3", "cell3"),
-			},
-			recruited: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell2"),
-			},
-			wantErrMsg: "candidacy not satisfied: recruited poolers span 2 cells, required 3",
 		},
 	}
 

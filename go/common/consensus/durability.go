@@ -106,3 +106,47 @@ func validateRecruitedSubset(cohort, recruited []*clustermetadatapb.ID) error {
 	}
 	return nil
 }
+
+// validateMajority returns nil if recruited forms a strict majority of cohort
+// (|recruited| >= cohort/2 + 1). This guarantees recruitment-set intersection:
+// any two recruitments that each clear a majority must share at least one
+// pooler, because if they were disjoint their union would exceed the cohort
+// size. Shared intersection + "one accept per term" at the pooler level is
+// what makes concurrent recruitments mutually exclusive.
+func validateMajority(cohort, recruited []*clustermetadatapb.ID) error {
+	majority := len(cohort)/2 + 1
+	if len(recruited) < majority {
+		return fmt.Errorf("majority not satisfied: recruited %d of %d cohort poolers, need at least %d",
+			len(recruited), len(cohort), majority)
+	}
+	return nil
+}
+
+// unrecruitedKeys returns the distinct keyFn-keys of cohort poolers that are
+// not present in recruited. Membership is always determined at the pooler
+// level (ClusterIDString); keyFn controls the dimension of aggregation for
+// the returned set.
+//
+// Shared by durability policies to compute revocation: if the returned slice
+// has N or more entries, those entries could form a rogue quorum on their own.
+//
+//   - AtLeastN passes ClusterIDString as keyFn, so each un-recruited pooler
+//     contributes a distinct entry and the count equals un-recruited pooler count.
+//   - MultiCell passes GetCell as keyFn, so multiple un-recruited poolers in the
+//     same cell collapse into a single entry — the count is the number of
+//     cells with at least one un-recruited pooler.
+func unrecruitedKeys(cohort, recruited []*clustermetadatapb.ID, keyFn func(*clustermetadatapb.ID) string) []string {
+	recruitedPoolers := poolerKeysOf(recruited)
+	uncovered := make(map[string]struct{})
+	for _, p := range cohort {
+		if _, ok := recruitedPoolers[topoclient.ClusterIDString(p)]; ok {
+			continue
+		}
+		uncovered[keyFn(p)] = struct{}{}
+	}
+	out := make([]string, 0, len(uncovered))
+	for k := range uncovered {
+		out = append(out, k)
+	}
+	return out
+}
