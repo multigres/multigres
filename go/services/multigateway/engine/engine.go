@@ -45,6 +45,12 @@ type IExecute interface {
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
+	//   preparedStatement: Optional gateway-managed prepared statement to ensure
+	//     exists on the backend connection before the query runs. Used for
+	//     wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE)
+	//     where the rewritten SQL references the prepared statement by its
+	//     canonical name. Pass nil for queries that do not reference a
+	//     gateway-managed prepared statement.
 	//   state: Connection state containing session information and reserved connections
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
@@ -55,6 +61,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		sql string,
+		preparedStatement *query.PreparedStatement,
 		state *handler.MultiGatewayConnectionState,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
