@@ -52,17 +52,18 @@ type BenchmarkTarget struct {
 
 // ScenarioResult holds parsed pgbench output for one scenario+target run.
 type ScenarioResult struct {
-	Target        string  `json:"target"`
-	Scenario      string  `json:"scenario"`
-	TPS           float64 `json:"tps"`
-	TPSIncluding  float64 `json:"tps_including"`
-	LatencyAvg    float64 `json:"latency_avg_ms"`
-	LatencyStddev float64 `json:"latency_stddev_ms"`
-	Clients       int     `json:"clients"`
-	Duration      int     `json:"duration_seconds"`
-	Protocol      string  `json:"protocol"`
-	ConnChurn     bool    `json:"connection_churn"`
-	Transactions  int     `json:"transactions"`
+	Target          string  `json:"target"`
+	Scenario        string  `json:"scenario"`
+	TPS             float64 `json:"tps"`
+	TPSIncluding    float64 `json:"tps_including"`
+	LatencyAvg      float64 `json:"latency_avg_ms"`
+	LatencyStddev   float64 `json:"latency_stddev_ms"`
+	InitialConnTime float64 `json:"initial_conn_time_ms,omitempty"`
+	Clients         int     `json:"clients"`
+	Duration        int     `json:"duration_seconds"`
+	Protocol        string  `json:"protocol"`
+	ConnChurn       bool    `json:"connection_churn"`
+	Transactions    int     `json:"transactions"`
 }
 
 // BenchmarkReport is the top-level report containing all results.
@@ -87,12 +88,18 @@ type PgBenchRunner struct {
 }
 
 // Regex patterns for parsing pgbench output.
+// pgbench has two output formats:
+//   - Sustained mode: "tps = X (without initial connection time)" + "tps = X (including initial connection time)"
+//   - Churn mode (-C): "tps = X (including reconnection times)"
 var (
-	tpsExcludingRe  = regexp.MustCompile(`tps = ([\d.]+) \(without initial connection time\)`)
-	tpsIncludingRe  = regexp.MustCompile(`tps = ([\d.]+) \(including initial connection time\)`)
-	latencyAvgRe    = regexp.MustCompile(`latency average = ([\d.]+) ms`)
-	latencyStddevRe = regexp.MustCompile(`latency stddev = ([\d.]+) ms`)
-	transactionsRe  = regexp.MustCompile(`number of transactions actually processed: (\d+)`)
+	tpsExcludingRe    = regexp.MustCompile(`tps = ([\d.]+) \(without initial connection time\)`)
+	tpsIncludingRe    = regexp.MustCompile(`tps = ([\d.]+) \(including initial connection time\)`)
+	tpsReconnectRe    = regexp.MustCompile(`tps = ([\d.]+) \(including reconnection times\)`)
+	latencyAvgRe      = regexp.MustCompile(`latency average = ([\d.]+) ms`)
+	latencyStddevRe   = regexp.MustCompile(`latency stddev = ([\d.]+) ms`)
+	avgConnTimeRe     = regexp.MustCompile(`average connection time = ([\d.]+) ms`)
+	initialConnTimeRe = regexp.MustCompile(`initial connection time = ([\d.]+) ms`)
+	transactionsRe    = regexp.MustCompile(`number of transactions actually processed: (\d+)`)
 )
 
 // NewPgBenchRunner creates a runner after locating the pgbench binary.
@@ -187,12 +194,19 @@ func parsePgBenchOutput(output string, scenario ScenarioConfig, targetName strin
 		ConnChurn: scenario.ConnChurn,
 	}
 
+	// Sustained mode: two TPS lines
 	if m := tpsExcludingRe.FindStringSubmatch(output); len(m) > 1 {
 		v, _ := strconv.ParseFloat(m[1], 64)
 		result.TPS = v
 	}
 	if m := tpsIncludingRe.FindStringSubmatch(output); len(m) > 1 {
 		v, _ := strconv.ParseFloat(m[1], 64)
+		result.TPSIncluding = v
+	}
+	// Churn mode (-C): single TPS line with reconnection times
+	if m := tpsReconnectRe.FindStringSubmatch(output); len(m) > 1 {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		result.TPS = v
 		result.TPSIncluding = v
 	}
 	if m := latencyAvgRe.FindStringSubmatch(output); len(m) > 1 {
@@ -202,6 +216,16 @@ func parsePgBenchOutput(output string, scenario ScenarioConfig, targetName strin
 	if m := latencyStddevRe.FindStringSubmatch(output); len(m) > 1 {
 		v, _ := strconv.ParseFloat(m[1], 64)
 		result.LatencyStddev = v
+	}
+	// Churn mode reports average connection time instead of latency stddev
+	if m := avgConnTimeRe.FindStringSubmatch(output); len(m) > 1 {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		result.InitialConnTime = v
+	}
+	// Newer pgbench (PG 16+) reports initial connection time as a separate line
+	if m := initialConnTimeRe.FindStringSubmatch(output); len(m) > 1 {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		result.InitialConnTime = v
 	}
 	if m := transactionsRe.FindStringSubmatch(output); len(m) > 1 {
 		v, _ := strconv.Atoi(m[1])
