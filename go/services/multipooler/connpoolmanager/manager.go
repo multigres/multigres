@@ -157,7 +157,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.startRebalancer()
 
 	// Register observable metric callbacks for pool statistics.
-	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.config.GlobalCapacity); err != nil {
+	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.config.GlobalCapacity, m.IsClosed); err != nil {
 		m.logger.WarnContext(ctx, "failed to register pool metrics callbacks", "error", err)
 	}
 
