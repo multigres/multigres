@@ -362,7 +362,7 @@ func startPgCtldServer(t *testing.T, poolerDir, configFile string, extraEnv ...s
 		args = append(args, "--config-file", configFile)
 	}
 
-	cmd := executil.Command(t.Context(), "pgctld", args...)
+	cmd := executil.Command(t.Context(), "pgctld", args...).WithProcessGroup()
 	cmd.AddEnv("MULTIGRES_TESTDATA_DIR=" + poolerDir)
 	setupTestEnv(cmd, poolerDir)
 	for _, e := range extraEnv {

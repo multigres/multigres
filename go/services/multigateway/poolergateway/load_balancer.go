@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -76,6 +77,17 @@ type LoadBalancer struct {
 
 	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
 	grpcDialOpt grpc.DialOption
+
+	// lowReplicationLagNs is the preferred replication lag threshold in nanoseconds.
+	// Replicas at or below this lag are considered "healthy" and preferred.
+	// If all replicas exceed this but are under highReplicationLagToleranceNs,
+	// they are still eligible. Zero disables the preferred tier (all replicas equal).
+	lowReplicationLagNs int64
+
+	// highReplicationLagToleranceNs is the absolute maximum replication lag in
+	// nanoseconds. Replicas above this are never selected. Zero means no upper
+	// bound — any replica is eligible regardless of lag.
+	highReplicationLagToleranceNs int64
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
@@ -97,6 +109,18 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger,
 // Must be called before any poolers are added.
 func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
 	lb.onPrimaryServing = fn
+}
+
+// SetReplicationLagThresholds configures two-tier replication lag filtering.
+//
+//   - lowLag: replicas at or below this lag are preferred ("healthy" tier).
+//     If all replicas exceed this but are under highTolerance, they are still used.
+//     Zero disables the preferred tier — all replicas are treated equally.
+//   - highTolerance: absolute maximum lag. Replicas above this are never selected.
+//     Zero means no upper bound.
+func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.Duration) {
+	lb.lowReplicationLagNs = lowLag.Nanoseconds()
+	lb.highReplicationLagToleranceNs = highTolerance.Nanoseconds()
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
@@ -235,7 +259,14 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
-	return lb.selectReplicaConnection(candidates), nil
+	selected := lb.selectReplicaConnection(candidates)
+	if selected == nil {
+		// All replicas exceeded the replication lag threshold.
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no replica with acceptable replication lag for target: tablegroup=%s, shard=%s",
+			target.TableGroup, target.Shard)
+	}
+	return selected, nil
 }
 
 // GetConnectionByID returns a PoolerConnection for a specific pooler ID.
@@ -261,38 +292,106 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 	return conn, nil
 }
 
-// selectReplicaConnection chooses the best replica connection from candidates.
-// Prefers serving connections in local cell, with randomization within each tier
-// to distribute load across replicas (following Vitess pattern).
+// selectReplicaConnection chooses the best replica connection from candidates
+// using two-tier replication lag filtering:
+//
+//  1. Exclude replicas above highReplicationLagToleranceNs (absolute max).
+//  2. Prefer replicas at or below lowReplicationLagNs ("healthy" tier).
+//  3. If no healthy replicas, fall back to any that passed the high tolerance.
+//  4. If none pass either threshold, return nil (error to client).
+//
+// Within each tier, selection prefers local-cell serving replicas with
+// randomization to distribute load.
 func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
-	// Categorize by locality and serving status
-	var localServing, remoteServing, localNotServing []*PoolerConnection
-	for _, conn := range candidates {
-		isLocal := conn.Cell() == lb.localCell
-		isServing := conn.Health().IsServing()
+	lowThreshold := lb.lowReplicationLagNs
+	highThreshold := lb.highReplicationLagToleranceNs
+	hasLagFilter := lowThreshold > 0 || highThreshold > 0
 
-		switch {
-		case isLocal && isServing:
-			localServing = append(localServing, conn)
-		case isServing:
-			remoteServing = append(remoteServing, conn)
-		case isLocal:
-			localNotServing = append(localNotServing, conn)
+	// Single-pass: lag filtering + locality categorization combined.
+	// "healthy" = lag within lowThreshold (or unknown). "tolerable" = between
+	// low and high thresholds. Each bucket is further split by locality.
+	type bucket struct {
+		localServing, remoteServing, localNotServing []*PoolerConnection
+	}
+	var healthy, tolerable bucket
+
+	for _, conn := range candidates {
+		health := conn.Health()
+
+		if hasLagFilter {
+			lagNs := int64(0)
+			if health != nil {
+				lagNs = health.ReplicationLagNs
+			}
+
+			// Exclude replicas above the absolute maximum.
+			if highThreshold > 0 && lagNs > 0 && lagNs > highThreshold {
+				continue
+			}
+
+			isLocal := conn.Cell() == lb.localCell
+			isServing := health.IsServing()
+
+			// Lag unknown (0) or within the low threshold → healthy.
+			if lowThreshold == 0 || lagNs == 0 || lagNs <= lowThreshold {
+				switch {
+				case isLocal && isServing:
+					healthy.localServing = append(healthy.localServing, conn)
+				case isServing:
+					healthy.remoteServing = append(healthy.remoteServing, conn)
+				case isLocal:
+					healthy.localNotServing = append(healthy.localNotServing, conn)
+				}
+			} else {
+				// Between low and high thresholds → tolerable fallback.
+				switch {
+				case isLocal && isServing:
+					tolerable.localServing = append(tolerable.localServing, conn)
+				case isServing:
+					tolerable.remoteServing = append(tolerable.remoteServing, conn)
+				case isLocal:
+					tolerable.localNotServing = append(tolerable.localNotServing, conn)
+				}
+			}
+		} else {
+			// No lag filtering — all candidates go into "healthy".
+			isLocal := conn.Cell() == lb.localCell
+			isServing := health.IsServing()
+
+			switch {
+			case isLocal && isServing:
+				healthy.localServing = append(healthy.localServing, conn)
+			case isServing:
+				healthy.remoteServing = append(healthy.remoteServing, conn)
+			case isLocal:
+				healthy.localNotServing = append(healthy.localNotServing, conn)
+			}
 		}
 	}
 
-	// Select from tiers in preference order, with randomization within each tier
-	if len(localServing) > 0 {
-		return localServing[rand.IntN(len(localServing))]
+	// Pick the best bucket: prefer healthy, fall back to tolerable.
+	b := &healthy
+	if len(b.localServing)+len(b.remoteServing)+len(b.localNotServing) == 0 {
+		b = &tolerable
 	}
-	if len(remoteServing) > 0 {
-		return remoteServing[rand.IntN(len(remoteServing))]
+	if len(b.localServing)+len(b.remoteServing)+len(b.localNotServing) == 0 {
+		if hasLagFilter {
+			// All replicas exceed the high tolerance threshold.
+			return nil
+		}
+		// No lag filter and no candidates categorized — shouldn't happen
+		// because candidates is non-empty, but be safe.
+		return candidates[rand.IntN(len(candidates))]
 	}
-	if len(localNotServing) > 0 {
-		return localNotServing[rand.IntN(len(localNotServing))]
+
+	// Select from tiers in preference order, with randomization within each tier.
+	if len(b.localServing) > 0 {
+		return b.localServing[rand.IntN(len(b.localServing))]
 	}
-	// Fall back to any candidate
-	return candidates[rand.IntN(len(candidates))]
+	if len(b.remoteServing) > 0 {
+		return b.remoteServing[rand.IntN(len(b.remoteServing))]
+	}
+	return b.localNotServing[rand.IntN(len(b.localNotServing))]
 }
 
 // onPoolerHealthUpdate is the callback invoked by PoolerConnection when health

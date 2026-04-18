@@ -86,6 +86,14 @@ service MultiAdminService {
     option (google.api.http) = {get: "/api/v1/backups"};
   }
 
+  // ExpireBackups removes old backups according to retention policy
+  rpc ExpireBackups(ExpireBackupsRequest) returns (ExpireBackupsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups/expire"
+      body: "*"
+    };
+  }
+
   //
   // Pooler Status (proxy methods)
   //
@@ -100,11 +108,11 @@ service MultiAdminService {
   // PostgreSQL Monitoring Control (proxy methods)
   //
 
-  // SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
-  rpc SetPostgresMonitor(SetPostgresMonitorRequest) returns (SetPostgresMonitorResponse) {
+  // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+  rpc SetPostgresRestartsEnabled(SetPostgresRestartsEnabledRequest) returns (SetPostgresRestartsEnabledResponse) {
     option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"
+      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"
       body: "*"
     };
   }
@@ -315,6 +323,24 @@ message GetBackupsResponse {
   repeated BackupInfo backups = 1;
 }
 
+// ExpireBackupsRequest requests expiration of old backups
+message ExpireBackupsRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+  // Optional overrides for pgbackrest expire command-line flags.
+  map<string, string> overrides = 4;
+}
+
+// ExpireBackupsResponse contains the result of backup expiration
+message ExpireBackupsResponse {
+  // IDs of backups that were removed by the expiration.
+  repeated string expired_backup_ids = 1;
+}
+
 // BackupInfo contains information about a single backup artifact
 message BackupInfo {
   // backup_id uniquely identifies this backup (e.g., "20250117-123456F")
@@ -363,17 +389,17 @@ message GetPoolerStatusResponse {
 
 // PostgreSQL Monitoring Control operation messages
 
-// SetPostgresMonitorRequest requests to enable or disable PostgreSQL monitoring on a pooler
-message SetPostgresMonitorRequest {
-  // pooler_id identifies which pooler to update monitoring on (required)
+// SetPostgresRestartsEnabledRequest requests to enable or disable automatic PostgreSQL restarts on a pooler
+message SetPostgresRestartsEnabledRequest {
+  // pooler_id identifies which pooler to update (required)
   clustermetadata.ID pooler_id = 1;
 
-  // enabled controls whether monitoring is enabled (true) or disabled (false)
+  // enabled controls whether automatic restarts are enabled (true) or suppressed (false)
   bool enabled = 2;
 }
 
-// SetPostgresMonitorResponse confirms that monitoring was updated
+// SetPostgresRestartsEnabledResponse confirms that the flag was updated
 // Errors are returned via gRPC status codes, not in the response body
-message SetPostgresMonitorResponse {
+message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }

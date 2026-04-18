@@ -178,6 +178,7 @@ unix_socket_directories = '{{.UnixSocketDirectories}}'`,
 
 func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
 	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")

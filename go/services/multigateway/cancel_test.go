@@ -46,17 +46,46 @@ func TestCancelManager_LocalCancel(t *testing.T) {
 	pid := pid.EncodePID(ownPrefix, 42)
 
 	var canceledPID, canceledSecret uint32
-	localCancelFn := func(p, s uint32) bool {
+	primaryCancelFn := func(p, s uint32) bool {
 		canceledPID = p
 		canceledSecret = s
 		return true
 	}
 
-	cm := NewCancelManager(localCancelFn, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer cm.Close()
 
-	cm.HandleCancelRequest(context.Background(), pid, 99999)
+	handler := cm.ForListener(false)
+	handler.HandleCancelRequest(context.Background(), pid, 99999)
 
+	assert.Equal(t, pid, canceledPID)
+	assert.Equal(t, uint32(99999), canceledSecret)
+}
+
+func TestCancelManager_LocalReplicaCancel(t *testing.T) {
+	ownPrefix := uint32(5)
+	pid := pid.EncodePID(ownPrefix, 42)
+
+	primaryCalled := false
+	primaryCancelFn := func(p, s uint32) bool {
+		primaryCalled = true
+		return false
+	}
+
+	var canceledPID, canceledSecret uint32
+	replicaCancelFn := func(p, s uint32) bool {
+		canceledPID = p
+		canceledSecret = s
+		return true
+	}
+
+	cm := NewCancelManager(primaryCancelFn, replicaCancelFn, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer cm.Close()
+
+	handler := cm.ForListener(true)
+	handler.HandleCancelRequest(context.Background(), pid, 99999)
+
+	assert.False(t, primaryCalled, "should not call primary cancel for replica cancel request")
 	assert.Equal(t, pid, canceledPID)
 	assert.Equal(t, uint32(99999), canceledSecret)
 }
@@ -66,9 +95,9 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 	targetPrefix := uint32(10)
 	pid := pid.EncodePID(targetPrefix, 42)
 
-	localCalled := false
-	localCancelFn := func(p, s uint32) bool {
-		localCalled = true
+	primaryCalled := false
+	primaryCancelFn := func(p, s uint32) bool {
+		primaryCalled = true
 		return false
 	}
 
@@ -85,14 +114,16 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 		},
 	}
 
-	cm := NewCancelManager(localCancelFn, ownPrefix, mockTS, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, mockTS, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer cm.Close()
 
-	// HandleCancelRequest should try to forward but will fail at the gRPC dial
-	// since there's no real server. The important thing is it doesn't call local cancel.
-	cm.HandleCancelRequest(context.Background(), pid, 99999)
+	// ForListener(false).HandleCancelRequest should try to forward but will fail
+	// at the gRPC dial since there's no real server. The important thing is it
+	// doesn't call local cancel.
+	handler := cm.ForListener(false)
+	handler.HandleCancelRequest(context.Background(), pid, 99999)
 
-	assert.False(t, localCalled, "should not call local cancel for remote prefix")
+	assert.False(t, primaryCalled, "should not call local cancel for remote prefix")
 }
 
 func TestCancelManager_GRPCHandler(t *testing.T) {
@@ -100,13 +131,13 @@ func TestCancelManager_GRPCHandler(t *testing.T) {
 	pid := pid.EncodePID(ownPrefix, 42)
 
 	var canceledPID, canceledSecret uint32
-	localCancelFn := func(p, s uint32) bool {
+	primaryCancelFn := func(p, s uint32) bool {
 		canceledPID = p
 		canceledSecret = s
 		return true
 	}
 
-	cm := NewCancelManager(localCancelFn, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cm := NewCancelManager(primaryCancelFn, nil, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer cm.Close()
 
 	resp, err := cm.CancelQuery(context.Background(), &multigatewayservicepb.CancelQueryRequest{
@@ -116,6 +147,39 @@ func TestCancelManager_GRPCHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
+	assert.Equal(t, pid, canceledPID)
+	assert.Equal(t, uint32(12345), canceledSecret)
+}
+
+func TestCancelManager_GRPCHandlerReplica(t *testing.T) {
+	ownPrefix := uint32(5)
+	pid := pid.EncodePID(ownPrefix, 42)
+
+	primaryCalled := false
+	primaryCancelFn := func(p, s uint32) bool {
+		primaryCalled = true
+		return false
+	}
+
+	var canceledPID, canceledSecret uint32
+	replicaCancelFn := func(p, s uint32) bool {
+		canceledPID = p
+		canceledSecret = s
+		return true
+	}
+
+	cm := NewCancelManager(primaryCancelFn, replicaCancelFn, ownPrefix, nil, testCancelLogger(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer cm.Close()
+
+	resp, err := cm.CancelQuery(context.Background(), &multigatewayservicepb.CancelQueryRequest{
+		ProcessId: pid,
+		SecretKey: 12345,
+		Replica:   true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.False(t, primaryCalled, "should not call primary cancel for replica gRPC request")
 	assert.Equal(t, pid, canceledPID)
 	assert.Equal(t, uint32(12345), canceledSecret)
 }
@@ -208,6 +272,7 @@ func TestCancelManager_ForwardCancel_TLS_Success(t *testing.T) {
 
 	cm := NewCancelManager(
 		func(pid, secret uint32) bool { return false },
+		nil,
 		ownPrefix,
 		newMockTopoStoreForAddr(t, targetPrefix, addr),
 		testCancelLogger(),
@@ -218,7 +283,7 @@ func TestCancelManager_ForwardCancel_TLS_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = cm.forwardCancel(ctx, targetPrefix, processID, secretKey)
+	err = cm.forwardCancel(ctx, targetPrefix, processID, secretKey, false)
 	require.NoError(t, err)
 
 	select {
@@ -245,6 +310,7 @@ func TestCancelManager_ForwardCancel_TLS_FailureWithInsecureClient(t *testing.T)
 
 	cm := NewCancelManager(
 		func(pid, secret uint32) bool { return false },
+		nil,
 		ownPrefix,
 		newMockTopoStoreForAddr(t, targetPrefix, addr),
 		testCancelLogger(),
@@ -255,7 +321,7 @@ func TestCancelManager_ForwardCancel_TLS_FailureWithInsecureClient(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	err = cm.forwardCancel(ctx, targetPrefix, processID, 99999)
+	err = cm.forwardCancel(ctx, targetPrefix, processID, 99999, false)
 	require.Error(t, err)
 
 	select {

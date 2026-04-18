@@ -82,31 +82,11 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 		"shard", req.Shard,
 		"force_primary", req.ForcePrimary)
 
-	// For replica backups in local mode (tests), we need to pass pg2_path override
-	// so pgBackRest can connect to the primary's postgres to get WAL files.
-	// In TLS mode (production), this override is not used.
-	overrides := make(map[string]string)
-	if pooler.Type == clustermetadatapb.PoolerType_REPLICA {
-		// Find the primary pooler to get its data directory
-		primary, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, true)
-		if err != nil {
-			s.logger.WarnContext(ctx, "Failed to find primary pooler for pg2_path override",
-				"error", err)
-			// Continue without override - will work in TLS mode, fail in local mode
-		} else if primary.PgDataDir != "" {
-			overrides["pg2_path"] = primary.PgDataDir
-			s.logger.DebugContext(ctx, "Added pg2_path override for replica backup",
-				"pg2_path", overrides["pg2_path"])
-		}
-	}
-
-	// Call backup on the pooler using the shared rpcClient
-	// The jobID was generated in Backup() and is passed to pgbackrest as an annotation
+	// Call backup on the pooler using the shared rpcClient.
 	backupReq := &multipoolermanagerdata.BackupRequest{
 		Type:         req.Type,
 		ForcePrimary: req.ForcePrimary,
 		JobId:        jobID,
-		Overrides:    overrides,
 	}
 
 	resp, err := s.rpcClient.Backup(ctx, pooler, backupReq)
@@ -398,5 +378,44 @@ func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 
 	return &multiadminpb.GetBackupsResponse{
 		Backups: backups,
+	}, nil
+}
+
+// ExpireBackups removes old backups according to retention policy.
+// It finds a replica pooler and proxies the request to it.
+func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.ExpireBackupsRequest) (*multiadminpb.ExpireBackupsResponse, error) {
+	s.logger.DebugContext(ctx, "ExpireBackups request received",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard)
+
+	if req.Database == "" {
+		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
+	}
+	if req.TableGroup == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
+	}
+
+	// Find a replica pooler — all replicas for a shard share the same pgbackrest repo
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
+	}
+
+	resp, err := s.rpcClient.ExpireBackups(ctx, pooler, &multipoolermanagerdata.ExpireBackupsRequest{
+		Overrides: req.Overrides,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to expire backups: %v", err)
+	}
+
+	s.logger.InfoContext(ctx, "ExpireBackups completed",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+		"expired_backup_ids", resp.ExpiredBackupIds)
+
+	return &multiadminpb.ExpireBackupsResponse{
+		ExpiredBackupIds: resp.ExpiredBackupIds,
 	}, nil
 }

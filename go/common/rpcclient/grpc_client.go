@@ -121,23 +121,6 @@ func (c *Client) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.
 }
 
 //
-// Manager Service Methods - Initialization
-//
-
-// InitializeEmptyPrimary initializes the multipooler as an empty primary.
-func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializeEmptyPrimary(ctx, request)
-}
-
-//
 // Manager Service Methods - Status and Monitoring
 //
 
@@ -495,6 +478,19 @@ func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb
 	return conn.managerClient.GetBackupByJobId(ctx, request)
 }
 
+// ExpireBackups removes old backups according to retention policy.
+func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ExpireBackups(ctx, request)
+}
+
 //
 // Manager Service Methods - Timeline Repair
 //
@@ -513,11 +509,11 @@ func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.M
 }
 
 //
-// Manager Service Methods - PostgreSQL Monitoring Control
+// Manager Service Methods - PostgreSQL Restart Control
 //
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-func (c *Client) SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -526,7 +522,7 @@ func (c *Client) SetMonitor(ctx context.Context, pooler *clustermetadatapb.Multi
 		_ = closer()
 	}()
 
-	return conn.managerClient.SetMonitor(ctx, request)
+	return conn.managerClient.SetPostgresRestartsEnabled(ctx, request)
 }
 
 //

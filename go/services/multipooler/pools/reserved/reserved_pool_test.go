@@ -59,7 +59,7 @@ func TestPool_NewConn(t *testing.T) {
 	require.NotNil(t, conn)
 
 	// Verify connection has a unique ID.
-	assert.Greater(t, conn.ConnID, int64(0))
+	assert.Greater(t, conn.ConnID(), int64(0))
 
 	// Verify pool stats.
 	stats := pool.Stats()
@@ -82,12 +82,12 @@ func TestPool_Get(t *testing.T) {
 	// Create a connection.
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	connID := conn.ConnID
+	connID := conn.ConnID()
 
 	// Get by ID should work.
 	retrieved, ok := pool.Get(connID)
 	require.True(t, ok)
-	assert.Equal(t, connID, retrieved.ConnID)
+	assert.Equal(t, connID, retrieved.ConnID())
 
 	// Get with invalid ID should fail.
 	_, ok = pool.Get(999999)
@@ -425,7 +425,7 @@ func TestConn_Release(t *testing.T) {
 
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	connID := conn.ConnID
+	connID := conn.ConnID()
 
 	assert.False(t, conn.IsReleased())
 
@@ -519,19 +519,19 @@ func TestPool_TimestampBasedConnectionIDs(t *testing.T) {
 		conns[i] = conn
 
 		// Verify ID is positive and large (timestamp-based).
-		assert.Greater(t, conn.ConnID, int64(0), "connection ID should be positive")
+		assert.Greater(t, conn.ConnID(), int64(0), "connection ID should be positive")
 		// Timestamps in nanoseconds since 1970 should be > 1e18 (2001+).
-		assert.Greater(t, conn.ConnID, int64(1e18), "connection ID should be timestamp-based")
+		assert.Greater(t, conn.ConnID(), int64(1e18), "connection ID should be timestamp-based")
 
 		// Verify uniqueness.
-		assert.False(t, ids[conn.ConnID], "connection ID should be unique")
-		ids[conn.ConnID] = true
+		assert.False(t, ids[conn.ConnID()], "connection ID should be unique")
+		ids[conn.ConnID()] = true
 
 		// Verify IDs are sequential (each ID is larger than the previous).
 		if i > 0 {
-			assert.Greater(t, conn.ConnID, prevID, "connection IDs should be sequential")
+			assert.Greater(t, conn.ConnID(), prevID, "connection IDs should be sequential")
 		}
-		prevID = conn.ConnID
+		prevID = conn.ConnID()
 	}
 
 	// Clean up.
@@ -552,7 +552,7 @@ func TestConn_ReleaseError(t *testing.T) {
 
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	connID := conn.ConnID
+	connID := conn.ConnID()
 
 	// Verify connection is active.
 	stats := pool.Stats()
@@ -657,8 +657,8 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 	for range numConns {
 		conn, err := pool1.NewConn(ctx, nil)
 		require.NoError(t, err)
-		if conn.ConnID > maxPool1ID {
-			maxPool1ID = conn.ConnID
+		if conn.ConnID() > maxPool1ID {
+			maxPool1ID = conn.ConnID()
 		}
 		conn.Release(ReleaseCommit)
 	}
@@ -677,7 +677,7 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		require.NoError(t, err)
 		// New pool's IDs should all be greater than the max from the old pool
 		// because they're based on a later timestamp.
-		assert.Greater(t, conn.ConnID, maxPool1ID, "new pool IDs should be greater than old pool IDs")
+		assert.Greater(t, conn.ConnID(), maxPool1ID, "new pool IDs should be greater than old pool IDs")
 		conn.Release(ReleaseCommit)
 	}
 }

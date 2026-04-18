@@ -100,6 +100,13 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) error {
 	t.Helper()
 
+	// Ensure the pooler type is REPLICA before calling StopReplication, which
+	// requires REPLICA type. This handles the race where postgres has been
+	// restarted as a standby but the monitor has not yet reconciled the type.
+	if err := SetPoolerType(ctx, client, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return fmt.Errorf("failed to set pooler type to replica before restore: %w", err)
+	}
+
 	// Stop replication on primary
 	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {

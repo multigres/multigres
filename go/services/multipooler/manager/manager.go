@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
@@ -42,7 +43,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -102,15 +102,15 @@ type MultiPoolerManager struct {
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
 	// Type and ServingStatus are exclusively written by the StateManager.
-	multipooler     *clustermetadatapb.MultiPooler
-	state           ManagerState
-	stateError      error
-	consensusState  *ConsensusState
-	topoLoaded      bool
-	consensusLoaded bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	loadTimeout     time.Duration
+	multipooler    *clustermetadatapb.MultiPooler
+	state          ManagerState
+	stateError     error
+	consensusState *ConsensusState
+	topoLoaded     bool
+	rules          ruleStorer
+	ctx            context.Context
+	cancel         context.CancelFunc
+	loadTimeout    time.Duration
 
 	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
 	// Unbuffered is safe here because we only close() the channel (which never blocks
@@ -133,8 +133,23 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
+	// resignedPrimaryAtTerm is set when this node voluntarily resigns as primary
+	// (via EmergencyDemote). The value is the consensus term at which the primary
+	// resigned. A non-zero value signals the coordinator to trigger an immediate
+	// election. Protected by mu. Cleared when this node is elected primary again.
+	resignedPrimaryAtTerm int64
+
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
+
+	// rewindPending suppresses the postgres monitor after emergency demotion until a
+	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
+	rewindPending atomic.Bool
+
+	// postgresRestartsDisabled suppresses auto-restart of a stopped PostgreSQL instance.
+	// When set, the monitor continues to run and detect problems but skips the start action.
+	// False by default (restarts enabled); tests and demos set it during controlled failovers.
+	postgresRestartsDisabled atomic.Bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
@@ -154,6 +169,9 @@ type MultiPoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// topoPublisher asynchronously reflects in-memory state to etcd.
+	topoPublisher *topoPublisher
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -249,8 +267,15 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		cancel: cancel,
 	}
 
-	// Consensus state is always available; it will be loaded when needed.
+	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
+	// Only actual read/parse errors fail the constructor.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+	if config.ConsensusEnabled {
+		if _, err := pm.consensusState.Load(); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
+		}
+	}
 
 	// Create the query service controller with the pool manager.
 	// Get the drain grace period from connpool config (0 means use default).
@@ -259,6 +284,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -275,6 +301,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if metricsErr != nil {
 		logger.Warn("failed to register pgBackRest metrics", "error", metricsErr)
 	}
+
+	pm.topoPublisher = newTopoPublisher(logger, config.TopoClient)
 
 	return pm, nil
 }
@@ -342,6 +370,9 @@ func (pm *MultiPoolerManager) Open() {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Start topology publisher goroutine to eventually-consistently sync state to etcd.
+	go pm.topoPublisher.Run(pm.ctx)
 
 	// Start health heartbeat goroutine and transition to SERVING.
 	// SetState notifies all components (query service, heartbeat, health streamer).
@@ -600,14 +631,8 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTermNumber returns the current consensus term number in a thread-safe manner
+// getCurrentTermNumber returns the current consensus term number.
 func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if pm.consensusState == nil {
-		return 0, nil
-	}
 	return pm.consensusState.GetCurrentTermNumber(ctx)
 }
 
@@ -677,9 +702,7 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Check that topo is loaded and consensus is loaded (if enabled)
-	consensusReady := !pm.config.ConsensusEnabled || pm.consensusLoaded
-	if pm.topoLoaded && consensusReady {
+	if pm.topoLoaded {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
 
@@ -692,14 +715,11 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		}
 
 		// Set initial primary observation from loaded consensus state.
-		// Use GetInconsistentTerm (safe without action lock) to read the term.
-		if pm.consensusState != nil {
-			if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
-				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-					PrimaryID:   pm.serviceID,
-					PrimaryTerm: term.GetPrimaryTerm(),
-				})
-			}
+		if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
+			pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+				PrimaryID:   pm.serviceID,
+				PrimaryTerm: term.GetPrimaryTerm(),
+			})
 		}
 	}
 }
@@ -832,16 +852,8 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"old_term", currentTerm,
 			"service_id", pm.serviceID.String())
 
-		pm.mu.Lock()
-		cs := pm.consensusState
-		pm.mu.Unlock()
-
-		if cs == nil {
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
-		}
-
 		// Update term atomically (resets accepted leader)
-		if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
+		if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
@@ -897,20 +909,12 @@ func (pm *MultiPoolerManager) updateTermIfNewer(ctx context.Context, requestTerm
 		return nil
 	}
 
-	pm.mu.Lock()
-	cs := pm.consensusState
-	pm.mu.Unlock()
-
-	if cs == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
-	}
-
 	pm.logger.InfoContext(ctx, "Updating to newer term after successful operation",
 		"request_term", requestTerm,
 		"old_term", currentTerm,
 		"service_id", pm.serviceID.String())
 
-	if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
+	if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
 		return mterrors.Wrap(err, "failed to update consensus term")
 	}
 
@@ -951,49 +955,6 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 	}
 
 	return nil
-}
-
-// loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
-func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
-	// Set timeout for the entire loading process
-	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
-	defer timeoutCancel()
-
-	r := retry.New(100*time.Millisecond, 30*time.Second)
-	for _, err := range r.Attempts(timeoutCtx) {
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
-			} else {
-				pm.setStateError(errors.New("manager context cancelled while loading consensus term"))
-			}
-			return
-		}
-
-		// Initialize consensus state if not already done
-		pm.mu.Lock()
-		if pm.consensusState == nil {
-			pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
-		}
-		cs := pm.consensusState
-		pm.mu.Unlock()
-
-		// Load term from local disk using the ConsensusState
-		var currentTerm int64
-		if currentTerm, err = cs.Load(); err != nil {
-			pm.logger.Debug("Failed to load consensus term from disk, retrying", "error", err)
-			continue // Will retry with backoff
-		}
-
-		// Successfully loaded (nil/empty term is OK)
-		pm.mu.Lock()
-		pm.consensusLoaded = true
-		pm.mu.Unlock()
-
-		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
-		pm.checkAndSetReady()
-		return
-	}
 }
 
 // checkDemotionState checks the current state to determine what steps remain
@@ -1056,41 +1017,13 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
-		return mterrors.Wrap(err, "failed to sync NOT_SERVING to topology")
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block demotion.
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
-	return nil
-}
-
-// stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
-// This is used when a primary needs to step down immediately during consensus term changes.
-// The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
-func (pm *MultiPoolerManager) stopPostgresForEmergencyDemote(ctx context.Context, state *demotionState) error {
-	if state.isReadOnly {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "unexpected state: PostgreSQL already in standby mode during emergency demotion")
-	}
-
-	if pm.pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
-	}
-
-	stopReq := &pgctldpb.StopRequest{
-		Mode: "fast",
-	}
-	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-		return mterrors.Wrap(err, "failed to stop PostgreSQL during emergency demotion")
-	}
-
-	pm.logger.InfoContext(ctx, "PostgreSQL stopped for emergency demotion")
-
 	return nil
 }
 
@@ -1394,14 +1327,10 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
-		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block promotion.
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	return nil
@@ -1458,10 +1387,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
-	// Start loading consensus term from local disk asynchronously (only if consensus is enabled)
-	if pm.config.ConsensusEnabled {
-		go pm.loadConsensusTermFromDisk()
-	}
 
 	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
@@ -1537,6 +1462,7 @@ const (
 	remedialActionRestoreFromBackup
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
+	remedialActionCreateFirstBackup
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1545,12 +1471,17 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	const (
 		reasonPgctldUnavailable = "pgctld_unavailable"
 		reasonPostgresRunning   = "postgres_running"
-		reasonWaitingForBackup  = "waiting_for_backup"
 	)
 
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
 		pm.logger.InfoContext(pm.ctx, "MonitorPostgres: manager not ready yet")
+		return
+	}
+
+	// Skip all action while awaiting a rewind after emergency demotion.
+	if pm.rewindPending.Load() {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping, awaiting rewind after demotion")
 		return
 	}
 
@@ -1567,8 +1498,6 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		} else if !currentState.dirInitialized && !currentState.backupsAvailable {
-			pm.setMonitorReason(ctx, reasonWaitingForBackup, "MonitorPostgres: directory not initialized and no backups available, waiting")
 		}
 		return
 	}
@@ -1580,6 +1509,13 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
+
+	// Re-check rewindPending after acquiring the lock: EmergencyDemote sets this flag
+	// while holding the lock, so we may have been waiting while it demoted the node.
+	if pm.rewindPending.Load() {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
+		return
+	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
 	currentState = pm.discoverPostgresState(lockCtx)
@@ -1655,6 +1591,18 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToReplica
 		}
+		// Postgres is standby and type is already REPLICA, but check if the resignation
+		// signal needs to be (re-)published. This handles the case where the signal was
+		// lost after a process restart following EmergencyDemote.
+		if !currentState.isPrimary {
+			term, _ := pm.consensusState.GetInconsistentTerm()
+			pm.mu.Lock()
+			resigned := pm.resignedPrimaryAtTerm
+			pm.mu.Unlock()
+			if term.GetPrimaryTerm() != 0 && resigned == 0 {
+				return remedialActionAdjustTypeToReplica
+			}
+		}
 		return remedialActionNone // Pooler type already matches
 	}
 
@@ -1667,8 +1615,8 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		return remedialActionRestoreFromBackup
 	}
 
-	// Directory not initialized and no backups: Wait
-	return remedialActionNone
+	// Directory not initialized and no backups: try to create the first backup
+	return remedialActionCreateFirstBackup
 }
 
 // takeRemedialAction executes the specified remedial action.
@@ -1681,9 +1629,11 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	}
 
 	const (
-		reasonPostgresRunning     = "postgres_running"
-		reasonStartingPostgres    = "starting_postgres"
-		reasonRestoringFromBackup = "restoring_from_backup"
+		reasonPostgresRunning            = "postgres_running"
+		reasonStartingPostgres           = "starting_postgres"
+		reasonRestoringFromBackup        = "restoring_from_backup"
+		reasonCreatingFirstBackup        = "creating_first_backup"
+		reasonWaitingForFirstBackupLease = "waiting_for_first_backup_lease"
 	)
 
 	switch action {
@@ -1703,11 +1653,27 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
+		// Signal voluntary resignation so the coordinator can trigger an immediate
+		// election. Use the primary_term (the term at which we were elected) since
+		// the coordinator uses this to decide whether the signal is still active.
+		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
+		// consensus term from there for a more precise resignation signal.
+		if term, err := pm.consensusState.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
+			if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+			}
+		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
 		}
 
 	case remedialActionStartPostgres:
+		// Honour the in-memory flag set by tests and demos to suppress auto-restart
+		// during controlled failovers.
+		if pm.postgresRestartsDisabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled")
+			return
+		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
@@ -1723,6 +1689,28 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+		}
+
+	case remedialActionCreateFirstBackup:
+		pm.setMonitorReason(ctx, reasonCreatingFirstBackup, "MonitorPostgres: no backup found, attempting to create one")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
+		busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(ctx)
+		if busy {
+			pm.setMonitorReason(ctx, reasonWaitingForFirstBackupLease, "MonitorPostgres: backup lease held by another pooler, waiting")
+		} else if err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to create first backup, will retry", "error", err)
+		} else if backupFound {
+			// Another pooler created the backup just before we acquired the lease.
+			// Restore immediately rather than waiting for the next monitor iteration.
+			pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: first backup found; restoring")
+			if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			}
+			if err := pm.restoreAndStartPostgres(ctx); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+			}
 		}
 	}
 }
@@ -1829,68 +1817,4 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"term", pm.consensusState.term.TermNumber)
 
 	return nil
-}
-
-// enableMonitorInternal starts the PostgreSQL monitoring if not already running.
-// Returns an error if preconditions are not met.
-func (pm *MultiPoolerManager) enableMonitorInternal() error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	// Check if the manager is open
-	if !pm.isOpen {
-		return errors.New("manager is not open, cannot enable monitor")
-	}
-
-	// Start the monitor runner (idempotent)
-	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
-	return nil
-}
-
-// disableMonitorInternal stops the PostgreSQL monitoring.
-func (pm *MultiPoolerManager) disableMonitorInternal() {
-	// Stop the monitor runner (idempotent)
-	pm.pgMonitor.Stop()
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres disabled successfully")
-}
-
-// PausePostgresMonitor disables monitoring if it's currently enabled and returns a function
-// that will restore the original monitoring state. If monitoring was already disabled,
-// returns a no-op function. The caller is responsible for calling the returned function
-// (typically via defer) to restore the original state.
-//
-// This method requires the action lock to be held by the caller to prevent race conditions
-// with concurrent operations that might enable or disable monitoring. The returned resume
-// function also requires the action lock to be held when called.
-//
-// Example usage:
-//
-//	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-//	if err != nil {
-//	    return err
-//	}
-//	defer resumeMonitor(ctx)
-//	// ... perform operations that require monitoring to be disabled ...
-func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(context.Context), error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, fmt.Errorf("PausePostgresMonitor requires action lock to be held: %w", err)
-	}
-
-	wasEnabled := pm.pgMonitor.Running()
-
-	if wasEnabled {
-		pm.disableMonitorInternal()
-		return func(ctx context.Context) {
-			if err := AssertActionLockHeld(ctx); err != nil {
-				pm.logger.ErrorContext(ctx, "Resume monitor called without action lock", "error", err)
-				return
-			}
-			if err := pm.enableMonitorInternal(); err != nil {
-				pm.logger.WarnContext(ctx, "Failed to re-enable monitor", "error", err)
-			}
-		}, nil
-	}
-
-	// Monitoring was already disabled, return no-op
-	return func(context.Context) {}, nil
 }

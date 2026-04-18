@@ -267,7 +267,7 @@ func TestMultiGateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
 	setup.MultigatewayPgPort = targetPGPort
 
 	require.NoError(t, sourceGateway.Start(setup.Context(), t), "failed to start source gateway")
-	defer sourceGateway.TerminateGracefully(t, 5*time.Second)
+	defer sourceGateway.TerminateGracefully(t.Logf, 5*time.Second)
 
 	prefixes := waitForGatewayPrefixes(t, setup, targetGateway.ServiceID, sourceGateway.ServiceID)
 	targetPrefix := prefixes[targetGateway.ServiceID]

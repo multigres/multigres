@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
@@ -94,35 +95,35 @@ func IsEmpty(reasons uint32) bool {
 }
 
 // NewTransactionReservationOptions creates ReservationOptions for a transaction.
-func NewTransactionReservationOptions() *multipoolerpb.ReservationOptions {
-	return &multipoolerpb.ReservationOptions{
+func NewTransactionReservationOptions() *querypb.ReservationOptions {
+	return &querypb.ReservationOptions{
 		Reasons: ReasonTransaction,
 	}
 }
 
 // NewTempTableReservationOptions creates ReservationOptions for temporary tables.
-func NewTempTableReservationOptions() *multipoolerpb.ReservationOptions {
-	return &multipoolerpb.ReservationOptions{
+func NewTempTableReservationOptions() *querypb.ReservationOptions {
+	return &querypb.ReservationOptions{
 		Reasons: ReasonTempTable,
 	}
 }
 
 // NewPortalReservationOptions creates ReservationOptions for portal/cursor operations.
-func NewPortalReservationOptions() *multipoolerpb.ReservationOptions {
-	return &multipoolerpb.ReservationOptions{
+func NewPortalReservationOptions() *querypb.ReservationOptions {
+	return &querypb.ReservationOptions{
 		Reasons: ReasonPortal,
 	}
 }
 
 // NewReservationOptions creates ReservationOptions with the given reasons bitmask.
-func NewReservationOptions(reasons uint32) *multipoolerpb.ReservationOptions {
-	return &multipoolerpb.ReservationOptions{
+func NewReservationOptions(reasons uint32) *querypb.ReservationOptions {
+	return &querypb.ReservationOptions{
 		Reasons: reasons,
 	}
 }
 
 // GetReasons extracts the reasons bitmask from ReservationOptions, returning 0 if nil.
-func GetReasons(opts *multipoolerpb.ReservationOptions) uint32 {
+func GetReasons(opts *querypb.ReservationOptions) uint32 {
 	if opts == nil {
 		return 0
 	}

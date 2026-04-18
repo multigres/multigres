@@ -59,7 +59,9 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 	// Acquire the local action lock first to prevent deadlock with the distributed lease.
 	var err error
+	lockStart := time.Now()
 	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
+	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
 	if err != nil {
 		return "", err
 	}
@@ -161,21 +163,27 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		"--type=" + pgBackRestType,
 	}
 
-	// Get pg2 args for replica backups (empty for primary)
-	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one
-	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides)
+	// Get pg2 args for replica backups (empty for primary).
+	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one.
+	// Pass forcePrimary through so that a freshly-initialised node (type=UNKNOWN)
+	// that is acting as a primary can still do a local backup without pg2 args.
+	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides, forcePrimary)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get primary as pg2 arguments")
 	}
 	args = append(args, pg2Args...)
 
-	// Add annotations if table_group and shard are provided
-	if tableGroup != "" {
-		args = append(args, "--annotation=table_group="+tableGroup)
+	// Reject backups with empty table_group or shard to prevent corrupt metadata.
+	// Backups missing these annotations would be silently skipped by replicas
+	// during restore, causing them to fall back to older backups.
+	if tableGroup == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "table_group is missing")
 	}
-	if shard != "" {
-		args = append(args, "--annotation=shard="+shard)
+	if shard == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "shard is missing")
 	}
+	args = append(args, "--annotation=table_group="+tableGroup)
+	args = append(args, "--annotation=shard="+shard)
 
 	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
 	args = append(args, "--annotation=multipooler_id="+multipoolerName)
@@ -189,11 +197,13 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	// Execute backup with progress logging
 	var output []byte
+	backupStart := time.Now()
 	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
 		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
 	})
+	pm.metrics.RecordBackupDuration(ctx, time.Since(backupStart).Seconds())
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -223,11 +233,13 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	// Execute verify with progress logging
 	var verifyOutput []byte
+	verifyStart := time.Now()
 	verifyErr := telemetry.WithSpan(verifyCtx, "backup/verify", func(ctx context.Context) error {
 		var runErr error
 		verifyOutput, runErr = pm.runLongCommand(ctx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 		return runErr
 	})
+	pm.metrics.RecordBackupVerifyDuration(ctx, time.Since(verifyStart).Seconds())
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -265,28 +277,26 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	defer pm.actionLock.Release(ctx)
 
 	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		// Pause monitoring during restore to prevent interference
-		var resumeMonitor func(context.Context)
-		err := telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
-			var pauseErr error
-			resumeMonitor, pauseErr = pm.PausePostgresMonitor(ctx)
-			return pauseErr
-		})
-		if err != nil {
-			return err
-		}
-		defer resumeMonitor(ctx)
-
 		return pm.restoreFromBackupLocked(ctx, backupID)
 	})
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock
-// and monitoring must be disabled to avoid interference.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.metrics.IncRestoreAttempts(ctx)
+	restoreStart := time.Now()
+	defer func() {
+		pm.metrics.RecordRestoreDuration(ctx, time.Since(restoreStart).Seconds())
+		if retErr == nil {
+			pm.metrics.IncRestoreSuccesses(ctx)
+		} else {
+			pm.metrics.IncRestoreFailures(ctx)
+		}
+	}()
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
 
@@ -348,11 +358,9 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// TODO: Revisit this when we restore backups for other reasons than to
 	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
 	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
-		if pm.consensusState != nil {
-			pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
-			if err := pm.consensusState.DeleteTermFile(); err != nil {
-				return mterrors.Wrap(err, "failed to delete consensus term file after restore")
-			}
+		pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
+		if err := pm.consensusState.DeleteTermFile(); err != nil {
+			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
 		}
 		pm.healthStreamer.UpdatePrimaryObservation(nil)
 		return nil
@@ -841,20 +849,21 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // GetPrimaryAsPg2Args returns pgbackrest CLI arguments for pg2 (primary) configuration.
 //
 // When backing up from PRIMARY: Returns empty slice - pgBackRest does local backup from pg1.
-// When backing up from REPLICA with TLS certs: Returns TLS connection parameters to primary's pgBackRest server.
+// When backing up from REPLICA with TLS certs: Returns TLS connection parameters and pg2-path
+// (resolved from topology or overrides) to the primary's pgBackRest server.
 // When backing up from REPLICA without TLS certs: Returns direct postgres connection parameters (test mode).
 //
 // Returns error if this is a replica pooler without primary information.
-//
-// This is a public method to allow testing and potential reuse by other components.
 func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	ctx context.Context,
 	overrides map[string]string,
+	forcePrimary bool,
 ) ([]string, error) {
 	poolerType := pm.getPoolerType()
 
-	// Primary poolers backup locally from pg1 - no pg2 needed
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
+	// backup locally from pg1 — no pg2 needed.
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 
@@ -879,28 +888,37 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	var args []string
 
 	if isTLSMode {
-		// TLS mode: need to get the PRIMARY's pgBackRest port from topology
-		var primaryPgBackRestPort int32
-		if primaryPoolerID != nil {
-			// Get primary pooler info from topology to find its pgBackRest port
-			primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
-			if err != nil {
-				return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
-			}
-			if port, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]; ok {
-				primaryPgBackRestPort = port
-			} else {
-				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-					"primary pooler does not have pgbackrest port configured")
-			}
-		} else {
+		// TLS mode: need to get the PRIMARY's pgBackRest port and data dir from topology
+		if primaryPoolerID == nil {
 			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 				"primary pooler ID not available")
 		}
 
-		// TLS mode base arguments - connect to PRIMARY's pgBackRest TLS server
+		primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
+		}
+
+		primaryPgBackRestPort, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]
+		if !ok {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pgbackrest port configured")
+		}
+
+		// pg2-path is required by pgBackRest even in TLS mode.
+		// Use the override if provided, otherwise read from topology.
+		pg2Path := overrides["pg2_path"]
+		if pg2Path == "" {
+			pg2Path = primaryInfo.MultiPooler.PgDataDir
+		}
+		if pg2Path == "" {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pg_data_dir set in topology (required for pg2-path)")
+		}
+
 		args = []string{
 			"--pg2-host=" + primaryHost,
+			"--pg2-path=" + pg2Path,
 			"--pg2-host-type=tls",
 			fmt.Sprintf("--pg2-host-port=%d", primaryPgBackRestPort),
 			"--pg2-host-ca-file=" + caFile,

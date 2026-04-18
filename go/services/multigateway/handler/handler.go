@@ -45,6 +45,9 @@ type ExecuteResult struct {
 
 	// PlanTime is how long query planning took.
 	PlanTime time.Duration
+
+	// CacheHit indicates whether the plan was served from the plan cache.
+	CacheHit bool
 }
 
 // Executor defines the interface for query execution.
@@ -78,6 +81,9 @@ type MultiGatewayHandler struct {
 	slowThreshold    time.Duration
 	notifMgr         NotificationManager
 	onNotifDropped   func(ctx context.Context) // called when async notification delivery drops
+	// targetReplica is set to true for the replica-port listener. When true,
+	// new connection states target replicas so the planner routes queries there.
+	targetReplica bool
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -95,6 +101,12 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		slowThreshold:    constants.DefaultSlowQueryThreshold,
 		notifMgr:         DefaultNotificationManager(),
 	}
+}
+
+// SetTargetReplica configures whether connections accepted by this handler
+// target replicas. Must be called before connections are accepted.
+func (h *MultiGatewayHandler) SetTargetReplica(target bool) {
+	h.targetReplica = target
 }
 
 // Consolidator returns the prepared statement consolidator.
@@ -267,6 +279,7 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{
 			notifMgr:       h.notifMgr,

@@ -60,6 +60,11 @@ func WithTestHandler(h Handler) TestConnOption {
 	return func(c *Conn) { c.handler = h }
 }
 
+// WithTestDatabase sets the database name on a test connection.
+func WithTestDatabase(db string) TestConnOption {
+	return func(c *Conn) { c.database = db }
+}
+
 // NewTestConn creates a Conn suitable for testing.
 // readBuf contains data that will be read by the Conn (simulating client input).
 // The returned TestConn includes WriteBuf to inspect what was written.

@@ -44,7 +44,7 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Prob
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -54,13 +54,13 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(poolerAnalysis *PoolerAnal
 		return nil, nil
 	}
 
-	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
+	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
 	if !poolerAnalysis.IsInitialized {
 		return nil, nil
 	}
 
 	// Skip if primary is unreachable (PrimaryIsDead handles that)
-	if poolerAnalysis.PrimaryPoolerID != nil && !poolerAnalysis.PrimaryReachable {
+	if sa.HighestTermDiscoveredPrimaryID != nil && !sa.PrimaryReachable {
 		return nil, nil
 	}
 

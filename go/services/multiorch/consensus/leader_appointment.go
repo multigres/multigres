@@ -20,8 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pglogrepl"
-
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -29,6 +27,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -129,7 +128,7 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 // For a primary node CurrentLsn is used; for a standby, LastReceiveLsn.
 // Returns (0, false) when pos is nil, both LSN fields are empty, or the string
 // cannot be parsed.
-func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
+func walPositionLSN(pos *consensusdatapb.WALPosition) (pgutil.LSN, bool) {
 	if pos == nil {
 		return 0, false
 	}
@@ -138,18 +137,23 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
 	// standbys). Both field may be empty if the server is not a primary or
 	// standby, or if the pooler hasn't fully initialized and fetched WAL
 	// position yet.
+	// Use the most advanced LSN available: current (primary), receive (streaming standby),
+	// or replay (standby that has replayed from backup but not yet streaming).
 	lsnStr := pos.CurrentLsn
 	if lsnStr == "" {
 		lsnStr = pos.LastReceiveLsn
 	}
+	if lsnStr == "" {
+		lsnStr = pos.LastReplayLsn
+	}
 
-	// If both LSN fields are empty, we consider the WAL position invalid for
+	// If all LSN fields are empty, we consider the WAL position invalid for
 	// selection purposes.
 	if lsnStr == "" {
 		return 0, false
 	}
 
-	lsn, err := pglogrepl.ParseLSN(lsnStr)
+	lsn, err := pgutil.ParseLSN(lsnStr)
 	if err != nil {
 		return 0, false
 	}
@@ -169,10 +173,10 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
 // 1. Highest leadership_term (primary criterion).
 //
 //	Each promotion and replication-config change writes a record to
-//	multigres.leadership_history with the current consensus term, using
+//	multigres.rule_history with the current consensus term, using
 //	RemoteOperationTimeout so synchronous standbys acknowledge the write
-//	before the primary returns. The most recent term_number in a standby's
-//	local leadership_history therefore reflects how far through the agreed
+//	before the primary returns. The most recent coordinator_term in a standby's
+//	local rule_history therefore reflects how far through the agreed
 //	consensus history that standby has replicated. A standby with a higher
 //	leadership_term has definitively applied more of the cluster's
 //	committed WAL history than one with a lower term.
@@ -182,7 +186,7 @@ func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
 //	transaction written just before its primary crashed), but its
 //	leadership_term will be lower, correctly excluding it.
 //
-//	Falls back to 0 when leadership_history is empty (pre-bootstrap), in
+//	Falls back to 0 when rule_history is empty (pre-bootstrap), in
 //	which case the secondary criteria (LSN) determine the winner.
 //
 // 2. Highest LSN (secondary tiebreaker).
@@ -203,10 +207,21 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 	}
 
 	var bestRecruit *recruitmentResult
-	var bestLSN pglogrepl.LSN
+	var bestLSN pgutil.LSN
 
 	for i := range recruited {
 		r := &recruited[i]
+
+		// Skip nodes that have voluntarily requested demotion. The resignation
+		// signal is a deliberate request not to be re-elected; honoring it
+		// unconditionally avoids confusing re-elections of a node that just
+		// stepped down. If all candidates are resigned the election is deferred
+		// until a non-resigned candidate is available.
+		if poolerRequestingDemotion(r.pooler) {
+			c.logger.InfoContext(ctx, "Skipping resigned candidate during selection",
+				"pooler", r.pooler.MultiPooler.Id.Name)
+			continue
+		}
 
 		lsn, ok := walPositionLSN(r.walPosition)
 		if !ok {
@@ -260,6 +275,18 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 type recruitmentResult struct {
 	pooler      *multiorchdatapb.PoolerHealthState
 	walPosition *consensusdatapb.WALPosition
+}
+
+// poolerRequestingDemotion reports whether the pooler's cached health state shows it has
+// voluntarily requested to be replaced (REQUESTING_DEMOTION signal at its current primary term).
+// This duplicates the logic in recovery/types.PrimaryNeedsReplacement to avoid a circular import
+// (recovery imports consensus; consensus cannot import recovery).
+func poolerRequestingDemotion(pooler *multiorchdatapb.PoolerHealthState) bool {
+	ls := pooler.GetConsensusStatus().GetAvailabilityStatus().GetLeadershipStatus()
+	return ls != nil &&
+		ls.Signal == clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION &&
+		ls.PrimaryTerm != 0 &&
+		ls.PrimaryTerm == pooler.GetConsensusStatus().GetPrimaryTerm()
 }
 
 // recruitNodes sends BeginTerm RPC to all poolers in parallel and returns those that accepted.
@@ -354,22 +381,22 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 // This is accomplished by:
 //  1. Configuring standbys to replicate from the candidate (before promotion)
 //  2. Promoting the candidate to primary with synchronous replication configured.
-//  3. Writing leadership history under the new timeline. This write blocks until
+//  3. Writing rule history under the new timeline. This write blocks until
 //     acknowledged by the quorum, which proves:
 //     a) The quorum has replicated the candidate's entire timeline (up to promotion point).
-//     b) The quorum has replicated the leadership history write itself.
+//     b) The quorum has replicated the rule history write itself.
 //     c) The timeline is now durable under the new term.
 //
-// Once the leadership history write succeeds, the new leader has successfully
-// propagated its timeline and established leadership. The leadership table serves
+// Once the rule history write succeeds, the new leader has successfully
+// propagated its timeline and established leadership. The rule_history table serves
 // as the canonical source of truth for when the new term began.
 //
 // Critical ordering: Standbys MUST be configured BEFORE promotion (step 1) to avoid
-// deadlock. Promotion configures sync replication and writes leadership history, which
+// deadlock. Promotion configures sync replication and writes rule history, which
 // blocks waiting for acknowledgments. If standbys aren't replicating yet, the write
 // blocks forever.
 //
-// If we fail to write leadership history, leadership couldn't be established.
+// If we fail to write rule history, leadership couldn't be established.
 // A future coordinator will need to re-discover the most advanced timeline and re-propagate.
 func (c *Coordinator) EstablishLeadership(
 	ctx context.Context,
@@ -392,7 +419,7 @@ func (c *Coordinator) EstablishLeadership(
 
 	expectedLSN := ""
 	if status.WalPosition != nil {
-		if status.Role == "primary" {
+		if status.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
 			expectedLSN = status.WalPosition.CurrentLsn
 		} else {
 			// For standbys, use receive position (includes unreplayed WAL)
@@ -435,7 +462,7 @@ func (c *Coordinator) EstablishLeadership(
 	// Configure standbys to replicate from the candidate BEFORE promoting.
 	// This ensures standbys are ready to connect when sync replication is configured.
 	// Without this, the Promote call can deadlock: it configures sync replication and
-	// tries to write leadership history, but blocks waiting for standby acknowledgment.
+	// tries to write rule history, but blocks waiting for standby acknowledgment.
 	// The standbys can't acknowledge because they haven't been told to replicate yet.
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(standbys))
@@ -524,7 +551,7 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// in an election.
 	var healthyInitializedPoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
-		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresRunning {
+		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresReady {
 			healthyInitializedPoolers = append(healthyInitializedPoolers, pooler)
 		}
 	}

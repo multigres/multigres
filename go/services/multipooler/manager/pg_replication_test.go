@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,56 +52,70 @@ func TestNewPoolerID(t *testing.T) {
 	tests := []struct {
 		name            string
 		id              *clustermetadatapb.ID
-		expectedAppName string
+		expectedAppName string // always asserted, including error cases
 		expectError     bool
 	}{
 		{
-			name: "standard ID",
-			id: &clustermetadatapb.ID{
-				Cell: "us-west",
-				Name: "replica-1",
-			},
+			name:            "standard ID",
+			id:              &clustermetadatapb.ID{Cell: "us-west", Name: "replica-1"},
 			expectedAppName: "us-west_replica-1",
 		},
 		{
-			name: "single character values",
-			id: &clustermetadatapb.ID{
-				Cell: "a",
-				Name: "b",
-			},
+			name:            "single character values",
+			id:              &clustermetadatapb.ID{Cell: "a", Name: "b"},
 			expectedAppName: "a_b",
 		},
 		{
-			name: "hyphenated names",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: "primary-db-001",
-			},
+			name:            "hyphenated names",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: "primary-db-001"},
 			expectedAppName: "us-east-1a_primary-db-001",
 		},
 		{
-			name: "numeric values",
-			id: &clustermetadatapb.ID{
-				Cell: "zone1",
-				Name: "pooler-001",
-			},
+			name:            "numeric values",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "pooler-001"},
 			expectedAppName: "zone1_pooler-001",
 		},
 		{
-			name: "exactly 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 52), // "us-east-1a_" (11) + 52 = 63
-			},
+			name:            "exactly 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 52)}, // 11+52=63
 			expectedAppName: "us-east-1a_" + strings.Repeat("x", 52),
 		},
+		// Error cases: approximate appName returned alongside the error.
 		{
-			name: "exceeds 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 53), // "us-east-1a_" (11) + 53 = 64
-			},
-			expectError: true,
+			name:            "nil ID",
+			id:              nil,
+			expectError:     true,
+			expectedAppName: "<nil>",
+		},
+		{
+			name:            "empty cell",
+			id:              &clustermetadatapb.ID{Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "<unknown>_replica-1",
+		},
+		{
+			name:            "empty name",
+			id:              &clustermetadatapb.ID{Cell: "zone1"},
+			expectError:     true,
+			expectedAppName: "zone1_<unknown>",
+		},
+		{
+			name:            "cell contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "us_west", Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "us_west_replica-1",
+		},
+		{
+			name:            "name contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "replica_1"},
+			expectError:     true,
+			expectedAppName: "zone1_replica_1",
+		},
+		{
+			name:            "exceeds 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // 11+53=64
+			expectError:     true,
+			expectedAppName: "us-east-1a_" + strings.Repeat("x", 53), // full string returned, not truncated
 		},
 	}
 
@@ -112,11 +127,114 @@ func TestNewPoolerID(t *testing.T) {
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedAppName, result.appName)
 				assert.Equal(t, tt.id, result.id)
+			}
+			assert.Equal(t, tt.expectedAppName, result.appName)
+		})
+	}
+}
+
+func TestPoolerIDFromAppName(t *testing.T) {
+	tests := []struct {
+		name         string
+		appName      string
+		expectedCell string
+		expectedName string
+		expectError  bool
+	}{
+		{
+			name:         "standard app name",
+			appName:      "us-west_replica-1",
+			expectedCell: "us-west",
+			expectedName: "replica-1",
+		},
+		{
+			name:         "zone with hyphens and numbers",
+			appName:      "us-east-1a_primary-db-001",
+			expectedCell: "us-east-1a",
+			expectedName: "primary-db-001",
+		},
+		{
+			name:         "simple zone and name",
+			appName:      "zone1_pooler-001",
+			expectedCell: "zone1",
+			expectedName: "pooler-001",
+		},
+		{
+			name:         "no underscore - best-effort ID uses appName as Name",
+			appName:      "nounderscore",
+			expectedName: "nounderscore", // best-effort: raw appName preserved in Name
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := poolerIDFromAppName(tt.appName)
+			if tt.expectError {
+				require.Error(t, err)
+				// Best-effort ID is always returned: caller can include it rather than drop the member
+				require.NotNil(t, result.id)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedName, result.id.Name, "Name should preserve raw appName")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedCell, result.id.Cell)
+				assert.Equal(t, tt.expectedName, result.id.Name)
+				assert.Equal(t, tt.appName, result.appName)
 			}
 		})
 	}
+}
+
+func TestToPoolerIDs(t *testing.T) {
+	t.Run("all valid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			{Cell: "zone2", Name: "replica-2"},
+		}
+		result, err := toPoolerIDs(ids)
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "zone2_replica-2", result[1].appName)
+	})
+
+	t.Run("nil slice", func(t *testing.T) {
+		result, err := toPoolerIDs(nil)
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("invalid entry returns approximate value and error", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[1]")
+		// Full slice returned despite the error.
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "<nil>", result[1].appName)
+	})
+
+	t.Run("first error is reported when multiple entries are invalid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			nil,
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[0]") // first error, not ids[2]
+		require.Len(t, result, 3)
+		assert.Equal(t, "<nil>", result[0].appName)
+		assert.Equal(t, "zone1_replica-1", result[1].appName)
+		assert.Equal(t, "<nil>", result[2].appName)
+	})
 }
 
 func TestFormatStandbyList(t *testing.T) {
@@ -272,7 +390,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name: "empty cell returns error",
@@ -280,7 +398,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "", Name: "replica-1"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name: "empty name returns error",
@@ -288,7 +406,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone1", Name: ""},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 		{
 			name: "underscore in cell returns error",
@@ -329,7 +447,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone2", Name: "replica_2"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: name contains underscore",
+			errorMsg:    "ids[1]: name contains underscore",
 		},
 		{
 			name: "exceeds 63 character limit",
@@ -337,7 +455,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // "us-east-1a_" (11) + 53 = 64
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: application name",
+			errorMsg:    "ids[0]: application name",
 		},
 	}
 
@@ -1182,7 +1300,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name:    "Invalid empty cell",
@@ -1195,7 +1313,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name:    "Invalid empty name",
@@ -1208,7 +1326,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 	}
 
@@ -1246,8 +1364,8 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1285,8 +1403,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1338,13 +1456,13 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				// Second query for waitForReplicationPause
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1362,8 +1480,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
@@ -1400,8 +1518,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", errors.New("pause failed"))
 			},
 			expectError:   true,
@@ -1563,8 +1681,8 @@ func TestQueryReplicationStatus(t *testing.T) {
 			name: "All fields with valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", "2025-01-15 10:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1576,14 +1694,19 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.NotNil(t, status.PrimaryConnInfo)
 				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.LastMsgReceiveTime)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "NULL LSN values (primary server case)",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"", "", "f", "not paused", "", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"", "", "f", "not paused", "", "", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1593,14 +1716,17 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "not paused", status.WalReplayPauseState)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus, "WalReceiverStatus should be empty on primary")
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{
 			name: "Paused replication with valid LSNs",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming", "2025-01-15 11:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1615,14 +1741,18 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "replicator", status.PrimaryConnInfo.User)
 				assert.Equal(t, "standby1", status.PrimaryConnInfo.ApplicationName)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "Mixed NULL and valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1631,6 +1761,9 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.False(t, status.IsWalReplayPaused)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus)
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{

@@ -57,6 +57,10 @@ type PoolerHealth struct {
 	// Used for term-based primary reconciliation.
 	PrimaryObservation *multipoolerservice.PrimaryObservation
 
+	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
+	// Zero on the primary or when not yet measured.
+	ReplicationLagNs int64
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -86,6 +90,7 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 		PoolerID:           h.PoolerID,
 		ServingStatus:      h.ServingStatus,
 		PrimaryObservation: h.PrimaryObservation,
+		ReplicationLagNs:   h.ReplicationLagNs,
 		LastError:          h.LastError,
 		LastResponse:       h.LastResponse,
 	}
@@ -411,6 +416,7 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 		PoolerID:           response.PoolerId,
 		ServingStatus:      response.ServingStatus,
 		PrimaryObservation: response.PrimaryObservation,
+		ReplicationLagNs:   response.ReplicationLagNs,
 		LastError:          nil,
 		LastResponse:       time.Now(),
 	}

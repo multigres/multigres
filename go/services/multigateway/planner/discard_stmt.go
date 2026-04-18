@@ -41,5 +41,5 @@ func (p *Planner) planDiscardStmt(
 	}
 
 	// DISCARD ALL, DISCARD PLANS, DISCARD SEQUENCES — route to PostgreSQL.
-	return p.planDefault(sql, conn)
+	return p.planDefault(sql, stmt, conn)
 }

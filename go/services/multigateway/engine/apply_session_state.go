@@ -67,6 +67,7 @@ func (s *ApplySessionState) StreamExecute(
 	_ IExecute,
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {

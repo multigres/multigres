@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -242,31 +243,75 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	// the primary criterion: a node that has seen a higher term has applied more
 	// of the agreed WAL history (the history write uses RemoteOperationTimeout,
 	// so sync standbys are guaranteed to have acknowledged it).
-	if rec, err := pm.currentLeadershipRecord(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get leadership term during revoke; candidate selection may be suboptimal",
+	if nodePosition, err := pm.rules.observePosition(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get rule history during revoke; candidate selection may be suboptimal",
 			"term", term, "error", err)
-	} else if rec != nil {
-		response.WalPosition.LeadershipTerm = rec.TermNumber
-		response.WalPosition.CohortMembers = rec.CohortMembers
-		pm.logger.InfoContext(ctx, "Captured leadership term for candidate selection",
-			"term", term, "leadership_term", rec.TermNumber)
+	} else if nodePosition != nil {
+		response.WalPosition.LeadershipTerm = nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm()
+		pids, pidErr := toPoolerIDs(nodePosition.GetRule().GetCohortMembers())
+		if pidErr != nil {
+			pm.logger.WarnContext(ctx, "Some cohort member IDs have invalid format; using approximate names for candidate selection",
+				"term", term, "error", pidErr)
+		}
+		response.WalPosition.CohortMembers = poolerIDsToAppNames(pids)
+		pm.logger.InfoContext(ctx, "Captured coordinator term for candidate selection",
+			"term", term, "coordinator_term", nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 
 	return nil
 }
 
-// ConsensusStatus returns the current status of this node for consensus
-func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	// Get consensus state
+// buildAvailabilityStatus returns the current AvailabilityStatus for this node.
+// Leaders always publish a LeadershipStatus. Returns nil if no signals are set
+// and no leadership context exists.
+func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
 	pm.mu.Lock()
-	cs := pm.consensusState
+	resignedTerm := pm.resignedPrimaryAtTerm
 	pm.mu.Unlock()
 
-	if cs == nil {
-		return nil, errors.New("consensus state not initialized")
+	if resignedTerm == 0 {
+		return nil
 	}
 
-	term, err := cs.GetInconsistentTerm()
+	return &clustermetadatapb.AvailabilityStatus{
+		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+			PrimaryTerm: resignedTerm,
+			Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+		},
+	}
+}
+
+// setResignedPrimaryAtTerm records that this node is requesting demotion as primary
+// for the given term. The signal is included in subsequent StatusResponses so the
+// coordinator can trigger an immediate election.
+// Requires the action lock (ctx must be an action-lock context).
+func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(ctx context.Context, term int64) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	pm.mu.Lock()
+	pm.resignedPrimaryAtTerm = term
+	pm.mu.Unlock()
+	return nil
+}
+
+// clearResignedPrimaryAtTerm clears the leadership demotion request. Called by
+// coordinator-driven promotion (SetPrimaryTerm) when this node is explicitly
+// re-appointed as primary at a new term.
+// Requires the action lock (ctx must be an action-lock context).
+func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm(ctx context.Context) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	pm.mu.Lock()
+	pm.resignedPrimaryAtTerm = 0
+	pm.mu.Unlock()
+	return nil
+}
+
+// ConsensusStatus returns the current status of this node for consensus
+func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
+	term, err := pm.consensusState.GetInconsistentTerm()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get consensus term: %w", err)
 	}
@@ -288,7 +333,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	walPosition := &consensusdatapb.WALPosition{
 		Timestamp: timestamppb.New(time.Now()),
 	}
-	role := "unknown"
+	role := consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED
 
 	if isHealthy {
 		// Check role and get appropriate WAL position
@@ -296,13 +341,13 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		if err == nil {
 			if isPrimary {
 				// On primary: get current write position
-				role = "primary"
+				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY
 				currentLsn, err := pm.getPrimaryLSN(ctx)
 				if err == nil {
 					walPosition.CurrentLsn = currentLsn
 				}
 			} else {
-				role = "replica"
+				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
 				// On standby: get receive and replay positions
 				status, err := pm.queryReplicationStatus(ctx)
 				if err == nil {
@@ -326,15 +371,16 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	return &consensusdatapb.StatusResponse{
-		PoolerId:     pm.serviceID.GetName(),
-		CurrentTerm:  localCurrentTerm,
-		WalPosition:  walPosition,
-		IsHealthy:    isHealthy,
-		IsEligible:   true, // TODO: implement eligibility logic based on policy
-		Cell:         pm.serviceID.GetCell(),
-		Role:         role,
-		TimelineInfo: timelineInfo,
-		PrimaryTerm:  localPrimaryTerm,
+		PoolerId:           pm.serviceID.GetName(),
+		CurrentTerm:        localCurrentTerm,
+		WalPosition:        walPosition,
+		IsHealthy:          isHealthy,
+		IsEligible:         true, // TODO: implement eligibility logic based on policy
+		Cell:               pm.serviceID.GetCell(),
+		Role:               role,
+		TimelineInfo:       timelineInfo,
+		PrimaryTerm:        localPrimaryTerm,
+		AvailabilityStatus: pm.buildAvailabilityStatus(),
 	}, nil
 }
 

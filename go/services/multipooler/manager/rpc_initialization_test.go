@@ -15,9 +15,7 @@
 package manager
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,15 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
@@ -47,116 +42,6 @@ func NewTestMultiPoolerManager(t *testing.T, multiPooler *clustermetadatapb.Mult
 	require.NoError(t, err)
 
 	return pm
-}
-
-func TestInitializeEmptyPrimary(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupFunc     func(t *testing.T, pm *MultiPoolerManager, poolerDir string)
-		term          int64
-		expectSuccess bool // true: must succeed (nil err, Success=true); false: must fail
-		errorContains string
-	}{
-		{
-			// The marker file exists → isInitialized() returns true → early return.
-			// pgctld is never called, so this succeeds without real postgres.
-			name: "idempotent - already has a backup",
-			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				dataDir := filepath.Join(poolerDir, "pg_data")
-				markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
-				require.NoError(t, os.MkdirAll(markerDir, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-				require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
-			},
-			term:          1,
-			expectSuccess: true,
-		},
-		{
-			// Term validation happens before any I/O, so pgctld is never called.
-			name:          "rejects invalid consensus term",
-			term:          2,
-			expectSuccess: false,
-			errorContains: "consensus term must be 1",
-		},
-		{
-			// A fresh (uninitialized) pooler passes term and idempotency checks,
-			// then reaches the first pgctld call (InitDataDir). Unit tests stop
-			// here because real pgctld/postgres are not available; the full success
-			// path is covered by the integration test.
-			name:          "initialize fresh pooler",
-			term:          1,
-			expectSuccess: false,
-			errorContains: "pgctld",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := t.Context()
-			poolerDir := t.TempDir()
-			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-
-			// Create test config with topology store that has backup location
-			database := "postgres"
-			backupLocation := "/tmp/test-backups"
-			store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-			defer store.Close()
-
-			// Create database in topology with backup location
-			err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-				Name:           database,
-				BackupLocation: utils.FilesystemBackupLocation(backupLocation),
-			})
-			require.NoError(t, err)
-
-			serviceID := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "test-cell",
-				Name:      "test-pooler",
-			}
-
-			multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-			multiPooler.Shard = constants.DefaultShard
-			multiPooler.PoolerDir = poolerDir
-			multiPooler.PortMap = map[string]int32{"postgres": 5432}
-			multiPooler.Database = database
-
-			pm := NewTestMultiPoolerManager(t, multiPooler, &Config{TopoClient: store})
-
-			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err = pm.consensusState.Load()
-			require.NoError(t, err)
-
-			backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
-			require.NoError(t, err)
-
-			pm.mu.Lock()
-			pm.state = ManagerStateReady
-			pm.backupConfig = backupConfig
-			pm.topoLoaded = true
-			pm.mu.Unlock()
-
-			if tt.setupFunc != nil {
-				tt.setupFunc(t, pm, poolerDir)
-			}
-
-			resp, err := pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-				ConsensusTerm: tt.term,
-			})
-
-			if tt.expectSuccess {
-				require.NoError(t, err)
-				require.NotNil(t, resp)
-				assert.True(t, resp.Success)
-			} else {
-				require.Error(t, err)
-				assert.Nil(t, resp)
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			}
-		})
-	}
 }
 
 // TestIsInitialized verifies that isInitialized requires both the marker file and
@@ -295,71 +180,6 @@ func TestHelperMethods(t *testing.T) {
 	})
 }
 
-// TestInitializeEmptyPrimary_EventPoolerName verifies that primary.init events emitted
-// by MultiPoolerManager include the pooler_name attribute from the logger (set via
-// logger.With in NewMultiPoolerManager), not as an explicit struct field.
-func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
-	ctx := t.Context()
-	poolerDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-
-	database := "postgres"
-	backupLocation := t.TempDir()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-	defer store.Close()
-
-	err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-		Name:           database,
-		BackupLocation: utils.FilesystemBackupLocation(backupLocation),
-	})
-	require.NoError(t, err)
-
-	multiPooler := topoclient.NewMultiPooler("pooler-7", "test-cell", "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
-	multiPooler.PoolerDir = poolerDir
-	multiPooler.PortMap = map[string]int32{"postgres": 5432}
-	multiPooler.Database = database
-
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-
-	pm, err := NewMultiPoolerManager(logger, multiPooler, &Config{TopoClient: store})
-	require.NoError(t, err)
-
-	serviceID := multiPooler.Id
-	pm.consensusState = NewConsensusState(poolerDir, serviceID)
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err)
-
-	backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
-	require.NoError(t, err)
-
-	pm.mu.Lock()
-	pm.state = ManagerStateReady
-	pm.backupConfig = backupConfig
-	pm.topoLoaded = true
-	pm.mu.Unlock()
-
-	// InitializeEmptyPrimary will fail (no pgctld client), but both Started and Failed
-	// primary.init events are emitted before the pgctld call and via the defer, respectively.
-	_, _ = pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: 1,
-	})
-
-	var foundEvents int
-	dec := json.NewDecoder(&buf)
-	for dec.More() {
-		var m map[string]any
-		require.NoError(t, dec.Decode(&m))
-		if m["msg"] != "multigres.event" || m["event_type"] != "primary.init" {
-			continue
-		}
-		assert.Equal(t, "pooler-7", m["pooler_name"], "primary.init event must carry pooler_name from logger")
-		foundEvents++
-	}
-	assert.Equal(t, 2, foundEvents, "expected started and failed primary.init events")
-}
-
 // MonitorPostgres Tests
 
 func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
@@ -474,10 +294,12 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
 	tests := []struct {
-		name           string
-		state          postgresState
-		poolerType     clustermetadatapb.PoolerType
-		expectedAction remedialAction
+		name                string
+		state               postgresState
+		poolerType          clustermetadatapb.PoolerType
+		primaryTerm         int64
+		resignedPrimaryTerm int64
+		expectedAction      remedialAction
 	}{
 		{
 			name:           "pgctld_unavailable",
@@ -486,7 +308,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			name: "postgres_running_type_matches_primary",
+			name: "postgres_ready_type_matches_primary",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -496,7 +318,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			name: "postgres_running_promote_to_primary",
+			name: "postgres_ready_promote_to_primary",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -506,7 +328,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToPrimary,
 		},
 		{
-			name: "postgres_running_demote_to_replica",
+			name: "postgres_ready_demote_to_replica",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -516,7 +338,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionAdjustTypeToReplica,
 		},
 		{
-			name: "postgres_running_type_matches_replica",
+			name: "postgres_ready_type_matches_replica_no_primary_term",
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
@@ -524,6 +346,33 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			expectedAction: remedialActionNone,
+		},
+		{
+			// After EmergencyDemote + process restart, resignedPrimaryAtTerm is lost.
+			// The monitor should re-publish it by triggering the replica adjustment action.
+			name: "postgres_ready_replica_missing_resignation_signal",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 0,
+			expectedAction:      remedialActionAdjustTypeToReplica,
+		},
+		{
+			// Signal already published — no action needed.
+			name: "postgres_ready_replica_resignation_signal_present",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:          clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:         5,
+			resignedPrimaryTerm: 5,
+			expectedAction:      remedialActionNone,
 		},
 		{
 			name: "postgres_stopped_start",
@@ -547,7 +396,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionRestoreFromBackup,
 		},
 		{
-			name: "postgres_stopped_wait_for_backup",
+			name: "postgres_stopped_no_backup_creates_first",
 			state: postgresState{
 				pgctldAvailable:  true,
 				postgresRunning:  false,
@@ -555,7 +404,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 				backupsAvailable: false,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
-			expectedAction: remedialActionNone,
+			expectedAction: remedialActionCreateFirstBackup,
 		},
 	}
 
@@ -566,6 +415,14 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				},
 			}
+			cs := NewConsensusState("", nil)
+			if tt.primaryTerm != 0 {
+				cs.mu.Lock()
+				cs.term = &multipoolermanagerdatapb.ConsensusTerm{PrimaryTerm: tt.primaryTerm}
+				cs.mu.Unlock()
+			}
+			pm.consensusState = cs
+			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
 			require.Equal(t, tt.expectedAction, got)
@@ -593,7 +450,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
 }
 
-func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
+func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	ctx := t.Context()
 
 	pm := &MultiPoolerManager{
@@ -651,7 +508,6 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		logger:       slog.Default(),
 		actionLock:   NewActionLock(),
 	}
-
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -725,6 +581,97 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 // Note: Type adjustment action execution (AdjustTypeToPrimary, AdjustTypeToReplica) is tested in
 // integration tests because it requires topoClient and full infrastructure.
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
+// The resignation signal behavior is tested below without full infrastructure.
+
+func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler) *MultiPoolerManager {
+	t.Helper()
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	return &MultiPoolerManager{
+		logger:        slog.Default(),
+		actionLock:    NewActionLock(),
+		multipooler:   multipooler,
+		serviceID:     multipooler.Id,
+		topoClient:    ts,
+		servingState:  NewStateManager(slog.Default(), multipooler),
+		topoPublisher: newTopoPublisher(slog.Default(), ts),
+	}
+}
+
+func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         remedialAction
+		poolerType     clustermetadatapb.PoolerType
+		primaryTerm    int64 // set in consensus state before action
+		resignedBefore int64 // set resignedPrimaryAtTerm before action (0 = don't set)
+		wantAvStatus   *clustermetadatapb.AvailabilityStatus
+	}{
+		{
+			name:        "AdjustTypeToReplica sets resignation at primary_term",
+			action:      remedialActionAdjustTypeToReplica,
+			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
+			primaryTerm: 5,
+			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+					PrimaryTerm: 5,
+					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+			},
+		},
+		{
+			name:         "AdjustTypeToReplica sets no resignation when primary_term is zero",
+			action:       remedialActionAdjustTypeToReplica,
+			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
+			primaryTerm:  0,
+			wantAvStatus: nil,
+		},
+		{
+			name:           "AdjustTypeToPrimary does not clear existing resignation signal",
+			action:         remedialActionAdjustTypeToPrimary,
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			resignedBefore: 7,
+			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+					PrimaryTerm: 7,
+					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			multipooler := &clustermetadatapb.MultiPooler{
+				Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+				Type: tc.poolerType,
+			}
+			pm := newRemedialActionTestManager(t, multipooler)
+
+			cs := NewConsensusState("", nil)
+			cs.mu.Lock()
+			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1, PrimaryTerm: tc.primaryTerm}
+			cs.mu.Unlock()
+			pm.consensusState = cs
+
+			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+			require.NoError(t, err)
+			defer pm.actionLock.Release(lockCtx)
+
+			if tc.resignedBefore != 0 {
+				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
+			}
+
+			pm.takeRemedialAction(lockCtx, tc.action)
+
+			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
+		})
+	}
+}
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := t.Context()
