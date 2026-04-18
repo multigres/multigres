@@ -161,7 +161,7 @@ func (mo *MultiOrch) Init() error {
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
 	// Create RPC client for recovery engine health checks
-	transportCreds, err := mo.connConfig.TransportCredentials()
+	transportCreds, err := mo.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}

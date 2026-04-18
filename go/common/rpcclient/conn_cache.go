@@ -89,13 +89,18 @@ func NewConnConfig(reg *viperutil.Registry) *ConnConfig {
 }
 
 // RegisterFlags registers all multipooler RPC client flags with the given FlagSet.
+//
+// Note: on multigateway these flags also govern gateway-to-gateway cancel
+// forwarding, so a single PKI configuration covers both internal hops. If you
+// need to run different PKI for gateway vs. pooler, split these into dedicated
+// flags in a follow-up.
 func (cc *ConnConfig) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("multipooler-grpc-cert", cc.cert.Default(), "client certificate for mTLS when connecting to multipooler")
-	fs.String("multipooler-grpc-key", cc.key.Default(), "client private key for mTLS when connecting to multipooler")
-	fs.String("multipooler-grpc-ca", cc.ca.Default(), "CA certificate to validate multipooler server certificates")
+	fs.String("multipooler-grpc-cert", cc.cert.Default(), "client certificate for mTLS when connecting to multipooler (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.String("multipooler-grpc-key", cc.key.Default(), "client private key for mTLS when connecting to multipooler (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.String("multipooler-grpc-ca", cc.ca.Default(), "CA certificate to validate multipooler server certificates (also used for gateway-to-gateway gRPC on multigateway)")
 	fs.String("multipooler-grpc-crl", cc.crl.Default(), "certificate revocation list to validate multipooler server certificates (not yet implemented)")
-	fs.String("multipooler-grpc-server-name", cc.name.Default(), "expected server name for multipooler certificate verification")
-	fs.Bool("multipooler-grpc-require-tls", cc.requireTLS.Default(), "require TLS for multipooler gRPC connections; fail startup if TLS is not configured")
+	fs.String("multipooler-grpc-server-name", cc.name.Default(), "expected server name for multipooler certificate verification (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.Bool("multipooler-grpc-require-tls", cc.requireTLS.Default(), "require TLS for multipooler gRPC connections; fail startup if TLS is not configured (also applies to gateway-to-gateway gRPC on multigateway)")
 
 	viperutil.BindFlags(fs, cc.cert, cc.key, cc.ca, cc.crl, cc.name, cc.requireTLS)
 }
@@ -103,7 +108,12 @@ func (cc *ConnConfig) RegisterFlags(fs *pflag.FlagSet) {
 // TransportCredentials builds a gRPC dial option for transport security based
 // on the configured TLS flags. Returns insecure credentials when no TLS
 // parameters are set (backward compatible).
-func (cc *ConnConfig) TransportCredentials() (grpc.DialOption, error) {
+//
+// The logger is used to emit a warning when TLS is not configured but
+// --multipooler-grpc-require-tls is not set. If logger is nil, no warning is
+// emitted. Passing the service-local structured logger keeps the warning
+// attached to whatever attributes the caller has set up (service, cell, etc).
+func (cc *ConnConfig) TransportCredentials(logger *slog.Logger) (grpc.DialOption, error) {
 	if cc == nil {
 		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
 	}
@@ -118,7 +128,9 @@ func (cc *ConnConfig) TransportCredentials() (grpc.DialOption, error) {
 		if cc.requireTLS.Get() {
 			return nil, errors.New("multipooler gRPC TLS is required but not configured")
 		}
-		slog.Warn("multipooler gRPC TLS is not configured; using insecure transport", "flag", "--multipooler-grpc-require-tls")
+		if logger != nil {
+			logger.Warn("multipooler gRPC TLS is not configured; using insecure transport", "flag", "--multipooler-grpc-require-tls")
+		}
 		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
 	}
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil

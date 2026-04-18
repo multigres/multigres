@@ -109,7 +109,7 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 		"grpc_port", ma.grpcServer.Port(),
 	)
 
-	transportCreds, err := ma.connConfig.TransportCredentials()
+	transportCreds, err := ma.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}

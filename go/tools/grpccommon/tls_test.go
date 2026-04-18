@@ -255,13 +255,18 @@ func TestBuildClientTLSConfig_MTLS(t *testing.T) {
 	assert.Len(t, cfg.Certificates, 1)
 }
 
-func TestBuildClientTLSConfig_ServerName(t *testing.T) {
+func TestBuildClientTLSConfig_ServerNameWithCA(t *testing.T) {
 	caCert, _, _, _ := generateTestCerts(t, "server")
 
 	cfg, err := BuildClientTLSConfig("", "", caCert, "my-server.example.com")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "my-server.example.com", cfg.ServerName)
+}
+
+func TestBuildClientTLSConfig_ServerNameOnly(t *testing.T) {
+	_, err := BuildClientTLSConfig("", "", "", "my-server.example.com")
+	assert.ErrorContains(t, err, "client server name configured without CA or client cert+key")
 }
 
 func TestBuildClientTLSConfig_CertWithoutKey(t *testing.T) {

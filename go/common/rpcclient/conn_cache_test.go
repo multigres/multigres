@@ -181,7 +181,7 @@ func TestConnCache_CloseNonExistent(t *testing.T) {
 // TestConnConfig_TransportCredentials_NilReceiver tests that nil ConnConfig returns insecure.
 func TestConnConfig_TransportCredentials_NilReceiver(t *testing.T) {
 	var cc *ConnConfig
-	opt, err := cc.TransportCredentials()
+	opt, err := cc.TransportCredentials(nil)
 	require.NoError(t, err)
 	assert.NotNil(t, opt)
 }
@@ -190,7 +190,7 @@ func TestConnConfig_TransportCredentials_NilReceiver(t *testing.T) {
 func TestConnConfig_TransportCredentials_NoFlags(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	cc := NewConnConfig(reg)
-	opt, err := cc.TransportCredentials()
+	opt, err := cc.TransportCredentials(nil)
 	require.NoError(t, err)
 	assert.NotNil(t, opt)
 }
@@ -199,12 +199,11 @@ func TestConnConfig_TransportCredentials_NoFlags(t *testing.T) {
 func TestConnConfig_TransportCredentials_InvalidCert(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	cc := NewConnConfig(reg)
-	// Directly set values to simulate flags being set.
-	cc.cert = viperutil.Configure(reg, "test-cert", viperutil.Options[string]{Default: "/nonexistent/cert.pem"})
-	cc.key = viperutil.Configure(reg, "test-key", viperutil.Options[string]{Default: "/nonexistent/key.pem"})
-	cc.ca = viperutil.Configure(reg, "test-ca", viperutil.Options[string]{Default: "/nonexistent/ca.pem"})
+	cc.cert.Set("/nonexistent/cert.pem")
+	cc.key.Set("/nonexistent/key.pem")
+	cc.ca.Set("/nonexistent/ca.pem")
 
-	_, err := cc.TransportCredentials()
+	_, err := cc.TransportCredentials(nil)
 	assert.Error(t, err)
 }
 
@@ -214,7 +213,7 @@ func TestConnConfig_TransportCredentials_RequireTLSWithoutConfig(t *testing.T) {
 	cc := NewConnConfig(reg)
 	cc.requireTLS.Set(true)
 
-	_, err := cc.TransportCredentials()
+	_, err := cc.TransportCredentials(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TLS is required")
 }

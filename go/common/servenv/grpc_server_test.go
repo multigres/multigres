@@ -112,3 +112,12 @@ func TestGrpcServerCreate_FailsWhenOptionalTLSEnabled(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--grpc-enable-optional-tls is not implemented yet")
 }
+
+func TestGrpcServerCreate_FailsWhenMTLSAuthWithoutTLS(t *testing.T) {
+	g := newEnabledGRPCServerForTest()
+	g.auth.Set("mtls")
+
+	err := g.Create()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--grpc-auth-mode=mtls requires --grpc-cert and --grpc-key for transport TLS")
+}

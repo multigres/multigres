@@ -236,7 +236,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	logger.InfoContext(ctx, "Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Build transport credentials for multipooler gRPC connections.
-	poolerTransportCreds, err := mg.connConfig.TransportCredentials()
+	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}

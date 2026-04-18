@@ -231,11 +231,7 @@ func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultiGate
 		return gc.client, nil
 	}
 
-	dialOpts := []grpc.DialOption{
-		cm.transportCreds,
-		grpc.WithDisableServiceConfig(),
-		grpc.WithIdleTimeout(grpcIdleTimeout),
-	}
+	dialOpts := append(grpccommon.ClientDialOptions(cm.transportCreds), grpc.WithIdleTimeout(grpcIdleTimeout))
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithDialOptions(dialOpts...),
 	)

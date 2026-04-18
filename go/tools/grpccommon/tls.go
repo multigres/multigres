@@ -110,11 +110,14 @@ func BuildServerTLSConfig(certFile, keyFile, caFile, serverCAFile string) (*tls.
 // against the given CA. When certFile and keyFile are provided, the client
 // presents a certificate for mutual TLS.
 //
-// If only serverName is provided (no caFile, certFile, or keyFile), TLS is
-// enabled using the system trust store with that server name — useful when
-// connecting to a server with a publicly trusted certificate.
+// serverName alone is rejected: for internal gRPC that would silently enable
+// TLS against the system trust store, which is almost always a
+// misconfiguration rather than an intentional "use public CAs" choice.
 func BuildClientTLSConfig(certFile, keyFile, caFile, serverName string) (*tls.Config, error) {
-	if certFile == "" && keyFile == "" && caFile == "" && serverName == "" {
+	if certFile == "" && keyFile == "" && caFile == "" {
+		if serverName != "" {
+			return nil, errors.New("client server name configured without CA or client cert+key")
+		}
 		return nil, nil
 	}
 
