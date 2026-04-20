@@ -101,17 +101,19 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 		wantErrMsg string // empty means expect nil error
 	}{
 		{
-			name: "AT_LEAST_2 with all 3 cohort poolers recruited is sufficient",
+			// Uses poolers spread across cells to demonstrate that AT_LEAST_N
+			// ignores cell layout — only pooler count matters.
+			name: "AT_LEAST_2 with all 3 cohort poolers recruited is sufficient (cells ignored)",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
-				id("pooler-2", "cell1"),
-				id("pooler-3", "cell1"),
+				id("pooler-2", "cell2"),
+				id("pooler-3", "cell3"),
 			},
 			recruited: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
-				id("pooler-2", "cell1"),
-				id("pooler-3", "cell1"),
+				id("pooler-2", "cell2"),
+				id("pooler-3", "cell3"),
 			},
 		},
 		{
