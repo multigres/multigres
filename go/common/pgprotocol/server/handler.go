@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -113,4 +114,11 @@ type Handler interface {
 	// rolling back active transactions and releasing reserved connections.
 	// The connection's context may already be cancelled at this point.
 	ConnectionClosed(conn *Conn)
+
+	// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+	// statement registered under the given user-visible name on connID.
+	// Returns nil if no such statement exists. This is used by the planner
+	// to resolve wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE AS
+	// EXECUTE) without type-asserting to a concrete handler implementation.
+	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
 }

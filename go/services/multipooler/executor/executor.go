@@ -316,6 +316,16 @@ func (e *Executor) reserveAndStreamExecute(
 		}
 	}
 
+	// If the query references a gateway-managed prepared statement (wrapped
+	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), ensure it is
+	// parsed on this newly created backend connection before running the query.
+	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+		if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", err)
+		}
+	}
+
 	// Execute the actual query and stream results to the callback as they arrive,
 	// matching the non-reserved StreamExecute path. This avoids buffering the entire
 	// result set in memory for large queries inside transactions.
@@ -648,6 +658,16 @@ func (e *Executor) ensurePreparedWithName(ctx context.Context, conn *regular.Con
 	existing := connState.GetPreparedStatement(stmt.Name)
 	if existing != nil && existing.Query == stmt.Query {
 		return nil
+	}
+	// If the name is already taken with a different query (e.g. from a
+	// different gateway instance that reused the same canonical name space),
+	// close the stale statement first — PostgreSQL rejects Parse for an
+	// already-existing prepared statement name.
+	if existing != nil {
+		if err := conn.CloseStatement(ctx, stmt.Name); err != nil {
+			return fmt.Errorf("failed to close stale prepared statement %q: %w", stmt.Name, err)
+		}
+		connState.DeletePreparedStatement(stmt.Name)
 	}
 	if err := conn.Parse(ctx, stmt.Name, stmt.Query, stmt.ParamTypes); err != nil {
 		return fmt.Errorf("failed to parse statement %q: %w", stmt.Name, err)

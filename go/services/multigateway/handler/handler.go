@@ -114,6 +114,12 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 	return h.psc
 }
 
+// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+// statement registered under the given user-visible name on connID.
+func (h *MultiGatewayHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return h.psc.GetPreparedStatementInfo(connID, name)
+}
+
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
 var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
