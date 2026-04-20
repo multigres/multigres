@@ -18,8 +18,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -31,12 +33,16 @@ import (
 // ruleStorer is the interface for reading and writing the current shard rule.
 // *ruleStore implements this; tests use fakeRuleStore.
 type ruleStorer interface {
-	observePosition(ctx context.Context) (*clustermetadatapb.NodePosition, error)
-	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.NodePosition, error)
+	observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
+	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
 	// createRuleTables creates multigres.current_rule and multigres.rule_history
 	// if they do not already exist, and inserts the zero-state sentinel row for
 	// the default shard. It is idempotent and safe to call multiple times.
 	createRuleTables(ctx context.Context) error
+	// cachedPosition returns the most recently observed or written PoolerPosition
+	// from memory, without querying postgres. Returns nil if no position has been
+	// cached yet (e.g. before the first observePosition or updateRule call).
+	cachedPosition() *clustermetadatapb.PoolerPosition
 }
 
 // ruleStore manages the current shard rule in postgres.
@@ -46,6 +52,9 @@ type ruleStorer interface {
 type ruleStore struct {
 	logger       *slog.Logger
 	queryService executor.InternalQueryService
+
+	mu      sync.Mutex
+	lastPos *clustermetadatapb.PoolerPosition // updated on every observePosition / updateRule
 }
 
 // newRuleStore creates a ruleStore.
@@ -57,6 +66,25 @@ func newRuleStore(
 		logger:       logger,
 		queryService: qs,
 	}
+}
+
+// cacheRuleObservation updates the in-memory position cache.
+func (rs *ruleStore) cacheRuleObservation(pos *clustermetadatapb.PoolerPosition) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.lastPos != nil && pos != nil && consensus.CompareRuleNumbers(pos.GetRule().GetRuleNumber(), rs.lastPos.GetRule().GetRuleNumber()) < 0 {
+		// This position observation is stale. Ignore it.
+		return
+	}
+	rs.lastPos = pos
+}
+
+// cachedPosition returns the most recently observed or written PoolerPosition
+// from memory. Returns nil if no position has been cached yet.
+func (rs *ruleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.lastPos
 }
 
 // ----------------------------------------------------------------------------
@@ -221,7 +249,7 @@ var errRuleConflict = errors.New("rule conflict: current rule version mismatch")
 // (coordinator_term = 0).
 //
 // Returns an error if postgres is unreachable.
-func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.NodePosition, error) {
+func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
@@ -273,7 +301,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 	if coordinatorIDStr != nil {
 		coordinatorIDStrVal = *coordinatorIDStr
 	}
-	pos, err := buildNodePosition(
+	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrVal, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
@@ -282,6 +310,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to parse current position")
 	}
+	rs.cacheRuleObservation(pos)
 	return pos, nil
 }
 
@@ -304,7 +333,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.No
 // This operation uses the remote-operation-timeout and will fail if it cannot
 // complete within that time. A timeout typically indicates that synchronous
 // replication is not functioning.
-func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.NodePosition, error) {
+func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	if update.force {
 		// Force mode skips history recording entirely. Force operations are emergency
 		// operations that must configure replication GUCs regardless. The write would
@@ -492,7 +521,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		return nil, mterrors.Wrap(err, "failed to scan written rule position")
 	}
 
-	pos, err := buildNodePosition(
+	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrResult, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
@@ -501,6 +530,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to parse written rule position")
 	}
+	rs.cacheRuleObservation(pos)
 	return pos, nil
 }
 
@@ -563,10 +593,10 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 // Helpers
 // ----------------------------------------------------------------------------
 
-// buildNodePosition constructs a *clustermetadatapb.NodePosition from raw DB column values.
+// buildPoolerPosition constructs a *clustermetadatapb.PoolerPosition from raw DB column values.
 // leaderIDStr and coordinatorIDStr are app-name formatted strings (e.g. "zone1_pooler-name").
 // durability fields are nil when not set in the DB.
-func buildNodePosition(
+func buildPoolerPosition(
 	coordinatorTerm, leaderSubterm int64,
 	leaderIDStr *string,
 	coordinatorIDStr string,
@@ -575,7 +605,7 @@ func buildNodePosition(
 	durabilityRequiredCount *int64,
 	durabilityAsyncFallback *string,
 	lsn string,
-) (*clustermetadatapb.NodePosition, error) {
+) (*clustermetadatapb.PoolerPosition, error) {
 	rule := &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{
 			CoordinatorTerm: coordinatorTerm,
@@ -630,7 +660,7 @@ func buildNodePosition(
 		rule.DurabilityPolicy = dp
 	}
 
-	return &clustermetadatapb.NodePosition{
+	return &clustermetadatapb.PoolerPosition{
 		Rule: rule,
 		Lsn:  lsn,
 	}, nil

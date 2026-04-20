@@ -231,4 +231,21 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1, "should trigger failover when postgres has never responded")
 		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
 	})
+
+	t.Run("triggers failover when primary has resigned even though replicas are still connected", func(t *testing.T) {
+		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
+		// it as a replication source, so ReplicasConnectedToPrimary becomes true.
+		// Without the PrimaryHasResigned bypass, this would suppress failover indefinitely.
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.PrimaryPoolerReachable = false
+			sa.ReplicasConnectedToPrimary = true
+			sa.PrimaryLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
+			sa.PrimaryHasResigned = true
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should not suppress failover when primary has resigned, even if replicas are connected")
+		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+	})
 }

@@ -23,8 +23,8 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
@@ -231,24 +231,15 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	// Compute staleness
 	analysis.IsStale = !pooler.IsUpToDate
 
-	// Store consensus term for stale primary detection
+	// Store consensus status.
 	if pooler.ConsensusStatus != nil {
 		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
+		analysis.ConsensusStatus = pooler.ConsensusStatus.ConsensusStatus
 	}
 
 	// Store primary term (term when this pooler was promoted to primary)
 	if pooler.ConsensusTerm != nil {
 		analysis.PrimaryTerm = pooler.ConsensusTerm.PrimaryTerm
-	}
-
-	// Store WAL position for timeline comparison (LSN is a secondary tiebreaker;
-	// ignore parse errors — zero value is safe).
-	// Primaries use their write LSN; replicas use their last applied (replay) LSN
-	// since only applied data is readable (e.g. for cohort/coordinator term lookups).
-	if analysis.IsPrimary && pooler.PrimaryStatus != nil {
-		analysis.LSN, _ = pgutil.ParseLSN(pooler.PrimaryStatus.Lsn)
-	} else if !analysis.IsPrimary && pooler.ReplicationStatus != nil {
-		analysis.LSN, _ = pgutil.ParseLSN(pooler.ReplicationStatus.LastReplayLsn)
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -449,7 +440,8 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
 		sa.PrimaryPostgresReady = topologyPrimary.IsPostgresReady
 		sa.PrimaryPostgresRunning = topologyPrimary.IsPostgresRunning
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady
+		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady && !sa.PrimaryHasResigned
 		if topologyPrimary.LastPostgresReadyTime != nil {
 			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}

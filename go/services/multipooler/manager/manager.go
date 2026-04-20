@@ -43,7 +43,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -103,16 +102,15 @@ type MultiPoolerManager struct {
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
 	// Type and ServingStatus are exclusively written by the StateManager.
-	multipooler     *clustermetadatapb.MultiPooler
-	state           ManagerState
-	stateError      error
-	consensusState  *ConsensusState
-	topoLoaded      bool
-	consensusLoaded bool
-	rules           ruleStorer
-	ctx             context.Context
-	cancel          context.CancelFunc
-	loadTimeout     time.Duration
+	multipooler    *clustermetadatapb.MultiPooler
+	state          ManagerState
+	stateError     error
+	consensusState *ConsensusState
+	topoLoaded     bool
+	rules          ruleStorer
+	ctx            context.Context
+	cancel         context.CancelFunc
+	loadTimeout    time.Duration
 
 	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
 	// Unbuffered is safe here because we only close() the channel (which never blocks
@@ -134,6 +132,12 @@ type MultiPoolerManager struct {
 	// initialized tracks whether this pooler has been fully initialized.
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
+
+	// resignedPrimaryAtTerm is set when this node voluntarily resigns as primary
+	// (via EmergencyDemote). The value is the consensus term at which the primary
+	// resigned. A non-zero value signals the coordinator to trigger an immediate
+	// election. Protected by mu. Cleared when this node is elected primary again.
+	resignedPrimaryAtTerm int64
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
@@ -165,6 +169,9 @@ type MultiPoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// topoPublisher asynchronously reflects in-memory state to etcd.
+	topoPublisher *topoPublisher
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -260,8 +267,15 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		cancel: cancel,
 	}
 
-	// Consensus state is always available; it will be loaded when needed.
+	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
+	// Only actual read/parse errors fail the constructor.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+	if config.ConsensusEnabled {
+		if _, err := pm.consensusState.Load(); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
+		}
+	}
 
 	// Create the query service controller with the pool manager.
 	// Get the drain grace period from connpool config (0 means use default).
@@ -287,6 +301,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if metricsErr != nil {
 		logger.Warn("failed to register pgBackRest metrics", "error", metricsErr)
 	}
+
+	pm.topoPublisher = newTopoPublisher(logger, config.TopoClient)
 
 	return pm, nil
 }
@@ -354,6 +370,9 @@ func (pm *MultiPoolerManager) Open() {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Start topology publisher goroutine to eventually-consistently sync state to etcd.
+	go pm.topoPublisher.Run(pm.ctx)
 
 	// Start health heartbeat goroutine and transition to SERVING.
 	// SetState notifies all components (query service, heartbeat, health streamer).
@@ -612,14 +631,8 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTermNumber returns the current consensus term number in a thread-safe manner
+// getCurrentTermNumber returns the current consensus term number.
 func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if pm.consensusState == nil {
-		return 0, nil
-	}
 	return pm.consensusState.GetCurrentTermNumber(ctx)
 }
 
@@ -689,9 +702,7 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Check that topo is loaded and consensus is loaded (if enabled)
-	consensusReady := !pm.config.ConsensusEnabled || pm.consensusLoaded
-	if pm.topoLoaded && consensusReady {
+	if pm.topoLoaded {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
 
@@ -704,14 +715,11 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		}
 
 		// Set initial primary observation from loaded consensus state.
-		// Use GetInconsistentTerm (safe without action lock) to read the term.
-		if pm.consensusState != nil {
-			if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
-				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-					PrimaryID:   pm.serviceID,
-					PrimaryTerm: term.GetPrimaryTerm(),
-				})
-			}
+		if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
+			pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+				PrimaryID:   pm.serviceID,
+				PrimaryTerm: term.GetPrimaryTerm(),
+			})
 		}
 	}
 }
@@ -844,16 +852,8 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"old_term", currentTerm,
 			"service_id", pm.serviceID.String())
 
-		pm.mu.Lock()
-		cs := pm.consensusState
-		pm.mu.Unlock()
-
-		if cs == nil {
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
-		}
-
 		// Update term atomically (resets accepted leader)
-		if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
+		if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
@@ -909,20 +909,12 @@ func (pm *MultiPoolerManager) updateTermIfNewer(ctx context.Context, requestTerm
 		return nil
 	}
 
-	pm.mu.Lock()
-	cs := pm.consensusState
-	pm.mu.Unlock()
-
-	if cs == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
-	}
-
 	pm.logger.InfoContext(ctx, "Updating to newer term after successful operation",
 		"request_term", requestTerm,
 		"old_term", currentTerm,
 		"service_id", pm.serviceID.String())
 
-	if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
+	if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
 		return mterrors.Wrap(err, "failed to update consensus term")
 	}
 
@@ -963,49 +955,6 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 	}
 
 	return nil
-}
-
-// loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
-func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
-	// Set timeout for the entire loading process
-	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
-	defer timeoutCancel()
-
-	r := retry.New(100*time.Millisecond, 30*time.Second)
-	for _, err := range r.Attempts(timeoutCtx) {
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
-			} else {
-				pm.setStateError(errors.New("manager context cancelled while loading consensus term"))
-			}
-			return
-		}
-
-		// Initialize consensus state if not already done
-		pm.mu.Lock()
-		if pm.consensusState == nil {
-			pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
-		}
-		cs := pm.consensusState
-		pm.mu.Unlock()
-
-		// Load term from local disk using the ConsensusState
-		var currentTerm int64
-		if currentTerm, err = cs.Load(); err != nil {
-			pm.logger.Debug("Failed to load consensus term from disk, retrying", "error", err)
-			continue // Will retry with backoff
-		}
-
-		// Successfully loaded (nil/empty term is OK)
-		pm.mu.Lock()
-		pm.consensusLoaded = true
-		pm.mu.Unlock()
-
-		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
-		pm.checkAndSetReady()
-		return
-	}
 }
 
 // checkDemotionState checks the current state to determine what steps remain
@@ -1068,41 +1017,13 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
-		return mterrors.Wrap(err, "failed to sync NOT_SERVING to topology")
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block demotion.
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
-	return nil
-}
-
-// stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
-// This is used when a primary needs to step down immediately during consensus term changes.
-// The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
-func (pm *MultiPoolerManager) stopPostgresForEmergencyDemote(ctx context.Context, state *demotionState) error {
-	if state.isReadOnly {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "unexpected state: PostgreSQL already in standby mode during emergency demotion")
-	}
-
-	if pm.pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
-	}
-
-	stopReq := &pgctldpb.StopRequest{
-		Mode: "fast",
-	}
-	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-		return mterrors.Wrap(err, "failed to stop PostgreSQL during emergency demotion")
-	}
-
-	pm.logger.InfoContext(ctx, "PostgreSQL stopped for emergency demotion")
-
 	return nil
 }
 
@@ -1406,14 +1327,10 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
-		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block promotion.
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	return nil
@@ -1470,10 +1387,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
-	// Start loading consensus term from local disk asynchronously (only if consensus is enabled)
-	if pm.config.ConsensusEnabled {
-		go pm.loadConsensusTermFromDisk()
-	}
 
 	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
@@ -1678,6 +1591,18 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToReplica
 		}
+		// Postgres is standby and type is already REPLICA, but check if the resignation
+		// signal needs to be (re-)published. This handles the case where the signal was
+		// lost after a process restart following EmergencyDemote.
+		if !currentState.isPrimary {
+			term, _ := pm.consensusState.GetInconsistentTerm()
+			pm.mu.Lock()
+			resigned := pm.resignedPrimaryAtTerm
+			pm.mu.Unlock()
+			if term.GetPrimaryTerm() != 0 && resigned == 0 {
+				return remedialActionAdjustTypeToReplica
+			}
+		}
 		return remedialActionNone // Pooler type already matches
 	}
 
@@ -1728,6 +1653,16 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
+		// Signal voluntary resignation so the coordinator can trigger an immediate
+		// election. Use the primary_term (the term at which we were elected) since
+		// the coordinator uses this to decide whether the signal is still active.
+		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
+		// consensus term from there for a more precise resignation signal.
+		if term, err := pm.consensusState.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
+			if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+			}
+		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
 		}

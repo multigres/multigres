@@ -332,7 +332,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Selected standby for auto-restore test: %s", standbyName)
 
 		// Stop multipooler
-		standbyInst.Multipooler.Stop()
+		standbyInst.Multipooler.TerminateGracefully(t.Logf, 5*time.Second)
 
 		// Stop postgres via pgctld
 		standbyInst.Pgctld.StopPostgres(t)

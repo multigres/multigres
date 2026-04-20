@@ -88,7 +88,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, err
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
-	if sa.ReplicasConnectedToPrimary {
+	if sa.ReplicasConnectedToPrimary && !sa.PrimaryHasResigned {
 		threshold := a.factory.Config().GetPrimaryPostgresResponseThreshold()
 		lastReadyTime := sa.PrimaryLastPostgresReadyTime
 		primaryPostgresUnresponsive := !sa.PrimaryPostgresReady &&

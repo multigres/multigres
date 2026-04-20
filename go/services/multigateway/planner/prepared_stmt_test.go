@@ -38,9 +38,20 @@ import (
 // mockIExecute implements engine.IExecute for testing primitives.
 type mockIExecute struct {
 	portalStreamExecuteCalled bool
+	// streamExecuteCalls records the observable arguments of every StreamExecute
+	// call so tests can assert on the rewritten SQL and the attached prepared
+	// statement metadata for wrapped EXECUTE cases.
+	streamExecuteCalls []streamExecuteCall
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _, _ string, _ *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+// streamExecuteCall records the observable arguments of a StreamExecute call.
+type streamExecuteCall struct {
+	sql               string
+	preparedStatement *query.PreparedStatement
+}
+
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, preparedStatement: ps})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 

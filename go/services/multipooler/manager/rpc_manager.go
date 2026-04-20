@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/eventlog"
@@ -295,12 +294,9 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.PostgresActionDuration = durationpb.New(duration)
 	}
 
-	// Get consensus term if available (use inconsistent read for monitoring)
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentTerm()
-		if err == nil {
-			poolerStatus.ConsensusTerm = term
-		}
+	// Get consensus term (use inconsistent read for monitoring)
+	if term, err := pm.consensusState.GetInconsistentTerm(); err == nil {
+		poolerStatus.ConsensusTerm = term
 	}
 
 	// Get WAL position (ignore errors, just return empty string)
@@ -403,12 +399,6 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
-	}
-
-	if pm.consensusState == nil {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus state must be available to configure synchronous replication",
-		)
 	}
 
 	// Insert history before applying GUCs.
@@ -647,9 +637,6 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	status.SyncReplicationConfig = syncConfig
 
 	// Include primary term from consensus state.
-	if pm.consensusState == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "consensus state not initialized")
-	}
 	term, err := pm.consensusState.GetInconsistentTerm()
 	if err != nil {
 		return nil, err
@@ -749,14 +736,10 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to set serving state")
 	}
 
-	// Sync to topology
-	pm.mu.Lock()
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
-		return mterrors.Wrap(err, "failed to update pooler type in topology")
+	// Notify the topology publisher of the new state. The write to etcd happens
+	// asynchronously so that a temporarily unreachable etcd does not block type changes.
+	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
+		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
@@ -988,12 +971,20 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	// Emergency demotion: stop PostgreSQL without restart
-	// In this emergency path, the SHUTDOWN_CHECKPOINT from this demoted primary may not
-	// propagate to other nodes (they could have already been recruited by multiorch to form
-	// a new cohort). This will result in timeline divergence. The expected flow is that this
-	// node will need to be rewired with pg_rewind before it can rejoin the cluster.
-	if err := pm.stopPostgresForEmergencyDemote(ctx, state); err != nil {
+	// Signal voluntary resignation so the coordinator can trigger an immediate
+	// election without waiting for a heartbeat timeout. Use this node's own
+	// primary_term (not the incoming consensusTerm) so the coordinator can
+	// correlate the signal with the term at which this node was elected.
+	if term, err := pm.consensusState.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
+		if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
+		}
+	}
+
+	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
+	// the node in the cluster as a replication target, avoiding timeline divergence
+	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
 		return nil, err
 	}
 
@@ -1283,6 +1274,14 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// Therefore, we persist primary_term first, then commit the transaction.
 	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary term")
+	}
+
+	// Clear any outstanding resignation signal now that the coordinator has
+	// explicitly re-promoted us at a new term. A higher primary_term implicitly
+	// invalidates the old signal, but clearing eagerly avoids a window where
+	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
+	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 	}
 
 	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{

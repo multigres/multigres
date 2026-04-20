@@ -352,7 +352,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 
 	s.MultiOrchInstances[name] = instance
 
-	return instance, instance.CleanupFunc(t)
+	return instance, instance.CleanupFunc(t.Logf)
 }
 
 // CreateMultigatewayInstance creates a multigateway process instance.
@@ -442,19 +442,35 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Stop PostgreSQL on each pgctld instance before killing processes.
-	// pg_ctl stop releases System V shared memory; without this, shared memory
-	// segments leak on every test run and eventually exhaust the OS limit.
-	for _, inst := range s.Multipoolers {
-		if inst.Pgctld != nil {
-			inst.Pgctld.Stop()
-		}
-		if inst.Multipooler != nil {
-			inst.Multipooler.Stop()
-		}
+	logf := func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
 	}
 
-	// Cancel the context to terminate all remaining processes.
+	// Gracefully terminate all processes BEFORE cancelling the context.
+	// For pgctld this issues pg_ctl stop via gRPC, which releases System V
+	// shared memory segments. The gRPC call must happen while the context
+	// is still active so it can reach the running pgctld.
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler != nil {
+			inst.Multipooler.TerminateGracefully(logf, 5*time.Second)
+		}
+		if inst.Pgctld != nil {
+			// pgctld needs longer: stopPostgreSQL issues pg_ctl stop
+			// via gRPC (10s timeout) before SIGTERM is sent.
+			inst.Pgctld.TerminateGracefully(logf, 15*time.Second)
+		}
+	}
+	if s.Multigateway != nil {
+		s.Multigateway.TerminateGracefully(logf, 5*time.Second)
+	}
+	for _, mo := range s.MultiOrchInstances {
+		mo.TerminateGracefully(logf, 5*time.Second)
+	}
+
+	// Cancel the context to terminate any remaining processes. Processes
+	// wrapped in run_in_test.sh (etcd) are started with
+	// context.Background() and use a separate goroutine to detect context
+	// cancellation and clean up.
 	if s.cancel != nil {
 		s.cancel()
 	}

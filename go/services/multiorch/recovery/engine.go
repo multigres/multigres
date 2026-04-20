@@ -591,6 +591,11 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	re.logger.DebugContext(ctx, "TriggerRecoveryNow: forcing health checks on all poolers")
 	re.forceHealthCheckAllShardPoolers(ctx)
 
+	// Expire all grace period deadlines so the next recovery cycle acts on
+	// detected problems immediately instead of waiting. This matches the
+	// documented contract ("bypasses grace periods") of TriggerRecoveryNow.
+	re.recoveryGracePeriodTracker.ForceExpireAll()
+
 	// Create channel to wait for first cycle completion
 	cycleDone := make(chan error, 1)
 

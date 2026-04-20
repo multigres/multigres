@@ -370,26 +370,26 @@ message ShardRule {
   google.protobuf.Timestamp creation_time = 6;
 }
 
-// NodePosition describes a node's committed position in logical and physical
-// time. It captures the highest ShardRule this node has replicated (or written,
+// PoolerPosition describes a pooler's committed position in logical and physical
+// time. It captures the highest ShardRule this pooler has replicated (or written,
 // for a primary) and the latest WAL position.
 //
 // Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
-// coordinator can determine which node is most advanced when selecting a
+// coordinator can determine which pooler is most advanced when selecting a
 // promotion candidate.
 //
-// Comparison: prefer the node with the higher rule (coordinator_term first,
+// Comparison: prefer the pooler with the higher rule (coordinator_term first,
 // then leader_subterm). Break ties by LSN.
-message NodePosition {
-  // The highest shard rule this node has committed to local WAL.
+message PoolerPosition {
+  // The highest shard rule this pooler has committed to local WAL.
   ShardRule rule = 1;
 
   // The latest WAL position.
   string lsn = 2;
 }
 
-// HighestKnownRule is the most recent ShardRule this node is aware of,
-// which could be beyond the end of this pooler's WAL / NodePosition.
+// HighestKnownRule is the most recent ShardRule this pooler is aware of,
+// which could be beyond the end of this pooler's WAL / PoolerPosition.
 //
 // If a pooler is disconnected from replication due to network partitions
 // or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
@@ -407,46 +407,117 @@ message HighestKnownRule {
   ShardRule rule = 1;
 }
 
-// HighestCoordinatorPromise is a promise to a coordinator.
+// TermRevocation records that this pooler has revoked participation in all terms
+// strictly below revoked_below_term. Two things are revoked:
 //
-// Promises are used for sequencing coordinators when they take action to establish
-// a new term. Those actions are:
-// - Revoking the ability of primaries established at lower terms to write transactions
-// - Obtaining the exclusive right to begin applying rules under this term number
+//  1. Consensus participation: the pooler will refuse BeginTerm or other coordinator
+//     requests for any term < revoked_below_term, and for revoked_below_term itself
+//     from a different coordinator than accepted_coordinator_id.
 //
-// Promises must be persisted to a pooler's local disk to survive pooler restarts.
+//  2. Replication participation: a revoked primary must stop accepting writes; a
+//     revoked replica must clear primary_conninfo. Replication participation resumes
+//     once the pooler's highest known rule reaches or exceeds revoked_below_term
+//     (i.e. the rule for that term has replicated through).
+//     TODO: It's currently technically possible to begin a term without revoking
+//     replication, but we plan to remove that capability and this message is named
+//     for what we intend to do rather than what we currently do.
 //
-// A pooler that has granted a promise for term T to coordinator C1 must refuse any
-// action request with a term less than T or a term equal to T but a different coordinator.
+// Re-sending an identical recruitment is idempotent. A higher-term recruitment
+// supersedes lower ones automatically.
 //
-// Higher-term promises can implicitly replace and revoke lower-term promises.
-message HighestCoordinatorPromise {
-  // The coordinator term this node has promised to honor.
-  int64 term_number = 1;
+// Persisted to local disk before responding; survives process restarts.
+message TermRevocation {
+  // All terms strictly below this value are revoked. The pooler has accepted
+  // the coordinator's exclusive right to act at this term.
+  int64 revoked_below_term = 1;
 
-  // The coordinator (multiorch instance) that this promise was made to.
-  // This is retained for idempotency and informational purposes: if the same
-  // coordinator asks for a promise for the same term number, a pooler will
-  // re-accept. If a different coordinator asks for a promise at the same term
-  // number, a pooler will refuse.
+  // The coordinator (multiorch instance) that recruited this revocation.
+  // Retained for idempotency: the same coordinator at the same term is re-accepted;
+  // a different coordinator at the same term is refused.
   ID accepted_coordinator_id = 2;
 
-  // When this promise was last recorded.
-  google.protobuf.Timestamp last_acceptance_time = 3;
+  // When the coordinator created this term, set by the coordinator before
+  // recruiting. All poolers that accept the same recruitment store the same value.
+  // TODO: populate once BeginTermRequest carries this timestamp.
+  google.protobuf.Timestamp coordinator_initiated_at = 3;
 }
 
-// ConsensusStatus is a node's complete view of its position in the distributed
-// system: its promise, what it has committed, and what it knows is coming.
+// ConsensusStatus is a pooler's complete view of its position in the distributed
+// system. It combines three layers with different durability and precision guarantees:
+//
+//  1. term_revocation (disk-backed, authoritative)
+//     Written to local disk before responding; survives process restarts.
+//     Records the highest coordinator term accepted and the coordinator's identity.
+//
+//  2. current_position (postgres-WAL-backed, authoritative)
+//     The highest ShardRule committed to local WAL (from rule_history) and the
+//     current LSN. Authoritative because postgres WAL is durable and ordered.
+//
+//  3. highest_known_rule (best-effort, coordinator-provided)
+//     The most recent rule the coordinator is about to establish or has recently
+//     established. May be ahead of current_position; not persisted and may be
+//     stale after restarts.
 message ConsensusStatus {
-  // promise is the coordinator term this node has accepted.
-  HighestCoordinatorPromise promise = 1;
+  // term_revocation records the highest coordinator term this pooler has revoked for.
+  TermRevocation term_revocation = 1;
 
-  // current_position is the highest rule this node has committed to local WAL
+  // current_position is the highest rule this pooler has committed to local WAL
   // and the latest WAL position.
-  NodePosition current_position = 2;
+  PoolerPosition current_position = 2;
 
-  // highest_known_rule is the most recent rule this node is aware of. May be
-  // ahead of current_position when the node has forward knowledge of an
+  // highest_known_rule is the most recent rule this pooler is aware of. May be
+  // ahead of current_position when the pooler has forward knowledge of an
   // upcoming rule that has not yet been replicated or written.
   HighestKnownRule highest_known_rule = 3;
+}
+
+// LeadershipSignal describes a leader's self-reported status for its current term.
+// Only published by nodes that are or were primary (primary_term != 0).
+// 0 (UNKNOWN) means the field was not intentionally set.
+enum LeadershipSignal {
+  LEADERSHIP_SIGNAL_UNKNOWN = 0;
+
+  // Node is actively and healthily serving as primary for primary_term.
+  // Published each poll cycle so the coordinator can distinguish a confirmed
+  // healthy primary from one that restarted and hasn't re-published yet.
+  LEADERSHIP_SIGNAL_ACTIVE = 1;
+
+  // Node is requesting demotion from leadership for primary_term. Coordinator
+  // should trigger an immediate election rather than waiting for a heartbeat
+  // timeout. The node may continue as a replica after demotion.
+  //
+  // Staleness check: coordinator verifies leadership_status.primary_term matches
+  // the node's known primary_term before acting, to ignore signals left over from
+  // a previous election cycle.
+  LEADERSHIP_SIGNAL_REQUESTING_DEMOTION = 2;
+}
+
+// LeadershipStatus is published only by nodes that are or have been primary.
+// It lets the coordinator distinguish an actively healthy primary, a primary
+// requesting demotion, and a node that has never held leadership.
+message LeadershipStatus {
+  // The primary_term at which this node was most recently elected.
+  // Non-zero only on nodes that have been elected primary.
+  int64 primary_term = 1;
+
+  LeadershipSignal signal = 2;
+}
+
+// AvailabilityStatus carries best-effort operational fitness signals for a pooler.
+// Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
+// on-disk state), AvailabilityStatus is in-memory and may be absent after a
+// process restart. Coordinators must treat absence as "unknown," not "unfit."
+//
+// Signals are re-derivable from continuous health polling, so process restarts
+// do not create permanent unavailability. See LeadershipSignal for re-derivation
+// rules.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state.
+// TODO: coordinator should synthesize AvailabilityStatus into
+// PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
+// regardless of source.
+message AvailabilityStatus {
+  // leadership_status is only set by poolers that are or have been primary.
+  LeadershipStatus leadership_status = 1;
 }

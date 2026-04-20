@@ -34,7 +34,7 @@ import (
 )
 
 // createMockNode creates a mock node for testing using FakeClient
-func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role string) *multiorchdatapb.PoolerHealthState {
+func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role consensusdatapb.PostgresRole) *multiorchdatapb.PoolerHealthState {
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
@@ -55,7 +55,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	// Configure FakeClient responses for this pooler
 	// Build WAL position based on role (maintain invariant: primary XOR standby)
 	var statusWalPos, beginTermWalPos *consensusdatapb.WALPosition
-	if role == "primary" {
+	if role == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
 		statusWalPos = &consensusdatapb.WALPosition{
 			CurrentLsn: walPosition,
 		}
@@ -126,9 +126,9 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 3, "0/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp2", 3, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		maxTerm, err := c.discoverMaxTerm(cohort)
@@ -144,8 +144,8 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 0, "0/1000000", false /* unhealthy */, "standby"),
-			createMockNode(fakeClient, "mp2", 0, "0/1000000", false /* unhealthy */, "standby"),
+			createMockNode(fakeClient, "mp1", 0, "0/1000000", false /* unhealthy */, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp2", 0, "0/1000000", false /* unhealthy */, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		_, err := c.discoverMaxTerm(cohort)
@@ -174,9 +174,9 @@ func TestDiscoverMaxTerm(t *testing.T) {
 		fakeClient.Errors[topoclient.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 			{MultiPooler: pooler2},
-			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		maxTerm, err := c.discoverMaxTerm(cohort)
@@ -664,6 +664,149 @@ func TestSelectCandidate(t *testing.T) {
 		require.Equal(t, "node2", candidate.MultiPooler.Id.Name,
 			"should correctly compare multi-segment LSNs (segment A > segment 9)")
 	})
+
+	// -----------------------------------------------------------------------
+	// Resigned-primary avoidance tests
+	//
+	// A node that has voluntarily resigned via EmergencyDemote carries a
+	// REQUESTING_DEMOTION LeadershipStatus signal in its PoolerHealthState.
+	// The coordinator should prefer any non-resigned node over it, even if
+	// the resigned node has a higher LSN (it was the most-recent primary and
+	// therefore has the most WAL).
+	// -----------------------------------------------------------------------
+
+	t.Run("skips resigned primary in favour of non-resigned standby", func(t *testing.T) {
+		// mp1 resigned as primary at term 4 — it has the highest LSN because it
+		// was the most recent primary, but should not be re-elected.
+		// mp2 and mp3 are non-resigned standbys with lower LSNs and must win.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		resignedPooler := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "mp1-resigned"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 4,
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 4,
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      resignedPooler,
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/9000000", LeadershipTerm: 4}, // highest LSN but resigned
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/5000000", LeadershipTerm: 4},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp3"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LeadershipTerm: 4},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"must not re-elect the resigned primary; should pick the non-resigned node with highest LSN")
+	})
+
+	t.Run("returns error when all candidates have resigned", func(t *testing.T) {
+		// The resignation signal is honored unconditionally: if every recruited
+		// candidate has resigned, the election is deferred rather than re-electing
+		// a node that explicitly requested demotion.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		resignedPooler := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "only-node"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 3,
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 3,
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      resignedPooler,
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/5000000"},
+			},
+		}
+
+		_, err := c.selectCandidate(ctx, recruited)
+		require.Error(t, err, "should return error when all candidates have resigned")
+	})
+
+	t.Run("stale resignation signal (different term) does not disqualify node", func(t *testing.T) {
+		// A REQUESTING_DEMOTION signal from a previous election cycle (primary_term
+		// in the signal does not match the node's current consensus primary_term)
+		// is stale and should not disqualify the node.
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		nodeWithStaleSignal := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{Name: "mp1-stale-signal"},
+			},
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				PrimaryTerm: 5, // current term is 5
+				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+						PrimaryTerm: 3, // signal from an old term — stale
+						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					},
+				},
+			},
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler:      nodeWithStaleSignal,
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/7000000", LeadershipTerm: 5}, // highest LSN
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LeadershipTerm: 5},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "mp1-stale-signal", candidate.MultiPooler.Id.Name,
+			"a stale resignation signal must not disqualify the node; it should win on LSN")
+	})
 }
 
 func TestRecruitNodes(t *testing.T) {
@@ -683,9 +826,9 @@ func TestRecruitNodes(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
@@ -705,9 +848,9 @@ func TestRecruitNodes(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp3 will reject the term (override after creating the node)
@@ -731,9 +874,9 @@ func TestRecruitNodes(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp3 returns an error even though it would accept the term
@@ -767,9 +910,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// Create default AT_LEAST_N quorum rule (majority: 2 of 3)
@@ -798,9 +941,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// All nodes cleanly reject (Accepted: false) - no errors
@@ -861,9 +1004,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp2 cleanly rejects the term (Accepted: false, no error)
@@ -911,10 +1054,10 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"), // Highest LSN
-			createMockNode(fakeClient, "mp2", 5, "0/4000000", true, "standby"), // Second highest
-			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
-			createMockNode(fakeClient, "mp4", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA), // Highest LSN
+			createMockNode(fakeClient, "mp2", 5, "0/4000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA), // Second highest
+			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp4", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp1 (highest LSN) rejects the term
@@ -956,9 +1099,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"), // Highest LSN
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY), // Highest LSN
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp1 accepts term but revoke fails (simulates postgres crash during revoke)
@@ -1014,9 +1157,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 
-		mp1 := createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby")
-		mp2 := createMockNode(fakeClient, "mp2", 5, "0/3000000", true, "standby")
-		mp3 := createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby")
+		mp1 := createMockNode(fakeClient, "mp1", 5, "0/5000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp2 := createMockNode(fakeClient, "mp2", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp3 := createMockNode(fakeClient, "mp3", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2, mp3}
 
 		// Inject leadership terms into the BeginTermResponses to simulate what the
@@ -1078,9 +1221,9 @@ func TestBeginTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "primary"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		// mp1 and mp2 accept term but revoke fails on both
@@ -1130,10 +1273,10 @@ func TestPropagate(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY)
 		standbys := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		quorumRule := &clustermetadatapb.DurabilityPolicy{
@@ -1177,7 +1320,7 @@ func TestPropagate(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY)
 
 		// mp3 will fail SetPrimaryConnInfo
 		mp3ID := &clustermetadatapb.ID{
@@ -1189,8 +1332,8 @@ func TestPropagate(t *testing.T) {
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
 		quorumRule := &clustermetadatapb.DurabilityPolicy{
@@ -1255,13 +1398,13 @@ func TestAppointLeader(t *testing.T) {
 		c := NewCoordinator(coordID, ts, fakeClient, logger)
 
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
-		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
+		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		mp1.IsPostgresReady = true
 
-		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		mp2.IsPostgresReady = true
 
-		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby")
+		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		mp3.IsPostgresReady = true
 
 		// mp3 rejects the term during BeginTerm
@@ -1350,12 +1493,12 @@ func TestAppointInitialLeader(t *testing.T) {
 		c := NewCoordinator(coordID, ts, fakeClient, logger)
 
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
-		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, "standby")
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		mp1.IsInitialized = true
 		mp1.IsPostgresReady = true
 		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
-		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby")
+		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		mp2.IsInitialized = true
 		mp2.IsPostgresReady = true
 		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
@@ -1401,7 +1544,7 @@ func TestAppointInitialLeader(t *testing.T) {
 
 		c := NewCoordinator(coordID, ts, fakeClient, logger)
 
-		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, "standby")
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 		err := c.AppointInitialLeader(ctx, "shard0", cohort, "testdb")
@@ -1423,7 +1566,7 @@ func TestAppointInitialLeader(t *testing.T) {
 
 		c := NewCoordinator(coordID, ts, fakeClient, logger)
 
-		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, "standby")
+		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 		err := c.AppointInitialLeader(ctx, "shard0", cohort, "testdb")

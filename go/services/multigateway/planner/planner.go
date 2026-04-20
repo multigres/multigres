@@ -74,6 +74,20 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
+	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
+	// before normal dispatch. The wrapper's inner ExecuteStmt references a
+	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
+	// rewrite it to the canonical name (e.g. "stmt42") and attach the
+	// PreparedStatement metadata so the multipooler can ensurePrepared() on
+	// the backend connection before running the query. See execute_unwrap.go.
+	if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
+		return nil, err
+	} else if unwrappedPlan != nil {
+		unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
+		unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
+		return unwrappedPlan, nil
+	}
+
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
 	var plan *engine.Plan
