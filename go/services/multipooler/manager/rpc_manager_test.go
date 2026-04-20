@@ -1610,7 +1610,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 		pm.rules = &fakeRuleStore{
-			pos: &clustermetadatapb.NodePosition{
+			pos: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 					CohortMembers: []*clustermetadatapb.ID{

@@ -1,0 +1,46 @@
+# CODEOWNERS
+#
+# GitHub uses the last matching pattern for a file, so the catch-all rule
+# must come first and specific overrides must follow.
+#
+# Teams must have at least Read access to this repository.
+
+# Global catch-all — owns everything not matched by a more specific rule below
+*  @multigres/Maintainers
+
+# Gateway service
+go/services/multigateway/  @multigres/owners-query-serving
+
+# Orchestration service
+go/services/multiorch/  @multigres/owners-cluster-management
+
+# PostgreSQL lifecycle manager
+go/services/pgctld/  @multigres/owners-cluster-management
+
+# SQL parser
+go/common/parser/  @multigres/owners-query-serving
+
+# PostgreSQL protocol implementation
+go/common/pgprotocol/  @multigres/owners-query-serving
+
+# Backup subsystem
+go/common/backup/  @multigres/owners-cluster-management
+
+# Topoclient subsystem
+go/common/topoclient/  @multigres/owners-cluster-management
+
+# Pooler service (implementation is split across two directories)
+go/services/multipooler/  @multigres/Maintainers
+go/multipooler/            @multigres/Maintainers
+
+# Admin service
+go/services/multiadmin/  @multigres/Maintainers
+
+# CI/CD and GitHub configuration
+.github/  @multigres/Maintainers
+
+# Proto definitions (API surface)
+proto/  @multigres/Maintainers
+
+# Documentation
+docs/  @multigres/Maintainers

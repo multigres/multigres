@@ -347,9 +347,13 @@ type BeginTermResponse struct {
 	// ID of the responding pooler
 	PoolerId string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
 	// WAL position for candidate selection
-	WalPosition   *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
+	// The pooler's consensus status at the time of the response.
+	// For REVOKE actions, captured after WAL positions are frozen (post-revoke snapshot).
+	// May be nil if postgres is unreachable.
+	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,5,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *BeginTermResponse) Reset() {
@@ -406,6 +410,13 @@ func (x *BeginTermResponse) GetPoolerId() string {
 func (x *BeginTermResponse) GetWalPosition() *WALPosition {
 	if x != nil {
 		return x.WalPosition
+	}
+	return nil
+}
+
+func (x *BeginTermResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
+	if x != nil {
+		return x.ConsensusStatus
 	}
 	return nil
 }
@@ -489,6 +500,10 @@ type StatusResponse struct {
 	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
 	// 0 if never primary. For current primaries, must be non-zero.
 	PrimaryTerm int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	// The pooler's current consensus status: its term revocation, committed
+	// rule position, and highest known rule. Authoritative view of where this
+	// pooler stands in the distributed system.
+	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,12,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	// Best-effort operational fitness signals for this node. These signals are
 	// in-memory and may be absent after a process restart. Coordinators treat
 	// absence as "unknown," not "unfit."
@@ -588,6 +603,13 @@ func (x *StatusResponse) GetPrimaryTerm() int64 {
 		return x.PrimaryTerm
 	}
 	return 0
+}
+
+func (x *StatusResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
+	if x != nil {
+		return x.ConsensusStatus
+	}
+	return nil
 }
 
 func (x *StatusResponse) GetAvailabilityStatus() *clustermetadata.AvailabilityStatus {
@@ -881,15 +903,16 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\x126\n" +
-	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\x9f\x01\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\xec\x01\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
 	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\x12=\n" +
-	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\">\n" +
+	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\x12K\n" +
+	"\x10consensus_status\x18\x05 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xcf\x03\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x9c\x04\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -902,7 +925,8 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04role\x18\t \x01(\x0e2\x1b.consensusdata.PostgresRoleR\x04role\x12@\n" +
 	"\rtimeline_info\x18\n" +
 	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
-	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12T\n" +
+	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12K\n" +
+	"\x10consensus_status\x18\f \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12T\n" +
 	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
@@ -957,23 +981,26 @@ var file_consensusdata_proto_goTypes = []any{
 	(*TimelineInfo)(nil),                       // 11: consensusdata.TimelineInfo
 	(*timestamppb.Timestamp)(nil),              // 12: google.protobuf.Timestamp
 	(*clustermetadata.ID)(nil),                 // 13: clustermetadata.ID
-	(*clustermetadata.AvailabilityStatus)(nil), // 14: clustermetadata.AvailabilityStatus
+	(*clustermetadata.ConsensusStatus)(nil),    // 14: clustermetadata.ConsensusStatus
+	(*clustermetadata.AvailabilityStatus)(nil), // 15: clustermetadata.AvailabilityStatus
 }
 var file_consensusdata_proto_depIdxs = []int32{
 	12, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
 	13, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
 	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
 	2,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
-	2,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	1,  // 5: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
-	11, // 6: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	14, // 7: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	12, // 8: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	14, // 4: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	2,  // 5: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	1,  // 6: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
+	11, // 7: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	14, // 8: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	15, // 9: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	12, // 10: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
