@@ -130,8 +130,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verified primary.demotion event in multiorch log")
 
 	// Step 9: Verify term.begin event was emitted during failover.
-	// BeginTerm is called by AppointLeaderAction on all nodes during failover (unlike initial
-	// bootstrap which uses InitializeEmptyPrimary directly). The new primary receives ACCEPT.
+	// BeginTerm is called by AppointLeaderAction on all nodes during failover. The new primary receives ACCEPT.
 	t.Log("Verifying term.begin event in new primary's multipooler log...")
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")

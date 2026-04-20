@@ -522,7 +522,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Create multiple shard-wide problems with different priorities
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemShardNeedsBootstrap,
+			Code:     types.ProblemShardNeedsInitialization,
 			PoolerID: poolerID1,
 			Priority: types.PriorityShardBootstrap,
 			Scope:    types.ScopeShard,
@@ -550,7 +550,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Should return only the highest priority shard-wide problem
 	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, types.ProblemShardNeedsBootstrap, filtered[0].Code)
+	assert.Equal(t, types.ProblemShardNeedsInitialization, filtered[0].Code)
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
@@ -2080,7 +2080,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 // and returns all detected problems. Fails the test if any analyzer returns an error.
 func detectProblems(t *testing.T, engine *Engine) []types.Problem {
 	t.Helper()
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore, nil)
 	var problems []types.Problem
 	for _, sa := range generator.GenerateShardAnalyses() {
 		for _, az := range analysis.DefaultAnalyzers(engine.actionFactory) {
