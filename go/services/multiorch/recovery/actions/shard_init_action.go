@@ -101,7 +101,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
-	durabilityPolicy, err := commonconsensus.PolicyFromProto(policyProto)
+	durabilityPolicy, err := commonconsensus.NewPolicyFromProto(policyProto)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse durability policy")
 	}

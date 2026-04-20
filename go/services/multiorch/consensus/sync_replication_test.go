@@ -431,7 +431,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 // Coordinator methods. Fails the test on error.
 func mustPolicy(t *testing.T, p *clustermetadatapb.DurabilityPolicy) commonconsensus.DurabilityPolicy {
 	t.Helper()
-	parsed, err := commonconsensus.PolicyFromProto(p)
+	parsed, err := commonconsensus.NewPolicyFromProto(p)
 	require.NoError(t, err)
 	return parsed
 }

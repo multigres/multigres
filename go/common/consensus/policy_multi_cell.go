@@ -23,8 +23,7 @@ import (
 // MultiCellPolicy requires acknowledgement from poolers spanning at least N
 // distinct cells.
 type MultiCellPolicy struct {
-	N    int
-	Desc string
+	N int
 }
 
 // CheckAchievable returns nil iff the proposed cohort spans at least N
@@ -32,8 +31,8 @@ type MultiCellPolicy struct {
 func (p MultiCellPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) error {
 	cells := cellsOf(proposedCohort)
 	if len(cells) < p.N {
-		return fmt.Errorf("durability not achievable: proposed cohort spans %d cells, required %d (%s)",
-			len(cells), p.N, p.Desc)
+		return fmt.Errorf("durability not achievable: proposed cohort spans %d cells, required %d",
+			len(cells), p.N)
 	}
 	return nil
 }
@@ -67,27 +66,20 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 	// Example: MULTI_CELL_AT_LEAST_2 and a cohort of 6 poolers (2 per cell across 3 cells).
 	// Recruiting one pooler from each cell covers every cohort cell, but the 3 un-recruited
 	// poolers still span 3 cells — enough to form a separate 2-cell quorum on their own.
-	unrecruitedCells := unrecruitedKeys(cohort, recruited, func(id *clustermetadatapb.ID) string { return id.GetCell() })
-	if len(unrecruitedCells) >= p.N {
-		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers span %d cells, another possible quorum could be formed spanning %d cells (%s)",
-			len(unrecruitedCells), p.N, p.Desc)
+	unrecruitedCells := unrecruitedKeyCount(cohort, recruited, func(id *clustermetadatapb.ID) string { return id.GetCell() })
+	if unrecruitedCells >= p.N {
+		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers span %d cells, another possible quorum could be formed spanning %d cells",
+			unrecruitedCells, p.N)
 	}
 	return nil
 }
 
 // Description returns a human-readable summary of the policy.
 func (p MultiCellPolicy) Description() string {
-	if p.Desc != "" {
-		return p.Desc
-	}
 	return fmt.Sprintf("MULTI_CELL_AT_LEAST_N(N=%d)", p.N)
 }
 
 // cellsOf returns the set of distinct cells covered by poolers.
 func cellsOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
-	cells := make(map[string]struct{})
-	for _, p := range poolers {
-		cells[p.GetCell()] = struct{}{}
-	}
-	return cells
+	return keysOf(poolers, func(id *clustermetadatapb.ID) string { return id.GetCell() })
 }

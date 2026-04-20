@@ -66,7 +66,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	}
 
 	// Not enough initialized poolers to satisfy the durability policy yet.
-	durabilityPolicy, err := consensus.PolicyFromProto(sa.BootstrapDurabilityPolicy)
+	durabilityPolicy, err := consensus.NewPolicyFromProto(sa.BootstrapDurabilityPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bootstrap durability policy: %w", err)
 	}

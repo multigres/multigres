@@ -111,7 +111,7 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 	// Parse the proto policy once into the typed DurabilityPolicy interface so
 	// preVote and BeginTerm can call its recruitment checks directly. The proto
 	// still flows through EstablishLeadership for synchronous replication setup.
-	durabilityPolicy, err := commonconsensus.PolicyFromProto(policy)
+	durabilityPolicy, err := commonconsensus.NewPolicyFromProto(policy)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse durability policy")
 	}

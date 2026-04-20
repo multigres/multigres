@@ -17,22 +17,19 @@ package consensus
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/common/topoclient"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // AtLeastNPolicy requires any N poolers from the cohort to acknowledge writes.
 type AtLeastNPolicy struct {
-	N    int
-	Desc string
+	N int
 }
 
 // CheckAchievable returns nil iff the proposed cohort has at least N poolers.
 func (p AtLeastNPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) error {
 	if len(proposedCohort) < p.N {
-		return fmt.Errorf("durability not achievable: proposed cohort has %d poolers, required %d (%s)",
-			len(proposedCohort), p.N, p.Desc)
+		return fmt.Errorf("durability not achievable: proposed cohort has %d poolers, required %d",
+			len(proposedCohort), p.N)
 	}
 	return nil
 }
@@ -73,18 +70,18 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 	// After recruiting pooler-1, pooler-2, and pooler-3, we still need to recruit
 	// pooler-4 OR pooler-5 — otherwise the 2 unrecruited poolers could form their
 	// own 2-pooler quorum that still satisfies the durability policy.
-	unrecruited := unrecruitedKeys(cohort, recruited, topoclient.ClusterIDString)
-	if len(unrecruited) >= p.N {
-		return fmt.Errorf("revocation not satisfied: %d cohort poolers not recruited, another possible quorum could be formed of %d (%s)",
-			len(unrecruited), p.N, p.Desc)
+	//
+	// Relies on validateRecruitedSubset above: recruited ⊆ cohort, so the
+	// length difference equals the un-recruited count.
+	unrecruited := len(cohort) - len(recruited)
+	if unrecruited >= p.N {
+		return fmt.Errorf("revocation not satisfied: %d cohort poolers not recruited, another possible quorum could be formed of %d",
+			unrecruited, p.N)
 	}
 	return nil
 }
 
 // Description returns a human-readable summary of the policy.
 func (p AtLeastNPolicy) Description() string {
-	if p.Desc != "" {
-		return p.Desc
-	}
 	return fmt.Sprintf("AT_LEAST_N(N=%d)", p.N)
 }

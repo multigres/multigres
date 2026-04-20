@@ -80,7 +80,7 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := AtLeastNPolicy{N: tc.n, Desc: "test"}
+			p := AtLeastNPolicy{N: tc.n}
 			err := p.CheckAchievable(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
@@ -261,7 +261,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := AtLeastNPolicy{N: tc.n, Desc: "test"}
+			p := AtLeastNPolicy{N: tc.n}
 			err := p.CheckSufficientRecruitment(tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)

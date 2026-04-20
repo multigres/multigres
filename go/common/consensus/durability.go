@@ -66,30 +66,43 @@ type DurabilityPolicy interface {
 	Description() string
 }
 
-// PolicyFromProto converts a proto DurabilityPolicy into a concrete
+// NewPolicyFromProto converts a proto DurabilityPolicy into a concrete
 // DurabilityPolicy implementation.
-func PolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityPolicy, error) {
+func NewPolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityPolicy, error) {
 	if policy == nil {
 		return nil, errors.New("durability policy is nil")
 	}
 
 	switch policy.QuorumType {
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N:
-		return AtLeastNPolicy{N: int(policy.RequiredCount), Desc: policy.Description}, nil
+		// N=0 would make revocation (|missing| < N) unsatisfiable for any recruitment.
+		if policy.RequiredCount < 1 {
+			return nil, fmt.Errorf("AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
+		}
+		return AtLeastNPolicy{N: int(policy.RequiredCount)}, nil
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
-		return MultiCellPolicy{N: int(policy.RequiredCount), Desc: policy.Description}, nil
+		// N=0 would make revocation (|uncovered cells| < N) unsatisfiable for any recruitment.
+		if policy.RequiredCount < 1 {
+			return nil, fmt.Errorf("MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
+		}
+		return MultiCellPolicy{N: int(policy.RequiredCount)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported quorum type: %v", policy.QuorumType)
 	}
 }
 
-// poolerKeysOf returns the set of cluster-unique keys present in poolers.
-func poolerKeysOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
+// keysOf returns the set of distinct keyFn-keys present in poolers.
+func keysOf(poolers []*clustermetadatapb.ID, keyFn func(*clustermetadatapb.ID) string) map[string]struct{} {
 	out := make(map[string]struct{}, len(poolers))
 	for _, p := range poolers {
-		out[topoclient.ClusterIDString(p)] = struct{}{}
+		out[keyFn(p)] = struct{}{}
 	}
 	return out
+}
+
+// poolerKeysOf returns the set of cluster-unique pooler keys.
+func poolerKeysOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
+	return keysOf(poolers, topoclient.ClusterIDString)
 }
 
 // validateRecruitedSubset returns an error if any recruited pooler is not a
@@ -122,20 +135,18 @@ func validateMajority(cohort, recruited []*clustermetadatapb.ID) error {
 	return nil
 }
 
-// unrecruitedKeys returns the distinct keyFn-keys of cohort poolers that are
-// not present in recruited. Membership is always determined at the pooler
-// level (ClusterIDString); keyFn controls the dimension of aggregation for
-// the returned set.
+// unrecruitedKeyCount returns the number of distinct keyFn-keys of cohort
+// poolers that are not present in recruited. Membership is always determined
+// at the pooler level (ClusterIDString); keyFn controls the dimension of
+// aggregation for the counted set.
 //
-// Shared by durability policies to compute revocation: if the returned slice
-// has N or more entries, those entries could form a rogue quorum on their own.
+// If the count is N or more, those entries could form a rogue quorum on
+// their own.
 //
-//   - AtLeastN passes ClusterIDString as keyFn, so each un-recruited pooler
-//     contributes a distinct entry and the count equals un-recruited pooler count.
 //   - MultiCell passes GetCell as keyFn, so multiple un-recruited poolers in the
 //     same cell collapse into a single entry — the count is the number of
 //     cells with at least one un-recruited pooler.
-func unrecruitedKeys(cohort, recruited []*clustermetadatapb.ID, keyFn func(*clustermetadatapb.ID) string) []string {
+func unrecruitedKeyCount(cohort, recruited []*clustermetadatapb.ID, keyFn func(*clustermetadatapb.ID) string) int {
 	recruitedPoolers := poolerKeysOf(recruited)
 	uncovered := make(map[string]struct{})
 	for _, p := range cohort {
@@ -144,9 +155,5 @@ func unrecruitedKeys(cohort, recruited []*clustermetadatapb.ID, keyFn func(*clus
 		}
 		uncovered[keyFn(p)] = struct{}{}
 	}
-	out := make([]string, 0, len(uncovered))
-	for k := range uncovered {
-		out = append(out, k)
-	}
-	return out
+	return len(uncovered)
 }

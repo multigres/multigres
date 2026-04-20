@@ -63,7 +63,7 @@ func TestParseUserSpecifiedDurabilityPolicy(t *testing.T) {
 	})
 }
 
-func TestPolicyFromProto(t *testing.T) {
+func TestNewPolicyFromProto(t *testing.T) {
 	tests := []struct {
 		name    string
 		policy  *clustermetadatapb.DurabilityPolicy
@@ -93,11 +93,35 @@ func TestPolicyFromProto(t *testing.T) {
 			},
 			wantErr: "unsupported quorum type",
 		},
+		{
+			name: "AT_LEAST_N with RequiredCount=0 is rejected",
+			policy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: 0,
+			},
+			wantErr: "AT_LEAST_N requires RequiredCount >= 1",
+		},
+		{
+			name: "AT_LEAST_N with RequiredCount=-1 is rejected",
+			policy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: -1,
+			},
+			wantErr: "AT_LEAST_N requires RequiredCount >= 1",
+		},
+		{
+			name: "MULTI_CELL_AT_LEAST_N with RequiredCount=0 is rejected",
+			policy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+				RequiredCount: 0,
+			},
+			wantErr: "MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := PolicyFromProto(tc.policy)
+			p, err := NewPolicyFromProto(tc.policy)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.wantErr)
