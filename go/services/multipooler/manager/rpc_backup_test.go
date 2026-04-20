@@ -1465,7 +1465,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
-		_, err := pm.GetPrimaryAsPg2Args(ctx, nil)
+		_, err := pm.GetPrimaryAsPg2Args(ctx, nil, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pg_data_dir")
 	})
