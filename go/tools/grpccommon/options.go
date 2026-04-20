@@ -61,8 +61,16 @@ func MaxMessageSize() int {
 // in MacOS where localhost host takes too long to resolve.
 // See the following PR for more details: https://github.com/multigres/multigres/pull/152
 func LocalClientDialOptions() []grpc.DialOption {
+	return ClientDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials()))
+}
+
+// ClientDialOptions returns the standard dial options for a gRPC client given
+// a caller-supplied transport credentials dial option. It always includes
+// WithDisableServiceConfig, a macOS localhost-resolution workaround (see #152),
+// so callers can't forget it when wiring up TLS or insecure credentials.
+func ClientDialOptions(transportCreds grpc.DialOption) []grpc.DialOption {
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		transportCreds,
 		grpc.WithDisableServiceConfig(),
 	}
 }

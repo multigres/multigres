@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -71,6 +72,9 @@ type CancelManager struct {
 	// handles closing unused transports automatically.
 	clients map[string]*gatewayConn
 
+	// transportCreds configures transport security for gateway-to-gateway gRPC dials.
+	transportCreds grpc.DialOption
+
 	// stop cancels the background prefix cache refresh goroutine.
 	stop context.CancelFunc
 }
@@ -91,7 +95,12 @@ func NewCancelManager(
 	ownPrefix uint32,
 	ts topoclient.Store,
 	logger *slog.Logger,
+	transportCreds grpc.DialOption,
 ) *CancelManager {
+	if transportCreds == nil {
+		transportCreds = grpc.WithTransportCredentials(insecure.NewCredentials())
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 	cm := &CancelManager{
 		primaryCancelFn: primaryCancelFn,
@@ -100,6 +109,7 @@ func NewCancelManager(
 		ts:              ts,
 		logger:          logger,
 		clients:         make(map[string]*gatewayConn),
+		transportCreds:  transportCreds,
 		stop:            cancel,
 	}
 	empty := make(map[uint32]string)
@@ -262,7 +272,7 @@ func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultiGate
 		return gc.client, nil
 	}
 
-	dialOpts := append(grpccommon.LocalClientDialOptions(), grpc.WithIdleTimeout(grpcIdleTimeout))
+	dialOpts := append(grpccommon.ClientDialOptions(cm.transportCreds), grpc.WithIdleTimeout(grpcIdleTimeout))
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithDialOptions(dialOpts...),
 	)
