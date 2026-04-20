@@ -16,7 +16,6 @@ package benchmarking
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // pgbouncer requires MD5 auth hashes
 	"fmt"
 	"net"
 	"os"
@@ -51,13 +50,14 @@ func NewPgBouncerInstance(t *testing.T, backendHost string, backendPort int, use
 	configDir := t.TempDir()
 
 	// Write pgbouncer.ini
+	// Use scram-sha-256 auth to match PostgreSQL's default auth method.
 	iniContent := fmt.Sprintf(`[databases]
 postgres = host=%s port=%d dbname=postgres
 
 [pgbouncer]
 listen_addr = 127.0.0.1
 listen_port = %d
-auth_type = md5
+auth_type = scram-sha-256
 auth_file = %s/userlist.txt
 pool_mode = transaction
 max_client_conn = 200
@@ -76,10 +76,9 @@ unix_socket_dir = %s
 		return nil, fmt.Errorf("failed to write pgbouncer.ini: %w", err)
 	}
 
-	// Write userlist.txt with MD5 hash
-	// pgbouncer MD5 format: "md5" + md5(password + username)
-	hash := fmt.Sprintf("%x", md5.Sum([]byte(password+user))) //nolint:gosec // pgbouncer requires MD5
-	userlistContent := fmt.Sprintf(`"%s" "md5%s"`, user, hash)
+	// Write userlist.txt with plaintext password.
+	// pgbouncer handles the SCRAM-SHA-256 exchange itself when given plaintext.
+	userlistContent := fmt.Sprintf(`"%s" "%s"`, user, password)
 	userlistPath := filepath.Join(configDir, "userlist.txt")
 	if err := os.WriteFile(userlistPath, []byte(userlistContent), 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write userlist.txt: %w", err)

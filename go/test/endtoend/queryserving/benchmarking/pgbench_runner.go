@@ -15,14 +15,16 @@
 package benchmarking
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,20 +52,19 @@ type BenchmarkTarget struct {
 	DB   string
 }
 
-// ScenarioResult holds parsed pgbench output for one scenario+target run.
+// ScenarioResult holds computed metrics from a pgbench run.
 type ScenarioResult struct {
-	Target          string  `json:"target"`
-	Scenario        string  `json:"scenario"`
-	TPS             float64 `json:"tps"`
-	TPSIncluding    float64 `json:"tps_including"`
-	LatencyAvg      float64 `json:"latency_avg_ms"`
-	LatencyStddev   float64 `json:"latency_stddev_ms"`
-	InitialConnTime float64 `json:"initial_conn_time_ms,omitempty"`
-	Clients         int     `json:"clients"`
-	Duration        int     `json:"duration_seconds"`
-	Protocol        string  `json:"protocol"`
-	ConnChurn       bool    `json:"connection_churn"`
-	Transactions    int     `json:"transactions"`
+	Target       string  `json:"target"`
+	Scenario     string  `json:"scenario"`
+	TPS          float64 `json:"tps"`
+	LatencyAvg   float64 `json:"latency_avg_ms"`
+	LatencyP50   float64 `json:"latency_p50_ms"`
+	LatencyP99   float64 `json:"latency_p99_ms"`
+	Clients      int     `json:"clients"`
+	Duration     int     `json:"duration_seconds"`
+	Protocol     string  `json:"protocol"`
+	ConnChurn    bool    `json:"connection_churn"`
+	Transactions int     `json:"transactions"`
 }
 
 // BenchmarkReport is the top-level report containing all results.
@@ -86,21 +87,6 @@ type PgBenchRunner struct {
 	pgbenchBinary string
 	OutputDir     string
 }
-
-// Regex patterns for parsing pgbench output.
-// pgbench has two output formats:
-//   - Sustained mode: "tps = X (without initial connection time)" + "tps = X (including initial connection time)"
-//   - Churn mode (-C): "tps = X (including reconnection times)"
-var (
-	tpsExcludingRe    = regexp.MustCompile(`tps = ([\d.]+) \(without initial connection time\)`)
-	tpsIncludingRe    = regexp.MustCompile(`tps = ([\d.]+) \(including initial connection time\)`)
-	tpsReconnectRe    = regexp.MustCompile(`tps = ([\d.]+) \(including reconnection times\)`)
-	latencyAvgRe      = regexp.MustCompile(`latency average = ([\d.]+) ms`)
-	latencyStddevRe   = regexp.MustCompile(`latency stddev = ([\d.]+) ms`)
-	avgConnTimeRe     = regexp.MustCompile(`average connection time = ([\d.]+) ms`)
-	initialConnTimeRe = regexp.MustCompile(`initial connection time = ([\d.]+) ms`)
-	transactionsRe    = regexp.MustCompile(`number of transactions actually processed: (\d+)`)
-)
 
 // NewPgBenchRunner creates a runner after locating the pgbench binary.
 func NewPgBenchRunner(t *testing.T) *PgBenchRunner {
@@ -147,9 +133,24 @@ func (r *PgBenchRunner) Initialize(ctx context.Context, t *testing.T, target Ben
 	return nil
 }
 
-// RunScenario executes a single pgbench scenario against the given target.
+// RunScenario executes a single pgbench scenario and computes metrics from
+// the per-transaction log file (--log), avoiding fragile text output parsing.
+//
+// pgbench --log writes one line per completed transaction:
+//
+//	client_id  transaction_no  time_epoch_us  latency_us  schedule_lag_us
+//
+// We compute TPS, average latency, p50, and p99 directly from this data.
 func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target BenchmarkTarget, scenario ScenarioConfig) (*ScenarioResult, error) {
 	t.Helper()
+
+	// Create a unique log file prefix for this run inside the output directory.
+	// Using output dir (not t.TempDir) so files survive for debugging if needed.
+	logDir := filepath.Join(r.OutputDir, "logs", scenario.Name, target.Name)
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create log dir: %w", err)
+	}
+	logPrefix := filepath.Join(logDir, "pgbench_log")
 
 	args := []string{
 		"-h", target.Host,
@@ -158,6 +159,7 @@ func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target Be
 		"-c", strconv.Itoa(scenario.Clients),
 		"-T", strconv.Itoa(scenario.Duration),
 		"-M", scenario.Protocol,
+		"--log", "--log-prefix", logPrefix,
 	}
 	if scenario.ConnChurn {
 		args = append(args, "-C")
@@ -168,76 +170,111 @@ func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target Be
 		AddEnv("PGPASSWORD=" + target.Pass)
 
 	output, err := cmd.CombinedOutput()
-	outputStr := string(output)
 	if err != nil {
-		t.Logf("pgbench scenario %s/%s output:\n%s", scenario.Name, target.Name, outputStr)
+		t.Logf("pgbench scenario %s/%s output:\n%s", scenario.Name, target.Name, string(output))
 		return nil, fmt.Errorf("pgbench failed: %w", err)
 	}
 
-	result, parseErr := parsePgBenchOutput(outputStr, scenario, target.Name)
-	if parseErr != nil {
-		t.Logf("pgbench output (failed to parse):\n%s", outputStr)
-		return nil, fmt.Errorf("failed to parse pgbench output: %w", parseErr)
+	// pgbench creates log files named <prefix>.<pid> (one thread) or
+	// <prefix>.<pid>.<thread> (multi-thread). Glob for all of them.
+	logFiles, err := filepath.Glob(logPrefix + ".*")
+	if err != nil || len(logFiles) == 0 {
+		return nil, errors.New("pgbench did not produce a transaction log file")
 	}
 
-	return result, nil
+	latencies, err := readTransactionLatencies(t, logFiles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read transaction log: %w", err)
+	}
+	if len(latencies) == 0 {
+		return nil, errors.New("transaction log is empty — no completed transactions")
+	}
+
+	return computeResult(latencies, scenario, target.Name), nil
 }
 
-// parsePgBenchOutput extracts metrics from pgbench's text output.
-func parsePgBenchOutput(output string, scenario ScenarioConfig, targetName string) (*ScenarioResult, error) {
-	result := &ScenarioResult{
-		Target:    targetName,
-		Scenario:  scenario.Name,
-		Clients:   scenario.Clients,
-		Duration:  scenario.Duration,
-		Protocol:  scenario.Protocol,
-		ConnChurn: scenario.ConnChurn,
+// readTransactionLatencies reads per-transaction latency values (in microseconds)
+// from one or more pgbench log files.
+//
+// Each line has the format: client_id  txn_no  latency_us  script_no  epoch_secs  epoch_usecs
+// The latency field is at column index 2.
+func readTransactionLatencies(t *testing.T, logFiles []string) ([]float64, error) {
+	t.Helper()
+	var latencies []float64
+
+	for _, path := range logFiles {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) < 3 {
+				continue
+			}
+			usec, err := strconv.ParseFloat(fields[2], 64)
+			if err != nil {
+				continue
+			}
+			latencies = append(latencies, usec)
+		}
+		f.Close()
+
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("scan %s: %w", path, err)
+		}
 	}
 
-	// Sustained mode: two TPS lines
-	if m := tpsExcludingRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.TPS = v
-	}
-	if m := tpsIncludingRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.TPSIncluding = v
-	}
-	// Churn mode (-C): single TPS line with reconnection times
-	if m := tpsReconnectRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.TPS = v
-		result.TPSIncluding = v
-	}
-	if m := latencyAvgRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.LatencyAvg = v
-	}
-	if m := latencyStddevRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.LatencyStddev = v
-	}
-	// Churn mode reports average connection time instead of latency stddev
-	if m := avgConnTimeRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.InitialConnTime = v
-	}
-	// Newer pgbench (PG 16+) reports initial connection time as a separate line
-	if m := initialConnTimeRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.ParseFloat(m[1], 64)
-		result.InitialConnTime = v
-	}
-	if m := transactionsRe.FindStringSubmatch(output); len(m) > 1 {
-		v, _ := strconv.Atoi(m[1])
-		result.Transactions = v
-	}
+	return latencies, nil
+}
 
-	// TPS is the essential field; if we can't parse it, the output format may have changed.
-	if result.TPS == 0 && result.TPSIncluding == 0 {
-		return nil, errors.New("could not parse TPS from pgbench output")
-	}
+// computeResult derives TPS, averages, and percentiles from raw latency data.
+func computeResult(latencies []float64, scenario ScenarioConfig, targetName string) *ScenarioResult {
+	n := len(latencies)
 
-	return result, nil
+	// Average latency in microseconds.
+	var sum float64
+	for _, v := range latencies {
+		sum += v
+	}
+	avgUs := sum / float64(n)
+
+	// Sort for percentile computation.
+	sort.Float64s(latencies)
+
+	return &ScenarioResult{
+		Target:       targetName,
+		Scenario:     scenario.Name,
+		TPS:          float64(n) / float64(scenario.Duration),
+		LatencyAvg:   avgUs / 1000, // us → ms
+		LatencyP50:   percentile(latencies, 50) / 1000,
+		LatencyP99:   percentile(latencies, 99) / 1000,
+		Clients:      scenario.Clients,
+		Duration:     scenario.Duration,
+		Protocol:     scenario.Protocol,
+		ConnChurn:    scenario.ConnChurn,
+		Transactions: n,
+	}
+}
+
+// percentile returns the p-th percentile of a sorted slice using linear interpolation.
+func percentile(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	if len(sorted) == 1 {
+		return sorted[0]
+	}
+	rank := (p / 100) * float64(len(sorted)-1)
+	lower := int(math.Floor(rank))
+	upper := lower + 1
+	if upper >= len(sorted) {
+		return sorted[len(sorted)-1]
+	}
+	frac := rank - float64(lower)
+	return sorted[lower]*(1-frac) + sorted[upper]*frac
 }
 
 // CaptureEnvironment collects environment info for the report.

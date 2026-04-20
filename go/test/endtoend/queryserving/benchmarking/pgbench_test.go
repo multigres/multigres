@@ -113,8 +113,8 @@ func TestPgBench(t *testing.T) {
 						return
 					}
 					allResults = append(allResults, *result)
-					t.Logf("TPS=%.1f  AvgLatency=%.2fms  Transactions=%d",
-						result.TPS, result.LatencyAvg, result.Transactions)
+					t.Logf("TPS=%.1f  AvgLatency=%.2fms  P99=%.2fms  Txns=%d",
+						result.TPS, result.LatencyAvg, result.LatencyP99, result.Transactions)
 				})
 			}
 		})

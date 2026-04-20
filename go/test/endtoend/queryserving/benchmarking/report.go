@@ -82,7 +82,9 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 		for _, tgt := range targetNames {
 			fmt.Fprintf(&header, " | %s TPS", tgt)
 			divider.WriteString("|---")
-			fmt.Fprintf(&header, " | %s Avg Latency", tgt)
+			fmt.Fprintf(&header, " | %s Avg", tgt)
+			divider.WriteString("|---")
+			fmt.Fprintf(&header, " | %s P99", tgt)
 			divider.WriteString("|---")
 		}
 		if len(targetNames) >= 2 {
@@ -109,6 +111,7 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 				if r != nil {
 					fmt.Fprintf(&row, " | %.0f", r.TPS)
 					fmt.Fprintf(&row, " | %.2f ms", r.LatencyAvg)
+					fmt.Fprintf(&row, " | %.2f ms", r.LatencyP99)
 					if tgt == "postgres" {
 						pgTPS = r.TPS
 					}
@@ -116,7 +119,7 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 						mgwTPS = r.TPS
 					}
 				} else {
-					row.WriteString(" | - | -")
+					row.WriteString(" | - | - | -")
 				}
 			}
 
