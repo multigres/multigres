@@ -113,7 +113,7 @@ the test is skipped.
 
 pgbench writes a per-transaction log file via `--log`. Each line contains:
 
-```
+```text
 client_id  txn_no  latency_us  script_no  epoch_secs  epoch_usecs
 ```
 
@@ -139,7 +139,7 @@ Reports are written to `/tmp/multigres_pgbench_results/<timestamp>/`:
 
 ### Markdown report example
 
-```
+```markdown
 ## Sustained Load — Simple Protocol
 
 | Clients | postgres TPS | postgres Avg | postgres P99 | multigateway TPS | multigateway Avg | multigateway P99 | pgbouncer TPS | pgbouncer Avg | pgbouncer P99 | Overhead |
@@ -168,7 +168,7 @@ The benchmark runs weekly via `.github/workflows/test-pgbench.yml`:
 
 ## File structure
 
-```
+```text
 go/test/endtoend/queryserving/benchmarking/
 ├── main_test.go          # TestMain, shared cluster setup (2-node + multigateway)
 ├── pgbench_test.go       # TestPgBench orchestrator
