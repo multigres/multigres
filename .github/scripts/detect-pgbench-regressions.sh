@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-THRESHOLD=5  # percentage TPS drop that counts as a regression
+THRESHOLD=5 # percentage TPS drop that counts as a regression
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <baseline.json> <current.json> [output-dir]" >&2

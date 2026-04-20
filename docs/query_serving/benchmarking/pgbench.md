@@ -143,7 +143,7 @@ Reports are written to `/tmp/multigres_pgbench_results/<timestamp>/`:
 ## Sustained Load — Simple Protocol
 
 | Clients | postgres TPS | postgres Avg | postgres P99 | multigateway TPS | multigateway Avg | multigateway P99 | pgbouncer TPS | pgbouncer Avg | pgbouncer P99 | Overhead |
-|---|---|---|---|---|---|---|---|---|---|---|
+| ------- | ------------ | ------------ | ------------ | ---------------- | ---------------- | ---------------- | ------------- | ------------- | ------------- | -------- |
 | 1       | 3213         | 0.31 ms      | 0.81 ms      | 696              | 1.43 ms          | 4.62 ms          | 2323          | 0.43 ms       | 1.09 ms       | 78.3%    |
 | 10      | 8676         | 1.13 ms      | 3.07 ms      | 1403             | 7.09 ms          | 15.83 ms         | 7069          | 1.40 ms       | 3.26 ms       | 83.8%    |
 ```
