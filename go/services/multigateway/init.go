@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -98,6 +99,8 @@ type MultiGateway struct {
 	planCacheMemory viperutil.Value[int]
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
+	connConfig *rpcclient.ConnConfig
 	// topoConfig holds topology configuration
 	topoConfig   *topoclient.TopoConfig
 	ts           topoclient.Store
@@ -181,6 +184,7 @@ func NewMultiGateway() *MultiGateway {
 		bufferConfig: buffer.NewConfig(reg),
 		grpcServer:   servenv.NewGrpcServer(reg),
 		senv:         servenv.NewServEnv(reg),
+		connConfig:   rpcclient.NewConnConfig(reg),
 		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
@@ -232,6 +236,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
+	mg.connConfig.RegisterFlags(fs)
 	mg.topoConfig.RegisterFlags(fs)
 }
 
@@ -273,8 +278,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.poolerDiscovery.Start()
 	logger.InfoContext(ctx, "Global pooler discovery started", "local_cell", mg.cell.Get())
 
+	// Build transport credentials for multipooler gRPC connections.
+	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
+	if err != nil {
+		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+	}
+
 	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
+	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
 	lowLagMs := mg.pgReplicaLowLagMs.Get()
 	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
 	if lowLagMs > 0 || highToleranceMs > 0 {
@@ -460,6 +471,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		pidPrefix,
 		mg.ts,
 		logger,
+		poolerTransportCreds,
 	)
 	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
 	if mg.pgReplicaListener != nil {

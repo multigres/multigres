@@ -20,7 +20,6 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
-	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // tryUnwrapWrappedExecute detects statements of the form `EXPLAIN EXECUTE p`
@@ -60,18 +59,10 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		return nil, nil
 	}
 
-	// Reach into the gateway handler's consolidator to look up the user name.
-	// The planner only has a *server.Conn, but the conn's Handler is our
-	// MultiGatewayHandler which owns the consolidator.
-	mh, ok := conn.Handler().(*handler.MultiGatewayHandler)
-	if !ok {
-		// Unknown handler type — should only happen in tests that don't wire
-		// a MultiGatewayHandler. Fall through to the normal dispatch (which
-		// will fail at execution time with "prepared statement does not exist"
-		// just like today).
-		return nil, nil
-	}
-	psi := mh.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), execStmt.Name)
+	// Look up the user-visible prepared statement name via the Handler
+	// interface. The handler's consolidator maps the user name to a
+	// canonical name and the associated PreparedStatementInfo.
+	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), execStmt.Name)
 	if psi == nil {
 		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
 	}

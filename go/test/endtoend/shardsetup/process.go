@@ -73,6 +73,11 @@ type ProcessInstance struct {
 	// Used by multigateway for buffer config, etc.
 	ExtraArgs []string
 
+	// LogLevel sets --log-level for multipooler/multiorch/multigateway.
+	// Defaults to "debug" when empty so existing tests keep verbose logs;
+	// benchmarks set "warn" to remove logging from the hot path.
+	LogLevel string
+
 	// PgBackRest-specific fields (used by multipooler and pgctld)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
 	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
@@ -80,6 +85,15 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
+}
+
+// logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
+// don't opt into a quieter level keep the historical verbose output.
+func (p *ProcessInstance) logLevelOrDefault() string {
+	if p.LogLevel == "" {
+		return "debug"
+	}
+	return p.LogLevel
 }
 
 // Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
@@ -171,7 +185,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 		"--service-id", p.Name,
 		"--hostname", "localhost",
 		"--log-output", p.LogFile,
-		"--log-level", "debug",
+		"--log-level", p.logLevelOrDefault(),
 	}
 
 	// Add pgBackRest certificate paths and port if configured
@@ -219,7 +233,7 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		"--bookkeeping-interval", "2s",
 		"--pooler-health-check-interval", "500ms",
 		"--recovery-cycle-interval", "500ms",
-		"--log-level", "debug",
+		"--log-level", p.logLevelOrDefault(),
 	}
 
 	// Add grace period flags if configured (defaults to 0 for fast tests)
@@ -281,7 +295,7 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
-		"--log-level", "debug",
+		"--log-level", p.logLevelOrDefault(),
 	}
 
 	// Add replica port flag if configured
