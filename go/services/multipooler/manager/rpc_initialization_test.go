@@ -34,13 +34,24 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
-func NewTestMultiPoolerManager(t *testing.T, multiPooler *clustermetadatapb.MultiPooler, config *Config) *MultiPoolerManager {
+// NewTestMultiPoolerManager builds a MultiPoolerManager for tests with a
+// minimal MultiPooler (MVP table_group/shard, a temp PoolerDir, and a valid
+// service ID). Tests override pm.multipooler fields, pm.pgctldClient, etc.
+// as needed.
+func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	t.Helper()
-	logger := slog.Default()
-	pm, err := NewMultiPoolerManager(logger, multiPooler, config)
+	mp := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "test-cell",
+			Name:      "test-pooler",
+		},
+		TableGroup: "default",
+		Shard:      "0-inf",
+		PoolerDir:  t.TempDir(),
+	}
+	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
-
 	return pm
 }
 
@@ -226,18 +237,14 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	ctx := t.Context()
 
-	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{
 			Status: pgctldpb.ServerStatus_STOPPED,
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
 
 	state := pm.discoverPostgresState(ctx)
 
@@ -251,18 +258,14 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 func TestDiscoverPostgresState_Running(t *testing.T) {
 	ctx := t.Context()
 
-	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{
 			Status: pgctldpb.ServerStatus_RUNNING,
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
 
 	state := pm.discoverPostgresState(ctx)
 
@@ -274,11 +277,6 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 
 func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 	ctx := t.Context()
-	poolerDir := t.TempDir()
-
-	// Plant sentinel to simulate a crashed prior first-backup attempt.
-	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
-	require.NoError(t, os.WriteFile(sentinelPath, []byte("prior attempt\n"), 0o644))
 
 	mockPgctld := &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{
@@ -286,11 +284,12 @@ func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
+
+	// Plant sentinel to simulate a crashed prior first-backup attempt.
+	sentinelPath := filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
+	require.NoError(t, os.WriteFile(sentinelPath, []byte("prior attempt\n"), 0o644))
 
 	state := pm.discoverPostgresState(ctx)
 
@@ -839,13 +838,10 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateStarting,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateStarting
 
 	// Call iteration when not ready - should return early without calling pgctld
 	pm.monitorPostgresIteration(ctx)
@@ -874,16 +870,11 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-		multipooler: &clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_PRIMARY,
-		},
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
+	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
 
 	// Call iteration - should discover running state and not call Start
 	pm.monitorPostgresIteration(ctx)
@@ -904,13 +895,10 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
 
 	// Call iteration - should discover stopped state and attempt to start
 	pm.monitorPostgresIteration(ctx)
@@ -934,13 +922,10 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
 
 	// Call iteration multiple times to simulate retry behavior
 	for range 5 {
