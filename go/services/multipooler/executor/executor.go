@@ -158,6 +158,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 // When reservationOptions is set on an existing reserved connection, the reasons are
 // OR'd into the reservation (e.g., adding ReasonTransaction to a temp-table-reserved conn).
 //
+// If options.PreparedStatement is set, the statement is parsed on the chosen
+// backend connection via ensurePreparedWithName() before `sql` runs. This is
+// used for wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE)
+// that reference a gateway-managed prepared statement by its canonical name.
+//
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) StreamExecute(
 	ctx context.Context,
@@ -180,6 +185,8 @@ func (e *Executor) StreamExecute(
 		"user", user,
 		"query", sql)
 
+	preparedStmt := options.GetPreparedStatement()
+
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
@@ -195,6 +202,18 @@ func (e *Executor) StreamExecute(
 		if options.SessionSettings != nil {
 			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+			}
+		}
+
+		// If the query references a gateway-managed prepared statement
+		// (wrapped EXECUTE forms), ensure it is parsed on this backend
+		// connection before running the query. We do this before delegating
+		// to streamExecuteOnReservedConn because that helper operates over
+		// the reservedConnAPI interface which does not expose the underlying
+		// *regular.Conn needed by ensurePreparedWithName.
+		if preparedStmt != nil {
+			if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to ensure prepared statement on reserved connection: %w", err)
 			}
 		}
 
@@ -218,6 +237,22 @@ func (e *Executor) StreamExecute(
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
+
+	// When a PreparedStatement is provided we cannot use the retry-on-connection-error
+	// variant of QueryStreaming: reconnect wipes per-connection prepared-statement state
+	// (regular_conn.go Reconnect: "Prepared statements don't survive reconnection"),
+	// so after a silent reconnect the subsequent query would fail with "prepared
+	// statement does not exist". Skip the retry for this rare path; the caller can
+	// reissue the query at the application level on transient failures.
+	if preparedStmt != nil {
+		if err := e.ensurePreparedWithName(ctx, conn.Conn, preparedStmt); err != nil {
+			return nil, fmt.Errorf("failed to ensure prepared statement: %w", err)
+		}
+		if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
+			return nil, wrapQueryError(err)
+		}
+		return nil, nil
+	}
 
 	// Use streaming query execution with retry since this is a stateless pool query.
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
@@ -278,6 +313,16 @@ func (e *Executor) reserveAndStreamExecute(
 		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, err
+		}
+	}
+
+	// If the query references a gateway-managed prepared statement (wrapped
+	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), ensure it is
+	// parsed on this newly created backend connection before running the query.
+	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+		if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", err)
 		}
 	}
 
@@ -590,6 +635,49 @@ func (e *Executor) Describe(
 		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
 	}
 	return desc, nil
+}
+
+// ensurePreparedWithName ensures that a prepared statement named `name` with
+// the given body exists on the backend connection, Parsing it if necessary.
+// Unlike ensurePrepared (which derives its own canonical name via the pooler
+// consolidator), this variant uses the caller-supplied name directly. It is
+// used by the wrapped-EXECUTE StreamExecute path where the gateway has
+// already rewritten the SQL to reference a specific name, and the backend
+// must have a prepared statement under exactly that name.
+//
+// The gateway's prepared-statement consolidator assigns globally unique
+// monotonic names ("stmt0", "stmt1", ...) that are deduplicated by
+// (query, paramTypes), so using them as backend-session prepared statement
+// names is safe across multiple gateway client sessions sharing a pool
+// connection.
+func (e *Executor) ensurePreparedWithName(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+	if stmt == nil || stmt.Name == "" {
+		return errors.New("ensurePreparedWithName requires a non-empty statement name")
+	}
+	connState := conn.State()
+	existing := connState.GetPreparedStatement(stmt.Name)
+	if existing != nil && existing.Query == stmt.Query {
+		return nil
+	}
+	// If the name is already taken with a different query (e.g. from a
+	// different gateway instance that reused the same canonical name space),
+	// close the stale statement first — PostgreSQL rejects Parse for an
+	// already-existing prepared statement name.
+	if existing != nil {
+		if err := conn.CloseStatement(ctx, stmt.Name); err != nil {
+			return fmt.Errorf("failed to close stale prepared statement %q: %w", stmt.Name, err)
+		}
+		connState.DeletePreparedStatement(stmt.Name)
+	}
+	if err := conn.Parse(ctx, stmt.Name, stmt.Query, stmt.ParamTypes); err != nil {
+		return fmt.Errorf("failed to parse statement %q: %w", stmt.Name, err)
+	}
+	connState.StorePreparedStatement(&query.PreparedStatement{
+		Name:       stmt.Name,
+		Query:      stmt.Query,
+		ParamTypes: stmt.ParamTypes,
+	})
+	return nil
 }
 
 // ensurePrepared ensures the prepared statement is available on the connection.

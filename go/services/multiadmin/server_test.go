@@ -20,6 +20,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -27,12 +34,6 @@ import (
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/utils"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
@@ -41,7 +42,7 @@ func TestMultiAdminServerGetCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent cell
 	t.Run("non-existent cell returns NotFound", func(t *testing.T) {
@@ -101,7 +102,7 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent database
 	t.Run("non-existent database returns NotFound", func(t *testing.T) {
@@ -160,7 +161,7 @@ func TestMultiAdminServerGetCellNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetCellNamesRequest{}
@@ -196,7 +197,7 @@ func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetDatabaseNamesRequest{}
@@ -232,7 +233,7 @@ func TestMultiAdminServerGetGateways(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get gateways with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetGatewaysRequest{}
@@ -261,7 +262,7 @@ func TestMultiAdminServerGetGatewaysMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -318,7 +319,7 @@ func TestMultiAdminServerGetPoolers(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get poolers with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetPoolersRequest{}
@@ -347,7 +348,7 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -443,7 +444,7 @@ func TestMultiAdminServerGetOrchs(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get orchestrators with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetOrchsRequest{}
@@ -472,7 +473,7 @@ func TestMultiAdminServerGetOrchsMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -517,7 +518,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
@@ -668,7 +669,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
@@ -803,7 +804,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()

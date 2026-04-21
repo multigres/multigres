@@ -51,13 +51,14 @@ type MultiAdminServer struct {
 	rpcClient rpcclient.MultiPoolerClient
 }
 
-// NewMultiAdminServer creates a new MultiAdminServer instance
-func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminServer {
+// NewMultiAdminServer creates a new MultiAdminServer instance.
+// The transportCreds dial option configures TLS for connections to multipooler nodes.
+func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger, transportCreds grpc.DialOption) *MultiAdminServer {
 	return &MultiAdminServer{
 		ts:               ts,
 		logger:           logger,
 		backupJobTracker: NewBackupJobTracker(),
-		rpcClient:        rpcclient.NewMultiPoolerClient(100),
+		rpcClient:        rpcclient.NewMultiPoolerClient(100, transportCreds),
 	}
 }
 

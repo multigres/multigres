@@ -510,68 +510,29 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 
 // checkPrimary checks if a specific multipooler is the primary.
 // Returns the multipooler name if it's a primary, empty string otherwise.
-func checkPrimary(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, oldPrimaryName string) string {
-	t.Helper()
-	if name == oldPrimaryName {
-		return ""
-	}
-
-	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-	if err != nil {
-		return ""
-	}
-	defer client.Close()
-
-	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return ""
-	}
-
-	if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-		t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
-		return name
-	}
-
-	return ""
-}
-
 // waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
 func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
 
-	checkForNewPrimary := func() string {
-		for name, inst := range setup.Multipoolers {
-			if primaryName := checkPrimary(t, name, inst, oldPrimaryName); primaryName != "" {
-				return primaryName
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					return r.Name, true, ""
+				}
 			}
-		}
-		return ""
-	}
-
-	// Check immediately
-	if name := checkForNewPrimary(); name != "" {
-		return name
-	}
-
-	checkInterval := 2 * time.Second
-	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ticker.C:
-			if name := checkForNewPrimary(); name != "" {
-				return name
-			}
-			t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
-
-		case <-timeoutCh:
-			t.Fatalf("Timeout: new primary not elected within %v", timeout)
-			return ""
-		}
-	}
+			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
+		},
+		"new primary not elected within %v", timeout,
+	)
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch

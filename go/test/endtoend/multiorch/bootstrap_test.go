@@ -56,7 +56,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	defer cleanup()
 
 	// Verify nodes are completely uninitialized (no data directory, no postgres running)
-	// Multiorch will detect these as needing bootstrap and call InitializeEmptyPrimary
+	// Multiorch will detect these as needing bootstrap
 	for name, inst := range setup.Multipoolers {
 		func() {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -97,18 +97,21 @@ func TestBootstrapInitialization(t *testing.T) {
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
 	require.NotNil(t, primary, "Primary instance should exist")
 
-	// Verify lifecycle events were emitted during bootstrap
-	t.Run("verify primary.init and backup.attempt events", func(t *testing.T) {
-		data, err := os.ReadFile(primary.Multipooler.LogFile)
-		require.NoError(t, err)
-		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
-		assert.True(t, shardsetup.HasEvent(events, "primary.init", "started"))
-		assert.True(t, shardsetup.HasEvent(events, "primary.init", "success"))
-		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
-		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "success"))
-		// Note: term.begin is NOT emitted during initial bootstrap because multiorch uses
-		// InitializeEmptyPrimary which sets the consensus term directly without going through
-		// the BeginTerm RPC. term.begin is only emitted during failover (AppointLeaderAction).
+	// The backup creator and elected primary can be different poolers (any node that wins
+	// the backup lease creates the first backup), so check all pooler logs.
+	t.Run("verify backup.attempt events", func(t *testing.T) {
+		found := false
+		for _, inst := range setup.Multipoolers {
+			data, err := os.ReadFile(inst.Multipooler.LogFile)
+			require.NoError(t, err)
+			events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+			if shardsetup.HasEvent(events, "backup.attempt", "success") {
+				found = true
+				assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
+				break
+			}
+		}
+		assert.True(t, found, "expected backup.attempt success event in at least one pooler log")
 	})
 
 	t.Run("verify restore.attempt events in standby logs", func(t *testing.T) {
@@ -264,8 +267,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")
 
-		// Verify reason is ShardNeedsBootstrap
-		assert.Equal(t, "ShardNeedsBootstrap", reason, "reason should be 'ShardNeedsBootstrap'")
+		assert.Equal(t, "ShardInit", reason, "reason should be 'ShardInit'")
 
 		// Parse and verify cohort_members is a valid JSON array
 		var cohortMembers []string
@@ -330,7 +332,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Selected standby for auto-restore test: %s", standbyName)
 
 		// Stop multipooler
-		standbyInst.Multipooler.Stop()
+		standbyInst.Multipooler.TerminateGracefully(t.Logf, 5*time.Second)
 
 		// Stop postgres via pgctld
 		standbyInst.Pgctld.StopPostgres(t)

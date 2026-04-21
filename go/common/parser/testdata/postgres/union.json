@@ -392,17 +392,17 @@
   {
     "comment": "union - Statement 83",
     "query": "select union select",
-    "expected": "SELECT * UNION SELECT *"
+    "expected": "SELECT UNION SELECT"
   },
   {
     "comment": "union - Statement 84",
     "query": "select intersect select",
-    "expected": "SELECT * INTERSECT SELECT *"
+    "expected": "SELECT INTERSECT SELECT"
   },
   {
     "comment": "union - Statement 85",
     "query": "select except select",
-    "expected": "SELECT * EXCEPT SELECT *"
+    "expected": "SELECT EXCEPT SELECT"
   },
   {
     "comment": "union - Statement 86",
@@ -417,32 +417,32 @@
   {
     "comment": "union - Statement 88",
     "query": "explain (costs off) select from generate_series(1,5) intersect select from generate_series(1,3)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM generate_series(1, 5) INTERSECT SELECT * FROM generate_series(1, 3)"
+    "expected": "EXPLAIN (COSTS false) SELECT FROM generate_series(1, 5) INTERSECT SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 89",
     "query": "select from generate_series(1,5) union all select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) UNION ALL SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) UNION ALL SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 90",
     "query": "select from generate_series(1,5) intersect select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) INTERSECT SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) INTERSECT SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 91",
     "query": "select from generate_series(1,5) intersect all select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) INTERSECT ALL SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) INTERSECT ALL SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 92",
     "query": "select from generate_series(1,5) except select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) EXCEPT SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) EXCEPT SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 93",
     "query": "select from generate_series(1,5) except all select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) EXCEPT ALL SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) EXCEPT ALL SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 94",
@@ -457,22 +457,22 @@
   {
     "comment": "union - Statement 96",
     "query": "explain (costs off) select from generate_series(1,5) union select from generate_series(1,3)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM generate_series(1, 5) UNION SELECT * FROM generate_series(1, 3)"
+    "expected": "EXPLAIN (COSTS false) SELECT FROM generate_series(1, 5) UNION SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 97",
     "query": "select from generate_series(1,5) union select from generate_series(1,3)",
-    "expected": "SELECT * FROM generate_series(1, 5) UNION SELECT * FROM generate_series(1, 3)"
+    "expected": "SELECT FROM generate_series(1, 5) UNION SELECT FROM generate_series(1, 3)"
   },
   {
     "comment": "union - Statement 98",
     "query": "with cte as materialized (select s from generate_series(1,5) s) select from cte union select from cte",
-    "expected": "SELECT * FROM cte UNION SELECT * FROM cte"
+    "expected": "SELECT FROM cte UNION SELECT FROM cte"
   },
   {
     "comment": "union - Statement 99",
     "query": "with cte as not materialized (select s from generate_series(1,5) s) select from cte union select from cte",
-    "expected": "SELECT * FROM cte UNION SELECT * FROM cte"
+    "expected": "SELECT FROM cte UNION SELECT FROM cte"
   },
   {
     "comment": "union - Statement 100",

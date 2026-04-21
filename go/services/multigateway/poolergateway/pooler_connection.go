@@ -35,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // errPoolerUninitialized is the initial error before health stream connects.
@@ -157,6 +156,7 @@ func NewPoolerConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 	logger *slog.Logger,
+	grpcDialOpt grpc.DialOption,
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
@@ -171,7 +171,7 @@ func NewPoolerConnection(
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		grpccommon.WithDialOptions(grpcDialOpt),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)

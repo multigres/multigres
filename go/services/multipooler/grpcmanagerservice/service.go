@@ -313,15 +313,6 @@ func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermana
 	}, nil
 }
 
-// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
-func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)

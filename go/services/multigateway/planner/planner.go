@@ -76,9 +76,24 @@ func (p *Planner) Plan(
 
 	// Reject Tier 2 statements (server-level operations unsafe for a hosted
 	// pooler: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.). This runs
-	// before dispatch so blocked statements never reach PostgreSQL.
+	// before any other dispatch so blocked statements never reach PostgreSQL,
+	// including when they would otherwise be unwrapped below.
 	if err := planUnsupportedStmt(stmt); err != nil {
 		return nil, err
+	}
+
+	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
+	// before normal dispatch. The wrapper's inner ExecuteStmt references a
+	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
+	// rewrite it to the canonical name (e.g. "stmt42") and attach the
+	// PreparedStatement metadata so the multipooler can ensurePrepared() on
+	// the backend connection before running the query. See execute_unwrap.go.
+	if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
+		return nil, err
+	} else if unwrappedPlan != nil {
+		unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
+		unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
+		return unwrappedPlan, nil
 	}
 
 	// Dispatch to appropriate planner function based on statement type
@@ -124,29 +139,29 @@ func (p *Planner) Plan(
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_SelectStmt:
 		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	default:
 		// Default: simple route to PostgreSQL
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 	}
 
 	if err != nil {
@@ -155,6 +170,7 @@ func (p *Planner) Plan(
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
+
 	return plan, nil
 }
 
@@ -169,8 +185,8 @@ func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.
 
 // planDefault creates a simple route plan for queries without special handling.
 // This is the fallback for most SQL statements.
-func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*engine.Plan, error) {
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 	plan := engine.NewPlan(sql, route)
 
 	p.logger.Debug("created default route plan",
@@ -314,5 +330,5 @@ func (p *Planner) planUnlistenStmt(sql string, stmt *ast.UnlistenStmt) (*engine.
 
 // planNotifyStmt routes NOTIFY to the default table group as a regular query.
 func (p *Planner) planNotifyStmt(sql string) (*engine.Plan, error) {
-	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)), nil
+	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)), nil
 }

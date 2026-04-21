@@ -45,6 +45,9 @@ type ExecuteResult struct {
 
 	// PlanTime is how long query planning took.
 	PlanTime time.Duration
+
+	// CacheHit indicates whether the plan was served from the plan cache.
+	CacheHit bool
 }
 
 // Executor defines the interface for query execution.
@@ -109,6 +112,12 @@ func (h *MultiGatewayHandler) SetTargetReplica(target bool) {
 // Consolidator returns the prepared statement consolidator.
 func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 	return h.psc
+}
+
+// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+// statement registered under the given user-visible name on connID.
+func (h *MultiGatewayHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return h.psc.GetPreparedStatementInfo(connID, name)
 }
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.

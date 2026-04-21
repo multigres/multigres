@@ -51,6 +51,7 @@ func (c *CopyStatement) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// For now, use DefaultShard (unsharded). When sharding is supported,

@@ -20,6 +20,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // Note: These tests focus on the caching logic without making actual gRPC connections.
@@ -33,7 +37,7 @@ func TestConnCache_Creation(t *testing.T) {
 	assert.Equal(t, defaultCapacity, cache1.capacity, "cache1 should have default capacity")
 
 	customCapacity := 50
-	cache2 := newConnCacheWithCapacity(customCapacity)
+	cache2 := newConnCacheWithCapacity(customCapacity, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NotNil(t, cache2, "newConnCacheWithCapacity() should not return nil")
 	assert.Equal(t, customCapacity, cache2.capacity, "cache2 should have custom capacity")
 }
@@ -172,4 +176,44 @@ func TestConnCache_CloseNonExistent(t *testing.T) {
 	cache.m.Lock()
 	assert.Equal(t, 0, len(cache.conns), "cache should be empty")
 	cache.m.Unlock()
+}
+
+// TestConnConfig_TransportCredentials_NilReceiver tests that nil ConnConfig returns insecure.
+func TestConnConfig_TransportCredentials_NilReceiver(t *testing.T) {
+	var cc *ConnConfig
+	opt, err := cc.TransportCredentials(nil)
+	require.NoError(t, err)
+	assert.NotNil(t, opt)
+}
+
+// TestConnConfig_TransportCredentials_NoFlags tests that unconfigured ConnConfig returns insecure.
+func TestConnConfig_TransportCredentials_NoFlags(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cc := NewConnConfig(reg)
+	opt, err := cc.TransportCredentials(nil)
+	require.NoError(t, err)
+	assert.NotNil(t, opt)
+}
+
+// TestConnConfig_TransportCredentials_InvalidCert tests that invalid cert paths return an error.
+func TestConnConfig_TransportCredentials_InvalidCert(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cc := NewConnConfig(reg)
+	cc.cert.Set("/nonexistent/cert.pem")
+	cc.key.Set("/nonexistent/key.pem")
+	cc.ca.Set("/nonexistent/ca.pem")
+
+	_, err := cc.TransportCredentials(nil)
+	assert.Error(t, err)
+}
+
+// TestConnConfig_TransportCredentials_RequireTLSWithoutConfig tests strict TLS mode.
+func TestConnConfig_TransportCredentials_RequireTLSWithoutConfig(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cc := NewConnConfig(reg)
+	cc.requireTLS.Set(true)
+
+	_, err := cc.TransportCredentials(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TLS is required")
 }

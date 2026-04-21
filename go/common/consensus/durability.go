@@ -21,6 +21,18 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// IsDurabilityPolicyAchievable returns true if the given number of poolers is sufficient
+// to satisfy the durability policy. A nil policy is treated as achievable (no constraint).
+//
+// This is a conservative check: it only considers node count, not cell distribution.
+// MULTI_CELL policies have additional geographic constraints that are not evaluated here.
+func IsDurabilityPolicyAchievable(policy *clustermetadatapb.DurabilityPolicy, numPoolers int) bool {
+	if policy == nil {
+		return true
+	}
+	return numPoolers >= int(policy.RequiredCount)
+}
+
 // ParseUserSpecifiedDurabilityPolicy converts a policy name string into a DurabilityPolicy message.
 // TODO: generalize to support AT_LEAST_N and MULTI_CELL_AT_LEAST_N for arbitrary N by parsing the number
 // from the suffix (e.g. "AT_LEAST_3", "MULTI_CELL_AT_LEAST_4") instead of enumerating each case.

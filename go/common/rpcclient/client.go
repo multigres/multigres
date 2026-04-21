@@ -102,6 +102,8 @@ package rpcclient
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -136,13 +138,6 @@ type MultiPoolerClient interface {
 
 	// CanReachPrimary checks if the multipooler can reach the primary.
 	CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error)
-
-	//
-	// Manager Service Methods - Initialization
-	//
-
-	// InitializeEmptyPrimary initializes the multipooler as an empty primary.
-	InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error)
 
 	//
 	// Manager Service Methods - Status and Monitoring
@@ -287,9 +282,10 @@ type MultiPoolerClient interface {
 // NewMultiPoolerClient creates a new MultiPoolerClient with connection caching.
 // The capacity parameter determines the maximum number of simultaneous connections
 // to distinct multipoolers. Connections are cached with LRU eviction.
+// The transportCreds dial option configures TLS or insecure transport.
 //
 // For multiorch deployments monitoring many poolers, a capacity of 1000 is recommended.
 // For smaller deployments or testing, 100 may be sufficient.
-func NewMultiPoolerClient(capacity int) MultiPoolerClient {
-	return NewClient(capacity)
+func NewMultiPoolerClient(capacity int, transportCreds grpc.DialOption) MultiPoolerClient {
+	return NewClient(capacity, transportCreds)
 }

@@ -26,6 +26,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -446,16 +448,9 @@ func TestBackup_FromStandby(t *testing.T) {
 			// Create backup client connection to standby
 			backupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
 
-			// For local mode (tests without TLS), we need to pass pg2_path override
-			// so pgBackRest can connect to the primary's postgres to get WAL files
-			primaryDataPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data")
-			overrides := map[string]string{
-				"pg2_path": primaryDataPath,
-			}
-
 			t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating full backup from standby...")
-				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, overrides)
+				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
 				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
@@ -464,7 +459,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating incremental backup from standby...")
-				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, overrides)
+				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, nil)
 			})
 		})
 	}
@@ -490,7 +485,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 			// Create a MultiAdminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			t.Run("Backup_CreateAndGetStatus", func(t *testing.T) {
@@ -686,7 +681,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Log("Step 4: Creating fresh MultiAdmin server (simulating restart with no in-memory state)...")
 				// Note: We don't stop the original adminServer since the test infrastructure manages it.
 				// Instead, we create a new server to demonstrate the fallback works without in-memory state.
-				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				defer freshAdminServer.Stop()
 
 				t.Log("Step 5: Verifying job status is NOT available without shard context...")
@@ -759,7 +754,7 @@ func TestExpireAuto(t *testing.T) {
 			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -827,7 +822,7 @@ func TestExpireBackups(t *testing.T) {
 
 			// Create a MultiAdminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -919,7 +914,7 @@ func TestExpireBackups_Differential(t *testing.T) {
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := func(backupType string) *multiadminpb.BackupRequest {
