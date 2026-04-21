@@ -105,6 +105,19 @@ func (s *ShardSetup) Context() context.Context {
 	return s.runningCtx
 }
 
+// StopEtcd gracefully stops the etcd process to simulate an etcd outage.
+func (s *ShardSetup) StopEtcd(t *testing.T) {
+	t.Helper()
+	if s.EtcdCmd == nil {
+		t.Fatal("StopEtcd: no etcd process to stop")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, stopped := s.EtcdCmd.Stop(ctx)
+	require.True(t, stopped, "StopEtcd: failed to stop etcd process within deadline")
+	t.Log("StopEtcd: etcd process stopped")
+}
+
 // GetMultipoolerInstance returns a multipooler instance by name, or nil if not found.
 func (s *ShardSetup) GetMultipoolerInstance(name string) *MultipoolerInstance {
 	if s == nil || s.Multipoolers == nil {
