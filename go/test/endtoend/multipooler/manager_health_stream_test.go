@@ -77,7 +77,7 @@ func TestManagerHealthStream_SnapshotOnSetPrimaryConnInfo(t *testing.T) {
 		Hostname: "localhost",
 		PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 	}
-	_, err = standbyClient.Manager.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	_, err = standbyClient.Consensus.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               primary,
 		StopReplicationBefore: false,
 		StartReplicationAfter: false,

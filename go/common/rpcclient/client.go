@@ -149,20 +149,30 @@ type MultiPoolerClient interface {
 	// This may be called frequently for monitoring, so implementations cache connections.
 	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)
 
-	// GetLeadershipView gets the leadership view from the multipooler's perspective.
-	GetLeadershipView(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.LeadershipViewRequest) (*consensusdatapb.LeadershipViewResponse, error)
+	// EmergencyDemote demotes the current leader server.
+	EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error)
 
-	// CanReachPrimary checks if the multipooler can reach the primary.
-	CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error)
+	// DemoteStalePrimary demotes a stale primary that came back after failover.
+	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
+
+	// Promote promotes the multipooler to primary.
+	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error)
+
+	// UpdateConsensusRule updates the synchronous standby list (quorum membership).
+	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error)
+
+	// SetPrimaryConnInfo configures the standby's connection to a primary.
+	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error)
+
+	// RewindToSource performs pg_rewind to synchronize a replica with its source.
+	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
 	//
 	// Manager Service Methods - Status and Monitoring
 	//
 
-	// State gets the current status of the multipooler manager.
-	// This is called very frequently by the recovery engine health checks,
-	// so implementations cache connections.
-	State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error)
+	// Status gets unified status that works for both PRIMARY and REPLICA poolers.
+	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
 
 	//
 	// Manager Service Methods - Replication
@@ -171,82 +181,11 @@ type MultiPoolerClient interface {
 	// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
 	WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error)
 
-	// SetPrimaryConnInfo configures the standby's connection to a primary.
-	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error)
-
 	// StartReplication starts WAL replay on standby.
 	StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error)
 
 	// StopReplication stops replication based on the specified mode.
 	StopReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error)
-
-	// StandbyReplicationStatus gets the current replication status of the standby.
-	StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error)
-
-	// Status gets unified status that works for both PRIMARY and REPLICA poolers.
-	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
-
-	// ResetReplication resets the standby's connection to its primary.
-	ResetReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResetReplicationRequest) (*multipoolermanagerdatapb.ResetReplicationResponse, error)
-
-	// StopReplicationAndGetStatus stops replication and returns the current status.
-	StopReplicationAndGetStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationAndGetStatusRequest) (*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse, error)
-
-	//
-	// Manager Service Methods - Synchronous Replication
-	//
-
-	// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings.
-	ConfigureSynchronousReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error)
-
-	// UpdateSynchronousStandbyList updates the synchronous standby list.
-	UpdateSynchronousStandbyList(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error)
-
-	//
-	// Manager Service Methods - Primary Status
-	//
-
-	// PrimaryStatus gets the status of the primary server.
-	PrimaryStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryStatusRequest) (*multipoolermanagerdatapb.PrimaryStatusResponse, error)
-
-	// PrimaryPosition gets the current LSN position of the primary.
-	PrimaryPosition(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryPositionRequest) (*multipoolermanagerdatapb.PrimaryPositionResponse, error)
-
-	// GetFollowers gets the list of follower servers with detailed replication status.
-	GetFollowers(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetFollowersRequest) (*multipoolermanagerdatapb.GetFollowersResponse, error)
-
-	//
-	// Manager Service Methods - Promotion and Demotion
-	//
-
-	// Promote promotes the multipooler to primary.
-	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error)
-
-	// EmergencyDemote demotes the multipooler from primary.
-	EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error)
-
-	// UndoDemote undoes a demotion.
-	UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error)
-
-	// DemoteStalePrimary demotes a stale primary that came back after failover.
-	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
-
-	//
-	// Manager Service Methods - Type and Term Management
-	//
-
-	// ChangeType changes the pooler type (PRIMARY/REPLICA).
-	ChangeType(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ChangeTypeRequest) (*multipoolermanagerdatapb.ChangeTypeResponse, error)
-
-	//
-	// Manager Service Methods - Durability Policy
-	//
-
-	// GetDurabilityPolicy retrieves the active durability policy from the local database.
-	GetDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetDurabilityPolicyRequest) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error)
-
-	// CreateDurabilityPolicy creates a new durability policy in the local database.
-	CreateDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error)
 
 	//
 	// Manager Service Methods - Backup and Restore
@@ -266,13 +205,6 @@ type MultiPoolerClient interface {
 
 	// ExpireBackups removes old backups according to retention policy.
 	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
-
-	//
-	// Manager Service Methods - Timeline Repair
-	//
-
-	// RewindToSource performs pg_rewind to synchronize a replica with its source.
-	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
 	//
 	// Manager Service Methods - PostgreSQL Restart Control

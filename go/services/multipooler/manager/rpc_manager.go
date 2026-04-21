@@ -549,9 +549,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		updatedStandbys = applyReplaceOperation(requestedApplicationNames)
-
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported operation: "+operation.String())
