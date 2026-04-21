@@ -75,63 +75,62 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 
 		fmt.Fprintf(&sb, "## %s\n\n", group.title)
 
-		// Table header
+		// Layout: metrics on rows, client counts on columns. With ~3 client counts
+		// and 3 targets × 3 metrics + overhead, this is much narrower than the
+		// transposed view (especially when pgbouncer is present).
+		clientCounts := uniqueClients(rows)
+
+		// Header
 		var header, divider strings.Builder
-		header.WriteString("| Clients")
+		header.WriteString("| Metric")
 		divider.WriteString("|---")
-		for _, tgt := range targetNames {
-			fmt.Fprintf(&header, " | %s TPS", tgt)
-			divider.WriteString("|---")
-			fmt.Fprintf(&header, " | %s Avg", tgt)
-			divider.WriteString("|---")
-			fmt.Fprintf(&header, " | %s P99", tgt)
-			divider.WriteString("|---")
-		}
-		if len(targetNames) >= 2 {
-			header.WriteString(" | Overhead")
+		for _, c := range clientCounts {
+			fmt.Fprintf(&header, " | %d clients", c)
 			divider.WriteString("|---")
 		}
 		header.WriteString(" |")
 		divider.WriteString("|")
-
 		fmt.Fprintf(&sb, "%s\n%s\n", header.String(), divider.String())
 
-		// Collect unique client counts for this group.
-		clientCounts := uniqueClients(rows)
+		// Per-target rows: TPS, Avg, P99.
+		formatters := []struct {
+			label string
+			value func(*ScenarioResult) string
+		}{
+			{"TPS", func(r *ScenarioResult) string { return fmt.Sprintf("%.0f", r.TPS) }},
+			{"Avg (ms)", func(r *ScenarioResult) string { return fmt.Sprintf("%.2f", r.LatencyAvg) }},
+			{"P99 (ms)", func(r *ScenarioResult) string { return fmt.Sprintf("%.2f", r.LatencyP99) }},
+		}
 
-		for _, clients := range clientCounts {
-			var row strings.Builder
-			fmt.Fprintf(&row, "| %d", clients)
-
-			var pgTPS float64
-			var mgwTPS float64
-
-			for _, tgt := range targetNames {
-				r := findResult(rows, tgt, clients)
-				if r != nil {
-					fmt.Fprintf(&row, " | %.0f", r.TPS)
-					fmt.Fprintf(&row, " | %.2f ms", r.LatencyAvg)
-					fmt.Fprintf(&row, " | %.2f ms", r.LatencyP99)
-					if tgt == "postgres" {
-						pgTPS = r.TPS
+		for _, tgt := range targetNames {
+			for _, f := range formatters {
+				fmt.Fprintf(&sb, "| %s %s", tgt, f.label)
+				for _, c := range clientCounts {
+					r := findResult(rows, tgt, c)
+					if r == nil {
+						sb.WriteString(" | -")
+						continue
 					}
-					if tgt == "multigateway" {
-						mgwTPS = r.TPS
-					}
-				} else {
-					row.WriteString(" | - | - | -")
+					fmt.Fprintf(&sb, " | %s", f.value(r))
 				}
+				sb.WriteString(" |\n")
 			}
+		}
 
-			if len(targetNames) >= 2 && pgTPS > 0 {
-				overhead := (1 - mgwTPS/pgTPS) * 100
-				fmt.Fprintf(&row, " | %.1f%%", overhead)
-			} else if len(targetNames) >= 2 {
-				row.WriteString(" | -")
+		// Overhead row: multigateway TPS vs postgres TPS, per client count.
+		if len(targetNames) >= 2 {
+			sb.WriteString("| Overhead vs postgres")
+			for _, c := range clientCounts {
+				pg := findResult(rows, "postgres", c)
+				mgw := findResult(rows, "multigateway", c)
+				if pg == nil || mgw == nil || pg.TPS == 0 {
+					sb.WriteString(" | -")
+					continue
+				}
+				overhead := (1 - mgw.TPS/pg.TPS) * 100
+				fmt.Fprintf(&sb, " | %.1f%%", overhead)
 			}
-			row.WriteString(" |")
-
-			fmt.Fprintf(&sb, "%s\n", row.String())
+			sb.WriteString(" |\n")
 		}
 		sb.WriteString("\n")
 	}

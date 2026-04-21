@@ -22,10 +22,16 @@ import (
 )
 
 // setupManager manages the shared test setup for benchmark tests.
+//
+// Debug logging is disabled here because profiling showed a non-trivial fraction
+// of multigateway/multipooler CPU time was spent inside the slog handler under
+// the pgbench workload. Suppressing debug+info keeps measurement noise out of
+// the hot path while still surfacing warnings/errors if something misbehaves.
 var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway
+		shardsetup.WithLogLevel("warn"),
 	)
 })
 

@@ -139,16 +139,27 @@ Reports are written to `/tmp/multigres_pgbench_results/<timestamp>/`:
 
 ### Markdown report example
 
+Metrics run down the rows and client counts run across the columns — this keeps
+the table narrow when several targets are present.
+
 ```markdown
 ## Sustained Load — Simple Protocol
 
-| Clients | postgres TPS | postgres Avg | postgres P99 | multigateway TPS | multigateway Avg | multigateway P99 | pgbouncer TPS | pgbouncer Avg | pgbouncer P99 | Overhead |
-| ------- | ------------ | ------------ | ------------ | ---------------- | ---------------- | ---------------- | ------------- | ------------- | ------------- | -------- |
-| 1       | 3213         | 0.31 ms      | 0.81 ms      | 696              | 1.43 ms          | 4.62 ms          | 2323          | 0.43 ms       | 1.09 ms       | 78.3%    |
-| 10      | 8676         | 1.13 ms      | 3.07 ms      | 1403             | 7.09 ms          | 15.83 ms         | 7069          | 1.40 ms       | 3.26 ms       | 83.8%    |
+| Metric                | 1 clients | 10 clients | 50 clients |
+| --------------------- | --------- | ---------- | ---------- |
+| postgres TPS          | 3213      | 8676       | 12104      |
+| postgres Avg (ms)     | 0.31      | 1.13       | 4.10       |
+| postgres P99 (ms)     | 0.81      | 3.07       | 9.42       |
+| multigateway TPS      | 696       | 1403       | 1812       |
+| multigateway Avg (ms) | 1.43      | 7.09       | 27.31      |
+| multigateway P99 (ms) | 4.62      | 15.83      | 51.20      |
+| pgbouncer TPS         | 2323      | 7069       | 10422      |
+| pgbouncer Avg (ms)    | 0.43      | 1.40       | 4.78       |
+| pgbouncer P99 (ms)    | 1.09      | 3.26       | 11.04      |
+| Overhead vs postgres  | 78.3%     | 83.8%      | 85.0%      |
 ```
 
-The **Overhead** column shows `(1 - multigateway_tps / postgres_tps) * 100`.
+The **Overhead vs postgres** row is `(1 - multigateway_tps / postgres_tps) * 100`.
 
 ## CI integration
 
