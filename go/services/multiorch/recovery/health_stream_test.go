@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -318,15 +319,16 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	stream := <-streamCh
 	waitForStart(t, stream.Sent)
 
-	// Concurrently promote the pooler in the topology (simulates PoolerWatcher update)
-	// before the snapshot is applied.
-	go func() {
+	// Concurrently promote the pooler in the topology (simulates PoolerWatcher update).
+	// The WaitGroup ensures the promotion is applied before we assert the final state.
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		time.Sleep(5 * time.Millisecond)
 		poolerStore.DoUpdate(key, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 			existing.MultiPooler.Type = clustermetadata.PoolerType_PRIMARY
 			return existing
 		})
-	}()
+	})
 
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 		PoolerType:      clustermetadata.PoolerType_REPLICA,
@@ -337,6 +339,8 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 		s, ok := poolerStore.Get(key)
 		return ok && s.IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond)
+
+	wg.Wait()
 
 	result, _ := poolerStore.Get(key)
 	// The watcher's topology promotion must be preserved.
