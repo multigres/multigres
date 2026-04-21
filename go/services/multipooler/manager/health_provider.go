@@ -35,6 +35,12 @@ const (
 	// to detect a stale/dead health stream.
 	defaultRecommendedStalenessTimeout = 90 * time.Second
 
+	// DefaultRecommendedStalenessTimeout is the recommended staleness timeout
+	// advertised to orchestrators in ManagerHealthSnapshot.timeout. If the
+	// orchestrator receives no message within this window it should treat the
+	// pooler as unreachable and reconnect.
+	DefaultRecommendedStalenessTimeout time.Duration = defaultRecommendedStalenessTimeout
+
 	// defaultHealthHeartbeatInterval is the interval between periodic health
 	// broadcasts when no state changes occur.
 	defaultHealthHeartbeatInterval = 30 * time.Second

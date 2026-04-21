@@ -62,6 +62,7 @@ const (
 	MultiPoolerManager_ExpireBackups_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
 	MultiPoolerManager_RewindToSource_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/RewindToSource"
 	MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName      = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
+	MultiPoolerManager_ManagerHealthStream_FullMethodName             = "/multipoolermanager.MultiPoolerManager/ManagerHealthStream"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -142,6 +143,21 @@ type MultiPoolerManagerClient interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ManagerHealthStream is a bidirectional health stream between orchestrator
+	// and pooler.
+	//
+	// The orchestrator sends a start message (ManagerHealthStreamClientMessage
+	// with the start field set) to open the stream, then may send poll requests
+	// at any time to trigger an immediate snapshot.
+	//
+	// The pooler sends a full health snapshot on connection, on every state
+	// change, in response to poll requests, and periodically as a heartbeat.
+	// Every message is a complete snapshot — there are no incremental updates.
+	//
+	// The orchestrator MUST implement a staleness timeout. The recommended
+	// timeout is provided in the timeout field of each snapshot. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error)
 }
 
 type multiPoolerManagerClient struct {
@@ -432,6 +448,19 @@ func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Contex
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerManager_ServiceDesc.Streams[0], MultiPoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerManager_ManagerHealthStreamClient = grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility.
@@ -510,6 +539,21 @@ type MultiPoolerManagerServer interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ManagerHealthStream is a bidirectional health stream between orchestrator
+	// and pooler.
+	//
+	// The orchestrator sends a start message (ManagerHealthStreamClientMessage
+	// with the start field set) to open the stream, then may send poll requests
+	// at any time to trigger an immediate snapshot.
+	//
+	// The pooler sends a full health snapshot on connection, on every state
+	// change, in response to poll requests, and periodically as a heartbeat.
+	// Every message is a complete snapshot — there are no incremental updates.
+	//
+	// The orchestrator MUST implement a staleness timeout. The recommended
+	// timeout is provided in the timeout field of each snapshot. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -603,6 +647,9 @@ func (UnimplementedMultiPoolerManagerServer) RewindToSource(context.Context, *mu
 }
 func (UnimplementedMultiPoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
@@ -1129,6 +1176,13 @@ func _MultiPoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultiPoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerManager_ManagerHealthStreamServer = grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1249,6 +1303,13 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_SetPostgresRestartsEnabled_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ManagerHealthStream",
+			Handler:       _MultiPoolerManager_ManagerHealthStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "multipoolermanagerservice.proto",
 }

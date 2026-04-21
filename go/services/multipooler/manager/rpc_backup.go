@@ -376,7 +376,13 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Mark as initialized after successful restore
 	return telemetry.WithSpan(ctx, "restore/mark-initialized", func(_ context.Context) error {
-		return pm.setInitialized()
+		if err := pm.setInitialized(); err != nil {
+			return err
+		}
+		// Push an immediate health snapshot so the orchestrator learns about
+		// IsInitialized=true without waiting for the next 30-second heartbeat.
+		pm.broadcastHealth()
+		return nil
 	})
 }
 

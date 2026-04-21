@@ -174,6 +174,7 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (
 		}
 		if len(pooler.CohortMembers) > 0 {
 			cohortEstablished = true
+			initialized = nil
 			return false // stop iteration
 		}
 		if pooler.IsInitialized {

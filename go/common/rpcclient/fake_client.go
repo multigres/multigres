@@ -16,6 +16,7 @@ package rpcclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -95,6 +96,10 @@ type FakeClient struct {
 
 	// Request tracking for verification in tests
 	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
+
+	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
+	// is created. Tests use this to capture the stream and inject snapshots.
+	OnManagerHealthStream func(poolerID string, stream *FakeManagerHealthStream)
 }
 
 // NewFakeClient creates a new FakeClient with empty response maps.
@@ -769,6 +774,67 @@ func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clu
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+//
+// Manager Service Methods - Health Streaming
+//
+
+// FakeManagerHealthStream implements ManagerHealthStream for testing.
+// Recv blocks until the context is cancelled or a response is injected via Ch.
+// Sent messages (init, poll) are recorded on the Sent channel.
+type FakeManagerHealthStream struct {
+	ctx  context.Context
+	Ch   chan *multipoolermanagerdatapb.ManagerHealthStreamResponse
+	Sent chan *multipoolermanagerdatapb.ManagerHealthStreamClientMessage
+}
+
+// Recv blocks until a response is available or the context is cancelled.
+func (f *FakeManagerHealthStream) Recv() (*multipoolermanagerdatapb.ManagerHealthStreamResponse, error) {
+	select {
+	case <-f.ctx.Done():
+		return nil, f.ctx.Err()
+	case resp, ok := <-f.Ch:
+		if !ok {
+			return nil, errors.New("stream closed")
+		}
+		return resp, nil
+	}
+}
+
+// Send records the outgoing message on the Sent channel.
+// Non-blocking: if Sent is full the message is dropped (tests should drain it).
+func (f *FakeManagerHealthStream) Send(msg *multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error {
+	select {
+	case f.Sent <- msg:
+	default:
+	}
+	return nil
+}
+
+// ManagerHealthStream returns a FakeManagerHealthStream. Tests inject snapshots
+// by sending on stream.Ch or close it to simulate disconnection. Outgoing
+// messages (init/poll) are readable from stream.Sent.
+func (f *FakeClient) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ManagerHealthStream", poolerID)
+
+	f.mu.RLock()
+	err := f.Errors[poolerID]
+	f.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
+	stream := &FakeManagerHealthStream{
+		ctx:  ctx,
+		Ch:   make(chan *multipoolermanagerdatapb.ManagerHealthStreamResponse),
+		Sent: make(chan *multipoolermanagerdatapb.ManagerHealthStreamClientMessage, 16),
+	}
+	if f.OnManagerHealthStream != nil {
+		f.OnManagerHealthStream(poolerID, stream)
+	}
+	return stream, nil
 }
 
 //
