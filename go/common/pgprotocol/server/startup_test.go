@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -268,6 +269,10 @@ func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 }
 
 func (m *mockHandler) ConnectionClosed(conn *Conn) {}
+
+func (m *mockHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
 
 // mockHashProvider implements scram.PasswordHashProvider for testing.
 // It accepts a single password for any user/database combination.

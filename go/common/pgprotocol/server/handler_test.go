@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -216,3 +217,7 @@ func (h *testHandlerWithState) HandleSync(ctx context.Context, conn *Conn) error
 }
 
 func (h *testHandlerWithState) ConnectionClosed(conn *Conn) {}
+
+func (h *testHandlerWithState) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}

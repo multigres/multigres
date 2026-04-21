@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 
@@ -101,6 +102,10 @@ func (h *testHandler) HandleSync(ctx context.Context, conn *Conn) error {
 }
 
 func (h *testHandler) ConnectionClosed(conn *Conn) {}
+
+func (h *testHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
 
 // testConn wraps both read and write buffers for testing.
 type testConn struct {
