@@ -173,4 +173,20 @@ service MultiPoolerManager {
   rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
       returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
 
+  // ManagerHealthStream is a bidirectional health stream between orchestrator
+  // and pooler.
+  //
+  // The orchestrator sends a start message (ManagerHealthStreamClientMessage
+  // with the start field set) to open the stream, then may send poll requests
+  // at any time to trigger an immediate snapshot.
+  //
+  // The pooler sends a full health snapshot on connection, on every state
+  // change, in response to poll requests, and periodically as a heartbeat.
+  // Every message is a complete snapshot — there are no incremental updates.
+  //
+  // The orchestrator MUST implement a staleness timeout. The recommended
+  // timeout is provided in the timeout field of each snapshot. If no message is
+  // received within this timeout, the pooler should be marked unhealthy.
+  rpc ManagerHealthStream(stream multipoolermanagerdata.ManagerHealthStreamClientMessage)
+      returns (stream multipoolermanagerdata.ManagerHealthStreamResponse);
 }

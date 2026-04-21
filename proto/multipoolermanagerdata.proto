@@ -291,6 +291,69 @@ message StatusResponse {
   Status status = 1;
 }
 
+// ManagerHealthStreamClientMessage is sent from the orchestrator to the pooler.
+// The first message on a new stream must be a start message; subsequent messages
+// may be poll requests.
+message ManagerHealthStreamClientMessage {
+  oneof message {
+    // Sent once at stream open to identify the orchestrator.
+    ManagerHealthStreamStartRequest start = 1;
+
+    // Requests an immediate health snapshot from the pooler.
+    // Used by the orchestrator to trigger fresh state on demand (e.g. in tests).
+    ManagerHealthStreamPollRequest poll = 2;
+  }
+}
+
+// ManagerHealthStreamStartRequest is sent as the first message inside
+// ManagerHealthStreamClientMessage. There are no fields in this message; its
+// presence is the signal to start the stream.
+message ManagerHealthStreamStartRequest {
+}
+
+// ManagerHealthStreamPollRequest triggers an immediate health snapshot.
+// The message carries no payload; its presence on the stream is the signal.
+message ManagerHealthStreamPollRequest {
+}
+
+// ManagerHealthStreamResponse is sent by the pooler on connection, on every
+// state change, on poll request, and periodically as a heartbeat snapshot.
+// Every message is a full health snapshot — there are no incremental updates.
+message ManagerHealthStreamResponse {
+  // The full health state of the pooler.
+  ManagerHealthSnapshot snapshot = 1;
+}
+
+// SnapshotTrigger describes why a ManagerHealthSnapshot was sent.
+enum SnapshotTrigger {
+  // Default / unknown trigger. Not used by the server.
+  SNAPSHOT_TRIGGER_UNSPECIFIED = 0;
+  // Sent immediately when the stream is first opened.
+  SNAPSHOT_TRIGGER_INITIAL = 1;
+  // Triggered by a state-change broadcast (e.g. type change, SetPrimaryConnInfo).
+  SNAPSHOT_TRIGGER_BROADCAST = 2;
+  // Triggered by an explicit poll request from the orchestrator.
+  SNAPSHOT_TRIGGER_POLL = 3;
+  // Sent by the periodic heartbeat ticker.
+  SNAPSHOT_TRIGGER_HEARTBEAT = 4;
+}
+
+// ManagerHealthSnapshot is a full health snapshot of the pooler.
+// Sent immediately on connection, on any state change, and periodically as a
+// heartbeat when no state change has occurred.
+message ManagerHealthSnapshot {
+  // Full health state of the pooler.
+  StatusResponse status = 1;
+
+  // The duration the orchestrator should use to detect a stale or dead stream.
+  // If no message is received within this duration, the pooler should be marked
+  // unhealthy.
+  google.protobuf.Duration timeout = 2;
+
+  // Why this snapshot was sent. Useful for diagnostics and testing.
+  SnapshotTrigger trigger = 3;
+}
+
 // Replication statistics for a connected follower from pg_stat_replication
 message ReplicationStats {
   // PostgreSQL backend process ID for this replication connection

@@ -288,6 +288,27 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 				assert.Equal(t, 3, count)
 			})
 
+			t.Run("create_temp_table_as_execute", func(t *testing.T) {
+				// CREATE TEMP TABLE ... AS EXECUTE goes through TempTableRoute →
+				// reserveAndStreamExecute, which creates a brand-new reserved
+				// connection. The prepared statement must be parsed on that
+				// new connection before the rewritten SQL runs — otherwise
+				// the backend errors with "prepared statement does not exist".
+				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE p_ctas_temp AS SELECT id, value FROM %s ORDER BY id", tableName))
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE p_ctas_temp") }()
+
+				_, err = db.ExecContext(ctx, "CREATE TEMP TABLE temp_ctas_target AS EXECUTE p_ctas_temp")
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS temp_ctas_target") }()
+
+				// The temp table must contain the same rows as the source.
+				var count int
+				err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM temp_ctas_target").Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, 3, count)
+			})
+
 			t.Run("explain_create_table_as_execute", func(t *testing.T) {
 				// Doubly-nested: EXPLAIN wrapping CREATE TABLE AS EXECUTE.
 				// pgregress select_into.sql and write_parallel.sql use this shape.

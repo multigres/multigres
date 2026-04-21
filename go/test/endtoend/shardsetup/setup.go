@@ -72,6 +72,7 @@ type SetupConfig struct {
 	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	LogLevel                            string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 }
 
 // SetupOption is a function that configures setup creation.
@@ -187,6 +188,15 @@ func WithMultigatewayBuffering() SetupOption {
 			"--buffer-min-time-between-failovers", "0s",
 			"--buffer-drain-concurrency", "5",
 		)
+	}
+}
+
+// WithLogLevel sets the --log-level flag for multipooler, multiorch, and multigateway
+// processes. Defaults to "debug" so tests retain verbose logs; pass "warn" or "error"
+// when log volume itself perturbs the measurement (e.g. benchmarks).
+func WithLogLevel(level string) SetupOption {
+	return func(c *SetupConfig) {
+		c.LogLevel = level
 	}
 }
 
@@ -434,6 +444,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		inst.Multipooler.LogLevel = config.LogLevel
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -470,6 +481,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		mgw.ReplicaPgPort = replicaPgPort
 		setup.MultigatewayReplicaPgPort = replicaPgPort
 		mgw.ExtraArgs = config.MultigatewayExtraArgs
+		mgw.LogLevel = config.LogLevel
 
 		// Configure OTel trace export if an endpoint was provided.
 		if config.OTelCollectorEndpoint != "" {

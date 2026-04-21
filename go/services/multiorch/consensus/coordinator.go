@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"sync"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -107,8 +108,16 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 // Given a resolved policy and proposed term, it runs preVote, BeginTerm, and
 // EstablishLeadership.
 func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64, reason string) (retErr error) {
+	// Parse the proto policy once into the typed DurabilityPolicy interface so
+	// preVote and BeginTerm can call its recruitment checks directly. The proto
+	// still flows through EstablishLeadership for synchronous replication setup.
+	durabilityPolicy, err := commonconsensus.NewPolicyFromProto(policy)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse durability policy")
+	}
+
 	// PreVote — validate that leadership change is likely to succeed.
-	canProceed, preVoteReason := c.preVote(ctx, cohort, policy, proposedTerm)
+	canProceed, preVoteReason := c.preVote(ctx, cohort, durabilityPolicy, proposedTerm)
 	if !canProceed {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
@@ -119,7 +128,7 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
 	// - Discovery: identify the most progressed node based on WAL position
 	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, policy, proposedTerm)
+	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, durabilityPolicy, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
