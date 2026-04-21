@@ -18,8 +18,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -46,6 +49,17 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
+	// A sentinel from a prior attempt means we crashed between initdb and the
+	// final data-directory cleanup. The data directory (if any) is stale and
+	// safe to remove so we can retry from scratch. The sentinel is recreated
+	// below before initdb, so we do not remove it here.
+	if pm.hasBootstrapSentinel() {
+		pm.logger.WarnContext(ctx, "Bootstrap sentinel from prior attempt detected; removing stale data directory before retry")
+		if err := pm.removeDataDirectory(); err != nil {
+			return false, false, mterrors.Wrap(err, "failed to remove stale data directory from prior bootstrap attempt")
+		}
+	}
+
 	// Refuse to run on an already-initialized data directory. This node is already initialized
 	if pm.hasDataDirectory() {
 		return false, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -56,6 +70,13 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// A misconfigured database (missing durability_policy) should fail fast.
 	if _, err := pm.loadDurabilityPolicy(ctx); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
+	}
+
+	// Write the sentinel before initdb so a process crash between here and the
+	// final cleanup leaves a detectable marker. The sentinel lives in pooler_dir
+	// (not PGDATA), so it is not captured by pgBackRest backups.
+	if err := pm.writeBootstrapSentinel(); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to write bootstrap sentinel")
 	}
 
 	// Schedule cleanup before InitDataDir so that a partial failure (e.g. initdb
@@ -69,7 +90,12 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			pm.logger.WarnContext(ctx, "Failed to stop PostgreSQL during first backup cleanup", "error", err)
 		}
 		if err := pm.removeDataDirectory(); err != nil {
+			// Leave the sentinel in place so the next attempt knows to re-clean.
 			pm.logger.WarnContext(ctx, "Failed to remove data directory during first backup cleanup", "error", err)
+			return
+		}
+		if err := pm.removeBootstrapSentinel(); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to remove bootstrap sentinel during first backup cleanup", "error", err)
 		}
 	}()
 
@@ -142,9 +168,48 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	if err := pm.removeDataDirectory(); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to remove data directory after first backup")
 	}
+	// Only clear the sentinel after the data directory is gone. If this fails,
+	// the next iteration will detect the stale sentinel and redo cleanup (which
+	// will be a no-op) before proceeding — safe but wasteful, hence a warning.
+	if err := pm.removeBootstrapSentinel(); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to remove bootstrap sentinel after successful first backup", "error", err)
+	}
 
 	pm.logger.InfoContext(ctx, "First backup created; data directory removed; ready for restore", "shard", pm.getShardID())
 	return false, backupFound, nil
+}
+
+// bootstrapSentinelPath returns the path to the bootstrap sentinel file.
+// The file lives directly in pooler_dir so it is never captured by pgBackRest
+// backups (which only back up PGDATA = pooler_dir/pg_data).
+func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
+	return filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
+}
+
+// hasBootstrapSentinel reports whether the bootstrap sentinel file exists.
+func (pm *MultiPoolerManager) hasBootstrapSentinel() bool {
+	_, err := os.Stat(pm.bootstrapSentinelPath())
+	return err == nil
+}
+
+// writeBootstrapSentinel creates the bootstrap sentinel file under pooler_dir.
+// Called immediately before initdb so a crash during bootstrap leaves a
+// detectable marker for the next iteration to clean up.
+func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
+	path := pm.bootstrapSentinelPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to ensure pooler directory exists: %w", err)
+	}
+	return os.WriteFile(path, []byte("first-backup bootstrap in progress\n"), 0o644)
+}
+
+// removeBootstrapSentinel deletes the sentinel file. A missing file is not an
+// error: the invariant is "sentinel absent => no bootstrap in progress."
+func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
+	if err := os.Remove(pm.bootstrapSentinelPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // runStanzaCreate runs pgbackrest stanza-create. The operation is idempotent

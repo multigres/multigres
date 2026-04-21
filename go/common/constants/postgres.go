@@ -58,6 +58,14 @@ const (
 	// for a multipooler instance. It is stored under the pooler directory.
 	ConsensusTermFile = "consensus_term.json"
 
+	// BootstrapSentinelFile is written under the pooler directory before initdb
+	// during first-backup bootstrap and removed after the data directory is cleaned
+	// up at the end of the happy path. If it is present on startup, a prior
+	// bootstrap attempt crashed between initdb and final cleanup; the pooler can
+	// safely delete the stale data directory and retry. It lives in pooler_dir
+	// rather than PGDATA so it is never captured by pgBackRest backups.
+	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
+
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
 )

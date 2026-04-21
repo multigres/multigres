@@ -64,6 +64,7 @@ type SetupConfig struct {
 	CellName                            string
 	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	DeferMultipoolerStart               bool     // Start pgctld only; test starts multipooler itself
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
 	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
@@ -121,6 +122,15 @@ func WithDurabilityPolicy(policy string) SetupOption {
 // Processes (pgctld, multipooler) are started but postgres is not initialized.
 func WithoutInitialization() SetupOption {
 	return func(c *SetupConfig) {
+		c.SkipInitialization = true
+	}
+}
+
+// WithDeferredMultipoolerStart skips initialization and leaves the multipooler
+// unstarted; the test is responsible for starting it.
+func WithDeferredMultipoolerStart() SetupOption {
+	return func(c *SetupConfig) {
+		c.DeferMultipoolerStart = true
 		c.SkipInitialization = true
 	}
 }
@@ -453,7 +463,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
 	// Use setup.ctx for process lifetime, passed ctx only for tracing
-	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances)
+	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -1024,13 +1034,16 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance) {
+func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startMultipoolerInstances")
 	defer span.End()
 
-	span.SetAttributes(attribute.Int("instance.count", len(instances)))
+	span.SetAttributes(
+		attribute.Int("instance.count", len(instances)),
+		attribute.Bool("defer_multipooler_start", deferMultipoolerStart),
+	)
 
 	for _, inst := range instances {
 		pgctld := inst.Pgctld
@@ -1053,6 +1066,12 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			t.Fatalf("failed to start pgctld for %s: %v", inst.Name, err)
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
+
+		if deferMultipoolerStart {
+			t.Logf("Multipooler %s not started (DeferMultipoolerStart); test will start it", inst.Name)
+			instSpan.End()
+			continue
+		}
 
 		// Start multipooler
 		if err := multipooler.Start(instCtx, t); err != nil {
