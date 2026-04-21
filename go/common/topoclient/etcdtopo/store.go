@@ -148,7 +148,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
 		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, //nolint:staticcheck // deprecated but required by etcd client
+		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // grpc.WithBlock is deprecated but required by etcd client
 	}
 
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)
