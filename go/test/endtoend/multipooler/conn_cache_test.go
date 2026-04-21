@@ -63,8 +63,8 @@ type fakeManagerServer struct {
 	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
 }
 
-func (f *fakeManagerServer) State(ctx context.Context, req *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error) {
-	return &multipoolermanagerdatapb.StateResponse{}, nil
+func (f *fakeManagerServer) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+	return &multipoolermanagerdatapb.StatusResponse{}, nil
 }
 
 // grpcTestServer starts a gRPC server with both consensus and manager services for testing.
