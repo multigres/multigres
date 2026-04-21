@@ -56,11 +56,13 @@
       <section>
         <h4>Sort</h4>
         <p class="sort-links">
-          <a href="?sort=calls&limit={{.Limit}}"{{if eq .SortBy "calls"}} class="active"{{end}}>calls</a>
-          <a href="?sort=total_time&limit={{.Limit}}"{{if eq .SortBy "total_time"}} class="active"{{end}}>total time</a>
-          <a href="?sort=avg_time&limit={{.Limit}}"{{if eq .SortBy "avg_time"}} class="active"{{end}}>avg time</a>
-          <a href="?sort=errors&limit={{.Limit}}"{{if eq .SortBy "errors"}} class="active"{{end}}>errors</a>
-          <a href="?sort=last_seen&limit={{.Limit}}"{{if eq .SortBy "last_seen"}} class="active"{{end}}>last seen</a>
+          {{range .SortLinks}} {{if .Active}}
+          <a class="active" href="?sort={{.Key}}&amp;limit={{$.Limit}}"
+            >{{.Label}}</a
+          >
+          {{else}}
+          <a href="?sort={{.Key}}&amp;limit={{$.Limit}}">{{.Label}}</a>
+          {{end}} {{end}}
         </p>
       </section>
 
@@ -98,14 +100,22 @@
           </tbody>
         </table>
         {{else}}
-        <p><em>No tracked query fingerprints yet. Run some traffic through the gateway and this page will populate within a few seconds.</em></p>
+        <p>
+          <em
+            >No tracked query fingerprints yet. Run some traffic through the
+            gateway and this page will populate within a few seconds.</em
+          >
+        </p>
         {{end}}
       </section>
 
       <section>
         <p>
           <small>
-            <a href="/debug/queries?format=json&sort={{.SortBy}}&limit={{.Limit}}">View as JSON</a>
+            <a
+              href="/debug/queries?format=json&amp;sort={{.SortBy}}&amp;limit={{.Limit}}"
+              >View as JSON</a
+            >
           </small>
         </p>
       </section>

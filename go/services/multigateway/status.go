@@ -150,7 +150,18 @@ type QueriesDebugStatus struct {
 	Returned            int         `json:"returned"`
 	Limit               int         `json:"limit"`
 	SortBy              string      `json:"sort_by"`
+	SortLinks           []SortLink  `json:"-"`
 	Queries             []QueryView `json:"queries"`
+}
+
+// SortLink represents one sort option on the /debug/queries page.
+// Precomputed in the handler so the HTML template can iterate without
+// using Go-template string literals inside attribute values (which
+// breaks HTML linters that don't understand Go templates).
+type SortLink struct {
+	Key    string
+	Label  string
+	Active bool
 }
 
 // durationToMs renders a duration as a fixed-width millisecond string with
@@ -215,12 +226,29 @@ func (mg *MultiGateway) handleQueriesDebug(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	sortOptions := []struct{ Key, Label string }{
+		{"calls", "calls"},
+		{"total_time", "total time"},
+		{"avg_time", "avg time"},
+		{"errors", "errors"},
+		{"last_seen", "last seen"},
+	}
+	sortLinks := make([]SortLink, len(sortOptions))
+	for i, opt := range sortOptions {
+		sortLinks[i] = SortLink{
+			Key:    opt.Key,
+			Label:  opt.Label,
+			Active: opt.Key == sortName,
+		}
+	}
+
 	view := QueriesDebugStatus{
 		Title:               "Per-Query Metrics",
 		TrackedFingerprints: registry.Len(),
 		Returned:            len(snapshots),
 		Limit:               limit,
 		SortBy:              sortName,
+		SortLinks:           sortLinks,
 		Queries:             queries,
 	}
 
