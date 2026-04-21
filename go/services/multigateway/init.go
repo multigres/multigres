@@ -47,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -62,6 +63,16 @@ type MultiGateway struct {
 	pgTLSCertFile viperutil.Value[string]
 	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
 	pgTLSKeyFile viperutil.Value[string]
+	// pgTLSCAFile is the CA bundle used to verify client certificates when cert
+	// authentication is enabled.
+	pgTLSCAFile viperutil.Value[string]
+	// pgTLSClientAuthMode controls PostgreSQL-compatible client certificate
+	// authentication (`none` or `verify-full`; `verify-ca` and `optional` are
+	// reserved for future use).
+	pgTLSClientAuthMode viperutil.Value[string]
+	// pgTLSClientCertName selects which cert field (`cn` or `dn`) is compared
+	// to the requested DB user under verify-full cert auth.
+	pgTLSClientCertName viperutil.Value[string]
 	// poolerDiscovery handles discovery of multipoolers across all cells
 	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
@@ -163,6 +174,24 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
 		}),
+		pgTLSCAFile: viperutil.Configure(reg, "pg-tls-ca-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-tls-ca-file",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_TLS_CA_FILE"},
+		}),
+		pgTLSClientAuthMode: viperutil.Configure(reg, "pg-tls-client-auth-mode", viperutil.Options[string]{
+			Default:  "none",
+			FlagName: "pg-tls-client-auth-mode",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_TLS_CLIENT_AUTH_MODE"},
+		}),
+		pgTLSClientCertName: viperutil.Configure(reg, "pg-tls-client-cert-name", viperutil.Options[string]{
+			Default:  "cn",
+			FlagName: "pg-tls-client-cert-name",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_TLS_CLIENT_CERT_NAME"},
+		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "pg-replica-port",
@@ -218,6 +247,9 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
+	fs.String("pg-tls-ca-file", mg.pgTLSCAFile.Default(), "path to CA bundle for verifying client certificates under cert authentication")
+	fs.String("pg-tls-client-auth-mode", mg.pgTLSClientAuthMode.Default(), "PostgreSQL client certificate authentication mode: none | verify-full (verify-ca, optional reserved)")
+	fs.String("pg-tls-client-cert-name", mg.pgTLSClientCertName.Default(), "which peer certificate field is matched against the requested DB user under verify-full: cn | dn")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
@@ -229,6 +261,9 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.statementTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
+		mg.pgTLSCAFile,
+		mg.pgTLSClientAuthMode,
+		mg.pgTLSClientCertName,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
@@ -331,12 +366,27 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
 	keyFile := mg.pgTLSKeyFile.Get()
-	pgTLSConfig, err := buildPGTLSConfig(certFile, keyFile)
+	caFile := mg.pgTLSCAFile.Get()
+	authModeStr := mg.pgTLSClientAuthMode.Get()
+	certNameStr := mg.pgTLSClientCertName.Get()
+
+	authMode, err := server.ParseCertAuthMode(authModeStr)
+	if err != nil {
+		return fmt.Errorf("--pg-tls-client-auth-mode: %w", err)
+	}
+	identitySource, err := server.ParseCertIdentitySource(certNameStr)
+	if err != nil {
+		return fmt.Errorf("--pg-tls-client-cert-name: %w", err)
+	}
+
+	pgTLSConfig, err := buildPGTLSConfig(certFile, keyFile, caFile, authMode)
 	if err != nil {
 		return err
 	}
 	if pgTLSConfig != nil {
-		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
+		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener",
+			"cert_file", certFile, "key_file", keyFile,
+			"ca_file", caFile, "client_auth_mode", authMode)
 	}
 
 	// Build the full gateway record. All info (hostname, ports) is available
@@ -416,12 +466,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address:      pgAddr,
-		Handler:      mg.pgHandler,
-		GatewayID:    pidPrefix,
-		HashProvider: hashProvider,
-		TLSConfig:    pgTLSConfig,
-		Logger:       logger,
+		Address:                  pgAddr,
+		Handler:                  mg.pgHandler,
+		GatewayID:                pidPrefix,
+		HashProvider:             hashProvider,
+		TLSConfig:                pgTLSConfig,
+		ClientCertAuthMode:       authMode,
+		ClientCertIdentitySource: identitySource,
+		Logger:                   logger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
@@ -636,10 +688,21 @@ func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, o
 	return false
 }
 
-// buildPGTLSConfig validates TLS flag combinations and loads the certificate.
-// Returns nil if neither cert nor key file is configured (plaintext mode).
-func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+// buildPGTLSConfig validates TLS flag combinations and loads the server
+// certificate and (when configured) the client-cert CA bundle. Returns nil
+// if neither cert nor key file is configured (plaintext mode).
+//
+// Delegates cert/CA loading to grpccommon.BuildServerTLSConfig so both the
+// PostgreSQL listener and the internal gRPC server share a single, hardened
+// TLS loading path.
+func buildPGTLSConfig(certFile, keyFile, caFile string, authMode server.CertAuthMode) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
+		if caFile != "" {
+			return nil, errors.New("--pg-tls-ca-file requires --pg-tls-cert-file and --pg-tls-key-file")
+		}
+		if authMode == server.CertAuthModeVerifyFull {
+			return nil, errors.New("--pg-tls-client-auth-mode=verify-full requires --pg-tls-cert-file, --pg-tls-key-file and --pg-tls-ca-file")
+		}
 		return nil, nil
 	}
 	if certFile == "" {
@@ -648,13 +711,22 @@ func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	if keyFile == "" {
 		return nil, errors.New("--pg-tls-cert-file requires --pg-tls-key-file")
 	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+	if authMode == server.CertAuthModeVerifyFull && caFile == "" {
+		return nil, errors.New("--pg-tls-client-auth-mode=verify-full requires --pg-tls-ca-file")
 	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-		NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
-	}, nil
+	if caFile != "" && authMode == server.CertAuthModeNone {
+		// A CA configured with no client-auth mode active is almost certainly a
+		// misconfiguration (the user intended cert auth but forgot the mode);
+		// fail loudly rather than silently accept unverified clients.
+		return nil, errors.New("--pg-tls-ca-file set but --pg-tls-client-auth-mode is none; set the mode or remove the CA file")
+	}
+
+	cfg, err := grpccommon.BuildServerTLSConfig(certFile, keyFile, caFile, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build PG TLS config: %w", err)
+	}
+	// grpccommon.BuildServerTLSConfig returns nil only when cert/key are both
+	// empty; the guards above ensure that's not the case here.
+	cfg.NextProtos = []string{protocol.ALPNProtocol} // PG 17 ALPN forward compatibility
+	return cfg, nil
 }

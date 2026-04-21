@@ -330,9 +330,24 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 }
 
 // authenticate performs authentication with the client.
-// If a TrustAuthProvider is configured and allows the user, trust auth is used.
-// Otherwise, SCRAM-SHA-256 authentication is performed.
+// Order of precedence:
+//  1. verify-full client certificate authentication, when configured and the
+//     connection is TLS (the listener requires a verified peer cert at the
+//     handshake layer, so reaching this branch implies a valid client cert).
+//  2. Trust authentication, when a TrustAuthProvider is configured and allows
+//     this user/database (test-only path).
+//  3. SCRAM-SHA-256 authentication.
 func (c *Conn) authenticate() error {
+	if c.certAuthMode == CertAuthModeVerifyFull {
+		if _, ok := c.TLSConnectionState(); ok {
+			return c.authenticateCertificate()
+		}
+		// Shouldn't happen: the listener configures ClientAuth to require a
+		// verified peer cert, which implies TLS. If we got here on a plaintext
+		// connection, something is misconfigured — fail closed.
+		return c.sendAuthError("certificate authentication required but connection is not TLS")
+	}
+
 	// Check if trust auth is allowed for this connection
 	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
 		return c.authenticateTrust()
