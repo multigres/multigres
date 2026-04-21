@@ -923,7 +923,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
@@ -985,7 +985,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
@@ -1036,12 +1036,12 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum")
+		require.Contains(t, err.Error(), "recruitment validation failed")
 	})
 
 	t.Run("success - selects node with highest LSN from recruited nodes", func(t *testing.T) {
@@ -1078,7 +1078,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited), NOT mp1
@@ -1121,7 +1121,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited)
@@ -1201,7 +1201,7 @@ func TestBeginTerm(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, int64(6))
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 
@@ -1247,13 +1247,13 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum",
-			"should fail quorum validation when only 1 node recruited but need 2")
+		require.Contains(t, err.Error(), "recruitment validation failed",
+			"should fail recruitment validation when only 1 node recruited but need 2")
 	})
 }
 

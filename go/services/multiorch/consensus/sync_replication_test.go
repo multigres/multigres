@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -424,4 +425,26 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "async_fallback=REJECT")
 		require.Contains(t, err.Error(), "required 3 standbys")
 	})
+}
+
+// mustPolicy parses a proto DurabilityPolicy into the typed interface used by
+// Coordinator methods. Fails the test on error.
+func mustPolicy(t *testing.T, p *clustermetadatapb.DurabilityPolicy) commonconsensus.DurabilityPolicy {
+	t.Helper()
+	parsed, err := commonconsensus.NewPolicyFromProto(p)
+	require.NoError(t, err)
+	return parsed
+}
+
+// createTestPoolerHealth creates a test pooler health with minimal configuration.
+func createTestPoolerHealth(name, cell string) *multiorchdatapb.PoolerHealthState {
+	return &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      cell,
+				Name:      name,
+			},
+		},
+	}
 }
