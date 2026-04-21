@@ -1446,11 +1446,12 @@ func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
 
 // postgresState represents the state of PostgreSQL for monitoring
 type postgresState struct {
-	pgctldAvailable  bool
-	dirInitialized   bool
-	postgresRunning  bool
-	backupsAvailable bool
-	isPrimary        bool
+	pgctldAvailable          bool
+	dirInitialized           bool
+	postgresRunning          bool
+	backupsAvailable         bool
+	isPrimary                bool
+	bootstrapSentinelPresent bool
 }
 
 // remedialAction represents actions the postgres monitor can take
@@ -1563,6 +1564,8 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		state.backupsAvailable = pm.hasCompleteBackups(ctx)
 	}
 
+	state.bootstrapSentinelPresent = pm.hasBootstrapSentinel()
+
 	return state
 }
 
@@ -1604,6 +1607,13 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			}
 		}
 		return remedialActionNone // Pooler type already matches
+	}
+
+	// A sentinel from a prior first-backup attempt means bootstrap crashed
+	// mid-flight. Any on-disk pg_data is stale — force the create-first-backup
+	// path so createFirstBackupAndInitializeLocked can clean up and retry.
+	if currentState.bootstrapSentinelPresent {
+		return remedialActionCreateFirstBackup
 	}
 
 	// Postgres not running: Try to start or restore

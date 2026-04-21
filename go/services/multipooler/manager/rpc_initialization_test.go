@@ -236,6 +236,7 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -244,6 +245,7 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	assert.True(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
 	// backupsAvailable should NOT be checked when dirInitialized is true
+	assert.False(t, state.bootstrapSentinelPresent)
 }
 
 func TestDiscoverPostgresState_Running(t *testing.T) {
@@ -259,6 +261,7 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -266,6 +269,32 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
 	assert.True(t, state.postgresRunning)
+	assert.False(t, state.bootstrapSentinelPresent)
+}
+
+func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
+	ctx := t.Context()
+	poolerDir := t.TempDir()
+
+	// Plant sentinel to simulate a crashed prior first-backup attempt.
+	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
+	require.NoError(t, os.WriteFile(sentinelPath, []byte("prior attempt\n"), 0o644))
+
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_STOPPED,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	assert.True(t, state.bootstrapSentinelPresent)
 }
 
 func TestDiscoverPostgresState_StatusError(t *testing.T) {
@@ -402,6 +431,20 @@ func TestDetermineRemedialAction(t *testing.T) {
 				postgresRunning:  false,
 				dirInitialized:   false,
 				backupsAvailable: false,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionCreateFirstBackup,
+		},
+		{
+			// Sentinel from a prior crashed first-backup attempt must override
+			// the dirInitialized=true signal, so cleanup+retry runs instead of
+			// a doomed start on a stub data directory.
+			name: "bootstrap_sentinel_present_forces_first_backup_path",
+			state: postgresState{
+				pgctldAvailable:          true,
+				postgresRunning:          false,
+				dirInitialized:           true,
+				bootstrapSentinelPresent: true,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
