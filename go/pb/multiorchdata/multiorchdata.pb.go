@@ -97,8 +97,12 @@ type PoolerHealthState struct {
 	// it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
 	// Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
 	IsPostgresRunning bool `protobuf:"varint,17,opt,name=is_postgres_running,json=isPostgresRunning,proto3" json:"is_postgres_running,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether a ManagerHealthStream stream is currently active for this pooler.
+	StreamConnected bool `protobuf:"varint,20,opt,name=stream_connected,json=streamConnected,proto3" json:"stream_connected,omitempty"`
+	// The time at which the current stream was established.
+	StreamConnectedSince *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=stream_connected_since,json=streamConnectedSince,proto3" json:"stream_connected_since,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PoolerHealthState) Reset() {
@@ -250,11 +254,25 @@ func (x *PoolerHealthState) GetIsPostgresRunning() bool {
 	return false
 }
 
+func (x *PoolerHealthState) GetStreamConnected() bool {
+	if x != nil {
+		return x.StreamConnected
+	}
+	return false
+}
+
+func (x *PoolerHealthState) GetStreamConnectedSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StreamConnectedSince
+	}
+	return nil
+}
+
 var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x13consensusdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xc4\b\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x13consensusdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xc1\t\n" +
 	"\x11PoolerHealthState\x12?\n" +
 	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12!\n" +
 	"\ris_up_to_date\x18\x02 \x01(\bR\n" +
@@ -275,7 +293,9 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\x10consensus_status\x18\x0e \x01(\v2\x1d.consensusdata.StatusResponseR\x0fconsensusStatus\x12:\n" +
 	"\x0ecohort_members\x18\x0f \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\x12S\n" +
 	"\x18last_postgres_ready_time\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\x15lastPostgresReadyTime\x12.\n" +
-	"\x13is_postgres_running\x18\x11 \x01(\bR\x11isPostgresRunningB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x13is_postgres_running\x18\x11 \x01(\bR\x11isPostgresRunning\x12)\n" +
+	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x12P\n" +
+	"\x16stream_connected_since\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x14streamConnectedSinceB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once
@@ -313,11 +333,12 @@ var file_multiorchdata_proto_depIdxs = []int32{
 	7,  // 8: multiorchdata.PoolerHealthState.consensus_status:type_name -> consensusdata.StatusResponse
 	8,  // 9: multiorchdata.PoolerHealthState.cohort_members:type_name -> clustermetadata.ID
 	2,  // 10: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	2,  // 11: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }

@@ -34,6 +34,18 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
+// broadcastHealth broadcasts the current health state to all subscribers.
+//
+// This should be called whenever there is a state change that clients should be
+// aware of (e.g., PostgreSQL availability, replication status, etc.). Clients
+// will receive the latest health snapshot immediately if they are connected, or
+// upon their next connection if they are not currently connected.
+func (pm *MultiPoolerManager) broadcastHealth() {
+	if pm.healthStreamer != nil {
+		pm.healthStreamer.Broadcast()
+	}
+}
+
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) error {
 	if err := pm.checkReady(); err != nil {
@@ -119,7 +131,15 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
-	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)
+	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter); err != nil {
+		return err
+	}
+
+	// Push an immediate health snapshot so orchestrators learn about the new
+	// replication configuration (e.g., cleared primary_conninfo) without waiting
+	// for the next 30-second heartbeat.
+	pm.broadcastHealth()
+	return nil
 }
 
 // setPrimaryConnInfoLocked sets the primary connection info for a standby server.
@@ -606,6 +626,10 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"reload_config", reloadConfig,
 		"consensus_term", consensusTerm,
 		"force", force)
+
+	// Push an immediate health snapshot so orchestrators learn about the changed
+	// synchronous standby list without waiting for the next 30-second heartbeat.
+	pm.broadcastHealth()
 	return nil
 }
 
