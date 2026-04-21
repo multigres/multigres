@@ -62,12 +62,15 @@ func TestBootstrapSentinelCrashRecovery(t *testing.T) {
 	}
 	poolerDir := inst.Pgctld.PoolerDir
 
-	// Plant the simulated post-crash state: empty pg_data + sentinel file.
+	// Plant the simulated post-crash state: pg_data with PG_VERSION (so
+	// hasDataDirectory() returns true and the recovery path is required) plus
+	// the sentinel in pooler_dir.
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16\n"), 0o644))
 	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
 	require.NoError(t, os.WriteFile(sentinelPath, []byte("simulated prior bootstrap attempt\n"), 0o644))
-	t.Logf("planted sentinel + empty pg_data at %s", poolerDir)
+	t.Logf("planted sentinel + pg_data (with PG_VERSION) at %s", poolerDir)
 
 	// Start the multipooler. Its first monitor tick should detect the sentinel,
 	// remove the empty pg_data, run a fresh initdb, and complete the first backup.
@@ -89,7 +92,7 @@ func TestBootstrapSentinelCrashRecovery(t *testing.T) {
 			}
 		}
 		return false
-	}, 90*time.Second, 1*time.Second, "expected a COMPLETE backup to appear via GetBackups")
+	}, 10*time.Second, 1*time.Second, "expected a COMPLETE backup to appear via GetBackups")
 
 	// The happy path removes the sentinel after the final data-directory cleanup.
 	assert.Eventually(t, func() bool {
