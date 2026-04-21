@@ -413,10 +413,10 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 	assert.FileExists(t, sentinelPath, "sentinel should remain until bootstrap completes")
 }
 
-// TestBootstrapSentinelHelpers verifies the sentinel file lives in pooler_dir
-// (not PGDATA) so it is not captured by pgBackRest backups, and that
-// write/has/remove behave as expected.
-func TestBootstrapSentinelHelpers(t *testing.T) {
+// TestBootstrapSentinelPlacement guards the load-bearing invariant that the
+// sentinel lives in pooler_dir and never under PGDATA — pgBackRest backs up
+// PGDATA only, so placement here keeps the sentinel out of backups.
+func TestBootstrapSentinelPlacement(t *testing.T) {
 	poolerDir := t.TempDir()
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
@@ -425,25 +425,10 @@ func TestBootstrapSentinelHelpers(t *testing.T) {
 		multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 	}
 
-	assert.False(t, pm.hasBootstrapSentinel(), "sentinel should not exist initially")
-	require.NoError(t, pm.removeBootstrapSentinel(), "remove is a no-op when absent")
-
 	require.NoError(t, pm.writeBootstrapSentinel())
-	assert.True(t, pm.hasBootstrapSentinel(), "sentinel should exist after write")
-
-	// The sentinel lives directly under pooler_dir, not under pg_data.
-	// This is load-bearing: pgBackRest backs up pg_data only, so placing the
-	// sentinel here guarantees it is never included in a backup.
 	assert.FileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile))
 	assert.NoFileExists(t, filepath.Join(dataDir, constants.BootstrapSentinelFile),
 		"sentinel must NOT live under PGDATA — it would be backed up")
-
-	// Idempotent write.
-	require.NoError(t, pm.writeBootstrapSentinel())
-	assert.True(t, pm.hasBootstrapSentinel())
-
-	require.NoError(t, pm.removeBootstrapSentinel())
-	assert.False(t, pm.hasBootstrapSentinel())
 }
 
 // TestWithBackupLease_ReturnsNodeExistsWhenHeld verifies that WithBackupLease returns

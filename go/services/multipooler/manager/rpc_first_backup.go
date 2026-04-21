@@ -168,9 +168,8 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	if err := pm.removeDataDirectory(); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to remove data directory after first backup")
 	}
-	// Only clear the sentinel after the data directory is gone. If this fails,
-	// the next iteration will detect the stale sentinel and redo cleanup (which
-	// will be a no-op) before proceeding — safe but wasteful, hence a warning.
+	// Ordering matters: only clear the sentinel after the data directory is gone,
+	// so the invariant "data dir present ⇒ sentinel present" holds across retries.
 	if err := pm.removeBootstrapSentinel(); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to remove bootstrap sentinel after successful first backup", "error", err)
 	}
@@ -179,22 +178,15 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	return false, backupFound, nil
 }
 
-// bootstrapSentinelPath returns the path to the bootstrap sentinel file.
-// The file lives directly in pooler_dir so it is never captured by pgBackRest
-// backups (which only back up PGDATA = pooler_dir/pg_data).
 func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
 	return filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
 }
 
-// hasBootstrapSentinel reports whether the bootstrap sentinel file exists.
 func (pm *MultiPoolerManager) hasBootstrapSentinel() bool {
 	_, err := os.Stat(pm.bootstrapSentinelPath())
 	return err == nil
 }
 
-// writeBootstrapSentinel creates the bootstrap sentinel file under pooler_dir.
-// Called immediately before initdb so a crash during bootstrap leaves a
-// detectable marker for the next iteration to clean up.
 func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
 	path := pm.bootstrapSentinelPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -203,8 +195,7 @@ func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
 	return os.WriteFile(path, []byte("first-backup bootstrap in progress\n"), 0o644)
 }
 
-// removeBootstrapSentinel deletes the sentinel file. A missing file is not an
-// error: the invariant is "sentinel absent => no bootstrap in progress."
+// removeBootstrapSentinel deletes the sentinel; a missing file is not an error.
 func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
 	if err := os.Remove(pm.bootstrapSentinelPath()); err != nil && !os.IsNotExist(err) {
 		return err
