@@ -334,6 +334,12 @@ func (m *Manager) Close() {
 		m.adminPool = nil
 	}
 
+	// Unregister observable metric callbacks so the OTel SDK stops invoking
+	// them against closed pool state.
+	if err := m.metrics.Close(); err != nil {
+		m.logger.Warn("failed to unregister pool metrics callbacks", "error", err)
+	}
+
 	m.logger.Info("connection pool manager closed")
 }
 

@@ -285,17 +285,20 @@ func (p *UserPool) Stats() UserPoolStats {
 		reservedDemand = p.reservedDemandTracker.Peak()
 	}
 
+	regularStats := p.regularPool.Stats()
+	reservedStats := p.reservedPool.Stats()
+
 	return UserPoolStats{
 		Username:       p.username,
-		Regular:        p.regularPool.Stats(),
-		Reserved:       p.reservedPool.Stats(),
+		Regular:        regularStats,
+		Reserved:       reservedStats,
 		RegularDemand:  regularDemand,
 		ReservedDemand: reservedDemand,
 		LastActivity:   p.lastActivity.Load(),
 		WaitCount:      p.regularPool.WaitCount() + p.reservedPool.WaitCount(),
 		WaitTime:       p.regularPool.WaitTime() + p.reservedPool.WaitTime(),
 		GetCount:       p.regularPool.GetCount() + p.reservedPool.GetCount(),
-		Waiting:        p.regularPool.Stats().Waiting + p.reservedPool.Stats().RegularPool.Waiting,
+		Waiting:        regularStats.Waiting + reservedStats.RegularPool.Waiting,
 	}
 }
 

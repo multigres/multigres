@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -53,15 +54,22 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 }
 
 // RegisterClientConnectionsCallback registers a callback that reports the current
-// number of active client connections.
-func (m *GatewayMetrics) RegisterClientConnectionsCallback(getter func() int) error {
-	if m.clientConnections == nil || getter == nil {
+// number of active client connections, broken down by endpoint.
+// The replica getter may be nil when the replica-reads port is disabled.
+func (m *GatewayMetrics) RegisterClientConnectionsCallback(primaryGetter, replicaGetter func() int) error {
+	if m.clientConnections == nil || primaryGetter == nil {
 		return nil
 	}
 
+	primaryAttr := metric.WithAttributes(attribute.String("endpoint", "primary"))
+	replicaAttr := metric.WithAttributes(attribute.String("endpoint", "replica"))
+
 	_, err := m.meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
-			o.ObserveInt64(m.clientConnections, int64(getter()))
+			o.ObserveInt64(m.clientConnections, int64(primaryGetter()), primaryAttr)
+			if replicaGetter != nil {
+				o.ObserveInt64(m.clientConnections, int64(replicaGetter()), replicaAttr)
+			}
 			return nil
 		},
 		m.clientConnections,

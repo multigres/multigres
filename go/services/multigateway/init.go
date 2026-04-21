@@ -457,7 +457,11 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
 	}
 	if gatewayMetrics != nil {
-		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount); err != nil {
+		var replicaConnCount func() int
+		if mg.pgReplicaListener != nil {
+			replicaConnCount = mg.pgReplicaListener.ConnectionCount
+		}
+		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount, replicaConnCount); err != nil {
 			logger.WarnContext(ctx, "failed to register client connections callback", "error", err)
 		}
 	}

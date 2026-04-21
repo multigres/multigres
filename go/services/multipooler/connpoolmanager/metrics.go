@@ -30,6 +30,10 @@ import (
 type Metrics struct {
 	meter metric.Meter
 
+	// registration is the handle returned by RegisterCallback. Stored so the
+	// callback can be unregistered when the manager is closed.
+	registration metric.Registration
+
 	// regularConnCount tracks PostgreSQL connection states for regular pools
 	regularConnCount connpool.ConnectionCount
 
@@ -271,7 +275,7 @@ func (m *Metrics) RegisterManagerCallbacks(
 		return nil
 	}
 
-	_, err := m.meter.RegisterCallback(
+	registration, err := m.meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
 			// Pooler health.
 			if m.poolerUp != nil {
@@ -374,6 +378,21 @@ func (m *Metrics) RegisterManagerCallbacks(
 		},
 		instruments...,
 	)
+	if err != nil {
+		return err
+	}
+	m.registration = registration
+	return nil
+}
+
+// Close unregisters the observable callback so the OTel SDK stops invoking it.
+// Safe to call multiple times and when no callback was registered.
+func (m *Metrics) Close() error {
+	if m.registration == nil {
+		return nil
+	}
+	err := m.registration.Unregister()
+	m.registration = nil
 	return err
 }
 
