@@ -58,6 +58,8 @@ super-linter-output/
 # Claude Code local settings
 .claude/settings.local.json
 .claude/commands/*.local.md
+.claude/scheduled_tasks/
+.claude/worktrees/
 CLAUDE.local.md
 
 # expected results of a test
