@@ -340,6 +340,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 		Environment:                         os.Environ(),
 		PrimaryFailoverGracePeriodBase:      config.PrimaryFailoverGracePeriodBase,
 		PrimaryFailoverGracePeriodMaxJitter: config.PrimaryFailoverGracePeriodMaxJitter,
+		LogLevel:                            config.LogLevel,
 	}
 
 	// Apply defaults if not specified (0s for fast tests)
