@@ -373,6 +373,197 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
+      "description": "Top 10 query shapes by p99 latency. Labelled by query.fingerprint (xxh3-64 of the normalized SQL). The '__other__' series aggregates all fingerprints outside the registry's tracked top-N.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "id": 160,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "topk(10, histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval]))))",
+          "legendFormat": "p99 - {{query_fingerprint}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Top Queries by p99 Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Per-query-shape snapshot: calls/s, latency percentiles, error rate. Click the fingerprint link to open /debug/queries on zone1's multigateway where the full normalized SQL is listed (use browser find to jump to the row).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "fingerprint" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open /debug/queries",
+                    "url": "http://localhost:15100/debug/queries?sort=calls",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              { "id": "custom.width", "value": 180 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "calls/s" },
+            "properties": [{ "id": "unit", "value": "ops" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p99 ms" },
+            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p95 ms" },
+            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p50 ms" },
+            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "error rate" },
+            "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "decimals", "value": 3 }]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "id": 161,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "calls/s", "desc": true }]
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval]))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.50, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_errors_total{job=\"multigateway\"}[$__rate_interval])) / clamp_min(sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval])), 0.001)",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        }
+      ],
+      "title": "Top Queries",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "query_fingerprint", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true
+            },
+            "indexByName": {
+              "query_fingerprint": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "query_fingerprint": "fingerprint",
+              "Value #A": "calls/s",
+              "Value #B": "p99 ms",
+              "Value #C": "p95 ms",
+              "Value #D": "p50 ms",
+              "Value #E": "error rate"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [{ "field": "calls/s", "desc": true }]
+          }
+        },
+        {
+          "id": "limit",
+          "options": { "limitField": 15 }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "description": "Transaction duration percentiles (BEGIN to COMMIT/ROLLBACK).",
       "fieldConfig": {
         "defaults": {
