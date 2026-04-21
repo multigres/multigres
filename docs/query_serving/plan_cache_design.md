@@ -316,11 +316,47 @@ up quickly after an invalidation event.
 ### Schema Tracking for Cache Invalidation
 
 `planCache.Invalidate()` exists and works correctly, but nothing calls it yet.
-The next step is to wire up DDL detection and schema-change events so that
-every DDL statement (ALTER TABLE, CREATE INDEX, DROP TABLE, etc.) triggers an
-epoch increment. This is safe to do lazily: `Invalidate()` is O(1), and the
-cache warms up quickly after a schema change because DML query shapes are
-stable.
+Wiring up DDL detection to trigger invalidation is **deliberately deferred**:
+the planner does not currently consume schema information. Routing decisions
+are derived from the query text and the tablegroup topology, not from table
+definitions. A plan produced before a DDL statement is byte-identical to one
+produced after, so a stale cache entry still yields the correct plan — there
+is nothing to invalidate.
+
+This calculus changes when the planner starts to rely on schema metadata.
+Likely triggers:
+
+- Resolving table names against `search_path` (see the note in the cache-key
+  trade-off above)
+- Column-level validation or pruning during planning
+- Shard-aware routing, where the shard key and its type affect the primitive
+  that is selected
+
+At that point a plan built against an old schema could become incorrect (for
+example, routing to a dropped column, or missing the fact that a table was
+moved between tablegroups), and we will need a signal from multipooler to
+invalidate the cache on DDL.
+
+#### Reference Implementation
+
+[PR #824](https://github.com/multigres/multigres/pull/824) prototypes the
+full pipeline and is preserved as the starting point for when schema-driven
+invalidation is actually required:
+
+- A `schemaTracker` in multipooler that detects DDL via a PostgreSQL event
+  trigger (`ddl_command_end` → `pg_notify`), with catalog polling as a
+  fallback for changes missed during disconnects
+- A monotonically increasing `schema_version` counter broadcast in the
+  multipooler health stream
+- Per-connection version tracking in the multigateway load balancer that
+  fires a callback when the version advances — the hook that would call
+  `planCache.Invalidate()`
+
+The PR was closed rather than merged because carrying the plumbing without
+a consumer adds surface area (an event trigger installed in every primary,
+an extra health-stream field, a new component in the pooler lifecycle) for
+no behavioral benefit today. Reopen or rebuild from it when the planner
+grows a real dependency on schema.
 
 ### Generated `CachedSize`
 

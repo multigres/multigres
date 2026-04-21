@@ -109,6 +109,22 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// ManagerHealthStream is the bidirectional health channel to a multipooler.
+//
+// The stream is established by calling ManagerHealthStream on the
+// MultiPoolerClient. The caller must send an init message before reading.
+//
+// Recv delivers full health snapshots whenever the pooler's health state
+// changes and as periodic heartbeats. Send is used to send poll requests
+// that trigger an immediate snapshot.
+//
+// The stream remains open until the context passed to ManagerHealthStream is
+// cancelled or the pooler closes it.
+type ManagerHealthStream interface {
+	Recv() (*multipoolermanagerdatapb.ManagerHealthStreamResponse, error)
+	Send(*multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error
+}
+
 // MultiPoolerClient defines the unified interface for communicating with a multipooler node.
 // It provides methods for both consensus and manager services, maintaining a cache of
 // connections with LRU eviction for optimal performance in monitoring scenarios.
@@ -264,6 +280,21 @@ type MultiPoolerClient interface {
 
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
+
+	//
+	// Manager Service Methods - Health Streaming
+	//
+
+	// ManagerHealthStream opens a bidirectional health stream to a pooler.
+	//
+	// The caller must send an init message via stream.Send before reading.
+	// After that, the stream delivers full health snapshots on every state
+	// change, in response to poll requests, and as periodic heartbeats.
+	// Poll requests are sent via stream.Send with a poll message.
+	//
+	// The stream stays open until the context is cancelled or the pooler
+	// closes it. Recv blocks until a message arrives or an error occurs.
+	ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error)
 
 	//
 	// Connection Management Methods

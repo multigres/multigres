@@ -93,4 +93,12 @@ message PoolerHealthState {
   // it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
   // Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
   bool is_postgres_running = 17;
+
+  // Stream health fields (populated when multiorch uses ManagerHealthStream).
+
+  // Whether a ManagerHealthStream stream is currently active for this pooler.
+  bool stream_connected = 20;
+
+  // The time at which the current stream was established.
+  google.protobuf.Timestamp stream_connected_since = 21;
 }

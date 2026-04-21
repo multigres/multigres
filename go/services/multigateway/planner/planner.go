@@ -74,6 +74,14 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
+	// Reject Tier 2 statements (server-level operations unsafe for a hosted
+	// pooler: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.). This runs
+	// before any other dispatch so blocked statements never reach PostgreSQL,
+	// including when they would otherwise be unwrapped below.
+	if err := planUnsupportedStmt(stmt); err != nil {
+		return nil, err
+	}
+
 	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
 	// before normal dispatch. The wrapper's inner ExecuteStmt references a
 	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
@@ -205,6 +213,11 @@ func (p *Planner) PlanPortal(
 	conn *server.Conn,
 ) (*engine.Plan, error) {
 	stmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	// Reject Tier 2 statements (server-level operations unsafe for a hosted pooler).
+	if err := planUnsupportedStmt(stmt); err != nil {
+		return nil, err
+	}
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
