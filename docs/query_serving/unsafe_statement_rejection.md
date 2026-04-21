@@ -8,7 +8,7 @@ presents to a hosted connection pooler:
 
 - **Tier 1 — statements embedding procedural code** (DO, CREATE
   FUNCTION / PROCEDURE, CREATE TRIGGER, CREATE RULE, CREATE EVENT
-  TRIGGER). Risk is session-state changes *inside* an opaque body.
+  TRIGGER). Risk is session-state changes _inside_ an opaque body.
 - **Tier 2 — server-level infrastructure operations** (LOAD, ALTER
   SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
   CREATE FDW, CREATE SERVER). Risk is modifying the shared server
@@ -46,7 +46,7 @@ END $$` can change backend session state without the gateway's
 session tracker ever seeing the `SET`. When that connection is
 recycled to another client, the state leaks. The same leak vector
 exists via `SELECT set_config(...)` at the expression level, so
-Tier 1 is not the *only* path — just one of several.
+Tier 1 is not the _only_ path — just one of several.
 
 ### Prior Art
 
@@ -128,11 +128,11 @@ the operator explicitly opts into these.
 Beyond Tier 1 (allowed pending body analysis), a few more statements
 execute opaque server-side code and cannot be usefully blocked.
 
-| Statement                                           | AST Node                | Risk                                                                                       |
-| --------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
-| `CALL proc()`                                       | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.       |
-| `CREATE EXTENSION`                                  | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).  |
-| Function calls in expressions (`SELECT my_func()`)  | N/A (expression-level)  | Opaque function bodies; also the bypass for session-state changes via `set_config()`.      |
+| Statement                                          | AST Node                | Risk                                                                                      |
+| -------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
+| `CALL proc()`                                      | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.      |
+| `CREATE EXTENSION`                                 | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS). |
+| Function calls in expressions (`SELECT my_func()`) | N/A (expression-level)  | Opaque function bodies; also the bypass for session-state changes via `set_config()`.     |
 
 ## Implementation
 
@@ -168,17 +168,17 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 ### Key Files
 
-| File                                                   | Purpose                                                                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`      | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements  |
-| `go/services/multigateway/planner/planner.go`          | Calls `planUnsupportedStmt()` at the top of `Plan()` and `PlanPortal()`                               |
-| `go/services/multigateway/planner/unsafe_stmt_test.go` | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                             |
+| File                                                   | Purpose                                                                                              |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `go/services/multigateway/planner/unsafe_stmt.go`      | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements |
+| `go/services/multigateway/planner/planner.go`          | Calls `planUnsupportedStmt()` at the top of `Plan()` and `PlanPortal()`                              |
+| `go/services/multigateway/planner/unsafe_stmt_test.go` | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                            |
 
 ### Error Format
 
 Blocked statements return a standard PostgreSQL error response:
 
-```
+```text
 ERROR:  0A000: LOAD is not supported: loading shared libraries is not
 permitted through the connection pooler
 ```
