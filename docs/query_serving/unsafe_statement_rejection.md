@@ -2,39 +2,51 @@
 
 ## Overview
 
-The multigateway rejects SQL statements that are unsafe to execute
-through a hosted connection pooler. Because we have a full PostgreSQL
-parser, we can inspect every statement at plan time and block constructs
-that contain code the pooler cannot verify or that compromise hosted
-infrastructure.
+The multigateway inspects every SQL statement at plan time and
+classifies it into one of two tiers based on the kind of risk it
+presents to a hosted connection pooler:
+
+- **Tier 1 — statements embedding procedural code** (DO, CREATE
+  FUNCTION / PROCEDURE, CREATE TRIGGER, CREATE RULE, CREATE EVENT
+  TRIGGER). Risk is session-state changes *inside* an opaque body.
+- **Tier 2 — server-level infrastructure operations** (LOAD, ALTER
+  SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
+  CREATE FDW, CREATE SERVER). Risk is modifying the shared server
+  process or crossing tenant boundaries.
+
+The two tiers are handled differently because the mitigations are
+different (see [Handling](#handling) below). In the current
+implementation, **Tier 2 is blocked at plan time and Tier 1 is allowed
+through pending deeper analysis**; the two tiers will continue to
+diverge as follow-up layers land.
 
 Blocked statements return a PostgreSQL `feature_not_supported` error
-(SQLSTATE `0A000`) with a descriptive message explaining why the
-statement is rejected.
+(SQLSTATE `0A000`) with a descriptive message.
 
 ## Background
 
-A connection pooler sits between clients and PostgreSQL, routing queries
-and managing backend connections. For correct routing, transaction
-tracking, and security, the pooler needs to understand what each query
-does. Certain SQL constructs break this contract:
+A connection pooler sits between clients and PostgreSQL, routing
+queries and managing backend connections. In a hosted multi-tenant
+environment, a shared pooler must not expose operations that:
 
-1. **Embedded code** — Statements like `DO $$ ... $$` and
-   `CREATE FUNCTION ... AS $$ ... $$` contain PL/pgSQL (or other
-   language) code that the pooler's SQL parser never sees. This code
-   can modify session state, start transactions, or execute arbitrary
-   SQL — all invisible to the pooler.
+- change the server process itself (loaded shared libraries,
+  `postgresql.conf`),
+- cross tenant boundaries (creating or dropping databases,
+  installing languages), or
+- open outbound connections to external hosts (subscriptions,
+  foreign data wrappers, foreign servers).
 
-2. **Query rewriting** — `CREATE RULE` and `CREATE TRIGGER` can cause
-   the actual SQL executed by PostgreSQL to differ from the SQL the
-   pooler planned. A rule can silently replace an `INSERT` with a
-   `DELETE`. The pooler's routing decision was based on a query that
-   isn't what ran.
+These are managed by the control plane, not by tenant users, even
+when the tenant has the raw Postgres privileges to run them. That is
+the Tier 2 concern.
 
-3. **Infrastructure operations** — Statements like `LOAD`, `ALTER
-SYSTEM`, `CREATE DATABASE`, and `CREATE LANGUAGE` are server-level
-   operations that should not be available through a shared pooler in
-   a hosted environment.
+The Tier 1 concern is narrower but real: procedural-language bodies
+are opaque to our SQL parser, so a `DO $$ BEGIN SET work_mem = '10GB';
+END $$` can change backend session state without the gateway's
+session tracker ever seeing the `SET`. When that connection is
+recycled to another client, the state leaks. The same leak vector
+exists via `SELECT set_config(...)` at the expression level, so
+Tier 1 is not the *only* path — just one of several.
 
 ### Prior Art
 
@@ -53,33 +65,43 @@ Neither PgBouncer nor Supavisor implement statement-level blocking:
   prepared statements don't work (stateless model).
 
 Because we have a full PostgreSQL parser integrated into the query
-planning pipeline, we can add this safety layer without the
-limitations of protocol-level-only proxies.
+planning pipeline, we can add safety layers beyond what a
+protocol-level-only proxy can do.
 
-## Blocked Statements
+## Handling
 
-Statements are blocked at plan time, before any query reaches
-PostgreSQL. Both the simple query protocol (`Plan()`) and the extended
-query protocol (`PlanPortal()`) enforce the same restrictions.
+The two tiers diverge because blocking outright has very different
+cost/benefit profiles.
 
-### Tier 1: Statements Containing Unparsed Code
+### Tier 1 — procedural-code statements (currently allowed)
 
-These statements embed code in procedural languages (PL/pgSQL, PL/Python,
-etc.) that the pooler's SQL parser cannot inspect or verify.
+| Statement                              | AST Node                | Example                                                            |
+| -------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `DO $$ ... $$`                         | `T_DoStmt`              | `DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$`                       |
+| `CREATE FUNCTION` / `CREATE PROCEDURE` | `T_CreateFunctionStmt`  | `CREATE FUNCTION f() RETURNS void AS $$ ... $$ LANGUAGE plpgsql`   |
+| `CREATE TRIGGER`                       | `T_CreateTriggerStmt`   | `CREATE TRIGGER t BEFORE INSERT ON users EXECUTE FUNCTION f()`     |
+| `CREATE RULE`                          | `T_RuleStmt`            | `CREATE RULE r AS ON INSERT TO t DO INSTEAD DELETE FROM t`         |
+| `CREATE EVENT TRIGGER`                 | `T_CreateEventTrigStmt` | `CREATE EVENT TRIGGER t ON ddl_command_start EXECUTE FUNCTION f()` |
 
-| Statement                              | AST Node                | Example                                                            | Reason                                                                                      |
-| -------------------------------------- | ----------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `DO $$ ... $$`                         | `T_DoStmt`              | `DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$`                       | Anonymous code blocks execute arbitrary SQL invisible to the pooler                         |
-| `CREATE FUNCTION` / `CREATE PROCEDURE` | `T_CreateFunctionStmt`  | `CREATE FUNCTION f() RETURNS void AS $$ ... $$ LANGUAGE plpgsql`   | Function and procedure bodies contain opaque code                                           |
-| `CREATE TRIGGER`                       | `T_CreateTriggerStmt`   | `CREATE TRIGGER t BEFORE INSERT ON users EXECUTE FUNCTION f()`     | Triggers fire opaque functions on data events; pooler cannot predict side effects           |
-| `CREATE RULE`                          | `T_RuleStmt`            | `CREATE RULE r AS ON INSERT TO t DO INSTEAD DELETE FROM t`         | Rules rewrite queries at the database level — the query the pooler planned is not what runs |
-| `CREATE EVENT TRIGGER`                 | `T_CreateEventTrigStmt` | `CREATE EVENT TRIGGER t ON ddl_command_start EXECUTE FUNCTION f()` | System-wide DDL hooks that execute opaque code                                              |
+**Why allowed today:** blocking all of these (earlier iteration of
+this layer) broke real applications — migrations, ORMs, and the
+proxy's own NOTICE/ERROR-forwarding tests — without actually closing
+the session-state leak, since `SELECT set_config(...)` achieves the
+same effect at the expression level.
 
-### Tier 2: Unsafe for Hosted Infrastructure
+**How they will eventually be handled:** body analysis. Rather than a
+blanket rejection, the planner will parse the PL/pgSQL body (for DO
+and CREATE FUNCTION LANGUAGE plpgsql) and walk `RuleStmt.Actions` /
+trigger functions, rejecting only bodies that contain dangerous
+literal statements (`SET`, `DISCARD`, `LISTEN`, `PERFORM
+set_config(...)`, `PREPARE TRANSACTION`, etc.). Dynamic `EXECUTE`
+with non-literal arguments stays as an acknowledged gap until the
+connection-reset backstop lands.
 
-These statements perform server-level operations that should not be
-available through a shared connection pooler. Most require superuser
-privileges in PostgreSQL, so blocking them is defense-in-depth.
+See [Future Work](#future-work) for the follow-up tickets that close
+Tier 1.
+
+### Tier 2 — infrastructure operations (blocked at plan time)
 
 | Statement                     | AST Node                    | Example                                                                  | Reason                                                            |
 | ----------------------------- | --------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -92,17 +114,25 @@ privileges in PostgreSQL, so blocking them is defense-in-depth.
 | `CREATE FOREIGN DATA WRAPPER` | `T_CreateFdwStmt`           | `CREATE FOREIGN DATA WRAPPER myfdw`                                      | Installs external data access layers                              |
 | `CREATE SERVER`               | `T_CreateForeignServerStmt` | `CREATE SERVER s FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '...')` | Configures outbound connections to external hosts                 |
 
-## Allowed Statements With Risk
+**Why blocked:** these are properties of the shared server process or
+its outbound connections. Unlike Tier 1, there is no "inspect the
+body" mitigation — the operation itself is the problem. In a hosted
+environment the control plane owns these, not tenant users.
 
-Some statements execute opaque server-side code but cannot be blocked
-without breaking most applications. These are allowed through the
-pooler.
+**No follow-up planned:** Tier 2 stays blocked. The only anticipated
+change is a configurable allowlist for self-hosted deployments where
+the operator explicitly opts into these.
 
-| Statement                 | AST Node                | Risk                                             | Why Allowed                                                                                                                                                  |
-| ------------------------- | ----------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CALL proc()`             | `T_CallStmt`            | Executes opaque procedure body                   | Stored procedures are fundamental to application logic. Blocking `CALL` would break every app that uses procedures.                                          |
-| `CREATE EXTENSION`        | `T_CreateExtensionStmt` | Extensions install code and shared libraries     | Many extensions are essential for normal operation (`uuid-ossp`, `pgcrypto`, `pg_stat_statements`, `PostGIS`).                                               |
-| Function calls in queries | N/A (expression-level)  | `SELECT my_func()` executes opaque function body | Function calls are embedded in expressions, not top-level statements. Blocking them would require deep expression walking and would break virtually all SQL. |
+## Other Allowed Statements With Known Risk
+
+Beyond Tier 1 (allowed pending body analysis), a few more statements
+execute opaque server-side code and cannot be usefully blocked.
+
+| Statement                                           | AST Node                | Risk                                                                                       |
+| --------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `CALL proc()`                                       | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.       |
+| `CREATE EXTENSION`                                  | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).  |
+| Function calls in expressions (`SELECT my_func()`)  | N/A (expression-level)  | Opaque function bodies; also the bypass for session-state changes via `set_config()`.      |
 
 ## Implementation
 
@@ -120,10 +150,10 @@ Parser (ParseSQL) --> AST
   v
 Planner.Plan() / Planner.PlanPortal()
   |
-  +-- planUnsupportedStmt(stmt)     <-- rejection check
+  +-- planUnsupportedStmt(stmt)     <-- Tier 2 rejection check
   |     |
-  |     +-- blocked? --> return feature_not_supported error
-  |     +-- allowed? --> continue
+  |     +-- blocked (Tier 2)? --> return feature_not_supported error
+  |     +-- allowed?            --> continue
   |
   v
 Statement-specific planning (switch on NodeTag)
@@ -132,21 +162,25 @@ Statement-specific planning (switch on NodeTag)
 Execution primitive (Route, Transaction, etc.)
 ```
 
+Tier 1 statements fall through to the default routing path today. When
+the follow-up layers land, a `planTier1Stmt()` check will sit
+alongside `planUnsupportedStmt()` and run its own body walker.
+
 ### Key Files
 
 | File                                                   | Purpose                                                                                               |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`      | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for blocked statements |
+| `go/services/multigateway/planner/unsafe_stmt.go`      | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements  |
 | `go/services/multigateway/planner/planner.go`          | Calls `planUnsupportedStmt()` at the top of `Plan()` and `PlanPortal()`                               |
-| `go/services/multigateway/planner/unsafe_stmt_test.go` | Tests for all blocked and allowed statement types                                                     |
+| `go/services/multigateway/planner/unsafe_stmt_test.go` | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                             |
 
 ### Error Format
 
 Blocked statements return a standard PostgreSQL error response:
 
 ```
-ERROR:  0A000: DO blocks are not supported: anonymous code blocks execute
-unparsed queries that cannot be verified by the connection pooler
+ERROR:  0A000: LOAD is not supported: loading shared libraries is not
+permitted through the connection pooler
 ```
 
 The SQLSTATE `0A000` (`feature_not_supported`) was chosen because:
@@ -168,20 +202,45 @@ Both query protocols are covered:
 
 ## Future Work
 
-- **Configurable blocking**: Allow operators to customize which
-  statements are blocked (e.g., allow `CREATE FUNCTION` for specific
-  users or databases).
-- **Notice for risky statements**: Emit a PostgreSQL `NoticeResponse`
-  for Tier 3 statements (`CALL`, `CREATE EXTENSION`) to inform users
-  that the pooler cannot verify the executed code.
-- **Expression-level function scanning**: Walk the AST expression tree
-  to detect calls to known-dangerous functions and reject queries that
-  use them. Examples include `dblink_exec` (executes SQL on remote
-  servers), `dblink` (opens connections to external databases),
-  `lo_import`/`lo_export` (read/write server filesystem via large
-  objects), `pg_read_file`/`pg_read_binary_file` (read arbitrary server
-  files), `pg_execute_server_program` (run shell commands), and
-  `query_to_xml`/`query_to_json` (execute arbitrary SQL strings and
-  return results as XML/JSON). The parser already produces `FuncCall`
-  nodes in the AST — a walker over the expression tree can collect all
-  function names and check them against a blocklist before routing.
+Two follow-up layers harden against session-state and code-execution
+vectors that the current Tier 2 filter does not catch. Both are
+tracked as separate tickets.
+
+### Expression-level function walking
+
+Walk the AST of every statement's expression trees and reject / route
+calls to known-dangerous built-in functions. Examples:
+
+- `set_config(name, value, is_local=false)` — changes session-level
+  GUCs without going through a `VariableSetStmt`. The pooler's session
+  state tracker never sees these today. Treat a literal call with
+  `is_local=false` as equivalent to a `SET` statement (update tracked
+  state), or reject calls with non-literal arguments.
+- `dblink`, `dblink_exec`, `dblink_connect` — opens connections to
+  external databases.
+- `lo_import`, `lo_export`, `pg_read_file`, `pg_read_binary_file` —
+  read/write server filesystem.
+- `pg_execute_server_program` — runs shell commands on the server.
+- `query_to_xml`, `query_to_json` — execute arbitrary SQL strings.
+
+Implementation: a walker over `FuncCall` nodes in the expression tree,
+checking the qualified name against a blocklist. Integrates with the
+existing planner pipeline.
+
+### PL/pgSQL body analysis (closes Tier 1)
+
+Port PostgreSQL's PL/pgSQL parser (`src/pl/plpgsql/src/pl_gram.y`,
+`pl_scanner.c`) so we can walk the body of `DO` blocks and
+`CREATE FUNCTION ... LANGUAGE plpgsql` to detect literal `SET`,
+`DISCARD`, `LISTEN`, `RESET`, `PREPARE TRANSACTION`, and
+`PERFORM set_config(...)` uses. Combined with the expression walker
+above, this closes the literal-text case.
+
+Known gap (documented, not closed by this work): dynamic
+`EXECUTE 'SET '||var` cannot be analyzed at parse time. Options under
+consideration:
+
+- reject any `EXECUTE` with a non-literal argument (most migrations
+  don't need it), or
+- rely on connection-reset on client handoff (`DISCARD ALL`) as the
+  backstop.

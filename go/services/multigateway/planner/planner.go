@@ -74,9 +74,9 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
-	// Reject statements that are unsafe for a hosted connection pooler.
-	// This must run before the main dispatch to ensure blocked statements
-	// are never routed to PostgreSQL.
+	// Reject Tier 2 statements (server-level operations unsafe for a hosted
+	// pooler: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.). This runs
+	// before dispatch so blocked statements never reach PostgreSQL.
 	if err := planUnsupportedStmt(stmt); err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (p *Planner) PlanPortal(
 ) (*engine.Plan, error) {
 	stmt := portalInfo.PreparedStatementInfo.AstStmt()
 
-	// Reject statements that are unsafe for a hosted connection pooler.
+	// Reject Tier 2 statements (server-level operations unsafe for a hosted pooler).
 	if err := planUnsupportedStmt(stmt); err != nil {
 		return nil, err
 	}

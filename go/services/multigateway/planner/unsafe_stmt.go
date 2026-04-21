@@ -19,49 +19,26 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// planUnsupportedStmt checks whether a statement is unsafe to execute through
-// the connection pooler and returns an appropriate feature_not_supported error.
+// planUnsupportedStmt rejects Tier 2 statements — server-level operations
+// that should not be available through a shared connection pooler in a
+// hosted environment: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, CREATE
+// LANGUAGE, CREATE SUBSCRIPTION, CREATE FOREIGN DATA WRAPPER, CREATE SERVER.
+// These change the server itself, affect tenant isolation, or open outbound
+// connections to external hosts, and there is no "inspect the body"
+// mitigation that could make them safe.
 //
-// Two categories of statements are rejected:
-//
-//  1. Statements containing embedded code that the pooler cannot parse or verify
-//     (DO blocks, CREATE FUNCTION/PROCEDURE, CREATE TRIGGER, CREATE RULE,
-//     CREATE EVENT TRIGGER).
-//
-//  2. Statements that are unsafe for hosted infrastructure (LOAD, ALTER SYSTEM,
-//     CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
-//     CREATE FOREIGN DATA WRAPPER, CREATE FOREIGN SERVER).
+// Tier 1 statements (DO, CREATE FUNCTION / PROCEDURE, CREATE TRIGGER,
+// CREATE RULE, CREATE EVENT TRIGGER) embed procedural-language code. They
+// are NOT rejected here: blocking outright breaks real workloads (migrations,
+// ORMs, observability tooling) without closing the actual leak vector, since
+// equivalent session-state effects are reachable via SELECT set_config(...)
+// at the expression level. Tier 1 will be handled by body analysis once the
+// PL/pgSQL parser port lands; see docs/query_serving/unsafe_statement_rejection.md.
 //
 // Returns a *mterrors.PgDiagnostic with SQLSTATE 0A000 (feature_not_supported)
-// if the statement is blocked, or nil if the statement is allowed.
+// if the statement is Tier 2, or nil otherwise.
 func planUnsupportedStmt(stmt ast.Stmt) error {
 	switch stmt.NodeTag() {
-	// -- Tier 1: statements containing unparsed/unverifiable code --
-
-	case ast.T_DoStmt:
-		return mterrors.NewFeatureNotSupported(
-			"DO blocks are not supported: anonymous code blocks execute unparsed queries that cannot be verified by the connection pooler")
-
-	case ast.T_CreateFunctionStmt:
-		kind := "FUNCTION"
-		if stmt.(*ast.CreateFunctionStmt).IsProcedure {
-			kind = "PROCEDURE"
-		}
-		return mterrors.NewFeatureNotSupported(
-			"CREATE " + kind + " is not supported: function and procedure bodies contain code that cannot be verified by the connection pooler")
-
-	case ast.T_CreateTriggerStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE TRIGGER is not supported: triggers execute functions on data events that cannot be verified by the connection pooler")
-
-	case ast.T_RuleStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE RULE is not supported: rules rewrite queries in ways that cannot be verified by the connection pooler")
-
-	case ast.T_CreateEventTrigStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE EVENT TRIGGER is not supported: event triggers execute functions on DDL events that cannot be verified by the connection pooler")
-
 	// -- Tier 2: unsafe for hosted infrastructure --
 
 	case ast.T_LoadStmt:

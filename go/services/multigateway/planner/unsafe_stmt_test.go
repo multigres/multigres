@@ -35,45 +35,7 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 		wantErr     bool
 		wantMessage string
 	}{
-		// -- Tier 1: statements containing unparsed code --
-		{
-			name:        "DO block",
-			stmt:        &ast.DoStmt{BaseNode: ast.BaseNode{Tag: ast.T_DoStmt}},
-			wantErr:     true,
-			wantMessage: "DO blocks are not supported",
-		},
-		{
-			name:        "CREATE FUNCTION",
-			stmt:        &ast.CreateFunctionStmt{IsProcedure: false},
-			wantErr:     true,
-			wantMessage: "CREATE FUNCTION is not supported",
-		},
-		{
-			name:        "CREATE PROCEDURE",
-			stmt:        &ast.CreateFunctionStmt{IsProcedure: true},
-			wantErr:     true,
-			wantMessage: "CREATE PROCEDURE is not supported",
-		},
-		{
-			name:        "CREATE TRIGGER",
-			stmt:        &ast.CreateTriggerStmt{},
-			wantErr:     true,
-			wantMessage: "CREATE TRIGGER is not supported",
-		},
-		{
-			name:        "CREATE RULE",
-			stmt:        &ast.RuleStmt{},
-			wantErr:     true,
-			wantMessage: "CREATE RULE is not supported",
-		},
-		{
-			name:        "CREATE EVENT TRIGGER",
-			stmt:        &ast.CreateEventTrigStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateEventTrigStmt}},
-			wantErr:     true,
-			wantMessage: "CREATE EVENT TRIGGER is not supported",
-		},
-
-		// -- Tier 2: unsafe for hosted infrastructure --
+		// -- Tier 2: blocked — unsafe for hosted infrastructure --
 		{
 			name:        "LOAD",
 			stmt:        &ast.LoadStmt{BaseNode: ast.BaseNode{Tag: ast.T_LoadStmt}, Filename: "auto_explain"},
@@ -123,7 +85,42 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 			wantMessage: "CREATE SERVER is not supported",
 		},
 
-		// -- Allowed statements should return nil --
+		// -- Tier 1: currently allowed pending body analysis.
+		// Blocking outright breaks real workloads and does not close the
+		// session-state leak (reachable via SELECT set_config(...)).
+		// Will be conditionally blocked once the PL/pgSQL body walker lands.
+		{
+			name:    "DO block is allowed",
+			stmt:    &ast.DoStmt{BaseNode: ast.BaseNode{Tag: ast.T_DoStmt}},
+			wantErr: false,
+		},
+		{
+			name:    "CREATE FUNCTION is allowed",
+			stmt:    &ast.CreateFunctionStmt{IsProcedure: false},
+			wantErr: false,
+		},
+		{
+			name:    "CREATE PROCEDURE is allowed",
+			stmt:    &ast.CreateFunctionStmt{IsProcedure: true},
+			wantErr: false,
+		},
+		{
+			name:    "CREATE TRIGGER is allowed",
+			stmt:    &ast.CreateTriggerStmt{},
+			wantErr: false,
+		},
+		{
+			name:    "CREATE RULE is allowed",
+			stmt:    &ast.RuleStmt{},
+			wantErr: false,
+		},
+		{
+			name:    "CREATE EVENT TRIGGER is allowed",
+			stmt:    &ast.CreateEventTrigStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateEventTrigStmt}},
+			wantErr: false,
+		},
+
+		// -- Always-allowed statements --
 		{
 			name:    "SELECT is allowed",
 			stmt:    &ast.SelectStmt{BaseNode: ast.BaseNode{Tag: ast.T_SelectStmt}},
@@ -164,8 +161,8 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 	}
 }
 
-// TestPlanRejectsUnsafeStatements verifies that Plan() itself rejects unsafe
-// statements before they reach the default routing path.
+// TestPlanRejectsUnsafeStatements verifies that Plan() itself rejects
+// Tier 2 statements before they reach the default routing path.
 func TestPlanRejectsUnsafeStatements(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -177,16 +174,6 @@ func TestPlanRejectsUnsafeStatements(t *testing.T) {
 		stmt ast.Stmt
 	}{
 		{
-			name: "DO block rejected through Plan",
-			sql:  "DO $$ BEGIN RAISE NOTICE 'hello'; END $$",
-			stmt: &ast.DoStmt{BaseNode: ast.BaseNode{Tag: ast.T_DoStmt}},
-		},
-		{
-			name: "CREATE FUNCTION rejected through Plan",
-			sql:  "CREATE FUNCTION f() RETURNS void AS $$ BEGIN END $$ LANGUAGE plpgsql",
-			stmt: &ast.CreateFunctionStmt{},
-		},
-		{
 			name: "LOAD rejected through Plan",
 			sql:  "LOAD 'auto_explain'",
 			stmt: &ast.LoadStmt{BaseNode: ast.BaseNode{Tag: ast.T_LoadStmt}, Filename: "auto_explain"},
@@ -195,6 +182,11 @@ func TestPlanRejectsUnsafeStatements(t *testing.T) {
 			name: "ALTER SYSTEM rejected through Plan",
 			sql:  "ALTER SYSTEM SET max_connections = 200",
 			stmt: &ast.AlterSystemStmt{BaseNode: ast.BaseNode{Tag: ast.T_AlterSystemStmt}},
+		},
+		{
+			name: "CREATE DATABASE rejected through Plan",
+			sql:  "CREATE DATABASE foo",
+			stmt: &ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "foo"},
 		},
 	}
 

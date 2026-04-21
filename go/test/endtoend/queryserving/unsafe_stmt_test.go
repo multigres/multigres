@@ -29,9 +29,9 @@ import (
 )
 
 // TestMultiGateway_UnsafeStatementRejection verifies that the multigateway
-// rejects SQL statements that are unsafe for a hosted connection pooler.
-// These statements are blocked at plan time with SQLSTATE 0A000
-// (feature_not_supported).
+// rejects Tier 2 SQL statements (server-level operations unsafe for a hosted
+// connection pooler). These statements are blocked at plan time with SQLSTATE
+// 0A000 (feature_not_supported).
 //
 // This test is multigateway-only: PostgreSQL itself allows these statements
 // (with appropriate privileges), but the pooler must reject them.
@@ -53,64 +53,8 @@ func TestMultiGateway_UnsafeStatementRejection(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	// Tier 1: Statements containing unparsed/unverifiable code.
-	// These embed procedural language code that the pooler's SQL parser
-	// cannot inspect.
-	t.Run("tier1 unparsed code", func(t *testing.T) {
-		tests := []struct {
-			name    string
-			sql     string
-			wantMsg string
-		}{
-			{
-				name:    "DO block",
-				sql:     "DO $$ BEGIN RAISE NOTICE 'hello'; END $$",
-				wantMsg: "DO blocks are not supported",
-			},
-			{
-				name:    "CREATE FUNCTION",
-				sql:     "CREATE FUNCTION _test_unsafe_fn() RETURNS void AS $$ BEGIN NULL; END $$ LANGUAGE plpgsql",
-				wantMsg: "CREATE FUNCTION is not supported",
-			},
-			{
-				name:    "CREATE PROCEDURE",
-				sql:     "CREATE PROCEDURE _test_unsafe_proc() AS $$ BEGIN NULL; END $$ LANGUAGE plpgsql",
-				wantMsg: "CREATE PROCEDURE is not supported",
-			},
-			{
-				name:    "CREATE TRIGGER",
-				sql:     "CREATE TRIGGER _test_unsafe_trg BEFORE INSERT ON pg_class EXECUTE FUNCTION pg_catalog.suppress_redundant_updates_trigger()",
-				wantMsg: "CREATE TRIGGER is not supported",
-			},
-			{
-				name:    "CREATE RULE",
-				sql:     "CREATE RULE _test_unsafe_rule AS ON INSERT TO pg_class DO INSTEAD NOTHING",
-				wantMsg: "CREATE RULE is not supported",
-			},
-			{
-				name:    "CREATE EVENT TRIGGER",
-				sql:     "CREATE EVENT TRIGGER _test_unsafe_evt ON ddl_command_start EXECUTE FUNCTION pg_catalog.suppress_redundant_updates_trigger()",
-				wantMsg: "CREATE EVENT TRIGGER is not supported",
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				_, err := conn.Exec(ctx, tt.sql)
-				require.Error(t, err, "%s should be rejected", tt.name)
-
-				var pgErr *pgconn.PgError
-				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
-				assert.Equal(t, "0A000", pgErr.Code, "SQLSTATE should be feature_not_supported")
-				assert.Contains(t, pgErr.Message, tt.wantMsg)
-				t.Logf("rejected %s: %s", tt.name, pgErr.Message)
-			})
-		}
-	})
-
-	// Tier 2: Statements unsafe for hosted infrastructure.
-	// These perform server-level operations that should not be available
-	// through a shared connection pooler.
+	// Tier 2: server-level operations that should not be available through a
+	// shared connection pooler in a hosted environment.
 	t.Run("tier2 infrastructure safety", func(t *testing.T) {
 		tests := []struct {
 			name    string
@@ -184,9 +128,6 @@ func TestMultiGateway_UnsafeStatementRejection(t *testing.T) {
 
 	// Verify that allowed statements still work through the pooler.
 	t.Run("allowed statements pass through", func(t *testing.T) {
-		// CALL is allowed (Tier 3 — allowed with risk).
-		// We can't actually call a procedure since CREATE PROCEDURE is blocked,
-		// but we can verify that a SELECT with a function call works.
 		var result int
 		err := conn.QueryRow(ctx, "SELECT abs(-42)").Scan(&result)
 		require.NoError(t, err, "function calls in expressions should be allowed")
@@ -224,16 +165,6 @@ func TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			name:    "DO block via extended protocol",
-			sql:     "DO $$ BEGIN RAISE NOTICE 'hello'; END $$",
-			wantMsg: "DO blocks are not supported",
-		},
-		{
-			name:    "CREATE FUNCTION via extended protocol",
-			sql:     "CREATE FUNCTION _test_ext_fn() RETURNS void AS $$ BEGIN NULL; END $$ LANGUAGE plpgsql",
-			wantMsg: "CREATE FUNCTION is not supported",
-		},
-		{
 			name:    "LOAD via extended protocol",
 			sql:     "LOAD 'auto_explain'",
 			wantMsg: "LOAD is not supported",
@@ -242,6 +173,11 @@ func TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 			name:    "ALTER SYSTEM via extended protocol",
 			sql:     "ALTER SYSTEM SET log_min_messages = 'warning'",
 			wantMsg: "ALTER SYSTEM is not supported",
+		},
+		{
+			name:    "CREATE DATABASE via extended protocol",
+			sql:     "CREATE DATABASE _test_unsafe_db_ext",
+			wantMsg: "CREATE DATABASE is not supported",
 		},
 	}
 
@@ -291,8 +227,8 @@ func TestMultiGateway_UnsafeStatementRejection_InTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Attempt an unsafe statement inside the transaction.
-	_, err = conn.Exec(ctx, "DO $$ BEGIN RAISE NOTICE 'hello'; END $$")
-	require.Error(t, err, "DO block should be rejected inside transaction")
+	_, err = conn.Exec(ctx, "LOAD 'auto_explain'")
+	require.Error(t, err, "LOAD should be rejected inside transaction")
 
 	var pgErr *pgconn.PgError
 	require.True(t, errors.As(err, &pgErr))
