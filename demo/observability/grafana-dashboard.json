@@ -384,9 +384,9 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 38
       },
-      "id": 160,
+      "id": 57,
       "targets": [
         {
           "datasource": {
@@ -414,13 +414,18 @@
         "defaults": {
           "custom": {
             "align": "auto",
-            "cellOptions": { "type": "auto" },
+            "cellOptions": {
+              "type": "auto"
+            },
             "inspect": false
           }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "fingerprint" },
+            "matcher": {
+              "id": "byName",
+              "options": "fingerprint"
+            },
             "properties": [
               {
                 "id": "links",
@@ -432,28 +437,91 @@
                   }
                 ]
               },
-              { "id": "custom.width", "value": 180 }
+              {
+                "id": "custom.width",
+                "value": 180
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "calls/s" },
-            "properties": [{ "id": "unit", "value": "ops" }, { "id": "decimals", "value": 2 }]
+            "matcher": {
+              "id": "byName",
+              "options": "calls/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "p99 ms" },
-            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+            "matcher": {
+              "id": "byName",
+              "options": "p99 ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "p95 ms" },
-            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+            "matcher": {
+              "id": "byName",
+              "options": "p95 ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "p50 ms" },
-            "properties": [{ "id": "unit", "value": "ms" }, { "id": "decimals", "value": 2 }]
+            "matcher": {
+              "id": "byName",
+              "options": "p50 ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "error rate" },
-            "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "decimals", "value": 3 }]
+            "matcher": {
+              "id": "byName",
+              "options": "error rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
           }
         ]
       },
@@ -461,17 +529,25 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 38
       },
-      "id": 161,
+      "id": 58,
       "options": {
         "showHeader": true,
-        "sortBy": [{ "displayName": "calls/s", "desc": true }]
+        "sortBy": [
+          {
+            "displayName": "calls/s",
+            "desc": true
+          }
+        ]
       },
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "editorMode": "code",
           "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval]))",
           "format": "table",
@@ -479,7 +555,10 @@
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "editorMode": "code",
           "expr": "1000 * histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
           "format": "table",
@@ -487,7 +566,10 @@
           "refId": "B"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "editorMode": "code",
           "expr": "1000 * histogram_quantile(0.95, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
           "format": "table",
@@ -495,7 +577,10 @@
           "refId": "C"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "editorMode": "code",
           "expr": "1000 * histogram_quantile(0.50, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
           "format": "table",
@@ -503,7 +588,10 @@
           "refId": "D"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "editorMode": "code",
           "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_errors_total{job=\"multigateway\"}[$__rate_interval])) / clamp_min(sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval])), 0.001)",
           "format": "table",
@@ -515,7 +603,10 @@
       "transformations": [
         {
           "id": "joinByField",
-          "options": { "byField": "query_fingerprint", "mode": "outer" }
+          "options": {
+            "byField": "query_fingerprint",
+            "mode": "outer"
+          }
         },
         {
           "id": "organize",
@@ -549,12 +640,19 @@
           "id": "sortBy",
           "options": {
             "fields": {},
-            "sort": [{ "field": "calls/s", "desc": true }]
+            "sort": [
+              {
+                "field": "calls/s",
+                "desc": true
+              }
+            ]
           }
         },
         {
           "id": "limit",
-          "options": { "limitField": 15 }
+          "options": {
+            "limitField": 15
+          }
         }
       ],
       "type": "table"
@@ -575,7 +673,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 47
       },
       "id": 55,
       "targets": [
@@ -623,7 +721,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 47
       },
       "id": 56,
       "targets": [
@@ -648,7 +746,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 56
       },
       "id": 160,
       "panels": [],
@@ -671,7 +769,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 57
       },
       "id": 161,
       "targets": [
@@ -706,7 +804,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 57
       },
       "id": 162,
       "targets": [
@@ -731,7 +829,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 66
       },
       "id": 200,
       "panels": [],
@@ -754,7 +852,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 67
       },
       "id": 5,
       "targets": [
@@ -790,7 +888,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 67
       },
       "id": 6,
       "targets": [
@@ -838,7 +936,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 76
       },
       "id": 7,
       "targets": [
@@ -874,7 +972,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 76
       },
       "id": 8,
       "targets": [
@@ -928,7 +1026,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 85
       },
       "id": 9,
       "targets": [
@@ -964,7 +1062,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 85
       },
       "id": 10,
       "targets": [
@@ -999,7 +1097,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 94
       },
       "id": 11,
       "targets": [
@@ -1045,7 +1143,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 94
       },
       "id": 12,
       "targets": [
@@ -1083,7 +1181,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 103
       },
       "id": 250,
       "panels": [],
@@ -1106,7 +1204,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 95
+        "y": 104
       },
       "id": 251,
       "targets": [
@@ -1152,7 +1250,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 95
+        "y": 104
       },
       "id": 252,
       "targets": [
@@ -1198,7 +1296,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 95
+        "y": 104
       },
       "id": 253,
       "targets": [
@@ -1236,7 +1334,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 104
+        "y": 113
       },
       "id": 300,
       "panels": [],
@@ -1259,7 +1357,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 105
+        "y": 114
       },
       "id": 13,
       "targets": [
@@ -1295,7 +1393,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 105
+        "y": 114
       },
       "id": 14,
       "targets": [
@@ -1343,7 +1441,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 114
+        "y": 123
       },
       "id": 15,
       "targets": [
@@ -1379,7 +1477,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 114
+        "y": 123
       },
       "id": 16,
       "targets": [
@@ -1427,7 +1525,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 123
+        "y": 132
       },
       "id": 17,
       "targets": [
@@ -1462,7 +1560,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 123
+        "y": 132
       },
       "id": 18,
       "targets": [
@@ -1520,7 +1618,7 @@
         "h": 9,
         "w": 6,
         "x": 0,
-        "y": 132
+        "y": 141
       },
       "id": 19,
       "options": {
@@ -1568,7 +1666,7 @@
         "h": 9,
         "w": 18,
         "x": 6,
-        "y": 132
+        "y": 141
       },
       "id": 20,
       "targets": [
@@ -1606,7 +1704,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 141
+        "y": 150
       },
       "id": 400,
       "panels": [],
@@ -1629,7 +1727,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 142
+        "y": 151
       },
       "id": 21,
       "targets": [
@@ -1682,7 +1780,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 142
+        "y": 151
       },
       "id": 22,
       "targets": [
@@ -1720,7 +1818,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 151
+        "y": 160
       },
       "id": 250,
       "panels": [],
@@ -1742,7 +1840,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 152
+        "y": 161
       },
       "id": 251,
       "options": {
@@ -1805,7 +1903,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 152
+        "y": 161
       },
       "id": 252,
       "options": {
@@ -1846,7 +1944,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 152
+        "y": 161
       },
       "id": 253,
       "options": {
@@ -1887,7 +1985,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 161
+        "y": 170
       },
       "id": 254,
       "options": {
@@ -1927,7 +2025,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 161
+        "y": 170
       },
       "id": 255,
       "options": {
@@ -1990,7 +2088,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 161
+        "y": 170
       },
       "id": 256,
       "options": {
