@@ -113,14 +113,14 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 
 	for _, pooler := range cohort {
 		// Invariant: poolers in the cohort with successful health checks must have ConsensusTerm populated
-		if pooler.IsLastCheckValid && pooler.ConsensusTerm == nil {
+		if pooler.IsLastCheckValid && pooler.GetStatus().GetConsensusTerm() == nil {
 			return 0, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 				"healthy pooler %s in cohort missing consensus term data - health check invariant violated",
 				pooler.MultiPooler.Id.Name)
 		}
 
-		if pooler.ConsensusTerm != nil && pooler.ConsensusTerm.TermNumber > maxTerm {
-			maxTerm = pooler.ConsensusTerm.TermNumber
+		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.TermNumber > maxTerm {
+			maxTerm = ct.TermNumber
 		}
 	}
 
@@ -561,7 +561,8 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// can't participate.
 	var eligiblePoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
-		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresReady {
+		status := pooler.GetStatus()
+		if pooler.IsLastCheckValid && status.GetIsInitialized() && status.GetConsensusTerm() != nil && status.GetPostgresReady() {
 			eligiblePoolers = append(eligiblePoolers, pooler)
 		}
 	}
@@ -588,16 +589,16 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// to give the other coordinator a chance to complete their election.
 	for _, pooler := range eligiblePoolers {
 		// Check if this pooler recently accepted a term from another coordinator
-		if pooler.ConsensusTerm.LastAcceptanceTime != nil {
-			lastAcceptanceTime := pooler.ConsensusTerm.LastAcceptanceTime.AsTime()
+		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.LastAcceptanceTime != nil {
+			lastAcceptanceTime := ct.LastAcceptanceTime.AsTime()
 			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
 
 			// If the acceptance was recent (within our window), back off
 			if timeSinceAcceptance < recentAcceptanceWindow && timeSinceAcceptance >= 0 {
 				c.logger.InfoContext(ctx, "detected recent term acceptance, backing off to avoid disruption",
 					"pooler", pooler.MultiPooler.Id.Name,
-					"accepted_term", pooler.ConsensusTerm.TermNumber,
-					"accepted_from", pooler.ConsensusTerm.AcceptedTermFromCoordinatorId,
+					"accepted_term", ct.TermNumber,
+					"accepted_from", ct.AcceptedTermFromCoordinatorId,
 					"time_since_acceptance", timeSinceAcceptance,
 					"backoff_window", recentAcceptanceWindow)
 

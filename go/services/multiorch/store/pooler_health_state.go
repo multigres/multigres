@@ -86,5 +86,5 @@ func IsInitialized(p *multiorchdata.PoolerHealthState) bool {
 
 	// Use the IsInitialized field from Status RPC directly.
 	// This is based on data directory state, not LSN.
-	return p.IsInitialized
+	return p.GetStatus().GetIsInitialized()
 }
