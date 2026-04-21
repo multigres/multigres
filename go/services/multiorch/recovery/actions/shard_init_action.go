@@ -172,12 +172,12 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (
 			pooler.MultiPooler.Shard != shardKey.Shard {
 			return true
 		}
-		if len(pooler.CohortMembers) > 0 {
+		if len(pooler.GetStatus().GetCohortMembers()) > 0 {
 			cohortEstablished = true
 			initialized = nil
 			return false // stop iteration
 		}
-		if pooler.IsInitialized {
+		if pooler.GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
 		return true

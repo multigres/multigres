@@ -197,7 +197,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		}
 
 		// Check if this pooler is a PRIMARY
-		poolerType := pooler.PoolerType
+		poolerType := pooler.GetStatus().GetPoolerType()
 		if poolerType == clustermetadatapb.PoolerType_UNKNOWN && pooler.MultiPooler != nil {
 			poolerType = pooler.MultiPooler.Type
 		}
@@ -205,8 +205,8 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
 			// Get its PrimaryTerm (not consensus term)
 			var primaryTerm int64
-			if pooler.ConsensusTerm != nil {
-				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+			if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil {
+				primaryTerm = ct.PrimaryTerm
 			}
 
 			if primaryTerm > maxPrimaryTerm {

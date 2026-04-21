@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -358,20 +359,12 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, pool
 		existing.LastSeen = now
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
-		existing.IsPostgresReady = status.PostgresReady
+		existing.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 		if status.PostgresReady {
 			existing.LastPostgresReadyTime = now
 		}
 		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 		// left at its previous value so callers can reason about "last known good" time.
-		existing.IsPostgresRunning = status.PostgresRunning
-		existing.PoolerType = status.PoolerType
-		existing.PrimaryStatus = status.PrimaryStatus
-		existing.ReplicationStatus = status.ReplicationStatus
-		existing.IsInitialized = status.IsInitialized
-		existing.HasDataDirectory = status.HasDataDirectory
-		existing.ConsensusTerm = status.ConsensusTerm
-		existing.CohortMembers = status.CohortMembers
 		return existing
 	}
 
@@ -401,8 +394,10 @@ func (hs *HealthStream) markConnected(poolerID string) {
 func (hs *HealthStream) markDisconnected(poolerID string) {
 	cb := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 		existing.IsLastCheckValid = false
-		existing.IsPostgresReady = false
-		existing.IsPostgresRunning = false
+		if existing.Status != nil {
+			existing.Status.PostgresReady = false
+			existing.Status.PostgresRunning = false
+		}
 		existing.StreamConnected = false
 		return existing
 	}
