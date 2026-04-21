@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -40,6 +41,9 @@ type MultiAdmin struct {
 
 	// senv is the serving environment
 	senv *servenv.ServEnv
+
+	// connConfig holds RPC client configuration (TLS, etc.)
+	connConfig *rpcclient.ConnConfig
 
 	// topoConfig holds topology configuration
 	topoConfig   *topoclient.TopoConfig
@@ -60,6 +64,7 @@ func NewMultiAdmin() *MultiAdmin {
 	return &MultiAdmin{
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
+		connConfig: rpcclient.NewConnConfig(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multiadmin",
@@ -77,6 +82,7 @@ func NewMultiAdmin() *MultiAdmin {
 func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.senv.RegisterFlags(fs)
 	ma.grpcServer.RegisterFlags(fs)
+	ma.connConfig.RegisterFlags(fs)
 	ma.topoConfig.RegisterFlags(fs)
 }
 
@@ -103,10 +109,15 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 		"grpc_port", ma.grpcServer.Port(),
 	)
 
+	transportCreds, err := ma.connConfig.TransportCredentials(logger)
+	if err != nil {
+		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+	}
+
 	ma.senv.OnRun(func() {
 		// Register multiadmin gRPC and HTTP API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
-			ma.adminServer = NewMultiAdminServer(ma.ts, logger)
+			ma.adminServer = NewMultiAdminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
 			// Set up grpc-gateway for REST API
