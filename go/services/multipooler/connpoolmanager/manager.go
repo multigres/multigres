@@ -156,6 +156,11 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(ctx)
 	m.startRebalancer()
 
+	// Register observable metric callbacks for pool statistics.
+	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.config.GlobalCapacity, m.IsClosed); err != nil {
+		m.logger.WarnContext(ctx, "failed to register pool metrics callbacks", "error", err)
+	}
+
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"pg_user", m.config.PgUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
@@ -327,6 +332,12 @@ func (m *Manager) Close() {
 	if m.adminPool != nil {
 		m.adminPool.Close()
 		m.adminPool = nil
+	}
+
+	// Unregister observable metric callbacks so the OTel SDK stops invoking
+	// them against closed pool state.
+	if err := m.metrics.Close(); err != nil {
+		m.logger.Warn("failed to unregister pool metrics callbacks", "error", err)
 	}
 
 	m.logger.Info("connection pool manager closed")

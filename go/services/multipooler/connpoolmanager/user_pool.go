@@ -285,13 +285,20 @@ func (p *UserPool) Stats() UserPoolStats {
 		reservedDemand = p.reservedDemandTracker.Peak()
 	}
 
+	regularStats := p.regularPool.Stats()
+	reservedStats := p.reservedPool.Stats()
+
 	return UserPoolStats{
 		Username:       p.username,
-		Regular:        p.regularPool.Stats(),
-		Reserved:       p.reservedPool.Stats(),
+		Regular:        regularStats,
+		Reserved:       reservedStats,
 		RegularDemand:  regularDemand,
 		ReservedDemand: reservedDemand,
 		LastActivity:   p.lastActivity.Load(),
+		WaitCount:      p.regularPool.WaitCount() + p.reservedPool.WaitCount(),
+		WaitTime:       p.regularPool.WaitTime() + p.reservedPool.WaitTime(),
+		GetCount:       p.regularPool.GetCount() + p.reservedPool.GetCount(),
+		Waiting:        regularStats.Waiting + reservedStats.RegularPool.Waiting,
 	}
 }
 
@@ -332,4 +339,10 @@ type UserPoolStats struct {
 	RegularDemand  int64 // Peak demand from tracker (0 if tracking not enabled)
 	ReservedDemand int64 // Peak demand from tracker (0 if tracking not enabled)
 	LastActivity   int64 // Unix nanos of last activity
+
+	// Aggregate metrics across regular and reserved pools.
+	WaitCount int64         // Total times a client had to wait for a connection
+	WaitTime  time.Duration // Total time clients spent waiting for a connection
+	GetCount  int64         // Total connections borrowed (Get() calls)
+	Waiting   int           // Clients currently waiting for a connection
 }

@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -424,12 +425,15 @@ func TestPollPooler_DeletedDuringPoll(t *testing.T) {
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Delete the pooler while the RPC is in-flight.
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		time.Sleep(10 * time.Millisecond)
 		re.poolerStore.Delete(poolerKey)
-	}()
+	})
 
 	re.pollPooler(ctx, poolerID, pooler, false /* forceDiscovery */)
+
+	wg.Wait()
 
 	_, ok := re.poolerStore.Get(poolerKey)
 	require.False(t, ok, "deleted pooler should not be resurrected by health check")

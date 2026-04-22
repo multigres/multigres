@@ -16,6 +16,7 @@ package rpcclient
 
 import (
 	"context"
+	"sync"
 
 	"google.golang.org/grpc"
 
@@ -523,6 +524,59 @@ func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *cluster
 	}()
 
 	return conn.managerClient.SetPostgresRestartsEnabled(ctx, request)
+}
+
+//
+// Manager Service Methods - Health Streaming
+//
+
+// managerHealthStream wraps the gRPC bidirectional stream and releases the
+// connection reference when the stream ends.
+type managerHealthStream struct {
+	stream grpc.BidiStreamingClient[multipoolermanagerdatapb.ManagerHealthStreamClientMessage, multipoolermanagerdatapb.ManagerHealthStreamResponse]
+	closer closeFunc
+	once   sync.Once
+}
+
+// ManagerHealthStream opens a bidirectional health stream to a pooler.
+//
+// The caller must send an init message via stream.Send before reading snapshots.
+// The connection reference is held for the stream's lifetime and released
+// automatically when Recv or Send returns a non-nil error.
+func (c *Client) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+
+	stream, err := conn.managerClient.ManagerHealthStream(ctx)
+	if err != nil {
+		_ = closer()
+		return nil, err
+	}
+
+	return &managerHealthStream{stream: stream, closer: closer}, nil
+}
+
+// Recv receives the next health snapshot from the stream.
+// Returns a non-nil error on stream end or network failure, and releases the
+// connection reference.
+func (s *managerHealthStream) Recv() (*multipoolermanagerdatapb.ManagerHealthStreamResponse, error) {
+	resp, err := s.stream.Recv()
+	if err != nil {
+		s.once.Do(func() { _ = s.closer() })
+	}
+	return resp, err
+}
+
+// Send sends a message to the pooler (init or poll request).
+// Returns a non-nil error on failure and releases the connection reference.
+func (s *managerHealthStream) Send(msg *multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error {
+	err := s.stream.Send(msg)
+	if err != nil {
+		s.once.Do(func() { _ = s.closer() })
+	}
+	return err
 }
 
 //

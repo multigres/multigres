@@ -451,6 +451,21 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 	}
 
+	// Register client connection metrics.
+	gatewayMetrics, err := NewGatewayMetrics()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
+	}
+	if gatewayMetrics != nil {
+		var replicaConnCount func() int
+		if mg.pgReplicaListener != nil {
+			replicaConnCount = mg.pgReplicaListener.ConnectionCount
+		}
+		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount, replicaConnCount); err != nil {
+			logger.WarnContext(ctx, "failed to register client connections callback", "error", err)
+		}
+	}
+
 	// Set up cross-gateway cancel request handling.
 	// The cancel manager routes to the correct listener based on the connection
 	// type (primary vs replica) carried in the cancel request / gRPC forward.
