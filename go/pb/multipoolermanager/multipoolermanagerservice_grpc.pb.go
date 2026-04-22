@@ -38,6 +38,7 @@ const (
 	MultiPoolerManager_StartReplication_FullMethodName           = "/multipoolermanager.MultiPoolerManager/StartReplication"
 	MultiPoolerManager_StopReplication_FullMethodName            = "/multipoolermanager.MultiPoolerManager/StopReplication"
 	MultiPoolerManager_Status_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/Status"
+	MultiPoolerManager_Drain_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/Drain"
 	MultiPoolerManager_Backup_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName          = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/GetBackups"
@@ -63,6 +64,15 @@ type MultiPoolerManagerClient interface {
 	// The multipooler returns information based on what type it believes itself to be,
 	// avoiding disparity between what MultiOrch thinks versus actual state
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
+	// Drain initiates voluntary draining of the pooler. The pooler stops
+	// accepting new client-query RPCs, finishes in-flight queries (up to
+	// drain_timeout), and — if currently primary — restarts as standby and
+	// signals resignation to multiorch (same path as EmergencyDemote).
+	//
+	// Idempotent: calling Drain on an already-draining node returns the
+	// current drain state. Calling with permanent=true upgrades a
+	// non-permanent drain to permanent.
+	Drain(ctx context.Context, in *multipoolermanagerdata.DrainRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DrainResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -138,6 +148,16 @@ func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolerma
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.StatusResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_Status_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) Drain(ctx context.Context, in *multipoolermanagerdata.DrainRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DrainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DrainResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Drain_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +253,15 @@ type MultiPoolerManagerServer interface {
 	// The multipooler returns information based on what type it believes itself to be,
 	// avoiding disparity between what MultiOrch thinks versus actual state
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
+	// Drain initiates voluntary draining of the pooler. The pooler stops
+	// accepting new client-query RPCs, finishes in-flight queries (up to
+	// drain_timeout), and — if currently primary — restarts as standby and
+	// signals resignation to multiorch (same path as EmergencyDemote).
+	//
+	// Idempotent: calling Drain on an already-draining node returns the
+	// current drain state. Calling with permanent=true upgrades a
+	// non-permanent drain to permanent.
+	Drain(context.Context, *multipoolermanagerdata.DrainRequest) (*multipoolermanagerdata.DrainResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -285,6 +314,9 @@ func (UnimplementedMultiPoolerManagerServer) StopReplication(context.Context, *m
 }
 func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) Drain(context.Context, *multipoolermanagerdata.DrainRequest) (*multipoolermanagerdata.DrainResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Drain not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
@@ -396,6 +428,24 @@ func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_Drain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DrainRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).Drain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_Drain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).Drain(ctx, req.(*multipoolermanagerdata.DrainRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -537,6 +587,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Status",
 			Handler:    _MultiPoolerManager_Status_Handler,
+		},
+		{
+			MethodName: "Drain",
+			Handler:    _MultiPoolerManager_Drain_Handler,
 		},
 		{
 			MethodName: "Backup",

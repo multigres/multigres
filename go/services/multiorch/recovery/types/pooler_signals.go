@@ -48,3 +48,14 @@ func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 	// Verify the signal is for the current primary term, not a stale one.
 	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == p.ConsensusStatus.GetPrimaryTerm()
 }
+
+// IsVoluntarilyDraining reports whether a pooler has self-signalled a
+// voluntary drain via its query-serving status. Returns false for the
+// involuntary data-diverged case (PoolerType.DRAINED, which is handled
+// separately by the fix_replication flow).
+func IsVoluntarilyDraining(p *multiorchdatapb.PoolerHealthState) bool {
+	if p.GetStatus().GetQueryServingStatus().GetSignal() != clustermetadatapb.ServingSignal_SERVING_SIGNAL_DRAINING {
+		return false
+	}
+	return p.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_DRAINED
+}

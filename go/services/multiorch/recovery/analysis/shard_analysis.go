@@ -156,6 +156,12 @@ type PoolerAnalysis struct {
 	// ConsensusStatus RPC.
 	// Nil if the ConsensusStatus RPC failed or has not yet been called.
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
+
+	// IsVoluntarilyDraining reports that the pooler has self-signalled a
+	// voluntary drain (ServingSignal.DRAINING) while not being in the
+	// involuntary PoolerType.DRAINED state. Analyzers should skip recovery
+	// actions on these poolers — they have asked to be removed from serving.
+	IsVoluntarilyDraining bool
 }
 
 // comparePrimaryTimeline compares two primary PoolerAnalysis entries by PrimaryTerm only.

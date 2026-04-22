@@ -424,6 +424,13 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on the primary or when unknown.
   int64 replication_lag_ns = 6;
+
+  // query_serving_status is the self-reported routing-layer signal
+  // gateway consumes to decide whether to send new client queries.
+  // Absence (after process restart or for older poolers) is treated as
+  // ACTIVE. Distinct from serving_status above, which reflects topology
+  // lifecycle (SERVING/NOT_SERVING/BACKUP/RESTORE).
+  clustermetadata.ServingStatus query_serving_status = 7;
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.

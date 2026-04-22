@@ -166,6 +166,16 @@ message MultiPooler {
   // Used by multiadmin to compute the primary's data directory for pgBackRest.
   string pg_data_dir = 11;
 
+  // removed_at marks the node as permanently removed from the topology
+  // by intention (operator scale-down, decommission). Set best-effort by
+  // the pooler during a Drain() with remove_from_topology=true; absence
+  // means "not a tombstoned record." Consumers treat presence as
+  // "this node is not coming back."
+  google.protobuf.Timestamp removed_at = 12;
+
+  // remove_reason classifies the removal. Only meaningful when
+  // removed_at is set.
+  RemoveReason remove_reason = 13;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -330,6 +340,33 @@ enum AsyncReplicationFallbackMode {
   // ASYNC_REPLICATION_FALLBACK_MODE_REJECT rejects the leader appointment
   // if synchronous replication cannot be established to meet quorum requirements
   ASYNC_REPLICATION_FALLBACK_MODE_REJECT = 2;
+}
+
+// RemoveReason classifies why a pooler is being permanently removed
+// from the topology. Paired with MultiPooler.removed_at on tombstoned
+// records so operators and tooling can filter/understand historical
+// decommissions without parsing free text.
+enum RemoveReason {
+  // REMOVE_REASON_UNKNOWN is the zero value. Written by callers that do
+  // not specify a reason; consumers should treat this as
+  // "removed-but-unclassified."
+  REMOVE_REASON_UNKNOWN = 0;
+
+  // REMOVE_REASON_SCALE_DOWN. Removing this pooler as part of a planned
+  // capacity reduction.
+  REMOVE_REASON_SCALE_DOWN = 1;
+
+  // REMOVE_REASON_DECOMMISSION. The underlying host / pod is being
+  // permanently retired.
+  REMOVE_REASON_DECOMMISSION = 2;
+
+  // REMOVE_REASON_REPLACED. Pooler replaced by a new one (e.g., rolling
+  // update where the replacement has a different identity).
+  REMOVE_REASON_REPLACED = 3;
+
+  // REMOVE_REASON_OPERATOR_REQUESTED. Operator or admin explicitly
+  // requested removal via RPC without specifying a more specific reason.
+  REMOVE_REASON_OPERATOR_REQUESTED = 4;
 }
 
 // =============================================================================
@@ -520,4 +557,42 @@ message LeadershipStatus {
 message AvailabilityStatus {
   // leadership_status is only set by poolers that are or have been primary.
   LeadershipStatus leadership_status = 1;
+}
+
+// ServingSignal indicates whether a pooler is currently accepting
+// client-query RPCs. This is the signal gateway consumes to route traffic.
+// Unlike LeadershipSignal, ServingSignal is NOT term-scoped; absence after
+// process restart means unknown, not drained. Consumers treat absence as
+// ACTIVE.
+enum ServingSignal {
+  SERVING_SIGNAL_UNKNOWN = 0;
+
+  // Node is actively accepting query traffic.
+  SERVING_SIGNAL_ACTIVE = 1;
+
+  // Node is draining: not accepting new client-query RPCs, finishing
+  // in-flight queries. Gateway should stop routing new traffic to this node.
+  // The node may continue participating in consensus as a replica.
+  //
+  // Distinct from PoolerType.DRAINED, which is the topology-declared state
+  // written by multiorch for involuntary (data-diverged) drains. A pooler
+  // may report SERVING_SIGNAL_DRAINING for either a self-initiated voluntary
+  // drain or a response to an observed PoolerType.DRAINED on its own record.
+  SERVING_SIGNAL_DRAINING = 2;
+}
+
+// ServingStatus is published by all poolers that accept query traffic.
+// It lets gateway distinguish an actively serving node from one that is
+// draining. Absent after process restart; consumers treat absence as ACTIVE.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state, following the same pattern as
+// AvailabilityStatus.
+//
+// Why a wrapper message (vs. a bare ServingSignal field): leaves room
+// for additional routing-layer signals (e.g., a draining-since timestamp)
+// without a proto field-number change — same reason AvailabilityStatus
+// wraps LeadershipSignal.
+message ServingStatus {
+  ServingSignal signal = 1;
 }

@@ -86,6 +86,15 @@ func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata
 	}, nil
 }
 
+// Drain initiates voluntary draining of the pooler.
+func (s *managerService) Drain(ctx context.Context, req *multipoolermanagerdatapb.DrainRequest) (*multipoolermanagerdatapb.DrainResponse, error) {
+	resp, err := s.manager.Drain(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
 	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId, req.Overrides)

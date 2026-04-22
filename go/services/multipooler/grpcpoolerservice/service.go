@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
@@ -41,6 +42,16 @@ type poolerService struct {
 	pooler *poolerserver.QueryPoolerServer
 	pubsub *pubsub.Listener
 }
+
+// TODO(query-serving): implement drain-aware query serving. When
+// s.pooler.HealthProvider reports clustermetadatapb.ServingSignal_SERVING_SIGNAL_DRAINING,
+// this service should react appropriately (e.g. reject new client-query
+// RPCs with codes.Unavailable, close idle reserved connections, wait for
+// in-flight queries up to a drain_timeout and then forcibly terminate
+// remaining connections). Today the pooler only *advertises* DRAINING
+// over streaming health so upstream consumers (multigateway) stop
+// routing new traffic; no server-side enforcement is performed on the
+// query path. See PR #866 and the drained-pooler-state design doc.
 
 func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
@@ -605,6 +616,12 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	}
 
 	resp.ReplicationLagNs = state.ReplicationLagNs
+
+	if state.ServingSignal != clustermetadatapb.ServingSignal_SERVING_SIGNAL_UNKNOWN {
+		resp.QueryServingStatus = &clustermetadatapb.ServingStatus{
+			Signal: state.ServingSignal,
+		}
+	}
 
 	return resp
 }

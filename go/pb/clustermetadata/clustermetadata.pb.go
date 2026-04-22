@@ -265,6 +265,76 @@ func (AsyncReplicationFallbackMode) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
 }
 
+// RemoveReason classifies why a pooler is being permanently removed
+// from the topology. Paired with MultiPooler.removed_at on tombstoned
+// records so operators and tooling can filter/understand historical
+// decommissions without parsing free text.
+type RemoveReason int32
+
+const (
+	// REMOVE_REASON_UNKNOWN is the zero value. Written by callers that do
+	// not specify a reason; consumers should treat this as
+	// "removed-but-unclassified."
+	RemoveReason_REMOVE_REASON_UNKNOWN RemoveReason = 0
+	// REMOVE_REASON_SCALE_DOWN. Removing this pooler as part of a planned
+	// capacity reduction.
+	RemoveReason_REMOVE_REASON_SCALE_DOWN RemoveReason = 1
+	// REMOVE_REASON_DECOMMISSION. The underlying host / pod is being
+	// permanently retired.
+	RemoveReason_REMOVE_REASON_DECOMMISSION RemoveReason = 2
+	// REMOVE_REASON_REPLACED. Pooler replaced by a new one (e.g., rolling
+	// update where the replacement has a different identity).
+	RemoveReason_REMOVE_REASON_REPLACED RemoveReason = 3
+	// REMOVE_REASON_OPERATOR_REQUESTED. Operator or admin explicitly
+	// requested removal via RPC without specifying a more specific reason.
+	RemoveReason_REMOVE_REASON_OPERATOR_REQUESTED RemoveReason = 4
+)
+
+// Enum value maps for RemoveReason.
+var (
+	RemoveReason_name = map[int32]string{
+		0: "REMOVE_REASON_UNKNOWN",
+		1: "REMOVE_REASON_SCALE_DOWN",
+		2: "REMOVE_REASON_DECOMMISSION",
+		3: "REMOVE_REASON_REPLACED",
+		4: "REMOVE_REASON_OPERATOR_REQUESTED",
+	}
+	RemoveReason_value = map[string]int32{
+		"REMOVE_REASON_UNKNOWN":            0,
+		"REMOVE_REASON_SCALE_DOWN":         1,
+		"REMOVE_REASON_DECOMMISSION":       2,
+		"REMOVE_REASON_REPLACED":           3,
+		"REMOVE_REASON_OPERATOR_REQUESTED": 4,
+	}
+)
+
+func (x RemoveReason) Enum() *RemoveReason {
+	p := new(RemoveReason)
+	*p = x
+	return p
+}
+
+func (x RemoveReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RemoveReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[4].Descriptor()
+}
+
+func (RemoveReason) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[4]
+}
+
+func (x RemoveReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RemoveReason.Descriptor instead.
+func (RemoveReason) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+}
+
 // LeadershipSignal describes a leader's self-reported status for its current term.
 // Only published by nodes that are or were primary (primary_term != 0).
 // 0 (UNKNOWN) means the field was not intentionally set.
@@ -311,11 +381,11 @@ func (x LeadershipSignal) String() string {
 }
 
 func (LeadershipSignal) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[4].Descriptor()
+	return file_clustermetadata_proto_enumTypes[5].Descriptor()
 }
 
 func (LeadershipSignal) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[4]
+	return &file_clustermetadata_proto_enumTypes[5]
 }
 
 func (x LeadershipSignal) Number() protoreflect.EnumNumber {
@@ -324,7 +394,70 @@ func (x LeadershipSignal) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LeadershipSignal.Descriptor instead.
 func (LeadershipSignal) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
+}
+
+// ServingSignal indicates whether a pooler is currently accepting
+// client-query RPCs. This is the signal gateway consumes to route traffic.
+// Unlike LeadershipSignal, ServingSignal is NOT term-scoped; absence after
+// process restart means unknown, not drained. Consumers treat absence as
+// ACTIVE.
+type ServingSignal int32
+
+const (
+	ServingSignal_SERVING_SIGNAL_UNKNOWN ServingSignal = 0
+	// Node is actively accepting query traffic.
+	ServingSignal_SERVING_SIGNAL_ACTIVE ServingSignal = 1
+	// Node is draining: not accepting new client-query RPCs, finishing
+	// in-flight queries. Gateway should stop routing new traffic to this node.
+	// The node may continue participating in consensus as a replica.
+	//
+	// Distinct from PoolerType.DRAINED, which is the topology-declared state
+	// written by multiorch for involuntary (data-diverged) drains. A pooler
+	// may report SERVING_SIGNAL_DRAINING for either a self-initiated voluntary
+	// drain or a response to an observed PoolerType.DRAINED on its own record.
+	ServingSignal_SERVING_SIGNAL_DRAINING ServingSignal = 2
+)
+
+// Enum value maps for ServingSignal.
+var (
+	ServingSignal_name = map[int32]string{
+		0: "SERVING_SIGNAL_UNKNOWN",
+		1: "SERVING_SIGNAL_ACTIVE",
+		2: "SERVING_SIGNAL_DRAINING",
+	}
+	ServingSignal_value = map[string]int32{
+		"SERVING_SIGNAL_UNKNOWN":  0,
+		"SERVING_SIGNAL_ACTIVE":   1,
+		"SERVING_SIGNAL_DRAINING": 2,
+	}
+)
+
+func (x ServingSignal) Enum() *ServingSignal {
+	p := new(ServingSignal)
+	*p = x
+	return p
+}
+
+func (x ServingSignal) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ServingSignal) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[6].Descriptor()
+}
+
+func (ServingSignal) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[6]
+}
+
+func (x ServingSignal) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ServingSignal.Descriptor instead.
+func (ServingSignal) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
 // ComponentType represents the type of Multigres component
@@ -368,11 +501,11 @@ func (x ID_ComponentType) String() string {
 }
 
 func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[5].Descriptor()
+	return file_clustermetadata_proto_enumTypes[7].Descriptor()
 }
 
 func (ID_ComponentType) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[5]
+	return &file_clustermetadata_proto_enumTypes[7]
 }
 
 func (x ID_ComponentType) Number() protoreflect.EnumNumber {
@@ -896,7 +1029,16 @@ type MultiPooler struct {
 	PoolerDir string `protobuf:"bytes,10,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
 	// PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
 	// Used by multiadmin to compute the primary's data directory for pgBackRest.
-	PgDataDir     string `protobuf:"bytes,11,opt,name=pg_data_dir,json=pgDataDir,proto3" json:"pg_data_dir,omitempty"`
+	PgDataDir string `protobuf:"bytes,11,opt,name=pg_data_dir,json=pgDataDir,proto3" json:"pg_data_dir,omitempty"`
+	// removed_at marks the node as permanently removed from the topology
+	// by intention (operator scale-down, decommission). Set best-effort by
+	// the pooler during a Drain() with remove_from_topology=true; absence
+	// means "not a tombstoned record." Consumers treat presence as
+	// "this node is not coming back."
+	RemovedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=removed_at,json=removedAt,proto3" json:"removed_at,omitempty"`
+	// remove_reason classifies the removal. Only meaningful when
+	// removed_at is set.
+	RemoveReason  RemoveReason `protobuf:"varint,13,opt,name=remove_reason,json=removeReason,proto3,enum=clustermetadata.RemoveReason" json:"remove_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1006,6 +1148,20 @@ func (x *MultiPooler) GetPgDataDir() string {
 		return x.PgDataDir
 	}
 	return ""
+}
+
+func (x *MultiPooler) GetRemovedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RemovedAt
+	}
+	return nil
+}
+
+func (x *MultiPooler) GetRemoveReason() RemoveReason {
+	if x != nil {
+		return x.RemoveReason
+	}
+	return RemoveReason_REMOVE_REASON_UNKNOWN
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -1924,6 +2080,62 @@ func (x *AvailabilityStatus) GetLeadershipStatus() *LeadershipStatus {
 	return nil
 }
 
+// ServingStatus is published by all poolers that accept query traffic.
+// It lets gateway distinguish an actively serving node from one that is
+// draining. Absent after process restart; consumers treat absence as ACTIVE.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state, following the same pattern as
+// AvailabilityStatus.
+//
+// Why a wrapper message (vs. a bare ServingSignal field): leaves room
+// for additional routing-layer signals (e.g., a draining-since timestamp)
+// without a proto field-number change — same reason AvailabilityStatus
+// wraps LeadershipSignal.
+type ServingStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Signal        ServingSignal          `protobuf:"varint,1,opt,name=signal,proto3,enum=clustermetadata.ServingSignal" json:"signal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServingStatus) Reset() {
+	*x = ServingStatus{}
+	mi := &file_clustermetadata_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServingStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServingStatus) ProtoMessage() {}
+
+func (x *ServingStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServingStatus.ProtoReflect.Descriptor instead.
+func (*ServingStatus) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ServingStatus) GetSignal() ServingSignal {
+	if x != nil {
+		return x.Signal
+	}
+	return ServingSignal_SERVING_SIGNAL_UNKNOWN
+}
+
 var File_clustermetadata_proto protoreflect.FileDescriptor
 
 const file_clustermetadata_proto_rawDesc = "" +
@@ -1961,7 +2173,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
-	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\x98\x04\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\x97\x05\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
@@ -1976,7 +2188,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"pooler_dir\x18\n" +
 	" \x01(\tR\tpoolerDir\x12\x1e\n" +
-	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x1a:\n" +
+	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x129\n" +
+	"\n" +
+	"removed_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tremovedAt\x12B\n" +
+	"\rremove_reason\x18\r \x01(\x0e2\x1d.clustermetadata.RemoveReasonR\fremoveReason\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
@@ -2047,7 +2262,9 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\fprimary_term\x18\x01 \x01(\x03R\vprimaryTerm\x129\n" +
 	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"d\n" +
 	"\x12AvailabilityStatus\x12N\n" +
-	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus*@\n" +
+	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus\"G\n" +
+	"\rServingStatus\x126\n" +
+	"\x06signal\x18\x01 \x01(\x0e2\x1e.clustermetadata.ServingSignalR\x06signal*@\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -2068,11 +2285,21 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x1cAsyncReplicationFallbackMode\x12+\n" +
 	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
 	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +
-	"&ASYNC_REPLICATION_FALLBACK_MODE_REJECT\x10\x02*z\n" +
+	"&ASYNC_REPLICATION_FALLBACK_MODE_REJECT\x10\x02*\xa9\x01\n" +
+	"\fRemoveReason\x12\x19\n" +
+	"\x15REMOVE_REASON_UNKNOWN\x10\x00\x12\x1c\n" +
+	"\x18REMOVE_REASON_SCALE_DOWN\x10\x01\x12\x1e\n" +
+	"\x1aREMOVE_REASON_DECOMMISSION\x10\x02\x12\x1a\n" +
+	"\x16REMOVE_REASON_REPLACED\x10\x03\x12$\n" +
+	" REMOVE_REASON_OPERATOR_REQUESTED\x10\x04*z\n" +
 	"\x10LeadershipSignal\x12\x1d\n" +
 	"\x19LEADERSHIP_SIGNAL_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18LEADERSHIP_SIGNAL_ACTIVE\x10\x01\x12)\n" +
-	"%LEADERSHIP_SIGNAL_REQUESTING_DEMOTION\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
+	"%LEADERSHIP_SIGNAL_REQUESTING_DEMOTION\x10\x02*c\n" +
+	"\rServingSignal\x12\x1a\n" +
+	"\x16SERVING_SIGNAL_UNKNOWN\x10\x00\x12\x19\n" +
+	"\x15SERVING_SIGNAL_ACTIVE\x10\x01\x12\x1b\n" +
+	"\x17SERVING_SIGNAL_DRAINING\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once
@@ -2086,80 +2313,86 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 	return file_clustermetadata_proto_rawDescData
 }
 
-var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
 	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
 	(QuorumType)(0),                   // 2: clustermetadata.QuorumType
 	(AsyncReplicationFallbackMode)(0), // 3: clustermetadata.AsyncReplicationFallbackMode
-	(LeadershipSignal)(0),             // 4: clustermetadata.LeadershipSignal
-	(ID_ComponentType)(0),             // 5: clustermetadata.ID.ComponentType
-	(*GlobalTopoConfig)(nil),          // 6: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),                      // 7: clustermetadata.Cell
-	(*Database)(nil),                  // 8: clustermetadata.Database
-	(*ShardInitClaim)(nil),            // 9: clustermetadata.ShardInitClaim
-	(*BackupLocation)(nil),            // 10: clustermetadata.BackupLocation
-	(*FilesystemBackup)(nil),          // 11: clustermetadata.FilesystemBackup
-	(*S3Backup)(nil),                  // 12: clustermetadata.S3Backup
-	(*MultiPooler)(nil),               // 13: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),              // 14: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),                 // 15: clustermetadata.MultiOrch
-	(*ID)(nil),                        // 16: clustermetadata.ID
-	(*KeyRange)(nil),                  // 17: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),          // 18: clustermetadata.DurabilityPolicy
-	(*RuleNumber)(nil),                // 19: clustermetadata.RuleNumber
-	(*ShardRule)(nil),                 // 20: clustermetadata.ShardRule
-	(*PoolerPosition)(nil),            // 21: clustermetadata.PoolerPosition
-	(*HighestKnownRule)(nil),          // 22: clustermetadata.HighestKnownRule
-	(*TermRevocation)(nil),            // 23: clustermetadata.TermRevocation
-	(*ConsensusStatus)(nil),           // 24: clustermetadata.ConsensusStatus
-	(*LeadershipStatus)(nil),          // 25: clustermetadata.LeadershipStatus
-	(*AvailabilityStatus)(nil),        // 26: clustermetadata.AvailabilityStatus
-	nil,                               // 27: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 28: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 29: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 30: google.protobuf.Timestamp
+	(RemoveReason)(0),                 // 4: clustermetadata.RemoveReason
+	(LeadershipSignal)(0),             // 5: clustermetadata.LeadershipSignal
+	(ServingSignal)(0),                // 6: clustermetadata.ServingSignal
+	(ID_ComponentType)(0),             // 7: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil),          // 8: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),                      // 9: clustermetadata.Cell
+	(*Database)(nil),                  // 10: clustermetadata.Database
+	(*ShardInitClaim)(nil),            // 11: clustermetadata.ShardInitClaim
+	(*BackupLocation)(nil),            // 12: clustermetadata.BackupLocation
+	(*FilesystemBackup)(nil),          // 13: clustermetadata.FilesystemBackup
+	(*S3Backup)(nil),                  // 14: clustermetadata.S3Backup
+	(*MultiPooler)(nil),               // 15: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),              // 16: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),                 // 17: clustermetadata.MultiOrch
+	(*ID)(nil),                        // 18: clustermetadata.ID
+	(*KeyRange)(nil),                  // 19: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),          // 20: clustermetadata.DurabilityPolicy
+	(*RuleNumber)(nil),                // 21: clustermetadata.RuleNumber
+	(*ShardRule)(nil),                 // 22: clustermetadata.ShardRule
+	(*PoolerPosition)(nil),            // 23: clustermetadata.PoolerPosition
+	(*HighestKnownRule)(nil),          // 24: clustermetadata.HighestKnownRule
+	(*TermRevocation)(nil),            // 25: clustermetadata.TermRevocation
+	(*ConsensusStatus)(nil),           // 26: clustermetadata.ConsensusStatus
+	(*LeadershipStatus)(nil),          // 27: clustermetadata.LeadershipStatus
+	(*AvailabilityStatus)(nil),        // 28: clustermetadata.AvailabilityStatus
+	(*ServingStatus)(nil),             // 29: clustermetadata.ServingStatus
+	nil,                               // 30: clustermetadata.MultiPooler.PortMapEntry
+	nil,                               // 31: clustermetadata.MultiGateway.PortMapEntry
+	nil,                               // 32: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil),     // 33: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	10, // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
-	18, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	16, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
-	16, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
-	11, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
-	12, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
-	16, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	17, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	12, // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
+	20, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	18, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
+	18, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
+	13, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
+	14, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
+	18, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	19, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 8: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 9: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	27, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	16, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	28, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	16, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	29, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	5,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
-	3,  // 17: clustermetadata.DurabilityPolicy.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	19, // 18: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
-	16, // 19: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
-	16, // 20: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
-	18, // 21: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	16, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
-	30, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
-	20, // 24: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
-	20, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
-	16, // 26: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
-	30, // 27: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
-	23, // 28: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	21, // 29: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	22, // 30: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	4,  // 31: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	25, // 32: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	30, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	33, // 11: clustermetadata.MultiPooler.removed_at:type_name -> google.protobuf.Timestamp
+	4,  // 12: clustermetadata.MultiPooler.remove_reason:type_name -> clustermetadata.RemoveReason
+	18, // 13: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	31, // 14: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	18, // 15: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	32, // 16: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	7,  // 17: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	2,  // 18: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
+	3,  // 19: clustermetadata.DurabilityPolicy.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
+	21, // 20: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	18, // 21: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
+	18, // 22: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	20, // 23: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	18, // 24: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	33, // 25: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	22, // 26: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
+	22, // 27: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	18, // 28: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
+	33, // 29: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	25, // 30: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	23, // 31: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	24, // 32: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	5,  // 33: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	27, // 34: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	6,  // 35: clustermetadata.ServingStatus.signal:type_name -> clustermetadata.ServingSignal
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -2176,8 +2409,8 @@ func file_clustermetadata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   24,
+			NumEnums:      8,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

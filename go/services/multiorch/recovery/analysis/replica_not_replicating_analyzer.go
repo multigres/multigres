@@ -54,6 +54,12 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 		return nil, nil
 	}
 
+	// Skip voluntarily-draining replicas: they have asked to be removed from
+	// serving, so forcing replication back on would fight the operator's intent.
+	if poolerAnalysis.IsVoluntarilyDraining {
+		return nil, nil
+	}
+
 	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
 	if !poolerAnalysis.IsInitialized {
 		return nil, nil

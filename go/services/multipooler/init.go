@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -37,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // MultiPooler represents the main multipooler instance with all configuration and state
@@ -66,9 +68,10 @@ type MultiPooler struct {
 	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
-	ts           topoclient.Store
-	tr           *toporeg.TopoReg
-	serverStatus Status
+	ts            topoclient.Store
+	tr            *toporeg.TopoReg
+	poolerManager *manager.MultiPoolerManager
+	serverStatus  Status
 }
 
 func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
@@ -308,6 +311,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
+	mp.poolerManager = poolerManager
 
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)
@@ -361,7 +365,22 @@ func (mp *MultiPooler) RunDefault() error {
 }
 
 func (mp *MultiPooler) Shutdown() {
-	mp.senv.GetLogger().Info("multipooler shutting down")
+	logger := mp.senv.GetLogger()
+	logger.Info("multipooler shutting down")
+
+	// Trigger a non-permanent voluntary Drain so consumers observe
+	// ServingSignal.DRAINING before the process exits. Idempotent: if an RPC
+	// already drained (potentially with remove_from_topology=true), this call
+	// is a no-op and preserves the existing state.
+	if mp.poolerManager != nil {
+		//nolint:gocritic // legitimate background entry point during shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, err := mp.poolerManager.Drain(ctx, &multipoolermanagerdatapb.DrainRequest{}); err != nil {
+			logger.Warn("Voluntary Drain on shutdown failed; continuing", "error", err)
+		}
+		cancel()
+	}
+
 	mp.tr.Unregister()
 	mp.ts.Close()
 }

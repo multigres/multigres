@@ -16,6 +16,7 @@ package grpcpoolerservice
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 func TestGetAuthCredentials_Validation(t *testing.T) {
@@ -101,4 +104,68 @@ func (m *mockHealthStream) Context() context.Context {
 
 func (m *mockHealthStream) Send(*multipoolerpb.StreamPoolerHealthResponse) error {
 	return nil
+}
+
+// fakeHealthProvider returns a fixed HealthState on subscription so tests can
+// assert how health state flows through healthStateToProto.
+type fakeHealthProvider struct {
+	state *poolerserver.HealthState
+}
+
+func (f *fakeHealthProvider) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
+	return f.state, nil
+}
+
+func (f *fakeHealthProvider) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
+	ch := make(chan *poolerserver.HealthState)
+	// Close immediately so StreamPoolerHealth returns after sending the initial state.
+	close(ch)
+	return f.state, ch, nil
+}
+
+// capturingHealthStream records every response sent by StreamPoolerHealth.
+type capturingHealthStream struct {
+	multipoolerpb.MultiPoolerService_StreamPoolerHealthServer
+	ctx       context.Context
+	responses []*multipoolerpb.StreamPoolerHealthResponse
+}
+
+func (c *capturingHealthStream) Context() context.Context {
+	return c.ctx
+}
+
+func (c *capturingHealthStream) Send(resp *multipoolerpb.StreamPoolerHealthResponse) error {
+	c.responses = append(c.responses, resp)
+	return nil
+}
+
+func TestStreamPoolerHealth_PublishesServingSignal(t *testing.T) {
+	fake := &fakeHealthProvider{
+		state: &poolerserver.HealthState{
+			ServingSignal: clustermetadatapb.ServingSignal_SERVING_SIGNAL_DRAINING,
+		},
+	}
+
+	pooler := poolerserver.NewQueryPoolerServer(
+		slog.Default(),
+		nil, // poolManager
+		nil, // poolerID
+		"tg",
+		"shard",
+		fake,
+		0,
+	)
+	srv := &poolerService{pooler: pooler}
+
+	stream := &capturingHealthStream{ctx: context.Background()}
+	err := srv.StreamPoolerHealth(&multipoolerpb.StreamPoolerHealthRequest{}, stream)
+	require.NoError(t, err)
+	require.NotEmpty(t, stream.responses)
+
+	resp := stream.responses[0]
+	require.NotNil(t, resp.QueryServingStatus, "QueryServingStatus should be populated")
+	assert.Equal(t,
+		clustermetadatapb.ServingSignal_SERVING_SIGNAL_DRAINING,
+		resp.QueryServingStatus.Signal,
+	)
 }

@@ -217,15 +217,16 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	}
 
 	analysis := &PoolerAnalysis{
-		PoolerID:         pooler.MultiPooler.Id,
-		ShardKey:         shardKey,
-		PoolerType:       poolerType,
-		IsPrimary:        poolerType == clustermetadatapb.PoolerType_PRIMARY,
-		LastCheckValid:   pooler.IsLastCheckValid,
-		IsInitialized:    store.IsInitialized(pooler),
-		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
-		CohortMembers:    pooler.GetStatus().GetCohortMembers(),
-		AnalyzedAt:       time.Now(),
+		PoolerID:              pooler.MultiPooler.Id,
+		ShardKey:              shardKey,
+		PoolerType:            poolerType,
+		IsPrimary:             poolerType == clustermetadatapb.PoolerType_PRIMARY,
+		LastCheckValid:        pooler.IsLastCheckValid,
+		IsInitialized:         store.IsInitialized(pooler),
+		HasDataDirectory:      pooler.GetStatus().GetHasDataDirectory(),
+		CohortMembers:         pooler.GetStatus().GetCohortMembers(),
+		AnalyzedAt:            time.Now(),
+		IsVoluntarilyDraining: types.IsVoluntarilyDraining(pooler),
 	}
 
 	// Compute staleness

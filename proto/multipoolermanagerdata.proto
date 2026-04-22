@@ -241,6 +241,13 @@ message Status {
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
   bool postgres_ready = 14;
+
+  // query_serving_status is the self-reported routing-layer signal
+  // gateway consumes to decide whether to send new client queries.
+  // Absence (after process restart) means ACTIVE. Distinct from
+  // MultiPooler.serving_status (PoolerServingStatus), which is a
+  // topology-lifecycle enum.
+  clustermetadata.ServingStatus query_serving_status = 15;
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
@@ -353,6 +360,51 @@ message EmergencyDemoteResponse {
 
   // Number of connections that were terminated
   int32 connections_terminated = 4;
+}
+
+// DrainRequest initiates voluntary drain of this pooler.
+message DrainRequest {
+  // remove_from_topology indicates whether this pooler is being
+  // decommissioned. When true, the pooler will write a best-effort
+  // tombstone (removed_at + remove_reason) to its MultiPooler topology
+  // record on eventual shutdown.
+  bool remove_from_topology = 1;
+
+  // drain_timeout is the maximum wall-clock time to wait for in-flight
+  // client queries to finish before forcibly terminating connections.
+  // If unset or zero, defaults to 5s. Mirrors EmergencyDemoteRequest.drain_timeout.
+  google.protobuf.Duration drain_timeout = 2;
+
+  // remove_reason classifies the removal. Only meaningful when
+  // remove_from_topology=true; ignored otherwise. If
+  // remove_from_topology=true and this field is UNKNOWN, the tombstone
+  // will record UNKNOWN — callers are expected to set a real reason.
+  clustermetadata.RemoveReason remove_reason = 3;
+}
+
+// DrainResponse reports the outcome of a Drain request.
+message DrainResponse {
+  // was_already_draining is true if the pooler was already in DRAINING
+  // state when this RPC arrived.
+  bool was_already_draining = 1;
+
+  // primary_path_taken is true if the pooler was primary at drain entry
+  // and followed the EmergencyDemote path (restart as standby + signal
+  // resignation). False for non-primary drains.
+  bool primary_path_taken = 2;
+
+  // connections_terminated is the number of client connections that were
+  // forcibly terminated after drain_timeout expired. Mirrors
+  // EmergencyDemoteResponse.connections_terminated.
+  int32 connections_terminated = 3;
+
+  // remove_from_topology reflects the effective flag after this call.
+  // Sticky: once true, it stays true. If the pooler was already draining
+  // without topology removal and this call passed remove_from_topology=true,
+  // this field will be true. Calling Drain with remove_from_topology=false
+  // on a node already slated for topology removal does NOT downgrade —
+  // this field remains true.
+  bool remove_from_topology = 4;
 }
 
 // DemoteStalePrimary demotes a stale primary that came back online after failover.

@@ -45,6 +45,21 @@ service MultiPoolerManager {
     returns (multipoolermanagerdata.StatusResponse);
 
   //
+  // Pooler Lifecycle
+  //
+
+  // Drain initiates voluntary draining of the pooler. The pooler stops
+  // accepting new client-query RPCs, finishes in-flight queries (up to
+  // drain_timeout), and — if currently primary — restarts as standby and
+  // signals resignation to multiorch (same path as EmergencyDemote).
+  //
+  // Idempotent: calling Drain on an already-draining node returns the
+  // current drain state. Calling with permanent=true upgrades a
+  // non-permanent drain to permanent.
+  rpc Drain(multipoolermanagerdata.DrainRequest)
+    returns (multipoolermanagerdata.DrainResponse);
+
+  //
   // Backup and Restore
   // All of these RPCs perform backups and restores in the context
   // of the database, table group and shard this multipooler serves.

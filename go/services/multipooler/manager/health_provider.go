@@ -70,6 +70,11 @@ type healthStreamer struct {
 	poolerType         clustermetadatapb.PoolerType
 	primaryObservation *poolerserver.PrimaryObservation
 
+	// servingSignal holds the most recent routing-layer serving signal (see
+	// clustermetadatapb.ServingSignal). Zero (UNKNOWN) is treated as ACTIVE by
+	// consumers. Updated via SetServingSignal.
+	servingSignal clustermetadatapb.ServingSignal
+
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
 
@@ -77,7 +82,7 @@ type healthStreamer struct {
 	recommendedStalenessTimeout time.Duration
 
 	// replicationLagNs holds the most recent replication lag in nanoseconds.
-	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
+	// Zero on the primary or when not yet measured. Updated via SetReplicationLag
 	replicationLagNs atomic.Int64
 }
 
@@ -149,6 +154,16 @@ func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
 	hs.replicationLagNs.Store(lagNs)
 }
 
+// SetServingSignal updates the routing-layer serving signal reported in the
+// health stream and broadcasts immediately so consumers observe the change
+// without waiting for the next heartbeat.
+func (hs *healthStreamer) SetServingSignal(signal clustermetadatapb.ServingSignal) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.servingSignal = signal
+	hs.broadcastLocked()
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
@@ -162,6 +177,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		PrimaryObservation:          hs.primaryObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
+		ServingSignal:               hs.servingSignal,
 	}
 }
 
@@ -264,6 +280,7 @@ func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			pm.observeInvoluntaryDrain(ctx)
 			if pm.healthStreamer != nil {
 				// Refresh replication lag before broadcasting so clients see
 				// up-to-date lag without requiring a separate state-change event.
@@ -274,4 +291,28 @@ func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 			}
 		}
 	}
+}
+
+// observeInvoluntaryDrain checks whether multiorch has marked this pooler's
+// MultiPooler topology record as PoolerType_DRAINED (the involuntary,
+// data-diverged flow) and transitions the local drain state to DRAINING so
+// ServingSignal.DRAINING flows over the health stream. Voluntary and
+// involuntary cases publish the same signal — gateway does not need to read
+// topology. Non-fatal: topology errors are logged and retried on the next tick.
+func (pm *MultiPoolerManager) observeInvoluntaryDrain(ctx context.Context) {
+	if pm.topoClient == nil || pm.serviceID == nil {
+		return
+	}
+	info, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
+	if err != nil {
+		pm.logger.DebugContext(ctx, "observeInvoluntaryDrain: GetMultiPooler failed", "error", err)
+		return
+	}
+	if info == nil || info.MultiPooler == nil {
+		return
+	}
+	if info.MultiPooler.Type != clustermetadatapb.PoolerType_DRAINED {
+		return
+	}
+	pm.enterDraining(false, clustermetadatapb.RemoveReason_REMOVE_REASON_UNKNOWN)
 }

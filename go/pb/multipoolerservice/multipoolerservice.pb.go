@@ -1546,8 +1546,14 @@ type StreamPoolerHealthResponse struct {
 	// replication_lag_ns is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64 `protobuf:"varint,6,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// query_serving_status is the self-reported routing-layer signal
+	// gateway consumes to decide whether to send new client queries.
+	// Absence (after process restart or for older poolers) is treated as
+	// ACTIVE. Distinct from serving_status above, which reflects topology
+	// lifecycle (SERVING/NOT_SERVING/BACKUP/RESTORE).
+	QueryServingStatus *clustermetadata.ServingStatus `protobuf:"bytes,7,opt,name=query_serving_status,json=queryServingStatus,proto3" json:"query_serving_status,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -1620,6 +1626,13 @@ func (x *StreamPoolerHealthResponse) GetReplicationLagNs() int64 {
 		return x.ReplicationLagNs
 	}
 	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetQueryServingStatus() *clustermetadata.ServingStatus {
+	if x != nil {
+		return x.QueryServingStatus
+	}
+	return nil
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.
@@ -1878,14 +1891,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"#\n" +
 	"!ReleaseReservedConnectionResponse\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xa8\x03\n" +
+	"\x19StreamPoolerHealthRequest\"\xfa\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12W\n" +
 	"\x13primary_observation\x18\x04 \x01(\v2&.multipoolerservice.PrimaryObservationR\x12primaryObservation\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
-	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"k\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\x12P\n" +
+	"\x14query_serving_status\x18\a \x01(\v2\x1e.clustermetadata.ServingStatusR\x12queryServingStatus\"k\n" +
 	"\x12PrimaryObservation\x122\n" +
 	"\n" +
 	"primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12!\n" +
@@ -1974,7 +1988,8 @@ var file_multipoolerservice_proto_goTypes = []any{
 	(*clustermetadata.ID)(nil),                // 37: clustermetadata.ID
 	(clustermetadata.PoolerServingStatus)(0),  // 38: clustermetadata.PoolerServingStatus
 	(*durationpb.Duration)(nil),               // 39: google.protobuf.Duration
-	(*query.PgNotification)(nil),              // 40: query.PgNotification
+	(*clustermetadata.ServingStatus)(nil),     // 40: clustermetadata.ServingStatus
+	(*query.PgNotification)(nil),              // 41: query.PgNotification
 }
 var file_multipoolerservice_proto_depIdxs = []int32{
 	27, // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
@@ -2028,36 +2043,37 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	38, // 48: multipoolerservice.StreamPoolerHealthResponse.serving_status:type_name -> clustermetadata.PoolerServingStatus
 	24, // 49: multipoolerservice.StreamPoolerHealthResponse.primary_observation:type_name -> multipoolerservice.PrimaryObservation
 	39, // 50: multipoolerservice.StreamPoolerHealthResponse.recommended_staleness_timeout:type_name -> google.protobuf.Duration
-	37, // 51: multipoolerservice.PrimaryObservation.primary_id:type_name -> clustermetadata.ID
-	27, // 52: multipoolerservice.StreamNotificationsRequest.target:type_name -> query.Target
-	40, // 53: multipoolerservice.StreamNotificationsResponse.notification:type_name -> query.PgNotification
-	4,  // 54: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
-	6,  // 55: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
-	8,  // 56: multipoolerservice.MultiPoolerService.PortalStreamExecute:input_type -> multipoolerservice.PortalStreamExecuteRequest
-	10, // 57: multipoolerservice.MultiPoolerService.Describe:input_type -> multipoolerservice.DescribeRequest
-	12, // 58: multipoolerservice.MultiPoolerService.GetAuthCredentials:input_type -> multipoolerservice.GetAuthCredentialsRequest
-	14, // 59: multipoolerservice.MultiPoolerService.CopyBidiExecute:input_type -> multipoolerservice.CopyBidiExecuteRequest
-	16, // 60: multipoolerservice.MultiPoolerService.ConcludeTransaction:input_type -> multipoolerservice.ConcludeTransactionRequest
-	18, // 61: multipoolerservice.MultiPoolerService.DiscardTempTables:input_type -> multipoolerservice.DiscardTempTablesRequest
-	20, // 62: multipoolerservice.MultiPoolerService.ReleaseReservedConnection:input_type -> multipoolerservice.ReleaseReservedConnectionRequest
-	22, // 63: multipoolerservice.MultiPoolerService.StreamPoolerHealth:input_type -> multipoolerservice.StreamPoolerHealthRequest
-	25, // 64: multipoolerservice.MultiPoolerService.StreamNotifications:input_type -> multipoolerservice.StreamNotificationsRequest
-	5,  // 65: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
-	7,  // 66: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
-	9,  // 67: multipoolerservice.MultiPoolerService.PortalStreamExecute:output_type -> multipoolerservice.PortalStreamExecuteResponse
-	11, // 68: multipoolerservice.MultiPoolerService.Describe:output_type -> multipoolerservice.DescribeResponse
-	13, // 69: multipoolerservice.MultiPoolerService.GetAuthCredentials:output_type -> multipoolerservice.GetAuthCredentialsResponse
-	15, // 70: multipoolerservice.MultiPoolerService.CopyBidiExecute:output_type -> multipoolerservice.CopyBidiExecuteResponse
-	17, // 71: multipoolerservice.MultiPoolerService.ConcludeTransaction:output_type -> multipoolerservice.ConcludeTransactionResponse
-	19, // 72: multipoolerservice.MultiPoolerService.DiscardTempTables:output_type -> multipoolerservice.DiscardTempTablesResponse
-	21, // 73: multipoolerservice.MultiPoolerService.ReleaseReservedConnection:output_type -> multipoolerservice.ReleaseReservedConnectionResponse
-	23, // 74: multipoolerservice.MultiPoolerService.StreamPoolerHealth:output_type -> multipoolerservice.StreamPoolerHealthResponse
-	26, // 75: multipoolerservice.MultiPoolerService.StreamNotifications:output_type -> multipoolerservice.StreamNotificationsResponse
-	65, // [65:76] is the sub-list for method output_type
-	54, // [54:65] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	40, // 51: multipoolerservice.StreamPoolerHealthResponse.query_serving_status:type_name -> clustermetadata.ServingStatus
+	37, // 52: multipoolerservice.PrimaryObservation.primary_id:type_name -> clustermetadata.ID
+	27, // 53: multipoolerservice.StreamNotificationsRequest.target:type_name -> query.Target
+	41, // 54: multipoolerservice.StreamNotificationsResponse.notification:type_name -> query.PgNotification
+	4,  // 55: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
+	6,  // 56: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
+	8,  // 57: multipoolerservice.MultiPoolerService.PortalStreamExecute:input_type -> multipoolerservice.PortalStreamExecuteRequest
+	10, // 58: multipoolerservice.MultiPoolerService.Describe:input_type -> multipoolerservice.DescribeRequest
+	12, // 59: multipoolerservice.MultiPoolerService.GetAuthCredentials:input_type -> multipoolerservice.GetAuthCredentialsRequest
+	14, // 60: multipoolerservice.MultiPoolerService.CopyBidiExecute:input_type -> multipoolerservice.CopyBidiExecuteRequest
+	16, // 61: multipoolerservice.MultiPoolerService.ConcludeTransaction:input_type -> multipoolerservice.ConcludeTransactionRequest
+	18, // 62: multipoolerservice.MultiPoolerService.DiscardTempTables:input_type -> multipoolerservice.DiscardTempTablesRequest
+	20, // 63: multipoolerservice.MultiPoolerService.ReleaseReservedConnection:input_type -> multipoolerservice.ReleaseReservedConnectionRequest
+	22, // 64: multipoolerservice.MultiPoolerService.StreamPoolerHealth:input_type -> multipoolerservice.StreamPoolerHealthRequest
+	25, // 65: multipoolerservice.MultiPoolerService.StreamNotifications:input_type -> multipoolerservice.StreamNotificationsRequest
+	5,  // 66: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
+	7,  // 67: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
+	9,  // 68: multipoolerservice.MultiPoolerService.PortalStreamExecute:output_type -> multipoolerservice.PortalStreamExecuteResponse
+	11, // 69: multipoolerservice.MultiPoolerService.Describe:output_type -> multipoolerservice.DescribeResponse
+	13, // 70: multipoolerservice.MultiPoolerService.GetAuthCredentials:output_type -> multipoolerservice.GetAuthCredentialsResponse
+	15, // 71: multipoolerservice.MultiPoolerService.CopyBidiExecute:output_type -> multipoolerservice.CopyBidiExecuteResponse
+	17, // 72: multipoolerservice.MultiPoolerService.ConcludeTransaction:output_type -> multipoolerservice.ConcludeTransactionResponse
+	19, // 73: multipoolerservice.MultiPoolerService.DiscardTempTables:output_type -> multipoolerservice.DiscardTempTablesResponse
+	21, // 74: multipoolerservice.MultiPoolerService.ReleaseReservedConnection:output_type -> multipoolerservice.ReleaseReservedConnectionResponse
+	23, // 75: multipoolerservice.MultiPoolerService.StreamPoolerHealth:output_type -> multipoolerservice.StreamPoolerHealthResponse
+	26, // 76: multipoolerservice.MultiPoolerService.StreamNotifications:output_type -> multipoolerservice.StreamNotificationsResponse
+	66, // [66:77] is the sub-list for method output_type
+	55, // [55:66] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_multipoolerservice_proto_init() }

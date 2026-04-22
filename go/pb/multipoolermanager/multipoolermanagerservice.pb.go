@@ -39,13 +39,15 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xfb\t\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xd1\n" +
+	"\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12u\n" +
 	"\x10StartReplication\x12/.multipoolermanagerdata.StartReplicationRequest\x1a0.multipoolermanagerdata.StartReplicationResponse\x12r\n" +
 	"\x0fStopReplication\x12..multipoolermanagerdata.StopReplicationRequest\x1a/.multipoolermanagerdata.StopReplicationResponse\x12W\n" +
-	"\x06Status\x12%.multipoolermanagerdata.StatusRequest\x1a&.multipoolermanagerdata.StatusResponse\x12W\n" +
+	"\x06Status\x12%.multipoolermanagerdata.StatusRequest\x1a&.multipoolermanagerdata.StatusResponse\x12T\n" +
+	"\x05Drain\x12$.multipoolermanagerdata.DrainRequest\x1a%.multipoolermanagerdata.DrainResponse\x12W\n" +
 	"\x06Backup\x12%.multipoolermanagerdata.BackupRequest\x1a&.multipoolermanagerdata.BackupResponse\x12x\n" +
 	"\x11RestoreFromBackup\x120.multipoolermanagerdata.RestoreFromBackupRequest\x1a1.multipoolermanagerdata.RestoreFromBackupResponse\x12c\n" +
 	"\n" +
@@ -60,50 +62,54 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.StartReplicationRequest)(nil),            // 1: multipoolermanagerdata.StartReplicationRequest
 	(*multipoolermanagerdata.StopReplicationRequest)(nil),             // 2: multipoolermanagerdata.StopReplicationRequest
 	(*multipoolermanagerdata.StatusRequest)(nil),                      // 3: multipoolermanagerdata.StatusRequest
-	(*multipoolermanagerdata.BackupRequest)(nil),                      // 4: multipoolermanagerdata.BackupRequest
-	(*multipoolermanagerdata.RestoreFromBackupRequest)(nil),           // 5: multipoolermanagerdata.RestoreFromBackupRequest
-	(*multipoolermanagerdata.GetBackupsRequest)(nil),                  // 6: multipoolermanagerdata.GetBackupsRequest
-	(*multipoolermanagerdata.GetBackupByJobIdRequest)(nil),            // 7: multipoolermanagerdata.GetBackupByJobIdRequest
-	(*multipoolermanagerdata.ExpireBackupsRequest)(nil),               // 8: multipoolermanagerdata.ExpireBackupsRequest
-	(*multipoolermanagerdata.SetPostgresRestartsEnabledRequest)(nil),  // 9: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
-	(*multipoolermanagerdata.ManagerHealthStreamClientMessage)(nil),   // 10: multipoolermanagerdata.ManagerHealthStreamClientMessage
-	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                 // 11: multipoolermanagerdata.WaitForLSNResponse
-	(*multipoolermanagerdata.StartReplicationResponse)(nil),           // 12: multipoolermanagerdata.StartReplicationResponse
-	(*multipoolermanagerdata.StopReplicationResponse)(nil),            // 13: multipoolermanagerdata.StopReplicationResponse
-	(*multipoolermanagerdata.StatusResponse)(nil),                     // 14: multipoolermanagerdata.StatusResponse
-	(*multipoolermanagerdata.BackupResponse)(nil),                     // 15: multipoolermanagerdata.BackupResponse
-	(*multipoolermanagerdata.RestoreFromBackupResponse)(nil),          // 16: multipoolermanagerdata.RestoreFromBackupResponse
-	(*multipoolermanagerdata.GetBackupsResponse)(nil),                 // 17: multipoolermanagerdata.GetBackupsResponse
-	(*multipoolermanagerdata.GetBackupByJobIdResponse)(nil),           // 18: multipoolermanagerdata.GetBackupByJobIdResponse
-	(*multipoolermanagerdata.ExpireBackupsResponse)(nil),              // 19: multipoolermanagerdata.ExpireBackupsResponse
-	(*multipoolermanagerdata.SetPostgresRestartsEnabledResponse)(nil), // 20: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
-	(*multipoolermanagerdata.ManagerHealthStreamResponse)(nil),        // 21: multipoolermanagerdata.ManagerHealthStreamResponse
+	(*multipoolermanagerdata.DrainRequest)(nil),                       // 4: multipoolermanagerdata.DrainRequest
+	(*multipoolermanagerdata.BackupRequest)(nil),                      // 5: multipoolermanagerdata.BackupRequest
+	(*multipoolermanagerdata.RestoreFromBackupRequest)(nil),           // 6: multipoolermanagerdata.RestoreFromBackupRequest
+	(*multipoolermanagerdata.GetBackupsRequest)(nil),                  // 7: multipoolermanagerdata.GetBackupsRequest
+	(*multipoolermanagerdata.GetBackupByJobIdRequest)(nil),            // 8: multipoolermanagerdata.GetBackupByJobIdRequest
+	(*multipoolermanagerdata.ExpireBackupsRequest)(nil),               // 9: multipoolermanagerdata.ExpireBackupsRequest
+	(*multipoolermanagerdata.SetPostgresRestartsEnabledRequest)(nil),  // 10: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
+	(*multipoolermanagerdata.ManagerHealthStreamClientMessage)(nil),   // 11: multipoolermanagerdata.ManagerHealthStreamClientMessage
+	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                 // 12: multipoolermanagerdata.WaitForLSNResponse
+	(*multipoolermanagerdata.StartReplicationResponse)(nil),           // 13: multipoolermanagerdata.StartReplicationResponse
+	(*multipoolermanagerdata.StopReplicationResponse)(nil),            // 14: multipoolermanagerdata.StopReplicationResponse
+	(*multipoolermanagerdata.StatusResponse)(nil),                     // 15: multipoolermanagerdata.StatusResponse
+	(*multipoolermanagerdata.DrainResponse)(nil),                      // 16: multipoolermanagerdata.DrainResponse
+	(*multipoolermanagerdata.BackupResponse)(nil),                     // 17: multipoolermanagerdata.BackupResponse
+	(*multipoolermanagerdata.RestoreFromBackupResponse)(nil),          // 18: multipoolermanagerdata.RestoreFromBackupResponse
+	(*multipoolermanagerdata.GetBackupsResponse)(nil),                 // 19: multipoolermanagerdata.GetBackupsResponse
+	(*multipoolermanagerdata.GetBackupByJobIdResponse)(nil),           // 20: multipoolermanagerdata.GetBackupByJobIdResponse
+	(*multipoolermanagerdata.ExpireBackupsResponse)(nil),              // 21: multipoolermanagerdata.ExpireBackupsResponse
+	(*multipoolermanagerdata.SetPostgresRestartsEnabledResponse)(nil), // 22: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	(*multipoolermanagerdata.ManagerHealthStreamResponse)(nil),        // 23: multipoolermanagerdata.ManagerHealthStreamResponse
 }
 var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	0,  // 0: multipoolermanager.MultiPoolerManager.WaitForLSN:input_type -> multipoolermanagerdata.WaitForLSNRequest
 	1,  // 1: multipoolermanager.MultiPoolerManager.StartReplication:input_type -> multipoolermanagerdata.StartReplicationRequest
 	2,  // 2: multipoolermanager.MultiPoolerManager.StopReplication:input_type -> multipoolermanagerdata.StopReplicationRequest
 	3,  // 3: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.StatusRequest
-	4,  // 4: multipoolermanager.MultiPoolerManager.Backup:input_type -> multipoolermanagerdata.BackupRequest
-	5,  // 5: multipoolermanager.MultiPoolerManager.RestoreFromBackup:input_type -> multipoolermanagerdata.RestoreFromBackupRequest
-	6,  // 6: multipoolermanager.MultiPoolerManager.GetBackups:input_type -> multipoolermanagerdata.GetBackupsRequest
-	7,  // 7: multipoolermanager.MultiPoolerManager.GetBackupByJobId:input_type -> multipoolermanagerdata.GetBackupByJobIdRequest
-	8,  // 8: multipoolermanager.MultiPoolerManager.ExpireBackups:input_type -> multipoolermanagerdata.ExpireBackupsRequest
-	9,  // 9: multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled:input_type -> multipoolermanagerdata.SetPostgresRestartsEnabledRequest
-	10, // 10: multipoolermanager.MultiPoolerManager.ManagerHealthStream:input_type -> multipoolermanagerdata.ManagerHealthStreamClientMessage
-	11, // 11: multipoolermanager.MultiPoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
-	12, // 12: multipoolermanager.MultiPoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
-	13, // 13: multipoolermanager.MultiPoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
-	14, // 14: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
-	15, // 15: multipoolermanager.MultiPoolerManager.Backup:output_type -> multipoolermanagerdata.BackupResponse
-	16, // 16: multipoolermanager.MultiPoolerManager.RestoreFromBackup:output_type -> multipoolermanagerdata.RestoreFromBackupResponse
-	17, // 17: multipoolermanager.MultiPoolerManager.GetBackups:output_type -> multipoolermanagerdata.GetBackupsResponse
-	18, // 18: multipoolermanager.MultiPoolerManager.GetBackupByJobId:output_type -> multipoolermanagerdata.GetBackupByJobIdResponse
-	19, // 19: multipoolermanager.MultiPoolerManager.ExpireBackups:output_type -> multipoolermanagerdata.ExpireBackupsResponse
-	20, // 20: multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled:output_type -> multipoolermanagerdata.SetPostgresRestartsEnabledResponse
-	21, // 21: multipoolermanager.MultiPoolerManager.ManagerHealthStream:output_type -> multipoolermanagerdata.ManagerHealthStreamResponse
-	11, // [11:22] is the sub-list for method output_type
-	0,  // [0:11] is the sub-list for method input_type
+	4,  // 4: multipoolermanager.MultiPoolerManager.Drain:input_type -> multipoolermanagerdata.DrainRequest
+	5,  // 5: multipoolermanager.MultiPoolerManager.Backup:input_type -> multipoolermanagerdata.BackupRequest
+	6,  // 6: multipoolermanager.MultiPoolerManager.RestoreFromBackup:input_type -> multipoolermanagerdata.RestoreFromBackupRequest
+	7,  // 7: multipoolermanager.MultiPoolerManager.GetBackups:input_type -> multipoolermanagerdata.GetBackupsRequest
+	8,  // 8: multipoolermanager.MultiPoolerManager.GetBackupByJobId:input_type -> multipoolermanagerdata.GetBackupByJobIdRequest
+	9,  // 9: multipoolermanager.MultiPoolerManager.ExpireBackups:input_type -> multipoolermanagerdata.ExpireBackupsRequest
+	10, // 10: multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled:input_type -> multipoolermanagerdata.SetPostgresRestartsEnabledRequest
+	11, // 11: multipoolermanager.MultiPoolerManager.ManagerHealthStream:input_type -> multipoolermanagerdata.ManagerHealthStreamClientMessage
+	12, // 12: multipoolermanager.MultiPoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
+	13, // 13: multipoolermanager.MultiPoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
+	14, // 14: multipoolermanager.MultiPoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
+	15, // 15: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
+	16, // 16: multipoolermanager.MultiPoolerManager.Drain:output_type -> multipoolermanagerdata.DrainResponse
+	17, // 17: multipoolermanager.MultiPoolerManager.Backup:output_type -> multipoolermanagerdata.BackupResponse
+	18, // 18: multipoolermanager.MultiPoolerManager.RestoreFromBackup:output_type -> multipoolermanagerdata.RestoreFromBackupResponse
+	19, // 19: multipoolermanager.MultiPoolerManager.GetBackups:output_type -> multipoolermanagerdata.GetBackupsResponse
+	20, // 20: multipoolermanager.MultiPoolerManager.GetBackupByJobId:output_type -> multipoolermanagerdata.GetBackupByJobIdResponse
+	21, // 21: multipoolermanager.MultiPoolerManager.ExpireBackups:output_type -> multipoolermanagerdata.ExpireBackupsResponse
+	22, // 22: multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled:output_type -> multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	23, // 23: multipoolermanager.MultiPoolerManager.ManagerHealthStream:output_type -> multipoolermanagerdata.ManagerHealthStreamResponse
+	12, // [12:24] is the sub-list for method output_type
+	0,  // [0:12] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

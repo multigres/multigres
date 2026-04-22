@@ -864,6 +864,43 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 // In the case that the dead primary received the RPC, it should just
 // shut down itself.
 func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+	result, err := pm.demoteToStandbyLocked(ctx, drainTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	if !result.wasAlreadyDemoted {
+		pm.logger.InfoContext(ctx, "Demote completed successfully",
+			"final_lsn", result.finalLSN,
+			"consensus_term", consensusTerm,
+			"connections_terminated", result.connectionsTerminated)
+	}
+
+	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
+		WasAlreadyDemoted:     result.wasAlreadyDemoted,
+		ConsensusTerm:         consensusTerm,
+		LsnPosition:           result.finalLSN,
+		ConnectionsTerminated: result.connectionsTerminated,
+	}, nil
+}
+
+// demoteToStandbyResult captures the outcome of the shared primary-demote core
+// invoked by emergencyDemoteLocked and by the primary-path of voluntary Drain.
+type demoteToStandbyResult struct {
+	wasAlreadyDemoted     bool
+	finalLSN              string
+	connectionsTerminated int32
+}
+
+// demoteToStandbyLocked performs the primary-to-standby transition common to
+// EmergencyDemote and voluntary Drain. Callers must already hold the action
+// lock.
+//
+// The sequence: guardrail-check → snapshot demotion state → (if already
+// complete) return idempotently → NOT_SERVING → drain writes → terminate
+// remaining write connections → capture final LSN → signal resignation →
+// restart postgres as standby → clear primary observation.
+func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, drainTimeout time.Duration) (*demoteToStandbyResult, error) {
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
@@ -884,11 +921,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	// If everything is already complete, return early (fully idempotent)
 	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
-		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
-			WasAlreadyDemoted:     true,
-			ConsensusTerm:         consensusTerm,
-			LsnPosition:           state.finalLSN,
-			ConnectionsTerminated: 0,
+		return &demoteToStandbyResult{
+			wasAlreadyDemoted: true,
+			finalLSN:          state.finalLSN,
 		}, nil
 	}
 
@@ -899,13 +934,11 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	}
 
 	// Drain write connections
-
 	if err := pm.drainWriteActivity(ctx, drainTimeout); err != nil {
 		return nil, err
 	}
 
 	// Terminate Remaining Write Connections
-
 	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
 	if err != nil {
 		// Log but don't fail - connections will eventually timeout
@@ -921,8 +954,8 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	// Signal voluntary resignation so the coordinator can trigger an immediate
 	// election without waiting for a heartbeat timeout. Use this node's own
-	// primary_term (not the incoming consensusTerm) so the coordinator can
-	// correlate the signal with the term at which this node was elected.
+	// primary_term so the coordinator can correlate the signal with the term
+	// at which this node was elected.
 	if term, err := pm.consensusState.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
 		if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
@@ -942,16 +975,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// otherwise restart postgres on this demoted node.
 	pm.rewindPending.Store(true)
 
-	pm.logger.InfoContext(ctx, "Demote completed successfully",
-		"final_lsn", finalLSN,
-		"consensus_term", consensusTerm,
-		"connections_terminated", connectionsTerminated)
-
-	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
-		WasAlreadyDemoted:     false,
-		ConsensusTerm:         consensusTerm,
-		LsnPosition:           finalLSN,
-		ConnectionsTerminated: connectionsTerminated,
+	return &demoteToStandbyResult{
+		wasAlreadyDemoted:     false,
+		finalLSN:              finalLSN,
+		connectionsTerminated: connectionsTerminated,
 	}, nil
 }
 

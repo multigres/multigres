@@ -45,6 +45,11 @@ type HealthState struct {
 	// ReplicationLagNs is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64
+
+	// ServingSignal is the self-reported routing-layer signal. See
+	// clustermetadatapb.ServingSignal. Zero value (UNKNOWN) is treated as
+	// ACTIVE by consumers.
+	ServingSignal clustermetadatapb.ServingSignal
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.

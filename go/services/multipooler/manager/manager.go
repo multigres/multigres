@@ -139,6 +139,14 @@ type MultiPoolerManager struct {
 	// election. Protected by mu. Cleared when this node is elected primary again.
 	resignedPrimaryAtTerm int64
 
+	// drainSignal tracks the pooler's voluntary-drain lifecycle. Protected by mu.
+	// Zero value (SERVING_SIGNAL_UNKNOWN) is treated as ACTIVE by consumers; only
+	// flips to DRAINING via enterDraining(). Never reset — drain is terminal.
+	drainSignal    clustermetadatapb.ServingSignal
+	drainPermanent bool
+	drainReason    clustermetadatapb.RemoveReason
+	drainStartedAt time.Time
+
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
@@ -411,6 +419,9 @@ func (pm *MultiPoolerManager) Pause() (resume func()) {
 // Unlike Pause(), Shutdown does not return a resume function, signaling permanent closure.
 // Safe to call multiple times and safe to call even if never opened.
 func (pm *MultiPoolerManager) Shutdown() {
+	// Best-effort tombstone write for permanent drains. Must run before
+	// closeLocked cancels the context.
+	pm.writeDrainTombstoneIfNeeded()
 	pm.closeLocked("shutdown")
 }
 
