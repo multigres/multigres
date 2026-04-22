@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -128,88 +129,73 @@ func ensureUpstreamCorpus(t *testing.T, ctx context.Context) (string, error) {
 // matching SLT_CORPUS_GLOB (defaulting to DefaultCorpusGlob). Paths are
 // absolute and sorted so per-file ordering is deterministic across runs.
 //
-// The glob uses doublestar semantics: "**" matches across path components.
+// The glob uses doublestar semantics: "**" matches across path components,
+// "*" matches within a single component, "?" matches a single non-/ char.
 func listCorpusFiles(corpusDir string) ([]string, error) {
 	glob := os.Getenv("SLT_CORPUS_GLOB")
 	if glob == "" {
 		glob = DefaultCorpusGlob
 	}
 
-	files, err := doublestarGlob(corpusDir, glob)
+	re, err := globToRegexp(glob)
 	if err != nil {
-		return nil, fmt.Errorf("glob %q in %s: %w", glob, corpusDir, err)
+		return nil, fmt.Errorf("compile glob %q: %w", glob, err)
 	}
-	sort.Strings(files)
-	return files, nil
-}
 
-// doublestarGlob handles "**" as match-across-components. The upstream
-// corpus only nests a few levels, so filepath.WalkDir is both simple and
-// fast enough.
-func doublestarGlob(root, pattern string) ([]string, error) {
-	var matches []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	var files []string
+	walkErr := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(root, path)
+		rel, relErr := filepath.Rel(corpusDir, path)
 		if relErr != nil {
 			return relErr
 		}
-		ok, matchErr := matchDoublestar(pattern, rel)
-		if matchErr != nil {
-			return matchErr
-		}
-		if ok {
-			matches = append(matches, path)
+		if re.MatchString(filepath.ToSlash(rel)) {
+			files = append(files, path)
 		}
 		return nil
 	})
-	return matches, err
-}
-
-// matchDoublestar implements "**" as match-any-number-of-path-segments.
-// Falls back to filepath.Match for single-star segments.
-func matchDoublestar(pattern, name string) (bool, error) {
-	patSegs := strings.Split(pattern, "/")
-	nameSegs := strings.Split(name, "/")
-	return matchSegs(patSegs, nameSegs)
-}
-
-func matchSegs(pat, name []string) (bool, error) {
-	for len(pat) > 0 {
-		p := pat[0]
-		if p == "**" {
-			rest := pat[1:]
-			if len(rest) == 0 {
-				return true, nil
-			}
-			for i := 0; i <= len(name); i++ {
-				ok, err := matchSegs(rest, name[i:])
-				if err != nil {
-					return false, err
-				}
-				if ok {
-					return true, nil
-				}
-			}
-			return false, nil
-		}
-		if len(name) == 0 {
-			return false, nil
-		}
-		ok, err := filepath.Match(p, name[0])
-		if err != nil {
-			return false, err
-		}
-		if !ok {
-			return false, nil
-		}
-		pat = pat[1:]
-		name = name[1:]
+	if walkErr != nil {
+		return nil, fmt.Errorf("walk %s: %w", corpusDir, walkErr)
 	}
-	return len(name) == 0, nil
+	sort.Strings(files)
+	return files, nil
+}
+
+// globToRegexp translates a shell glob into an anchored regexp. `**` matches
+// across path separators, `*` matches within one segment, `?` matches a
+// single non-`/` character. Regex metacharacters are escaped via
+// regexp.QuoteMeta so regex syntax in the pattern stays literal.
+//
+// `a/**/b` also matches `a/b` (zero intermediate segments): a `/` immediately
+// after `**` is consumed along with it.
+func globToRegexp(pat string) (*regexp.Regexp, error) {
+	var b strings.Builder
+	b.Grow(len(pat) + 4)
+	b.WriteString(`\A`)
+	for i := 0; i < len(pat); i++ {
+		c := pat[i]
+		switch c {
+		case '*':
+			if i+1 < len(pat) && pat[i+1] == '*' {
+				b.WriteString(`.*`)
+				i++
+				if i+1 < len(pat) && pat[i+1] == '/' {
+					i++
+				}
+			} else {
+				b.WriteString(`[^/]*`)
+			}
+		case '?':
+			b.WriteString(`[^/]`)
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	b.WriteString(`\z`)
+	return regexp.Compile(b.String())
 }
