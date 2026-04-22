@@ -248,6 +248,19 @@ func (w *WriterValidator) Stats() (successful, failed int) {
 	return len(w.successful), len(w.failed)
 }
 
+// WriteNow performs a single write immediately, records the result, and returns any error.
+// Useful for probing whether the connection is routed to a writable primary.
+// Safe to call concurrently with running workers.
+func (w *WriterValidator) WriteNow(ctx context.Context) error {
+	id := w.nextID.Add(1)
+	ctx, cancel := context.WithTimeout(ctx, w.queryTimeout)
+	defer cancel()
+	// #nosec G202 -- tableName is a constant from test setup, not user-controlled.
+	_, err := w.db.ExecContext(ctx, "INSERT INTO "+w.tableName+" (id) VALUES ($1)", id)
+	w.recordResult(id, err)
+	return err
+}
+
 // Verify checks that all successful writes are present in at least one of the provided poolers.
 func (w *WriterValidator) Verify(t *testing.T, poolers []*MultiPoolerTestClient) error {
 	t.Helper()
