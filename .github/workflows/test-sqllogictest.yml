@@ -168,7 +168,6 @@ jobs:
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
           results_file="$RESULTS_PATH"
-          baseline_file="/tmp/sqllogictest-baseline/results.json"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           # results.json is an array of suites (one per protocol). Report
