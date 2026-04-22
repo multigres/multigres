@@ -59,14 +59,11 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 	if sentinelPresent {
 		pm.logger.WarnContext(ctx, "Bootstrap sentinel from prior attempt detected; removing stale data directory before retry")
+		// os.RemoveAll (inside removeDataDirectory) is idempotent: a prior crash
+		// between removeDataDirectory and removeBootstrapSentinel returns nil
+		// here. Any non-nil error is a real failure worth surfacing.
 		if err := pm.removeDataDirectory(); err != nil {
-			// The error only matters if the directory is still there afterwards.
-			// A prior crash between removeDataDirectory and removeBootstrapSentinel
-			// leaves the dir already gone — a valid recovery state, not a failure.
-			if _, statErr := os.Stat(postgresDataDir()); !os.IsNotExist(statErr) {
-				return false, false, mterrors.Wrap(err, "failed to remove stale data directory from prior bootstrap attempt")
-			}
-			pm.logger.InfoContext(ctx, "Stale data directory already absent; proceeding", "error", err)
+			return false, false, mterrors.Wrap(err, "failed to remove stale data directory from prior bootstrap attempt")
 		}
 	}
 

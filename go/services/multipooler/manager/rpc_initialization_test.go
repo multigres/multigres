@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -188,6 +190,59 @@ func TestHelperMethods(t *testing.T) {
 		// Verify directory was removed
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
+	})
+
+	// Load-bearing for the crashed-bootstrap recovery path: the retry calls
+	// removeDataDirectory when the sentinel is present, and a prior crash may
+	// have already removed the directory. Idempotence lets us treat that nil
+	// return as "already clean" instead of a distinguishable special case.
+	t.Run("removeDataDirectory is idempotent on an already-deleted dir", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			logger:      slog.Default(),
+		}
+
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+		// dataDir was never created — removeDataDirectory should still return nil.
+
+		require.NoError(t, pm.removeDataDirectory())
+		// Calling again is also a no-op.
+		require.NoError(t, pm.removeDataDirectory())
+	})
+
+	// Covers the "real removal failure" branch in the sentinel-recovery path:
+	// on a non-nil error, the caller must surface it rather than silently
+	// proceed — otherwise a permission regression would go unnoticed.
+	t.Run("removeDataDirectory surfaces a permission-denied error", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("filesystem permissions do not apply to root")
+		}
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			logger:      slog.Default(),
+		}
+
+		// Put pg_data under a read-only parent so unlinking pg_data requires
+		// write permission on readonlyParent, which we have denied.
+		readonlyParent := filepath.Join(poolerDir, "readonly")
+		dataDir := filepath.Join(readonlyParent, "pg_data")
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+		require.NoError(t, os.Chmod(readonlyParent, 0o500))
+		t.Cleanup(func() {
+			// Restore perms so t.TempDir's cleanup can remove everything.
+			_ = os.Chmod(readonlyParent, 0o755)
+		})
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+		err := pm.removeDataDirectory()
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, fs.ErrPermission), "expected permission error, got: %v", err)
 	})
 }
 
