@@ -94,9 +94,11 @@ func TestPlanPortal_RegularSelectFallsThrough(t *testing.T) {
 }
 
 // TestPlanPortal_SavepointFallsThrough confirms that savepoint variants
-// (which the simple-protocol Plan() passes through via planDefault) are
-// still routed to the backend in the extended path — only BEGIN/COMMIT/
-// ROLLBACK need the local primitive.
+// are still planned through the TransactionPrimitive in the extended path.
+// Plan() routes every TransactionStmt kind through planTransactionStmt, and
+// the primitive's StreamExecute forwards savepoint variants to the backend —
+// the important invariant is that the gateway owns dispatch rather than
+// letting a raw portal Bind+Execute run on a pooled connection.
 func TestPlanPortal_SavepointFallsThrough(t *testing.T) {
 	tests := []string{
 		"SAVEPOINT sp1",

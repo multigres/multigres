@@ -202,12 +202,10 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*en
 // PortalStreamExecute with the portal's bound parameters.
 //
 // Statements that produce a plan are delegated to Plan to reuse existing planning logic.
-//
-// Currently handles:
-//   - Gateway-managed SET/SHOW/RESET (e.g., statement_timeout) — executed locally
-//     without a PostgreSQL round-trip.
-//   - RESET ALL — must be sent to PostgreSQL AND also reset gateway-managed variables.
-//     The returned plan handles both via Sequence[Route, ApplySessionState].
+// This covers any statement whose semantics cannot be preserved by a plain portal
+// execute on a pooled backend connection — for example, gateway-managed session
+// variables, LISTEN/UNLISTEN/NOTIFY, DISCARD, temp-table creation, and
+// BEGIN/COMMIT/ROLLBACK.
 func (p *Planner) PlanPortal(
 	portalInfo *preparedstatement.PortalInfo,
 	conn *server.Conn,
