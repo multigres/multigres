@@ -19,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
 )
@@ -60,6 +61,30 @@ func TestPgInitdbArgsEnvVar(t *testing.T) {
 		_, pc := GetRootCommand()
 		pc.pgInitdbArgs.Set("--encoding=UTF-8")
 		assert.Equal(t, "--encoding=UTF-8", pc.pgInitdbArgs.Get())
+	})
+}
+
+func TestInitDbSQLFilesFlag(t *testing.T) {
+	t.Run("defaults to empty slice", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Empty(t, pc.initDbSQLFiles.Get())
+	})
+
+	t.Run("accepts repeated flag", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--init-db-sql-file", "/tmp/a.sql",
+			"--init-db-sql-file", "/tmp/b.sql",
+		}))
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
+	})
+
+	t.Run("accepts comma-separated values", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--init-db-sql-file", "/tmp/a.sql,/tmp/b.sql",
+		}))
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
 	})
 }
 
