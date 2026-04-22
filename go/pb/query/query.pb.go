@@ -1083,8 +1083,15 @@ type ExecuteOptions struct {
 	// This field is only consumed by StreamExecute. PortalStreamExecute has
 	// its own top-level prepared_statement field.
 	PreparedStatement *PreparedStatement `protobuf:"bytes,6,opt,name=prepared_statement,json=preparedStatement,proto3" json:"prepared_statement,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// user_auth carries SCRAM-SHA-256 passthrough keys captured during the
+	// client's authentication handshake at the multigateway. When the
+	// multipooler has SCRAM passthrough enabled, it uses these keys to
+	// authenticate to the backing PostgreSQL as the session's real user
+	// instead of relying on trust on the local connection. Unset for
+	// sessions that did not authenticate via SCRAM.
+	UserAuth      *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1152,6 +1159,73 @@ func (x *ExecuteOptions) GetPreparedStatement() *PreparedStatement {
 	return nil
 }
 
+func (x *ExecuteOptions) GetUserAuth() *UserAuth {
+	if x != nil {
+		return x.UserAuth
+	}
+	return nil
+}
+
+// UserAuth carries cryptographic material extracted from the client's SCRAM
+// handshake at multigateway. The pair (client_key, server_key) is sufficient
+// to authenticate as the user to any SCRAM-SHA-256 verifier of the same
+// password, without ever holding the plaintext password.
+type UserAuth struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// client_key is the SCRAM ClientKey recovered from the client's proof
+	// during authentication. 32 bytes for SCRAM-SHA-256.
+	ClientKey []byte `protobuf:"bytes,1,opt,name=client_key,json=clientKey,proto3" json:"client_key,omitempty"`
+	// server_key is the SCRAM ServerKey read from the user's verifier in
+	// pg_authid. 32 bytes for SCRAM-SHA-256.
+	ServerKey     []byte `protobuf:"bytes,2,opt,name=server_key,json=serverKey,proto3" json:"server_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserAuth) Reset() {
+	*x = UserAuth{}
+	mi := &file_query_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserAuth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserAuth) ProtoMessage() {}
+
+func (x *UserAuth) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserAuth.ProtoReflect.Descriptor instead.
+func (*UserAuth) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *UserAuth) GetClientKey() []byte {
+	if x != nil {
+		return x.ClientKey
+	}
+	return nil
+}
+
+func (x *UserAuth) GetServerKey() []byte {
+	if x != nil {
+		return x.ServerKey
+	}
+	return nil
+}
+
 // ReservationOptions specifies options when creating or extending a reserved connection.
 // This is passed alongside ExecuteOptions on requests that may need to create or modify
 // a connection reservation. It is extensible for future options (e.g., isolation level,
@@ -1177,7 +1251,7 @@ type ReservationOptions struct {
 
 func (x *ReservationOptions) Reset() {
 	*x = ReservationOptions{}
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1189,7 +1263,7 @@ func (x *ReservationOptions) String() string {
 func (*ReservationOptions) ProtoMessage() {}
 
 func (x *ReservationOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1202,7 +1276,7 @@ func (x *ReservationOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReservationOptions.ProtoReflect.Descriptor instead.
 func (*ReservationOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{13}
+	return file_query_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ReservationOptions) GetReasons() uint32 {
@@ -1304,16 +1378,22 @@ const file_query_proto_rawDesc = "" +
 	"\rReservedState\x124\n" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
-	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\xd9\x02\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x87\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12G\n" +
-	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x1aB\n" +
+	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12,\n" +
+	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"O\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"H\n" +
+	"\bUserAuth\x12\x1d\n" +
+	"\n" +
+	"client_key\x18\x01 \x01(\fR\tclientKey\x12\x1d\n" +
+	"\n" +
+	"server_key\x18\x02 \x01(\fR\tserverKey\"O\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
@@ -1331,7 +1411,7 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_query_proto_goTypes = []any{
 	(*QueryResultPayload)(nil),      // 0: query.QueryResultPayload
 	(*QueryResult)(nil),             // 1: query.QueryResult
@@ -1346,10 +1426,11 @@ var file_query_proto_goTypes = []any{
 	(*Portal)(nil),                  // 10: query.Portal
 	(*ReservedState)(nil),           // 11: query.ReservedState
 	(*ExecuteOptions)(nil),          // 12: query.ExecuteOptions
-	(*ReservationOptions)(nil),      // 13: query.ReservationOptions
-	nil,                             // 14: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 15: clustermetadata.PoolerType
-	(*clustermetadata.ID)(nil),      // 16: clustermetadata.ID
+	(*UserAuth)(nil),                // 13: query.UserAuth
+	(*ReservationOptions)(nil),      // 14: query.ReservationOptions
+	nil,                             // 15: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 16: clustermetadata.PoolerType
+	(*clustermetadata.ID)(nil),      // 17: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1359,15 +1440,16 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 4: query.QueryResult.rows:type_name -> query.Row
 	7,  // 5: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	2,  // 6: query.StatementDescription.fields:type_name -> query.Field
-	15, // 7: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	16, // 8: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	14, // 9: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	16, // 7: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	17, // 8: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	15, // 9: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
 	9,  // 10: query.ExecuteOptions.prepared_statement:type_name -> query.PreparedStatement
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 11: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1386,7 +1468,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

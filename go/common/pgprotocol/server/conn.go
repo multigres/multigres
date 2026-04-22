@@ -136,6 +136,12 @@ type Conn struct {
 	database string
 	params   map[string]string
 
+	// SCRAM-SHA-256 keys extracted during the client handshake, used for
+	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
+	// sessions. Zeroized in Close.
+	scramClientKey []byte
+	scramServerKey []byte
+
 	// protocolVersion is the negotiated protocol version.
 	protocolVersion protocol.ProtocolVersion
 
@@ -217,6 +223,17 @@ func (c *Conn) Close() error {
 	// The state is set to nil so handlers should handle nil-checking.
 	c.state = nil
 
+	// Zeroize SCRAM passthrough keys so a post-mortem or memory dump cannot
+	// recover credentials for this session after close.
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
+
 	// Return pooled resources.
 	c.returnReader()
 	// Defensive cleanup: if a handler panicked between readMessageBody
@@ -285,6 +302,19 @@ func (c *Conn) User() string {
 // Database returns the database name.
 func (c *Conn) Database() string {
 	return c.database
+}
+
+// ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the
+// client's authentication handshake, or nil if the session did not
+// authenticate via SCRAM. Used for passthrough auth to backend PostgreSQL.
+func (c *Conn) ScramClientKey() []byte {
+	return c.scramClientKey
+}
+
+// ScramServerKey returns the SCRAM-SHA-256 ServerKey from the user's
+// verifier, or nil if the session did not authenticate via SCRAM.
+func (c *Conn) ScramServerKey() []byte {
+	return c.scramServerKey
 }
 
 // GetStartupParams returns the startup parameters sent by the client,

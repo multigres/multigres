@@ -286,3 +286,42 @@ func TestStreamExecuteOnReservedConn_ReconcilesInlineBegin(t *testing.T) {
 	require.Equal(t, protoutil.ReasonTransaction, rc.addedReasons,
 		"helper should add the transaction reason when PG reports in-block")
 }
+
+func TestScramKeysFromOptions(t *testing.T) {
+	ck := []byte{1, 2, 3}
+	sk := []byte{4, 5, 6}
+
+	tests := []struct {
+		name    string
+		options *query.ExecuteOptions
+		wantCK  []byte
+		wantSK  []byte
+	}{
+		{
+			name:    "nil options",
+			options: nil,
+		},
+		{
+			name:    "options without user_auth",
+			options: &query.ExecuteOptions{User: "alice"},
+		},
+		{
+			name:    "options with populated user_auth",
+			options: &query.ExecuteOptions{User: "alice", UserAuth: &query.UserAuth{ClientKey: ck, ServerKey: sk}},
+			wantCK:  ck,
+			wantSK:  sk,
+		},
+		{
+			name:    "options with empty user_auth",
+			options: &query.ExecuteOptions{User: "alice", UserAuth: &query.UserAuth{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotCK, gotSK := scramKeysFromOptions(tt.options)
+			require.Equal(t, tt.wantCK, gotCK)
+			require.Equal(t, tt.wantSK, gotSK)
+		})
+	}
+}
