@@ -143,16 +143,19 @@ func executeQuery(ctx context.Context, conn *pgx.Conn, rec Record) ([]string, er
 	}
 	defer rows.Close()
 
-	nCols := len(rec.TypeString)
+	// nCols tracks the actual column count from the database, not the
+	// declared type string length. Using the type string length would
+	// silently mis-reshape the row grid for rowsort if a test author wrote a
+	// too-short type string (e.g. `query II` for a 3-column SELECT) — rowsort
+	// would sort across row boundaries without any error.
+	nCols := 0
 	var flat []string
 	for rows.Next() {
 		vals, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		if nCols == 0 {
-			nCols = len(vals)
-		}
+		nCols = len(vals)
 		for i, v := range vals {
 			var typeChar byte
 			if i < len(rec.TypeString) {
@@ -169,11 +172,8 @@ func executeQuery(ctx context.Context, conn *pgx.Conn, rec Record) ([]string, er
 
 	// Apply sort mode: rowsort reorders whole rows before comparison, used
 	// when the SQL has no ORDER BY and the test doesn't care about order.
-	switch rec.SortMode {
-	case "rowsort":
+	if rec.SortMode == "rowsort" {
 		flat = rowsort(flat, nCols)
-	case "valuesort":
-		sort.Strings(flat)
 	}
 	return flat, nil
 }
@@ -217,7 +217,9 @@ func formatValue(v any, typeChar byte) string {
 	case 'R':
 		switch x := v.(type) {
 		case float32:
-			return strconv.FormatFloat(float64(x), 'f', 3, 64)
+			// bitSize=32 so rounding matches the original float32 precision;
+			// PG `real` / `float4` columns come back as float32 via pgx.
+			return strconv.FormatFloat(float64(x), 'f', 3, 32)
 		case float64:
 			return strconv.FormatFloat(x, 'f', 3, 64)
 		case int, int32, int64, int16, int8:

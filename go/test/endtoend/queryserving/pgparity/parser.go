@@ -81,25 +81,12 @@ func ParseFile(path string) (*TestFile, error) {
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
 	lineNo := 0
-	// One-line push-back buffer lets parseQuery return control to the main
-	// loop when the expected-rows block runs into the next directive without
-	// a blank separator (malformed but survivable input).
-	var pending string
-	var pendingValid bool
 	readLine := func() (string, bool) {
-		if pendingValid {
-			pendingValid = false
-			return pending, true
-		}
 		if !scanner.Scan() {
 			return "", false
 		}
 		lineNo++
 		return scanner.Text(), true
-	}
-	pushBack := func(s string) {
-		pending = s
-		pendingValid = true
 	}
 
 	for {
@@ -122,7 +109,7 @@ func ParseFile(path string) (*TestFile, error) {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "query ") {
-			rec, err := parseQuery(trimmed, lineNo, readLine, pushBack)
+			rec, err := parseQuery(trimmed, lineNo, readLine)
 			if err != nil {
 				return nil, err
 			}
@@ -189,9 +176,12 @@ func parseStatement(header string, startLine int, readLine func() (string, bool)
 //	2 two
 //
 // The section before `----` is the SQL; the section after is one row per
-// line, tab-separated within a row. The parser flattens rows into a single
-// list of values so the runner can compare cell-by-cell.
-func parseQuery(header string, startLine int, readLine func() (string, bool), pushBack func(string)) (Record, error) {
+// line, tab-separated within a row. The expected-rows block ends at a blank
+// line or EOF — callers MUST leave a blank line between records, otherwise
+// a subsequent directive header would be consumed as an expected value.
+// The parser flattens rows into a single list of values so the runner can
+// compare cell-by-cell.
+func parseQuery(header string, startLine int, readLine func() (string, bool)) (Record, error) {
 	rec := Record{Kind: DirectiveQuery, LineNo: startLine, SortMode: "nosort"}
 
 	fields := strings.Fields(header)
@@ -238,7 +228,10 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 		return rec, nil
 	}
 
-	// Read expected values until blank line / EOF / next directive.
+	// Read expected values until blank line / EOF. Heuristics like "stop at
+	// the next directive-looking line" are avoided on purpose: a query whose
+	// expected output contains a literal `statement ok` (e.g. `SELECT
+	// 'statement ok'`) would be truncated. Blank lines are authoritative.
 	for {
 		line, ok := readLine()
 		if !ok {
@@ -247,23 +240,10 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 		if strings.TrimSpace(line) == "" {
 			break
 		}
-		if isDirectiveLine(line) {
-			// Safety net: the expected-rows block ran into the next record
-			// without a blank separator. Push it back so the main loop sees it.
-			pushBack(line)
-			break
-		}
 		for v := range strings.SplitSeq(line, "\t") {
 			rec.ExpectedRows = append(rec.ExpectedRows, v)
 		}
 	}
 	rec.ExpectedCount = len(rec.ExpectedRows)
 	return rec, nil
-}
-
-// isDirectiveLine returns true if the line begins a new directive, used as a
-// safety net when a query's expected-rows block is missing the trailing blank
-// line before the next record.
-func isDirectiveLine(line string) bool {
-	return strings.HasPrefix(line, "statement ") || strings.HasPrefix(line, "query ")
 }
