@@ -130,12 +130,12 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	require.True(t, updated.IsUpToDate)
 	require.NotNil(t, updated.LastSeen)
 	require.NotNil(t, updated.LastCheckSuccessful)
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType)
-	require.NotNil(t, updated.PrimaryStatus)
-	require.Equal(t, "0/123ABC", updated.PrimaryStatus.Lsn)
-	require.True(t, updated.PrimaryStatus.Ready)
-	require.Len(t, updated.PrimaryStatus.ConnectedFollowers, 2)
-	require.Nil(t, updated.ReplicationStatus)
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType())
+	require.NotNil(t, updated.GetStatus().GetPrimaryStatus())
+	require.Equal(t, "0/123ABC", updated.GetStatus().GetPrimaryStatus().GetLsn())
+	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady())
+	require.Len(t, updated.GetStatus().GetPrimaryStatus().GetConnectedFollowers(), 2)
+	require.Nil(t, updated.GetStatus().GetReplicationStatus())
 }
 
 // TestHealthStream_UpdatesStore_Replica tests that a REPLICA snapshot is applied to the store.
@@ -181,18 +181,18 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	updated, _ := poolerStore.Get(key)
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.PoolerType)
-	require.NotNil(t, updated.ReplicationStatus)
-	require.Equal(t, "0/123ABC", updated.ReplicationStatus.LastReplayLsn)
-	require.Equal(t, "0/123DEF", updated.ReplicationStatus.LastReceiveLsn)
-	require.False(t, updated.ReplicationStatus.IsWalReplayPaused)
-	require.Equal(t, "not paused", updated.ReplicationStatus.WalReplayPauseState)
-	require.Equal(t, int64(500), updated.ReplicationStatus.Lag.AsDuration().Milliseconds())
-	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.ReplicationStatus.LastXactReplayTimestamp)
-	require.NotNil(t, updated.ReplicationStatus.PrimaryConnInfo)
-	require.Equal(t, "primary-host", updated.ReplicationStatus.PrimaryConnInfo.Host)
-	require.Equal(t, int32(5432), updated.ReplicationStatus.PrimaryConnInfo.Port)
-	require.Nil(t, updated.PrimaryStatus)
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.GetStatus().GetPoolerType())
+	require.NotNil(t, updated.GetStatus().GetReplicationStatus())
+	require.Equal(t, "0/123ABC", updated.GetStatus().GetReplicationStatus().GetLastReplayLsn())
+	require.Equal(t, "0/123DEF", updated.GetStatus().GetReplicationStatus().GetLastReceiveLsn())
+	require.False(t, updated.GetStatus().GetReplicationStatus().GetIsWalReplayPaused())
+	require.Equal(t, "not paused", updated.GetStatus().GetReplicationStatus().GetWalReplayPauseState())
+	require.Equal(t, int64(500), updated.GetStatus().GetReplicationStatus().GetLag().AsDuration().Milliseconds())
+	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.GetStatus().GetReplicationStatus().GetLastXactReplayTimestamp())
+	require.NotNil(t, updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo())
+	require.Equal(t, "primary-host", updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost())
+	require.Equal(t, int32(5432), updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetPort())
+	require.Nil(t, updated.GetStatus().GetPrimaryStatus())
 }
 
 // TestHealthStream_Poll tests that Poll() sends a poll message and a subsequent snapshot is applied.
@@ -223,7 +223,7 @@ func TestHealthStream_Poll(t *testing.T) {
 	})
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.Get(key)
-		return ok && s.PrimaryStatus != nil && s.PrimaryStatus.Lsn == "0/AAAAAA"
+		return ok && s.GetStatus().GetPrimaryStatus() != nil && s.GetStatus().GetPrimaryStatus().GetLsn() == "0/AAAAAA"
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 
 	// Trigger a poll.
@@ -238,7 +238,7 @@ func TestHealthStream_Poll(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.Get(key)
-		return ok && s.PrimaryStatus != nil && s.PrimaryStatus.Lsn == "0/BBBBBB"
+		return ok && s.GetStatus().GetPrimaryStatus() != nil && s.GetStatus().GetPrimaryStatus().GetLsn() == "0/BBBBBB"
 	}, 2*time.Second, 10*time.Millisecond, "polled snapshot should be applied")
 }
 
@@ -561,9 +561,9 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 	updated, _ := poolerStore.Get(key)
 	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type,
 		"topology type should remain REPLICA")
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType,
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType(),
 		"reported type should be PRIMARY")
-	require.NotNil(t, updated.PrimaryStatus)
-	require.Equal(t, "0/FFFFFF", updated.PrimaryStatus.Lsn)
-	require.True(t, updated.PrimaryStatus.Ready)
+	require.NotNil(t, updated.GetStatus().GetPrimaryStatus())
+	require.Equal(t, "0/FFFFFF", updated.GetStatus().GetPrimaryStatus().GetLsn())
+	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady())
 }

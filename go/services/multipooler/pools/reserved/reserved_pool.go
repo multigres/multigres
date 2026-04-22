@@ -353,6 +353,21 @@ func (p *Pool) PeakRequestedAndReset() int64 {
 	return p.conns.PeakRequestedAndReset()
 }
 
+// WaitCount returns the total number of times a client had to wait for a connection.
+func (p *Pool) WaitCount() int64 {
+	return p.conns.WaitCount()
+}
+
+// WaitTime returns the total time clients spent waiting for a connection.
+func (p *Pool) WaitTime() time.Duration {
+	return p.conns.WaitTime()
+}
+
+// GetCount returns the total number of Get() calls (connections borrowed).
+func (p *Pool) GetCount() int64 {
+	return p.conns.GetCount()
+}
+
 // PoolStats contains pool statistics for reserved connections.
 type PoolStats struct {
 	// Active is the number of currently reserved connections.

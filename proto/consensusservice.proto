@@ -24,9 +24,21 @@ option go_package = "github.com/multigres/multigres/go/pb/consensus";
 // MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 service MultiPoolerConsensus {
   // Leader Appointment Protocol
+
+  // BeginTerm initiates a new leadership term by requesting the current leader
+  // to step down. The current leader will revoke its leadership and trigger a
+  // new election, allowing the coordinator to select a new leader based on the
+  // latest replication state of the followers. This is used by MultiOrch during
+  // failover to ensure that the old leader steps down gracefully and does not
+  // continue to accept writes, which could lead to data divergence.
   rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
 
   // Status and Health
+
+  // Status provides the current status of the consensus service, including the
+  // health of the cluster, the current leader, and any ongoing elections. This
+  // is used by MultiOrch to monitor the cluster and determine if it needs to
+  // trigger failover or other recovery actions.
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
 
   // HA Operations

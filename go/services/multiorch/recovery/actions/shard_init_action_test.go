@@ -30,6 +30,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -79,8 +80,10 @@ var testShardInitShardKey = commontypes.ShardKey{
 
 func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
 	return &multiorchdatapb.PoolerHealthState{
-		IsInitialized: initialized,
-		CohortMembers: cohortMembers,
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: initialized,
+			CohortMembers: cohortMembers,
+		},
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,

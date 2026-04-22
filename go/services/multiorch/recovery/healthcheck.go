@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -164,8 +165,10 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			existing.LastCheckAttempted = now
 			existing.IsUpToDate = true // We tried, don't retry immediately
 			existing.IsLastCheckValid = false
-			existing.IsPostgresReady = false   // Assume Postgres is down if we can't reach the pooler
-			existing.IsPostgresRunning = false // Unknown — assume false when pooler is unreachable
+			if existing.Status != nil {
+				existing.Status.PostgresReady = false   // Assume Postgres is down if we can't reach the pooler
+				existing.Status.PostgresRunning = false // Unknown — assume false when pooler is unreachable
+			}
 			return existing
 		})
 		return
@@ -186,23 +189,12 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		existing.LastSeen = successTime
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
-		existing.IsPostgresReady = status.PostgresReady
+		existing.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 		if status.PostgresReady {
 			existing.LastPostgresReadyTime = successTime
 		}
 		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 		// left at its previous value so callers can reason about "last known good" time.
-
-		// Status RPC now includes initialization fields and works without db connection
-		existing.IsPostgresRunning = status.PostgresRunning
-		existing.PoolerType = status.PoolerType
-		existing.PrimaryStatus = status.PrimaryStatus
-		existing.ReplicationStatus = status.ReplicationStatus
-		existing.IsInitialized = status.IsInitialized
-		existing.HasDataDirectory = status.HasDataDirectory
-		existing.ConsensusTerm = status.ConsensusTerm
-		existing.CohortMembers = status.CohortMembers
-
 		existing.ConsensusStatus = consensusState
 		return existing
 	})

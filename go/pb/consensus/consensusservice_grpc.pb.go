@@ -51,9 +51,17 @@ const (
 //
 // MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 type MultiPoolerConsensusClient interface {
-	// Leader Appointment Protocol
+	// BeginTerm initiates a new leadership term by requesting the current leader
+	// to step down. The current leader will revoke its leadership and trigger a
+	// new election, allowing the coordinator to select a new leader based on the
+	// latest replication state of the followers. This is used by MultiOrch during
+	// failover to ensure that the old leader steps down gracefully and does not
+	// continue to accept writes, which could lead to data divergence.
 	BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error)
-	// Status and Health
+	// Status provides the current status of the consensus service, including the
+	// health of the cluster, the current leader, and any ongoing elections. This
+	// is used by MultiOrch to monitor the cluster and determine if it needs to
+	// trigger failover or other recovery actions.
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
 	// EmergencyDemote demotes the current leader server
 	EmergencyDemote(ctx context.Context, in *multipoolermanagerdata.EmergencyDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EmergencyDemoteResponse, error)
@@ -166,9 +174,17 @@ func (c *multiPoolerConsensusClient) RewindToSource(ctx context.Context, in *mul
 //
 // MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 type MultiPoolerConsensusServer interface {
-	// Leader Appointment Protocol
+	// BeginTerm initiates a new leadership term by requesting the current leader
+	// to step down. The current leader will revoke its leadership and trigger a
+	// new election, allowing the coordinator to select a new leader based on the
+	// latest replication state of the followers. This is used by MultiOrch during
+	// failover to ensure that the old leader steps down gracefully and does not
+	// continue to accept writes, which could lead to data divergence.
 	BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error)
-	// Status and Health
+	// Status provides the current status of the consensus service, including the
+	// health of the cluster, the current leader, and any ongoing elections. This
+	// is used by MultiOrch to monitor the cluster and determine if it needs to
+	// trigger failover or other recovery actions.
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
 	// EmergencyDemote demotes the current leader server
 	EmergencyDemote(context.Context, *multipoolermanagerdata.EmergencyDemoteRequest) (*multipoolermanagerdata.EmergencyDemoteResponse, error)

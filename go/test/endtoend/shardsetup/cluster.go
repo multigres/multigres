@@ -87,6 +87,10 @@ type ShardSetup struct {
 	// Set when WithMultigatewayTLS() is used.
 	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
 
+	// MetricsPorts maps instance name to its Prometheus metrics port.
+	// Set when WithMetricsExport() is used. Scrape http://localhost:<port>/metrics.
+	MetricsPorts map[string]int
+
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
 
