@@ -424,6 +424,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		MaxMemoryBytes: mg.queryMetricsMemory.Get(),
 		MaxSQLLength:   mg.queryMetricsSQLMaxBytes.Get(),
 	})
+	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
+		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
+	}
 
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
