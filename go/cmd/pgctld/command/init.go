@@ -129,10 +129,9 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 // and running user-provided init SQL files against the target database.
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
-	runSQL := len(cfg.InitDbSQLFiles) > 0
 
 	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
-		"create_database", createDB, "run_init_sql", runSQL)
+		"create_database", createDB, "init_sql_files", len(cfg.InitDbSQLFiles))
 	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg.Port, cfg.User)
 	if err != nil {
 		return err
@@ -145,10 +144,8 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		}
 	}
 
-	if runSQL {
-		if err := runInitDbSQLFiles(logger, pg, cfg.Database, cfg.InitDbSQLFiles); err != nil {
-			return err
-		}
+	if err := runInitDbSQLFiles(logger, pg, cfg.Database, cfg.InitDbSQLFiles); err != nil {
+		return err
 	}
 
 	return nil

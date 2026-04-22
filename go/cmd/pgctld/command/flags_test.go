@@ -86,6 +86,19 @@ func TestInitDbSQLFilesFlag(t *testing.T) {
 		}))
 		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
 	})
+
+	t.Run("POSTGRES_INITDB_SQL_FILES env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/a.sql")
+		_, pc := GetRootCommand()
+		assert.Equal(t, []string{"/tmp/a.sql"}, pc.initDbSQLFiles.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_INITDB_SQL_FILES env var", func(t *testing.T) {
+		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/env.sql")
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{"--init-db-sql-file", "/tmp/flag.sql"}))
+		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.initDbSQLFiles.Get())
+	})
 }
 
 func TestPgBackRestFlags(t *testing.T) {

@@ -118,6 +118,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		initDbSQLFiles: viperutil.Configure(reg, "init-db-sql-file", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "init-db-sql-file",
+			EnvVars:  []string{constants.PgInitDbSQLFilesEnvVar},
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),
@@ -170,7 +171,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
-	root.PersistentFlags().StringSlice("init-db-sql-file", pc.initDbSQLFiles.Default(), "Path to a .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order.")
+	root.PersistentFlags().StringSlice("init-db-sql-file", pc.initDbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitDbSQLFilesEnvVar+" env var).")
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
