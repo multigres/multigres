@@ -1005,6 +1005,11 @@ func (pool *Pool[C]) PeakRequestedAndReset() int64 {
 	return pool.peakRequested.Swap(0)
 }
 
+// Waiting returns the number of clients currently waiting for a connection.
+func (pool *Pool[C]) Waiting() int {
+	return pool.wait.waiting()
+}
+
 // Stats returns pool statistics.
 func (pool *Pool[C]) Stats() PoolStats {
 	return PoolStats{
@@ -1014,6 +1019,7 @@ func (pool *Pool[C]) Stats() PoolStats {
 		Capacity:  pool.capacity.Load(),
 		Available: pool.Available(),
 		Requested: pool.requested.Load(),
+		Waiting:   pool.wait.waiting(),
 	}
 }
 
@@ -1025,4 +1031,5 @@ type PoolStats struct {
 	Capacity  int64 // Maximum connections
 	Available int64 // Connections available for immediate use
 	Requested int64 // Pending requests + borrowed (demand)
+	Waiting   int   // Clients waiting for a connection
 }
