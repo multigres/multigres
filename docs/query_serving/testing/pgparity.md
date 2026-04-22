@@ -45,7 +45,7 @@ so any divergence is proxy-introduced.
 Test files are plain text — a sequence of **records**, each one a directive
 header followed by SQL and (for queries) the expected result. Records are
 separated by blank lines. Lines starting with `#` are comments. Any directive
-not listed below is a parse error, so a typo like `statment ok` fails loudly
+not listed below is a parse error, so a misspelled directive fails loudly
 rather than silently disabling tests.
 
 ### Directives

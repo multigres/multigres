@@ -167,8 +167,8 @@ func executeQuery(ctx context.Context, conn *pgx.Conn, rec Record) ([]string, er
 		return nil, err
 	}
 
-	// Apply sort mode. The sqllogictest spec says rowsort sorts whole rows
-	// while valuesort sorts each value independently. Implement both.
+	// Apply sort mode: rowsort reorders whole rows before comparison, used
+	// when the SQL has no ORDER BY and the test doesn't care about order.
 	switch rec.SortMode {
 	case "rowsort":
 		flat = rowsort(flat, nCols)
@@ -178,8 +178,8 @@ func executeQuery(ctx context.Context, conn *pgx.Conn, rec Record) ([]string, er
 	return flat, nil
 }
 
-// formatValue converts a pgx-decoded value into its sqllogictest canonical
-// string form based on the declared type char:
+// formatValue converts a pgx-decoded value into its canonical string form
+// based on the declared type char:
 //
 //	I — integer (NULL becomes "NULL")
 //	R — real/float, formatted with three decimal places

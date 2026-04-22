@@ -71,3 +71,26 @@ SELECT a, b FROM t
 		t.Errorf("record[3] = %+v", r)
 	}
 }
+
+// TestParseRejectsUnsupported checks that the parser errors on anything
+// outside the supported grammar, rather than silently skipping it. Silent
+// skips would let a misspelled directive disable a whole block of tests.
+func TestParseRejectsUnsupported(t *testing.T) {
+	cases := map[string]string{
+		"unknown directive":  "nonsense\nSELECT 1\n",
+		"bad statement kind": "statement maybe\nSELECT 1\n",
+		"bad sort mode":      "query I valuesort\nSELECT 1\n----\n1\n",
+		"extra query field":  "query I rowsort extra\nSELECT 1\n----\n1\n",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bad.slt")
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ParseFile(path); err == nil {
+				t.Fatalf("expected parse error for %q, got nil", name)
+			}
+		})
+	}
+}

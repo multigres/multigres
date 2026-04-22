@@ -26,10 +26,8 @@
 //     that follow a `----` separator. Default sort mode preserves result
 //     order; `rowsort` sorts whole rows before comparison.
 //
-// The file format is a tight subset of SQLite's sqllogictest format
-// (https://www.sqlite.org/sqllogictest/), kept minimal on purpose — a strict
-// parser means a misspelled directive fails loudly rather than silently
-// disabling tests.
+// The file format is deliberately minimal — a strict parser means a
+// misspelled directive fails loudly rather than silently disabling tests.
 package pgparity
 
 import (

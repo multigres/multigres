@@ -31,8 +31,7 @@ import (
 // PostgreSQL and the multigateway proxy. A record that passes on postgres but
 // fails on multigateway fails the test — that's the parity contract.
 //
-// Test files follow a subset of the sqllogictest format. See the parser.go
-// doc comment for the supported directives.
+// See the parser.go doc comment for the supported directives.
 //
 // Environment variables (optional):
 //   - PGPARITY_CORPUS — directory containing .slt files (default: ./testdata)
