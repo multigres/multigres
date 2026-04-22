@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -35,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
@@ -319,10 +321,38 @@ func (e *Executor) reserveAndStreamExecute(
 	// If the query references a gateway-managed prepared statement (wrapped
 	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), ensure it is
 	// parsed on this newly created backend connection before running the query.
+	// If the connection is stale (e.g. postgres closed it while idle) and no
+	// BEGIN has been sent yet — so there is no session state to preserve —
+	// release it and retry with a fresh connection from the pool, mirroring
+	// the retryOnConnectionError behavior for the non-reserved path.
 	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
-		if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
+		const maxEnsurePreparedAttempts = 3
+		r := retry.New(100*time.Millisecond, 100*time.Millisecond)
+		var ensureErr error
+		for attempt, ctxErr := range r.Attempts(ctx) {
+			if ctxErr != nil {
+				reservedConn.Release(reserved.ReleaseError)
+				return nil, ctxErr
+			}
+			ensureErr = e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt)
+			if ensureErr == nil || !mterrors.IsConnectionError(ensureErr) || beginTx || attempt >= maxEnsurePreparedAttempts {
+				break
+			}
+			e.logger.WarnContext(ctx, "stale reserved connection on ensurePreparedWithName, retrying",
+				"attempt", attempt, "error", ensureErr)
 			reservedConn.Release(reserved.ReleaseError)
-			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", err)
+			var connErr error
+			reservedConn, connErr = e.poolManager.NewReservedConn(ctx, settings, user)
+			if connErr != nil {
+				return nil, fmt.Errorf("failed to create reserved connection on retry: %w", connErr)
+			}
+			if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+				reservedConn.AddReservationReason(nonBeginReasons)
+			}
+		}
+		if ensureErr != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", ensureErr)
 		}
 	}
 
