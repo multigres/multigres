@@ -14,6 +14,8 @@
 
 package ast
 
+import "strings"
+
 // NormalizeResult holds the output of AST normalization.
 type NormalizeResult struct {
 	// NormalizedSQL is the SQL string with literals replaced by $1, $2, ...
@@ -42,6 +44,12 @@ func (r *NormalizeResult) WasNormalized() bool {
 // VariableSetStmt, VariableShowStmt, and DefElem subtrees are skipped
 // because their literal values carry semantic meaning that affects planning.
 //
+// The same applies inside built-in function calls whose arguments the planner
+// inspects literally — currently just `set_config(name, value, is_local)`,
+// where the planner rewrites a bare SELECT into the equivalent SET and needs
+// the literal values to build the SessionSettings update. See
+// go/services/multigateway/planner/unsafe_funccall.go.
+//
 // NULL constants (A_Const with Isnull=true) are NOT normalized because NULL
 // is a keyword that affects query semantics (e.g., IS NULL vs IS $1).
 func Normalize(stmt Stmt) *NormalizeResult {
@@ -57,9 +65,13 @@ func Normalize(stmt Stmt) *NormalizeResult {
 
 		// Skip subtrees where literal values carry semantic meaning that
 		// affects planning (e.g., SET timezone = 'UTC') — don't normalize them.
-		switch node.(type) {
+		switch n := node.(type) {
 		case *VariableSetStmt, *VariableShowStmt, *DefElem:
 			return false
+		case *FuncCall:
+			if isPlannerLiteralFunc(n.Funcname) {
+				return false
+			}
 		}
 
 		aConst, ok := node.(*A_Const)
@@ -83,6 +95,39 @@ func Normalize(stmt Stmt) *NormalizeResult {
 		NormalizedAST: normalizedAST,
 		BindValues:    bindValues,
 	}
+}
+
+// isPlannerLiteralFunc reports whether the planner inspects this function
+// call's arguments as literal values and therefore needs normalization
+// skipped for its subtree. Currently only `set_config(name, value, is_local)`
+// qualifies; callers schema-qualified to pg_catalog resolve to the same entry.
+//
+// Keeping this predicate in the ast package (next to the normalizer) trades
+// a little co-location for avoiding an import cycle — the planner package
+// imports ast, not the other way around.
+func isPlannerLiteralFunc(funcname *NodeList) bool {
+	if funcname == nil {
+		return false
+	}
+	switch funcname.Len() {
+	case 1:
+		return funcNamePartEquals(funcname.Items[0], "set_config")
+	case 2:
+		return funcNamePartEquals(funcname.Items[0], "pg_catalog") &&
+			funcNamePartEquals(funcname.Items[1], "set_config")
+	}
+	return false
+}
+
+// funcNamePartEquals returns true iff the node is a *String whose value,
+// lowercased, equals want. Used for FuncCall.Funcname items, which are
+// always *String in a well-formed parse tree.
+func funcNamePartEquals(n Node, want string) bool {
+	s, ok := n.(*String)
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(s.SVal, want)
 }
 
 // ReconstructSQL takes a normalized AST and bind values, and produces the

@@ -124,6 +124,105 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 			require.Equal(t, "128MB", got, "iteration %d", i)
 		}
 	})
+
+	// set_config alongside a real query (`SELECT set_config(...), * FROM t`).
+	// The planner uses Sequence[silent ApplySessionState, Route]: update the
+	// tracker first, then let PG execute the query normally so it returns
+	// both the set_config column and the table rows. Verify both effects:
+	// the tracker update persists across pooled connections, and the table
+	// rows come through intact.
+	t.Run("SELECT set_config alongside table read", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err)
+
+		// Scratch table so we have something to SELECT * FROM.
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS set_config_mix_t")
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, "CREATE TABLE set_config_mix_t (id int, name text)")
+		require.NoError(t, err)
+		defer func() {
+			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS set_config_mix_t")
+		}()
+		_, err = db.ExecContext(ctx,
+			"INSERT INTO set_config_mix_t VALUES (1, 'one'), (2, 'two')")
+		require.NoError(t, err)
+
+		// Run the mixed query. It returns one row per table row, each with
+		// the set_config column (always equal to the new value) and the
+		// table columns.
+		rows, err := db.QueryContext(ctx,
+			"SELECT set_config('work_mem', '384MB', false), id, name FROM set_config_mix_t ORDER BY id")
+		require.NoError(t, err, "mixed set_config + table read should succeed")
+
+		type row struct {
+			setConfigVal string
+			id           int
+			name         string
+		}
+		var got []row
+		for rows.Next() {
+			var r row
+			require.NoError(t, rows.Scan(&r.setConfigVal, &r.id, &r.name))
+			got = append(got, r)
+		}
+		require.NoError(t, rows.Err())
+		rows.Close() //nolint:sqlclosecheck // close-before-loop, not defer
+
+		require.Len(t, got, 2)
+		assert.Equal(t, row{setConfigVal: "384MB", id: 1, name: "one"}, got[0])
+		assert.Equal(t, row{setConfigVal: "384MB", id: 2, name: "two"}, got[1])
+
+		// Tracker update must persist across pool rotations.
+		for i := range 100 {
+			var got string
+			err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&got)
+			require.NoError(t, err, "iteration %d", i)
+			require.Equal(t, "384MB", got,
+				"iteration %d: tracker update from mixed query should persist", i)
+		}
+	})
+
+	// Multiple set_config calls in the same target list — each must update
+	// the tracker. Tests the Sequence primitive's ordering (two silent
+	// ApplySessionState primitives before the Route step).
+	t.Run("multiple set_configs in one query", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err)
+
+		_, err = db.ExecContext(ctx,
+			"SELECT set_config('work_mem', '192MB', false), set_config('search_path', 'mixschema', false)")
+		require.NoError(t, err)
+
+		for i := range 100 {
+			var wm, sp string
+			err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&wm)
+			require.NoError(t, err, "iteration %d", i)
+			require.Equal(t, "192MB", wm, "iteration %d", i)
+
+			err = db.QueryRowContext(ctx, "SHOW search_path").Scan(&sp)
+			require.NoError(t, err, "iteration %d", i)
+			require.Equal(t, "mixschema", sp, "iteration %d", i)
+		}
+	})
+
+	// set_config(..., true) — transaction-scoped — is allowed but NOT tracked
+	// by the pooler (it's scoped to the backend transaction, so the pool
+	// shouldn't carry it forward). PG handles it directly.
+	t.Run("set_config is_local=true passes through", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err)
+
+		// Run inside a transaction so is_local=true has something to scope to.
+		tx, err := db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer tx.Rollback() //nolint:errcheck
+
+		var val string
+		err = tx.QueryRowContext(ctx,
+			"SELECT set_config('work_mem', '999MB', true)").Scan(&val)
+		require.NoError(t, err, "is_local=true should pass through to PG")
+		assert.Equal(t, "999MB", val)
+	})
 }
 
 // TestMultiGateway_UnsafeFuncCallRejection verifies that the expression-level
@@ -160,9 +259,24 @@ func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
 		{"lo_import", "SELECT lo_import('/tmp/x')", "lo_import is not supported"},
 		{"query_to_xml", "SELECT query_to_xml('SELECT 1', true, false, '')", "query_to_xml is not supported"},
 		{
-			"embedded set_config(..., false)",
+			"embedded set_config in WHERE",
 			"SELECT 1 WHERE set_config('work_mem','256MB',false) IS NOT NULL",
-			"set_config(..., false) is only supported",
+			"set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			"set_config nested inside another function",
+			"SELECT length(set_config('work_mem','256MB',false))",
+			"set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			"set_config in CTE",
+			"WITH c AS (SELECT set_config('work_mem','256MB',false)) SELECT * FROM c",
+			"set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			"non-literal set_config value",
+			"SELECT set_config('work_mem', name, false) FROM (SELECT 'x' AS name) s",
+			"non-literal arguments",
 		},
 	}
 

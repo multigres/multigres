@@ -51,6 +51,14 @@ type ApplySessionState struct {
 
 	// Query is the original SQL string.
 	Query string
+
+	// SilentTracking, when true, updates SessionSettings but does NOT invoke
+	// the callback. Used inside a Sequence where a sibling primitive (like
+	// Route) owns the client-facing result — if both called back, the client
+	// would see a stray CommandComplete before the real row data. This is
+	// the shape a `SELECT set_config(...)` plan takes: silent tracking step
+	// first, then a Route that sends the query to PG and streams the result.
+	SilentTracking bool
 }
 
 // NewApplySessionState creates a new ApplySessionState primitive.
@@ -58,6 +66,18 @@ func NewApplySessionState(sql string, stmt *ast.VariableSetStmt) *ApplySessionSt
 	return &ApplySessionState{
 		VariableStmt: stmt,
 		Query:        sql,
+	}
+}
+
+// NewApplySessionStateSilent creates an ApplySessionState that updates the
+// tracker without emitting anything to the client. Intended for use inside a
+// Sequence where a Route primitive owns the client-facing response — see
+// planner.planSelectStmt for the `SELECT set_config(...), * FROM t` case.
+func NewApplySessionStateSilent(sql string, stmt *ast.VariableSetStmt) *ApplySessionState {
+	return &ApplySessionState{
+		VariableStmt:   stmt,
+		Query:          sql,
+		SilentTracking: true,
 	}
 }
 
@@ -80,8 +100,14 @@ func (s *ApplySessionState) StreamExecute(
 	}
 }
 
-// executeSet handles SET commands: update local state and return synthetic response.
-// The value is NOT validated against PostgreSQL — see ApplySessionState doc comment.
+// executeSet handles SET commands: update local state and return a synthetic
+// response. The value is NOT validated against PostgreSQL — see the
+// ApplySessionState doc comment.
+//
+// Two modes:
+//   - SilentTracking: update state, no callback (a sibling primitive in a
+//     Sequence will respond — used for SELECT set_config(...) plans).
+//   - default: update state and emit CommandComplete "SET" (real SET stmt).
 func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	state *handler.MultiGatewayConnectionState,
@@ -89,6 +115,11 @@ func (s *ApplySessionState) executeSet(
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
 	state.SetSessionVariable(s.VariableStmt.Name, value)
+
+	if s.SilentTracking {
+		return nil
+	}
+
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "SET",
 	})

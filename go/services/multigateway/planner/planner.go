@@ -74,11 +74,15 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
-	// Reject Tier 2 statements (server-level operations unsafe for a hosted
-	// pooler: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.). This runs
-	// before any other dispatch so blocked statements never reach PostgreSQL,
-	// including when they would otherwise be unwrapped below.
-	if err := planUnsupportedStmt(stmt); err != nil {
+	// Reject unsupported constructs before dispatch: Tier 2 statement types
+	// (LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.) plus any blocklisted
+	// or misplaced FuncCalls in expression trees. Running here (not in the
+	// executor) means the plan cache short-circuits both checks: a cached
+	// plan is by construction safe. The normalizer is configured to
+	// preserve literals inside set_config calls so its args remain A_Const
+	// at this point.
+	exprResult, err := planUnsupportedConstructs(stmt)
+	if err != nil {
 		return nil, err
 	}
 
@@ -99,7 +103,6 @@ func (p *Planner) Plan(
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
 	var plan *engine.Plan
-	var err error
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
@@ -148,10 +151,11 @@ func (p *Planner) Plan(
 		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_SelectStmt:
-		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		ss := stmt.(*ast.SelectStmt)
+		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, stmt, conn)
+		plan, err = p.planSelectStmt(sql, ss, conn, exprResult.SetConfigs)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
@@ -214,8 +218,13 @@ func (p *Planner) PlanPortal(
 ) (*engine.Plan, error) {
 	stmt := portalInfo.PreparedStatementInfo.AstStmt()
 
-	// Reject Tier 2 statements (server-level operations unsafe for a hosted pooler).
-	if err := planUnsupportedStmt(stmt); err != nil {
+	// Non-cacheable extended-protocol statements reach PlanPortal directly
+	// (cacheable ones go through resolvePortalPlan → Plan, which does the
+	// same checks), so both paths must share the same pre-dispatch rejection.
+	// We throw away the set_config result here: PlanPortal only routes
+	// gateway-local statement types, none of which are SELECTs that could
+	// carry tracked set_configs.
+	if _, err := planUnsupportedConstructs(stmt); err != nil {
 		return nil, err
 	}
 
