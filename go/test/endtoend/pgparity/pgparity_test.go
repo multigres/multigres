@@ -36,8 +36,8 @@ import (
 //
 // Environment variables (optional):
 //   - PGPARITY_CORPUS — directory containing .slt files (default: ./testdata)
-//   - PGPARITY_FILES  — comma-separated filenames (under corpus) to restrict
-//     the run; useful for local iteration.
+//   - PGPARITY_FILES  — comma-separated filenames (without extension) under
+//     the corpus to restrict the run to; useful for local iteration.
 func TestPgParity(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
@@ -143,19 +143,17 @@ func runTarget(ctx context.Context, parent *testing.T, tf *TestFile, target, pgR
 	return passed
 }
 
-// discoverTestFiles walks the corpus directory and returns all .test and .slt
-// files in stable (alphabetical) order so runs are reproducible.
+// discoverTestFiles walks the corpus directory and returns all .slt files in
+// stable (alphabetical) order so runs are reproducible. The `.test` extension
+// is intentionally not supported — the repo `.gitignore` strips `*.test`
+// because `go test -c` writes binaries with that suffix.
 func discoverTestFiles(dir string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			return nil
-		}
-		ext := filepath.Ext(path)
-		if ext == ".test" || ext == ".slt" {
+		if !info.IsDir() && filepath.Ext(path) == ".slt" {
 			files = append(files, path)
 		}
 		return nil
@@ -177,12 +175,11 @@ func filterFiles(t *testing.T, files []string, raw string) []string {
 		if name == "" {
 			continue
 		}
-		wanted[strings.TrimSuffix(strings.TrimSuffix(name, ".test"), ".slt")] = true
+		wanted[strings.TrimSuffix(name, ".slt")] = true
 	}
 	var out []string
 	for _, f := range files {
-		base := filepath.Base(f)
-		stem := strings.TrimSuffix(strings.TrimSuffix(base, ".test"), ".slt")
+		stem := strings.TrimSuffix(filepath.Base(f), ".slt")
 		if wanted[stem] {
 			out = append(out, f)
 		}

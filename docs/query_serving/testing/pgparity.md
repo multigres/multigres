@@ -42,31 +42,89 @@ so any divergence is proxy-introduced.
 
 ## File format
 
-Test files use a subset of SQLite's
-[sqllogictest](https://www.sqlite.org/sqllogictest/) format — SQL statements
-followed by expected results, executed and verified by our own runner using
-the `pgx` driver.
+Test files are plain text — a sequence of **records**, each one a directive
+header followed by SQL and (for queries) the expected result. Records are
+separated by blank lines. Lines starting with `#` are comments. Any directive
+not listed below is a parse error, so a typo like `statment ok` fails loudly
+rather than silently disabling tests.
 
-Supported directives:
+### Directives
 
-| Directive                                    | Meaning                                   |
-| -------------------------------------------- | ----------------------------------------- |
-| `statement ok`                               | SQL must execute without error            |
-| `statement error [regex]`                    | SQL must return an error (optional regex) |
-| `query <types> [nosort\|rowsort\|valuesort]` | Query result must match listed rows       |
-| `skipif postgres` / `onlyif postgres`        | Gate the next record on engine name       |
-| `halt`                                       | Stop processing the file                  |
-| `#` comments, blank lines                    | Ignored                                   |
+| Directive                 | Meaning                                             |
+| ------------------------- | --------------------------------------------------- |
+| `statement ok`            | SQL must execute without error                      |
+| `statement error`         | SQL must return any error                           |
+| `statement error <regex>` | SQL must return an error whose message matches      |
+| `query <types>`           | Result rows must match the expected block, in order |
+| `query <types> nosort`    | Explicit form of the default (no reordering)        |
+| `query <types> rowsort`   | Sort whole rows before comparing                    |
 
-Type characters in the `query` line: `I` (integer), `R` (real / 3-decimal
-float), `T` (text). `NULL` renders as the literal string `NULL`; empty text
-renders as `(empty)`.
+### Type string
 
-Not currently supported:
+The `<types>` on a `query` line is a compact string, one character per result
+column:
 
-- Large-result MD5 hashing (`N values hashing to ...`). The corpus uses inline
-  expected output only.
-- Conditional directives for non-postgres engines skip the record.
+| Char | PostgreSQL types               | Rendering                                |
+| ---- | ------------------------------ | ---------------------------------------- |
+| `I`  | integer, bigint, bool, numeric | decimal integer (bools become `0` / `1`) |
+| `R`  | real, double, numeric, integer | fixed 3-decimal float, e.g. `3.140`      |
+| `T`  | text, varchar, anything else   | string representation                    |
+
+`NULL` always renders as the literal `NULL`; an empty string renders as
+`(empty)` so you can tell it apart from a missing value in the expected block.
+
+### Expected rows block
+
+For `query` records, the lines after `----` are the expected output — one
+_row_ per line, tab-separated within a row. Rows are flattened to individual
+values so the runner compares cell-by-cell. **Use real tabs between columns,
+not spaces** — the parser splits only on `\t`.
+
+<!-- markdownlint-disable MD010 -->
+
+```text
+query IT rowsort
+SELECT a, b FROM t
+----
+1	one
+2	two
+```
+
+<!-- markdownlint-enable MD010 -->
+
+A `query` record with a blank line immediately after the SQL (no `----` at
+all) asserts that the query merely runs without error, regardless of output —
+useful for things like `EXPLAIN`.
+
+### Example
+
+<!-- markdownlint-disable MD010 -->
+
+```text
+# Basic parity test: DDL, DML, queries, expected errors.
+
+statement ok
+CREATE TABLE t (a INT PRIMARY KEY, b TEXT)
+
+statement ok
+INSERT INTO t VALUES (1, 'one'), (2, 'two')
+
+query I
+SELECT count(*) FROM t
+----
+2
+
+query IT rowsort
+SELECT a, b FROM t
+----
+1	one
+2	two
+
+statement error duplicate key
+INSERT INTO t VALUES (1, 'dup')
+```
+
+<!-- markdownlint-enable MD010 -->
 
 ## Test corpus
 
@@ -81,9 +139,10 @@ The initial corpus under `go/test/endtoend/pgparity/testdata/`:
 | `types.slt`        | Casts, booleans, NULL arithmetic, divide-by-zero   |
 | `transactions.slt` | BEGIN / COMMIT / ROLLBACK semantics                |
 
-The `.slt` extension is standard sqllogictest; `.test` is also accepted by the
-runner but avoided here because the repo `.gitignore` strips `*.test` (Go's
-`go test -c` build artifacts).
+The `.slt` extension is required — the repo `.gitignore` strips `*.test`
+(Go's `go test -c` build artifacts), so test files need to use `.slt` to be
+tracked by git. The runner ignores any other extension in the corpus
+directory.
 
 ## Running locally
 
@@ -101,7 +160,7 @@ go test -v -run TestPgParity ./go/test/endtoend/pgparity/... -timeout 30m
 
 | Variable          | Default    | Description                                      |
 | ----------------- | ---------- | ------------------------------------------------ |
-| `PGPARITY_CORPUS` | `testdata` | Directory to scan for `.slt` / `.test` files     |
+| `PGPARITY_CORPUS` | `testdata` | Directory to scan for `.slt` files               |
 | `PGPARITY_FILES`  | (all)      | Comma-separated filenames to restrict the run to |
 
 Example — run just two files:
@@ -157,10 +216,48 @@ go/test/endtoend/pgparity/
 
 ## Adding a new test file
 
-1. Drop a new `.slt` file under `go/test/endtoend/pgparity/testdata/`.
-2. Run `go test -run TestCorpusParses ./go/test/endtoend/pgparity/...` to
-   catch parser errors (no cluster needed for this check).
-3. Run the full suite locally to confirm both targets pass:
-   `PGPARITY_FILES=<your_file> go test -run TestPgParity ./go/test/endtoend/pgparity/...`
-4. If postgres fails a record, the record is wrong — fix the expected output.
-   If only multigateway fails, you've found a bug worth filing.
+1. **Create the file.** Drop `<topic>.slt` under
+   `go/test/endtoend/pgparity/testdata/`. Group related SQL in one file — the
+   parser re-uses connection state within a file, so DDL and the queries that
+   exercise it belong together. Between files, the schema is reset (DROP
+   SCHEMA public CASCADE), so you can assume a clean slate at the top.
+
+2. **Write records.** Each record is a directive header, the SQL, and (for
+   `query`) a `----` separator plus expected rows. Separate records with a
+   blank line. See the example above for layout.
+   - Use **`query I`** / **`query R`** / **`query T`** deliberately — the
+     type char drives how values render before comparison. `SELECT avg(x)`
+     returns a `NUMERIC`; treat it as `R` to get a clean `3.500`-style
+     expected value instead of a raw struct dump.
+   - Use **`rowsort`** whenever you don't care about order (most joins,
+     aggregates without `ORDER BY`). PostgreSQL is free to return rows in
+     any order otherwise, and the test will flake.
+   - Use **`statement error`** (bare) unless you want to pin a specific
+     error message — pinning on exact PG error text is fragile across PG
+     versions.
+
+3. **Parse-check without a cluster:**
+
+   ```bash
+   go test -run TestCorpusParses ./go/test/endtoend/pgparity/...
+   ```
+
+   This catches typos and unsupported directives without needing to spin up
+   the cluster. Unknown directives now error at parse time.
+
+4. **Run just your file against the cluster:**
+
+   ```bash
+   PGPARITY_FILES=<your_file> \
+     go test -v -run TestPgParity ./go/test/endtoend/pgparity/... -timeout 10m
+   ```
+
+5. **Interpret the result:**
+   - **Both targets pass** — ship it.
+   - **postgres fails a record** — the expected output is wrong. Either fix
+     the expected rows or rewrite the query. The runner logs the actual
+     value it got, which is usually enough to patch.
+   - **multigateway fails a record postgres passed** — you've found a real
+     parity bug. File it and either omit that record, or commit the file as
+     a failing test that will start passing once the proxy is fixed (if you
+     want the failure tracked in CI).

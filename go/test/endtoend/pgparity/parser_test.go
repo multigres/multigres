@@ -41,7 +41,7 @@ SELECT a, b FROM t
 1	one
 2	two
 `
-	path := filepath.Join(t.TempDir(), "sample.test")
+	path := filepath.Join(t.TempDir(), "sample.slt")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -69,40 +69,5 @@ SELECT a, b FROM t
 	// query II rowsort — tab-split expected rows flatten to 4 values.
 	if r := tf.Records[3]; r.Kind != DirectiveQuery || r.TypeString != "II" || r.SortMode != "rowsort" || r.ExpectedCount != 4 {
 		t.Errorf("record[3] = %+v", r)
-	}
-}
-
-// TestParseSkipAndHalt verifies that skipif/onlyif gate the next record and
-// halt stops parsing.
-func TestParseSkipAndHalt(t *testing.T) {
-	content := `skipif postgres
-statement ok
-SELECT 'skipped'
-
-onlyif mysql
-statement ok
-SELECT 'mysql only'
-
-statement ok
-SELECT 'kept'
-
-halt
-
-statement ok
-SELECT 'never seen'
-`
-	path := filepath.Join(t.TempDir(), "gate.test")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tf, err := ParseFile(path)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if len(tf.Records) != 1 {
-		t.Fatalf("expected 1 kept record, got %d: %+v", len(tf.Records), tf.Records)
-	}
-	if tf.Records[0].SQL != "SELECT 'kept'" {
-		t.Errorf("kept SQL = %q", tf.Records[0].SQL)
 	}
 }

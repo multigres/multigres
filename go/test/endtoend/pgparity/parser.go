@@ -13,20 +13,23 @@
 // limitations under the License.
 
 // Package pgparity runs query-parity tests across direct PostgreSQL and the
-// multigres proxy. Test files use a subset of SQLite's sqllogictest format
-// (https://www.sqlite.org/sqllogictest/) — SQL plus expected results, replayed
+// multigres proxy. Test files contain SQL plus expected results, replayed
 // against both targets so any divergence surfaces as a failing test.
 //
-// Supported directives:
+// Supported directives (parser rejects anything else):
 //
+//   - `#` comments and blank lines — ignored
 //   - `statement ok` — SQL must execute without error
-//   - `statement error [regex]` — SQL must return an error; pattern is optional
-//   - `query <types> [<sort>] [label]` — SQL result must match expected rows
-//   - `skipif postgres` / `onlyif postgres` — directive-level gates
-//   - `halt` — stop processing the file
+//   - `statement error [regex]` — SQL must return an error; optional regex
+//     matches against the error message
+//   - `query <types> [rowsort]` — SQL result must match the expected rows
+//     that follow a `----` separator. Default sort mode preserves result
+//     order; `rowsort` sorts whole rows before comparison.
 //
-// Large result hashing (`N values hashing to <md5>`) is NOT supported — the
-// curated corpus under testdata/ uses inline expected output only.
+// The file format is a tight subset of SQLite's sqllogictest format
+// (https://www.sqlite.org/sqllogictest/), kept minimal on purpose — a strict
+// parser means a misspelled directive fails loudly rather than silently
+// disabling tests.
 package pgparity
 
 import (
@@ -41,10 +44,10 @@ type DirectiveKind int
 
 const (
 	DirectiveStatement DirectiveKind = iota // statement ok / statement error
-	DirectiveQuery                          // query <types> [<sort>]
+	DirectiveQuery                          // query <types> [rowsort]
 )
 
-// Record is a single parsed directive from a .test file.
+// Record is a single parsed directive from a .slt file.
 type Record struct {
 	Kind          DirectiveKind
 	LineNo        int      // 1-based line number where the directive starts
@@ -52,23 +55,20 @@ type Record struct {
 	ExpectError   bool     // statement error
 	ErrorPattern  string   // optional regex on statement error
 	TypeString    string   // query column types, e.g. "IIT"
-	SortMode      string   // "nosort" (default), "rowsort", "valuesort"
-	Label         string   // optional query label (currently unused, parsed for format completeness)
+	SortMode      string   // "nosort" (default) or "rowsort"
 	ExpectedRows  []string // one string per expected value; tab-separated rows are split on tabs
 	ExpectedCount int      // number of expected values (len(ExpectedRows) after flattening)
 }
 
-// TestFile is a parsed sqllogictest file.
+// TestFile is a parsed .slt file.
 type TestFile struct {
 	Path    string
 	Records []Record
 }
 
-// ParseFile reads a .test file from disk and returns parsed records.
-//
-// Files that use unsupported directives (e.g. `hash-threshold`, `skipif` for a
-// non-postgres engine) are parsed best-effort. Unknown directives cause the
-// parser to skip the block and emit a warning via the returned error slice.
+// ParseFile reads a .slt file from disk and returns parsed records. Any
+// unsupported directive causes a parse error rather than a silent skip so
+// misspelled directives fail loudly at parse time.
 func ParseFile(path string) (*TestFile, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -78,12 +78,14 @@ func ParseFile(path string) (*TestFile, error) {
 
 	tf := &TestFile{Path: path}
 	scanner := bufio.NewScanner(f)
-	// Some sqllogictest files have very long lines (query strings, expected rows).
-	// Raise the limit to 1 MiB per line.
+	// Some lines (query strings, expected rows) can be long. Raise the limit
+	// to 1 MiB per line.
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
 	lineNo := 0
-	// peek one line at a time; use a tiny helper to support "put-back" behavior.
+	// One-line push-back buffer lets parseQuery return control to the main
+	// loop when the expected-rows block runs into the next directive without
+	// a blank separator (malformed but survivable input).
 	var pending string
 	var pendingValid bool
 	readLine := func() (string, bool) {
@@ -100,11 +102,7 @@ func ParseFile(path string) (*TestFile, error) {
 	pushBack := func(s string) {
 		pending = s
 		pendingValid = true
-		// Note: we don't decrement lineNo because lineNo is advisory, used only
-		// in error messages. Slight over-count is acceptable.
 	}
-
-	var skipNext bool // true when a skipif directive gates the next record
 
 	for {
 		line, ok := readLine()
@@ -113,74 +111,28 @@ func ParseFile(path string) (*TestFile, error) {
 		}
 		trimmed := strings.TrimSpace(line)
 
-		// Blank lines and comments separate records.
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
-		// halt: stop processing the rest of the file.
-		if trimmed == "halt" {
-			break
-		}
-
-		// Conditional directives. We interpret postgres-specific gates; any
-		// other engine means we also skip (because we only ever run against
-		// postgres-compatible backends here).
-		if after, ok := strings.CutPrefix(trimmed, "skipif "); ok {
-			if strings.TrimSpace(after) == "postgres" {
-				skipNext = true
-			}
-			continue
-		}
-		if after, ok := strings.CutPrefix(trimmed, "onlyif "); ok {
-			if strings.TrimSpace(after) != "postgres" {
-				skipNext = true
-			}
-			continue
-		}
-
-		// hash-threshold <n>: we don't support hashed results, so ignore.
-		if strings.HasPrefix(trimmed, "hash-threshold") {
-			continue
-		}
-
-		// statement ok | statement error [pattern]
 		if strings.HasPrefix(trimmed, "statement ") {
 			rec, err := parseStatement(trimmed, lineNo, readLine)
 			if err != nil {
 				return nil, err
 			}
-			if !skipNext {
-				tf.Records = append(tf.Records, rec)
-			}
-			skipNext = false
+			tf.Records = append(tf.Records, rec)
 			continue
 		}
-
-		// query <types> [<sort>] [label]
 		if strings.HasPrefix(trimmed, "query ") {
 			rec, err := parseQuery(trimmed, lineNo, readLine, pushBack)
 			if err != nil {
 				return nil, err
 			}
-			if !skipNext {
-				tf.Records = append(tf.Records, rec)
-			}
-			skipNext = false
+			tf.Records = append(tf.Records, rec)
 			continue
 		}
 
-		// Unknown directive: skip to next blank line.
-		for {
-			next, ok := readLine()
-			if !ok {
-				break
-			}
-			if strings.TrimSpace(next) == "" {
-				break
-			}
-		}
-		skipNext = false
+		return nil, fmt.Errorf("%s:%d: unsupported directive %q (only `statement` and `query` are allowed)", path, lineNo, trimmed)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -189,10 +141,10 @@ func ParseFile(path string) (*TestFile, error) {
 	return tf, nil
 }
 
-// parseStatement parses a `statement ok` or `statement error [pattern]` block.
+// parseStatement parses a `statement ok` or `statement error [regex]` block.
 //
-// The SQL body runs from the first line after the directive until a blank line
-// or EOF.
+// The SQL body runs from the first line after the directive until a blank
+// line or EOF.
 func parseStatement(header string, startLine int, readLine func() (string, bool)) (Record, error) {
 	rec := Record{Kind: DirectiveStatement, LineNo: startLine}
 
@@ -209,7 +161,7 @@ func parseStatement(header string, startLine int, readLine func() (string, bool)
 			rec.ErrorPattern = strings.Join(fields[2:], " ")
 		}
 	default:
-		return rec, fmt.Errorf("line %d: unknown statement kind %q", startLine, fields[1])
+		return rec, fmt.Errorf("line %d: unknown statement kind %q (want `ok` or `error`)", startLine, fields[1])
 	}
 
 	var sql strings.Builder
@@ -230,7 +182,7 @@ func parseStatement(header string, startLine int, readLine func() (string, bool)
 	return rec, nil
 }
 
-// parseQuery parses a `query <types> [<sort>] [label]` block:
+// parseQuery parses a `query <types> [rowsort]` block:
 //
 //	query II rowsort
 //	SELECT a, b FROM t
@@ -238,9 +190,9 @@ func parseStatement(header string, startLine int, readLine func() (string, bool)
 //	1 one
 //	2 two
 //
-// The section before `----` is the SQL; the section after is one value per
-// line (tab-separated rows are split into individual values here so that the
-// runner and parser share a single flat representation).
+// The section before `----` is the SQL; the section after is one row per
+// line, tab-separated within a row. The parser flattens rows into a single
+// list of values so the runner can compare cell-by-cell.
 func parseQuery(header string, startLine int, readLine func() (string, bool), pushBack func(string)) (Record, error) {
 	rec := Record{Kind: DirectiveQuery, LineNo: startLine, SortMode: "nosort"}
 
@@ -251,15 +203,14 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 	rec.TypeString = fields[1]
 	if len(fields) >= 3 {
 		switch fields[2] {
-		case "nosort", "rowsort", "valuesort":
+		case "nosort", "rowsort":
 			rec.SortMode = fields[2]
 		default:
-			// Treat as label (sqllogictest allows labels after the type string).
-			rec.Label = fields[2]
+			return rec, fmt.Errorf("line %d: unsupported sort mode %q (want `nosort` or `rowsort`)", startLine, fields[2])
 		}
 	}
-	if len(fields) >= 4 {
-		rec.Label = fields[3]
+	if len(fields) > 3 {
+		return rec, fmt.Errorf("line %d: too many fields on query directive: %q", startLine, header)
 	}
 
 	// Read SQL until `----` or blank line.
@@ -275,8 +226,7 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 			break
 		}
 		if strings.TrimSpace(line) == "" {
-			// Blank line before `----` ends the record without expected rows
-			// (used for queries whose output is irrelevant, e.g. EXPLAIN).
+			// Blank line before `----` ends the record without expected rows.
 			break
 		}
 		if sql.Len() > 0 {
@@ -300,13 +250,11 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 			break
 		}
 		if isDirectiveLine(line) {
-			// Safety net: we encountered the next record without a blank
-			// separator. Push it back so the main loop sees it.
+			// Safety net: the expected-rows block ran into the next record
+			// without a blank separator. Push it back so the main loop sees it.
 			pushBack(line)
 			break
 		}
-		// A row may contain multiple values separated by tabs. Split into
-		// individual values for comparison.
 		for v := range strings.SplitSeq(line, "\t") {
 			rec.ExpectedRows = append(rec.ExpectedRows, v)
 		}
@@ -315,18 +263,9 @@ func parseQuery(header string, startLine int, readLine func() (string, bool), pu
 	return rec, nil
 }
 
-// isDirectiveLine returns true if the line begins a new sqllogictest
-// directive, used as a safety net for malformed files that omit the blank
-// separator between records.
+// isDirectiveLine returns true if the line begins a new directive, used as a
+// safety net when a query's expected-rows block is missing the trailing blank
+// line before the next record.
 func isDirectiveLine(line string) bool {
-	switch {
-	case strings.HasPrefix(line, "statement "),
-		strings.HasPrefix(line, "query "),
-		strings.HasPrefix(line, "skipif "),
-		strings.HasPrefix(line, "onlyif "),
-		line == "halt",
-		strings.HasPrefix(line, "hash-threshold"):
-		return true
-	}
-	return false
+	return strings.HasPrefix(line, "statement ") || strings.HasPrefix(line, "query ")
 }
