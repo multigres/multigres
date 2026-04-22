@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -71,6 +73,11 @@ type runResult struct {
 // target. The binary must be discoverable on PATH (it is installed by
 // `make tools` into $repo/bin and shardsetup prepends that to PATH).
 //
+// Before each run the target's public schema is dropped and recreated so the
+// corpus file sees an empty database (each .test file starts with its own
+// CREATE TABLE statements and assumes no leftover state from the previous
+// file or previous protocol).
+//
 // The runner always returns a *runResult; it never fails the test. Callers
 // decide what to do with the outcome (typically: aggregate into the
 // results.json report).
@@ -80,6 +87,13 @@ func runSqllogictest(ctx context.Context, t target, file string) *runResult {
 		return &runResult{
 			File:    file,
 			ExecErr: fmt.Errorf("sqllogictest not found on PATH (install via `make tools`): %w", lookErr),
+		}
+	}
+
+	if err := resetTarget(ctx, t); err != nil {
+		return &runResult{
+			File:    file,
+			ExecErr: fmt.Errorf("reset target %s: %w", t.Name, err),
 		}
 	}
 
@@ -144,4 +158,28 @@ func truncateOutput(s string, limit int) string {
 func isExitError(err error) bool {
 	var ee *exec.ExitError
 	return errors.As(err, &ee)
+}
+
+// resetSQL returns the public schema to an empty state. sqllogictest corpus
+// files start with their own CREATE TABLE statements, so anything the
+// previous invocation created would otherwise trigger "already exists" errors
+// on the next run — especially since every file is run four times (2 targets
+// × 2 protocols) against the same shared database.
+const resetSQL = `DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;`
+
+// resetTarget connects to the target and clears the public schema. A fresh
+// connection is used each time so session state (search_path, transaction
+// state, prepared statements) can't leak in either direction.
+func resetTarget(ctx context.Context, t target) error {
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		t.Host, t.Port, t.User, t.Password, t.Database)
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, resetSQL); err != nil {
+		return fmt.Errorf("reset public schema: %w", err)
+	}
+	return nil
 }
