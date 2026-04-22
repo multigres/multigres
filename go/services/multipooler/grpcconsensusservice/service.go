@@ -135,5 +135,9 @@ func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoo
 
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *consensusService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
-	return s.manager.RewindToSource(ctx, req.Source)
+	resp, err := s.manager.RewindToSource(ctx, req.Source)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
 }
