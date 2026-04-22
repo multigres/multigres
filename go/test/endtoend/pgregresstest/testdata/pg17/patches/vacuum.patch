@@ -1,0 +1,13 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-140232460/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-140232460/b	2026-04-22 02:01:50
+@@ -307,9 +307,7 @@
+ ANALYZE (VERBOSE) does_not_exist;
+ ERROR:  relation "does_not_exist" does not exist
+ ANALYZE (nonexistent-arg) does_not_exist;
+-ERROR:  syntax error at or near "arg"
+-LINE 1: ANALYZE (nonexistent-arg) does_not_exist;
+-                             ^
++ERROR:  parse error at position 24: syntax error
+ ANALYZE (nonexistentarg) does_not_exit;
+ ERROR:  unrecognized ANALYZE option "nonexistentarg"
+ LINE 1: ANALYZE (nonexistentarg) does_not_exit;

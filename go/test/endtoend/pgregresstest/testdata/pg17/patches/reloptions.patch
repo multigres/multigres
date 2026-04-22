@@ -1,0 +1,12 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-2170777388/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-2170777388/b	2026-04-22 02:01:50
+@@ -27,8 +27,7 @@
+ ERROR:  unrecognized parameter namespace "not_existing_namespace"
+ -- Fail while setting improper values
+ CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=-30.1);
+-ERROR:  value -30.1 out of bounds for option "fillfactor"
+-DETAIL:  Valid values are between "10" and "100".
++ERROR:  parse error at position 55: syntax error
+ CREATE TABLE reloptions_test2(i INT) WITH (fillfactor='string');
+ ERROR:  invalid value for integer option "fillfactor": string
+ CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=true);

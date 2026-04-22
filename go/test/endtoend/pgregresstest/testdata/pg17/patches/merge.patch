@@ -1,0 +1,120 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-874069341/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-874069341/b	2026-04-22 02:01:50
+@@ -60,81 +60,63 @@
+ ON t.tid = s.sid
+ WHEN MATCHED THEN
+ 	UPDATE SET balance = 0;
+-ERROR:  syntax error at or near "RANDOMWORD"
+-LINE 1: MERGE INTO target t RANDOMWORD
+-                            ^
++ERROR:  parse error at position 30: syntax error
+ -- MATCHED/INSERT error
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN MATCHED THEN
+ 	INSERT DEFAULT VALUES;
+-ERROR:  syntax error at or near "INSERT"
+-LINE 5:  INSERT DEFAULT VALUES;
+-         ^
++ERROR:  parse error at position 80: syntax error
+ -- NOT MATCHED BY SOURCE/INSERT error
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED BY SOURCE THEN
+ 	INSERT DEFAULT VALUES;
+-ERROR:  syntax error at or near "INSERT"
+-LINE 5:  INSERT DEFAULT VALUES;
+-         ^
++ERROR:  parse error at position 94: syntax error
+ -- incorrectly specifying INTO target
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED THEN
+ 	INSERT INTO target DEFAULT VALUES;
+-ERROR:  syntax error at or near "INTO"
+-LINE 5:  INSERT INTO target DEFAULT VALUES;
+-                ^
++ERROR:  parse error at position 89: syntax error
+ -- Multiple VALUES clause
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED THEN
+ 	INSERT VALUES (1,1), (2,2);
+-ERROR:  syntax error at or near ","
+-LINE 5:  INSERT VALUES (1,1), (2,2);
+-                            ^
++ERROR:  parse error at position 98: syntax error
+ -- SELECT query for INSERT
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED THEN
+ 	INSERT SELECT (1, 1);
+-ERROR:  syntax error at or near "SELECT"
+-LINE 5:  INSERT SELECT (1, 1);
+-                ^
++ERROR:  parse error at position 91: syntax error
+ -- NOT MATCHED/UPDATE
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED THEN
+ 	UPDATE SET balance = 0;
+-ERROR:  syntax error at or near "UPDATE"
+-LINE 5:  UPDATE SET balance = 0;
+-         ^
++ERROR:  parse error at position 84: syntax error
+ -- NOT MATCHED BY TARGET/UPDATE
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN NOT MATCHED BY TARGET THEN
+ 	UPDATE SET balance = 0;
+-ERROR:  syntax error at or near "UPDATE"
+-LINE 5:  UPDATE SET balance = 0;
+-         ^
++ERROR:  parse error at position 94: syntax error
+ -- UPDATE tablename
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN MATCHED THEN
+ 	UPDATE target SET balance = 0;
+-ERROR:  syntax error at or near "target"
+-LINE 5:  UPDATE target SET balance = 0;
+-                ^
++ERROR:  parse error at position 87: syntax error
+ -- source and target names the same
+ MERGE INTO target
+ USING target
+@@ -149,13 +131,13 @@
+ ) SELECT * FROM foo;
+ ERROR:  WITH query "foo" does not have a RETURNING clause
+ LINE 4: ) SELECT * FROM foo;
+-                        ^
++                  ^
+ -- used in COPY without RETURNING
+ COPY (
+   MERGE INTO target USING source ON (true)
+   WHEN MATCHED THEN DELETE
+ ) TO stdout;
+-ERROR:  COPY query must have a RETURNING clause
++ERROR:  COPY TO STDOUT not yet supported
+ -- unsupported relation types
+ -- materialized view
+ CREATE MATERIALIZED VIEW mv AS SELECT * FROM target;
+@@ -1520,9 +1502,7 @@
+         DELETE
+     RETURNING merge_action(), t.*
+ ) TO stdout;
+-DELETE	1	100
+-UPDATE	2	220
+-INSERT	4	40
++ERROR:  COPY TO STDOUT not yet supported
+ ROLLBACK;
+ -- SQL function with MERGE ... RETURNING
+ BEGIN;

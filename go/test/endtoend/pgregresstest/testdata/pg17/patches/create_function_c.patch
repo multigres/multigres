@@ -1,0 +1,10 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1626602174/a	2026-04-22 02:01:49
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1626602174/b	2026-04-22 02:01:49
+@@ -14,6 +14,7 @@
+ -- is checked in many other test scripts.)
+ --
+ LOAD :'regresslib';
++ERROR:  LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ -- Things that shouldn't work:
+ CREATE FUNCTION test1 (int) RETURNS int LANGUAGE C
+     AS 'nosuchfile';

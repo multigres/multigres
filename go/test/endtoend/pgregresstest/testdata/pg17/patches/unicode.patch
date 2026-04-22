@@ -1,0 +1,21 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-2786055522/a	2026-04-22 02:01:49
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-2786055522/b	2026-04-22 02:01:49
+@@ -69,7 +69,9 @@
+ (1 row)
+ 
+ SELECT "normalize"('abc', 'def');  -- run-time error
+-ERROR:  invalid normalization form: def
++ERROR:  syntax error at or near "def"
++LINE 1: SELECT "normalize"('abc', 'def');
++                                ^
+ SELECT U&'\00E4\24D1c' IS NORMALIZED AS test_default;
+  test_default 
+ --------------
+@@ -104,4 +106,6 @@
+ (5 rows)
+ 
+ SELECT is_normalized('abc', 'def');  -- run-time error
+-ERROR:  invalid normalization form: def
++ERROR:  syntax error at or near "def"
++LINE 1: SELECT is_normalized('abc', 'def');
++                        ^

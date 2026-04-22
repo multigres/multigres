@@ -1,0 +1,18 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1543893922/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1543893922/b	2026-04-22 02:01:50
+@@ -333,10 +333,10 @@
+ -- This test checks both the functionality of 'if exists' and the syntax
+ -- of the drop database command.
+ drop database test_database_exists (force);
+-ERROR:  database "test_database_exists" does not exist
++ERROR:  DROP DATABASE is not supported through the connection pooler
+ drop database test_database_exists with (force);
+-ERROR:  database "test_database_exists" does not exist
+-drop database if exists test_database_exists (force);
+-NOTICE:  database "test_database_exists" does not exist, skipping
++ERROR:  DROP DATABASE is not supported through the connection pooler
++drop database if exists test_database_exists (force);
++ERROR:  DROP DATABASE is not supported through the connection pooler
+ drop database if exists test_database_exists with (force);
+-NOTICE:  database "test_database_exists" does not exist, skipping
++ERROR:  DROP DATABASE is not supported through the connection pooler

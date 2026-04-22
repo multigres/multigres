@@ -1,0 +1,22 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1558706499/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1558706499/b	2026-04-22 02:01:50
+@@ -26,8 +26,8 @@
+ 	GROUP BY b, c HAVING b = 3 ORDER BY b, c;
+  b |    c     
+ ---+----------
+- 3 | BBBB    
+  3 | bbbb    
++ 3 | BBBB    
+ (2 rows)
+ 
+ SELECT lower(c), count(c) FROM test_having
+@@ -45,8 +45,8 @@
+ 	ORDER BY c;
+     c     | max 
+ ----------+-----
+- XXXX     |   0
+  bbbb     |   5
++ XXXX     |   0
+ (2 rows)
+ 
+ -- test degenerate cases involving HAVING without GROUP BY

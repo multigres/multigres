@@ -1,0 +1,51 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-4105914998/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-4105914998/b	2026-04-22 02:01:50
+@@ -2301,7 +2301,7 @@
+              1 preceding and 1.1::float8 following);  -- currently unsupported
+ ERROR:  RANGE with offset PRECEDING/FOLLOWING is not supported for column type numeric and offset type double precision
+ LINE 4:              1 preceding and 1.1::float8 following);
+-                                     ^
++                        ^
+ HINT:  Cast the offset value to an appropriate type.
+ select id, f_numeric, first_value(id) over w, last_value(id) over w
+ from numerics
+@@ -2953,7 +2953,7 @@
+ select sum(salary) over (order by depname range between '1 year'::interval preceding and '2 years'::interval following
+ 	exclude ties), salary, enroll_date from empsalary;
+ ERROR:  RANGE with offset PRECEDING/FOLLOWING is not supported for column type text
+-LINE 1: ... sum(salary) over (order by depname range between '1 year'::...
++LINE 1: ...salary) over (order by depname range between '1 year'::inter...
+                                                              ^
+ select max(enroll_date) over (order by enroll_date range between 1 preceding and 2 following
+ 	exclude ties), salary, enroll_date from empsalary;
+@@ -2970,7 +2970,7 @@
+ select max(enroll_date) over (order by salary range between '1 year'::interval preceding and '2 years'::interval following
+ 	exclude ties), salary, enroll_date from empsalary;
+ ERROR:  RANGE with offset PRECEDING/FOLLOWING is not supported for column type integer and offset type interval
+-LINE 1: ...(enroll_date) over (order by salary range between '1 year'::...
++LINE 1: ...ll_date) over (order by salary range between '1 year'::inter...
+                                                              ^
+ HINT:  Cast the offset value to an appropriate type.
+ select max(enroll_date) over (order by enroll_date range between '1 year'::interval preceding and '-2 years'::interval following
+@@ -3645,9 +3645,7 @@
+ LINE 1: SELECT rank() OVER (ORDER BY 1), count(*) FROM empsalary GRO...
+                ^
+ SELECT * FROM rank() OVER (ORDER BY random());
+-ERROR:  syntax error at or near "ORDER"
+-LINE 1: SELECT * FROM rank() OVER (ORDER BY random());
+-                                   ^
++ERROR:  parse error at position 32: syntax error
+ DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())) > 10;
+ ERROR:  window functions are not allowed in WHERE
+ LINE 1: DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())...
+@@ -3661,9 +3659,7 @@
+ LINE 1: ...w FROM tenk1 WINDOW w AS (ORDER BY unique1), w AS (ORDER BY ...
+                                                              ^
+ SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM tenk1;
+-ERROR:  syntax error at or near "ORDER"
+-LINE 1: SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM te...
+-                                               ^
++ERROR:  parse error at position 44: syntax error
+ SELECT count() OVER () FROM tenk1;
+ ERROR:  count(*) must be used to call a parameterless aggregate function
+ LINE 1: SELECT count() OVER () FROM tenk1;

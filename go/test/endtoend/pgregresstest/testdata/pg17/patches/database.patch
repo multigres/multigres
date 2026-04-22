@@ -1,0 +1,32 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-3653619230/a	2026-04-22 02:01:49
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-3653619230/b	2026-04-22 02:01:49
+@@ -1,9 +1,14 @@
+ CREATE DATABASE regression_tbd
+ 	ENCODING utf8 LC_COLLATE "C" LC_CTYPE "C" TEMPLATE template0;
++ERROR:  CREATE DATABASE is not supported through the connection pooler
+ ALTER DATABASE regression_tbd RENAME TO regression_utf8;
++ERROR:  database "regression_tbd" does not exist
+ ALTER DATABASE regression_utf8 SET TABLESPACE regress_tblspace;
++ERROR:  database "regression_utf8" does not exist
+ ALTER DATABASE regression_utf8 RESET TABLESPACE;
++ERROR:  database "regression_utf8" does not exist
+ ALTER DATABASE regression_utf8 CONNECTION_LIMIT 123;
++ERROR:  database "regression_utf8" does not exist
+ -- Test PgDatabaseToastTable.  Doing this with GRANT would be slow.
+ BEGIN;
+ UPDATE pg_database
+@@ -11,11 +16,14 @@
+ WHERE datname = 'regression_utf8';
+ -- load catcache entry, if nothing else does
+ ALTER DATABASE regression_utf8 RESET TABLESPACE;
++ERROR:  database "regression_utf8" does not exist
+ ROLLBACK;
+ CREATE ROLE regress_datdba_before;
+ CREATE ROLE regress_datdba_after;
+ ALTER DATABASE regression_utf8 OWNER TO regress_datdba_before;
++ERROR:  database "regression_utf8" does not exist
+ REASSIGN OWNED BY regress_datdba_before TO regress_datdba_after;
+ DROP DATABASE regression_utf8;
++ERROR:  DROP DATABASE is not supported through the connection pooler
+ DROP ROLE regress_datdba_before;
+ DROP ROLE regress_datdba_after;

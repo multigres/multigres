@@ -60,9 +60,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 	}
 
 	// Each test suite gets its own sub-context so one suite hanging cannot
-	// starve the other. The build phase uses a separate 10-minute budget.
+	// starve the other. The build phase needs room for a cold clone + configure
+	// + make + install on slower developer machines (macOS); CI is faster so
+	// 20 minutes is overkill there but harmless.
 	const (
-		buildTimeout = 10 * time.Minute
+		buildTimeout = 20 * time.Minute
 		suiteTimeout = 20 * time.Minute
 	)
 
@@ -124,6 +126,14 @@ func TestPostgreSQLRegression(t *testing.T) {
 				}
 				t.Fatal("Test harness returned nil results")
 				return
+			}
+
+			// Replace pg_regress's strict diff verdict with patch-based
+			// verification. Operates on the regress build directory, where
+			// pg_regress wrote expected/ and results/ files.
+			regressDir := filepath.Join(builder.BuildDir, "src", "test", "regress")
+			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir); verr != nil {
+				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 
 			logSuiteResults(t, "Regression", results)

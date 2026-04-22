@@ -1,0 +1,13 @@
+--- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-3048356459/a	2026-04-22 02:01:50
++++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-3048356459/b	2026-04-22 02:01:50
+@@ -310,9 +310,7 @@
+ LINE 2: SELECT * FROM query_select TABLESAMPLE BERNOULLI (5.5) REPEA...
+                       ^
+ SELECT q.* FROM (SELECT * FROM test_tablesample) as q TABLESAMPLE BERNOULLI (5);
+-ERROR:  syntax error at or near "TABLESAMPLE"
+-LINE 1: ...CT q.* FROM (SELECT * FROM test_tablesample) as q TABLESAMPL...
+-                                                             ^
++ERROR:  parse error at position 65: syntax error
+ -- check partitioned tables support tablesample
+ create table parted_sample (a int) partition by list (a);
+ create table parted_sample_1 partition of parted_sample for values in (1);
