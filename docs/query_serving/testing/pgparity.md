@@ -8,7 +8,7 @@ exactly the same query results as direct PostgreSQL. A curated corpus of
 multigres proxy `multigateway` — and any record that passes on postgres but
 fails on multigateway is flagged as a compatibility bug.
 
-The suite lives in `go/test/endtoend/pgparity/` and runs as a standard Go
+The suite lives in `go/test/endtoend/queryserving/pgparity/` and runs as a standard Go
 integration test — part of the regular `test-integration.yml` workflow on every
 push and PR to `main`, no opt-in flag needed. It is a **correctness** test, not
 a benchmark; pgbouncer is intentionally excluded because it is a pass-through
@@ -128,7 +128,7 @@ INSERT INTO t VALUES (1, 'dup')
 
 ## Test corpus
 
-The initial corpus under `go/test/endtoend/pgparity/testdata/`:
+The initial corpus under `go/test/endtoend/queryserving/pgparity/testdata/`:
 
 | File               | Focus                                              |
 | ------------------ | -------------------------------------------------- |
@@ -147,7 +147,7 @@ directory.
 ## Running locally
 
 ```bash
-go test -v -run TestPgParity ./go/test/endtoend/pgparity/... -timeout 30m
+go test -v -run TestPgParity ./go/test/endtoend/queryserving/pgparity/... -timeout 30m
 ```
 
 ### Using the mt-dev skill
@@ -167,7 +167,7 @@ Example — run just two files:
 
 ```bash
 PGPARITY_FILES=select,joins \
-  go test -v -run TestPgParity ./go/test/endtoend/pgparity/... -timeout 10m
+  go test -v -run TestPgParity ./go/test/endtoend/queryserving/pgparity/... -timeout 10m
 ```
 
 ## How failures are reported
@@ -196,7 +196,7 @@ integration check like any other bug.
 ## File structure
 
 ```text
-go/test/endtoend/pgparity/
+go/test/endtoend/queryserving/pgparity/
 ├── main_test.go              # TestMain + shared 2-node + multigateway cluster
 ├── pgparity_test.go          # TestPgParity orchestrator, divergence check
 ├── parser.go                 # .slt file parser
@@ -217,8 +217,8 @@ go/test/endtoend/pgparity/
 ## Adding a new test file
 
 1. **Create the file.** Drop `<topic>.slt` under
-   `go/test/endtoend/pgparity/testdata/`. Group related SQL in one file — the
-   parser re-uses connection state within a file, so DDL and the queries that
+   `go/test/endtoend/queryserving/pgparity/testdata/`. Group related SQL in one file — the
+   parser reuses connection state within a file, so DDL and the queries that
    exercise it belong together. Between files, the schema is reset (DROP
    SCHEMA public CASCADE), so you can assume a clean slate at the top.
 
@@ -239,7 +239,7 @@ go/test/endtoend/pgparity/
 3. **Parse-check without a cluster:**
 
    ```bash
-   go test -run TestCorpusParses ./go/test/endtoend/pgparity/...
+   go test -run TestCorpusParses ./go/test/endtoend/queryserving/pgparity/...
    ```
 
    This catches typos and unsupported directives without needing to spin up
@@ -249,7 +249,7 @@ go/test/endtoend/pgparity/
 
    ```bash
    PGPARITY_FILES=<your_file> \
-     go test -v -run TestPgParity ./go/test/endtoend/pgparity/... -timeout 10m
+     go test -v -run TestPgParity ./go/test/endtoend/queryserving/pgparity/... -timeout 10m
    ```
 
 5. **Interpret the result:**
