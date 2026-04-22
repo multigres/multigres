@@ -373,43 +373,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Top 10 query shapes by p99 latency. Labelled by query.fingerprint (xxh3-64 of the normalized SQL). The '__other__' series aggregates all fingerprints outside the registry's tracked top-N.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 38
-      },
-      "id": 57,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "topk(10, histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval]))))",
-          "legendFormat": "p99 - {{query_fingerprint}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Top Queries by p99 Latency",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Per-query-shape snapshot: calls/s, latency percentiles, error rate. Click the fingerprint link to open /debug/queries on zone1's multigateway where the full normalized SQL is listed (use browser find to jump to the row).",
+      "description": "Per-query performance breakdown over the selected time range. Each numeric column is a sparkline of that metric over time; the % of runtime bar shows how much total gateway time this query shape consumed.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -424,119 +388,203 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "fingerprint"
+              "options": "query"
             },
             "properties": [
               {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "Open /debug/queries",
-                    "url": "http://localhost:15100/debug/queries?sort=calls",
-                    "targetBlank": true
-                  }
-                ]
+                "id": "custom.width",
+                "value": 560
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% of runtime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
               },
               {
                 "id": "custom.width",
-                "value": 180
+                "value": 150
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "calls/s"
+              "options": "count / s"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "ops"
+                "value": "none"
               },
               {
                 "id": "decimals",
                 "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p99 ms"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "ms"
               },
               {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95 ms"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "ms"
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "sparkline"
+                }
               },
               {
-                "id": "decimals",
-                "value": 2
+                "id": "custom.width",
+                "value": 150
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "p50 ms"
+              "options": "total time (s)"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "ms"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "error rate"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percentunit"
+                "value": "none"
               },
               {
                 "id": "decimals",
                 "value": 3
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "sparkline"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50 (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "sparkline"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99 (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "sparkline"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rows / s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "sparkline"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 38
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 47
       },
-      "id": 58,
+      "id": 402,
       "options": {
         "showHeader": true,
+        "cellHeight": "lg",
         "sortBy": [
           {
-            "displayName": "calls/s",
+            "displayName": "% of runtime",
             "desc": true
           }
         ]
@@ -550,8 +598,10 @@
           },
           "editorMode": "code",
           "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval]))",
-          "format": "table",
-          "instant": true,
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{query_fingerprint}}",
           "refId": "A"
         },
         {
@@ -560,9 +610,11 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "1000 * histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
-          "format": "table",
-          "instant": true,
+          "expr": "sum by (query_fingerprint) (increase(mg_gateway_query_duration_seconds_sum{job=\"multigateway\"}[$__rate_interval]))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{query_fingerprint}}",
           "refId": "B"
         },
         {
@@ -571,9 +623,11 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "1000 * histogram_quantile(0.95, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
-          "format": "table",
-          "instant": true,
+          "expr": "1000 * histogram_quantile(0.50, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{query_fingerprint}}",
           "refId": "C"
         },
         {
@@ -582,9 +636,11 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "1000 * histogram_quantile(0.50, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
-          "format": "table",
-          "instant": true,
+          "expr": "1000 * histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{query_fingerprint}}",
           "refId": "D"
         },
         {
@@ -593,14 +649,63 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_errors_total{job=\"multigateway\"}[$__rate_interval])) / clamp_min(sum by (query_fingerprint) (rate(mg_gateway_query_duration_seconds_count{job=\"multigateway\"}[$__rate_interval])), 0.001)",
+          "expr": "sum by (query_fingerprint) (rate(mg_gateway_query_rows_returned_sum{job=\"multigateway\"}[$__rate_interval]))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{query_fingerprint}}",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max by (query_fingerprint, query_normalized_sql) (mg_gateway_query_info{job=\"multigateway\"})",
           "format": "table",
           "instant": true,
-          "refId": "E"
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * sum by (query_fingerprint) (increase(mg_gateway_query_duration_seconds_sum{job=\"multigateway\"}[$__range])) / scalar(sum(increase(mg_gateway_query_duration_seconds_sum{job=\"multigateway\"}[$__range])))",
+          "format": "table",
+          "instant": true,
+          "refId": "G"
         }
       ],
-      "title": "Top Queries",
+      "title": "Per-Query Performance",
       "transformations": [
+        {
+          "id": "timeSeriesTable",
+          "options": {
+            "A": {
+              "stat": "mean",
+              "timeField": "Time"
+            },
+            "B": {
+              "stat": "sum",
+              "timeField": "Time"
+            },
+            "C": {
+              "stat": "mean",
+              "timeField": "Time"
+            },
+            "D": {
+              "stat": "mean",
+              "timeField": "Time"
+            },
+            "E": {
+              "stat": "mean",
+              "timeField": "Time"
+            }
+          }
+        },
         {
           "id": "joinByField",
           "options": {
@@ -612,27 +717,27 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time 1": true,
-              "Time 2": true,
-              "Time 3": true,
-              "Time 4": true,
-              "Time 5": true
+              "Time": true,
+              "Value #F": true,
+              "query_fingerprint": true
             },
             "indexByName": {
-              "query_fingerprint": 0,
-              "Value #A": 1,
-              "Value #B": 2,
-              "Value #C": 3,
-              "Value #D": 4,
-              "Value #E": 5
+              "query_normalized_sql": 0,
+              "Value #G": 1,
+              "Trend #A": 2,
+              "Trend #B": 3,
+              "Trend #C": 4,
+              "Trend #D": 5,
+              "Trend #E": 6
             },
             "renameByName": {
-              "query_fingerprint": "fingerprint",
-              "Value #A": "calls/s",
-              "Value #B": "p99 ms",
-              "Value #C": "p95 ms",
-              "Value #D": "p50 ms",
-              "Value #E": "error rate"
+              "query_normalized_sql": "query",
+              "Value #G": "% of runtime",
+              "Trend #A": "count / s",
+              "Trend #B": "total time (s)",
+              "Trend #C": "p50 (ms)",
+              "Trend #D": "p99 (ms)",
+              "Trend #E": "rows / s"
             }
           }
         },
@@ -642,7 +747,7 @@
             "fields": {},
             "sort": [
               {
-                "field": "calls/s",
+                "field": "% of runtime",
                 "desc": true
               }
             ]
@@ -651,11 +756,58 @@
         {
           "id": "limit",
           "options": {
-            "limitField": 15
+            "limitField": 50
           }
         }
       ],
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Same data as 'Top Queries by p99 Latency' but the legend shows the normalized SQL instead of the fingerprint hash. Joined via mg_gateway_query_info using PromQL group_left.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 401,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["lastNotNull", "max"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk(10, histogram_quantile(0.99, sum by (le, query_fingerprint) (rate(mg_gateway_query_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))) * on (query_fingerprint) group_left(query_normalized_sql) max by (query_fingerprint, query_normalized_sql) (mg_gateway_query_info{job=\"multigateway\"})",
+          "legendFormat": "{{query_normalized_sql}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Top Queries by p99 Latency (by SQL)",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -673,7 +825,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 54
       },
       "id": 55,
       "targets": [
@@ -721,7 +873,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 54
       },
       "id": 56,
       "targets": [
@@ -746,7 +898,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 63
       },
       "id": 160,
       "panels": [],
@@ -769,7 +921,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 57
+        "y": 64
       },
       "id": 161,
       "targets": [
@@ -804,7 +956,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 57
+        "y": 64
       },
       "id": 162,
       "targets": [
@@ -829,7 +981,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 73
       },
       "id": 200,
       "panels": [],
@@ -852,7 +1004,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 74
       },
       "id": 5,
       "targets": [
@@ -888,7 +1040,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 74
       },
       "id": 6,
       "targets": [
@@ -936,7 +1088,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 83
       },
       "id": 7,
       "targets": [
@@ -972,7 +1124,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 83
       },
       "id": 8,
       "targets": [
@@ -1026,7 +1178,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 92
       },
       "id": 9,
       "targets": [
@@ -1062,7 +1214,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 92
       },
       "id": 10,
       "targets": [
@@ -1097,7 +1249,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 101
       },
       "id": 11,
       "targets": [
@@ -1143,7 +1295,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 101
       },
       "id": 12,
       "targets": [
@@ -1181,7 +1333,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 103
+        "y": 110
       },
       "id": 250,
       "panels": [],
@@ -1204,7 +1356,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 111
       },
       "id": 251,
       "targets": [
@@ -1250,7 +1402,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 111
       },
       "id": 252,
       "targets": [
@@ -1296,7 +1448,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 111
       },
       "id": 253,
       "targets": [
@@ -1334,7 +1486,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 113
+        "y": 120
       },
       "id": 300,
       "panels": [],
@@ -1357,7 +1509,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 114
+        "y": 121
       },
       "id": 13,
       "targets": [
@@ -1393,7 +1545,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 114
+        "y": 121
       },
       "id": 14,
       "targets": [
@@ -1441,7 +1593,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 123
+        "y": 130
       },
       "id": 15,
       "targets": [
@@ -1477,7 +1629,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 123
+        "y": 130
       },
       "id": 16,
       "targets": [
@@ -1525,7 +1677,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 132
+        "y": 139
       },
       "id": 17,
       "targets": [
@@ -1560,7 +1712,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 132
+        "y": 139
       },
       "id": 18,
       "targets": [
@@ -1618,7 +1770,7 @@
         "h": 9,
         "w": 6,
         "x": 0,
-        "y": 141
+        "y": 148
       },
       "id": 19,
       "options": {
@@ -1666,7 +1818,7 @@
         "h": 9,
         "w": 18,
         "x": 6,
-        "y": 141
+        "y": 148
       },
       "id": 20,
       "targets": [
@@ -1704,7 +1856,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 150
+        "y": 157
       },
       "id": 400,
       "panels": [],
@@ -1727,7 +1879,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 151
+        "y": 158
       },
       "id": 21,
       "targets": [
@@ -1780,7 +1932,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 151
+        "y": 158
       },
       "id": 22,
       "targets": [
@@ -1818,7 +1970,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 160
+        "y": 167
       },
       "id": 250,
       "panels": [],
@@ -1840,7 +1992,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 161
+        "y": 168
       },
       "id": 251,
       "options": {
@@ -1903,7 +2055,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 161
+        "y": 168
       },
       "id": 252,
       "options": {
@@ -1944,7 +2096,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 161
+        "y": 168
       },
       "id": 253,
       "options": {
@@ -1985,7 +2137,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 170
+        "y": 177
       },
       "id": 254,
       "options": {
@@ -2025,7 +2177,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 170
+        "y": 177
       },
       "id": 255,
       "options": {
@@ -2088,7 +2240,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 170
+        "y": 177
       },
       "id": 256,
       "options": {
