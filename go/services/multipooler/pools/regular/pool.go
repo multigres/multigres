@@ -17,6 +17,7 @@ package regular
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
@@ -122,4 +123,19 @@ func (p *Pool) Requested() int64 {
 // This captures burst demand that point-in-time sampling might miss.
 func (p *Pool) PeakRequestedAndReset() int64 {
 	return p.pool.PeakRequestedAndReset()
+}
+
+// WaitCount returns the total number of times a client had to wait for a connection.
+func (p *Pool) WaitCount() int64 {
+	return p.pool.Metrics.WaitCount()
+}
+
+// WaitTime returns the total time clients spent waiting for a connection.
+func (p *Pool) WaitTime() time.Duration {
+	return p.pool.Metrics.WaitTime()
+}
+
+// GetCount returns the total number of Get() calls (connections borrowed).
+func (p *Pool) GetCount() int64 {
+	return p.pool.Metrics.GetCount()
 }
