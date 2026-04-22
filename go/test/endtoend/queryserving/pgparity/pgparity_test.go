@@ -38,6 +38,10 @@ import (
 //   - PGPARITY_FILES  — comma-separated filenames (without extension) under
 //     the corpus to restrict the run to; useful for local iteration.
 func TestPgParity(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping pgparity tests")
+	}
+
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
