@@ -46,12 +46,29 @@ const (
 //
 // MultiPoolerConsensus provides consensus APIs for leader election
 type MultiPoolerConsensusClient interface {
-	// Leader Appointment Protocol
+	// BeginTerm initiates a new leadership term by requesting the current leader
+	// to step down. The current leader will revoke its leadership and trigger a
+	// new election, allowing the coordinator to select a new leader based on the
+	// latest replication state of the followers. This is used by MultiOrch during
+	// failover to ensure that the old leader steps down gracefully and does not
+	// continue to accept writes, which could lead to data divergence.
 	BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error)
-	// Status and Health
+	// Status provides the current status of the consensus service, including the
+	// health of the cluster, the current leader, and any ongoing elections. This
+	// is used by MultiOrch to monitor the cluster and determine if it needs to
+	// trigger failover or other recovery actions.
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
+	// GetLeadershipView provides information about the current leader and
+	// followers in the cluster, including their health status and replication
+	// lag. This is used by MultiOrch to make informed decisions about failover.
 	GetLeadershipView(ctx context.Context, in *consensusdata.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdata.LeadershipViewResponse, error)
-	// Replication
+	// CanReachPrimary is a health check used by MultiOrch to determine if a
+	// follower can reach the primary.
+	//
+	// This is used during failover to check if a candidate is healthy and has
+	// network connectivity to the primary before attempting to promote it. It can
+	// also be used for monitoring and alerting purposes to detect network issues
+	// or replication problems that could affect the cluster's health.
 	CanReachPrimary(ctx context.Context, in *consensusdata.CanReachPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.CanReachPrimaryResponse, error)
 }
 
@@ -109,12 +126,29 @@ func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *co
 //
 // MultiPoolerConsensus provides consensus APIs for leader election
 type MultiPoolerConsensusServer interface {
-	// Leader Appointment Protocol
+	// BeginTerm initiates a new leadership term by requesting the current leader
+	// to step down. The current leader will revoke its leadership and trigger a
+	// new election, allowing the coordinator to select a new leader based on the
+	// latest replication state of the followers. This is used by MultiOrch during
+	// failover to ensure that the old leader steps down gracefully and does not
+	// continue to accept writes, which could lead to data divergence.
 	BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error)
-	// Status and Health
+	// Status provides the current status of the consensus service, including the
+	// health of the cluster, the current leader, and any ongoing elections. This
+	// is used by MultiOrch to monitor the cluster and determine if it needs to
+	// trigger failover or other recovery actions.
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
+	// GetLeadershipView provides information about the current leader and
+	// followers in the cluster, including their health status and replication
+	// lag. This is used by MultiOrch to make informed decisions about failover.
 	GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error)
-	// Replication
+	// CanReachPrimary is a health check used by MultiOrch to determine if a
+	// follower can reach the primary.
+	//
+	// This is used during failover to check if a candidate is healthy and has
+	// network connectivity to the primary before attempting to promote it. It can
+	// also be used for monitoring and alerting purposes to detect network issues
+	// or replication problems that could affect the cluster's health.
 	CanReachPrimary(context.Context, *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
