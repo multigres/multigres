@@ -86,10 +86,6 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		WalPosition: beginTermWalPos,
 	}
 
-	fakeClient.StateResponses[poolerKey] = &multipoolermanagerdatapb.StateResponse{
-		State: "ready",
-	}
-
 	fakeClient.PromoteResponses[poolerKey] = &multipoolermanagerdatapb.PromoteResponse{}
 
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}

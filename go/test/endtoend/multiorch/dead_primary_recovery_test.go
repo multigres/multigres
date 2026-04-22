@@ -419,9 +419,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer finalPrimaryClient.Close()
 
 		// Get the final primary's LSN position
-		primaryPosResp, err := finalPrimaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+		consensusStatusResp, err := finalPrimaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get final primary position")
-		primaryLSN := primaryPosResp.LsnPosition
+		primaryLSN := consensusStatusResp.WalPosition.CurrentLsn
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultiPoolerTestClient

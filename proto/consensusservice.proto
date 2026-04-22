@@ -17,10 +17,11 @@ syntax = "proto3";
 package consensus;
 
 import "consensusdata.proto";
+import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
-// MultiPoolerConsensus provides consensus APIs for leader election
+// MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 service MultiPoolerConsensus {
   // Leader Appointment Protocol
 
@@ -40,17 +41,37 @@ service MultiPoolerConsensus {
   // trigger failover or other recovery actions.
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
 
-  // GetLeadershipView provides information about the current leader and
-  // followers in the cluster, including their health status and replication
-  // lag. This is used by MultiOrch to make informed decisions about failover.
-  rpc GetLeadershipView(consensusdata.LeadershipViewRequest) returns (consensusdata.LeadershipViewResponse);
+  // HA Operations
 
-  // CanReachPrimary is a health check used by MultiOrch to determine if a
-  // follower can reach the primary.
-  //
-  // This is used during failover to check if a candidate is healthy and has
-  // network connectivity to the primary before attempting to promote it. It can
-  // also be used for monitoring and alerting purposes to detect network issues
-  // or replication problems that could affect the cluster's health.
-  rpc CanReachPrimary(consensusdata.CanReachPrimaryRequest) returns (consensusdata.CanReachPrimaryResponse);
+  // EmergencyDemote demotes the current leader server
+  rpc EmergencyDemote(multipoolermanagerdata.EmergencyDemoteRequest)
+    returns (multipoolermanagerdata.EmergencyDemoteResponse);
+
+  // Promote promotes a replica to leader (Multigres-level operation)
+  rpc Promote(multipoolermanagerdata.PromoteRequest)
+    returns (multipoolermanagerdata.PromoteResponse);
+
+  // UpdateConsensusRule updates the synchronous standby list (quorum membership)
+  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
+
+  // Replication Configuration
+  
+  // TODO: combine the below RPCs into a single RPC that informs a pooler of the highest
+  // known rule replication settings.
+
+  // DemoteStalePrimary demotes a stale primary that came back after failover
+  // by rewinding to the correct primary and restarting as standby
+  // TODO: This will be replaced by informing a pooler of a newer rule version.
+  rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
+    returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
+
+  // SetPrimaryConnInfo sets the primary connection info for a standby server
+  rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
+    returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);
+
+  // RewindToSource performs pg_rewind to synchronize this server with a source.
+  // This is used to repair diverged timelines after failover.
+  rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
+    returns (multipoolermanagerdata.RewindToSourceResponse);
 }

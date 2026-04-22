@@ -169,40 +169,6 @@ message StatusResponse {
   clustermetadata.AvailabilityStatus availability_status = 13;
 }
 
-// GetLeadershipView returns leadership information from the heartbeat table
-message LeadershipViewRequest {
-  // Shard ID to query
-  string shard_id = 1;
-}
-
-message LeadershipViewResponse {
-  // ID of the current leader
-  string leader_id = 1;
-
-  // Last heartbeat timestamp
-  google.protobuf.Timestamp last_heartbeat = 4;
-
-  // Calculated replication lag in nanoseconds
-  int64 replication_lag_ns = 5;
-}
-
-// CanReachPrimary checks if this node can reach the primary
-message CanReachPrimaryRequest {
-  // Primary host
-  string primary_host = 1;
-
-  // Primary port
-  int32 primary_port = 2;
-}
-
-message CanReachPrimaryResponse {
-  // Whether primary is reachable
-  bool reachable = 1;
-
-  // Error message if not reachable
-  string error_message = 2;
-}
-
 // Timeline information from PostgreSQL
 message TimelineInfo {
   // Current timeline ID (from pg_control_checkpoint())

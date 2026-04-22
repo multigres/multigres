@@ -55,8 +55,9 @@ func TestBootstrapInitialization(t *testing.T) {
 	)
 	defer cleanup()
 
-	// Verify nodes are completely uninitialized (no data directory, no postgres running)
-	// Multiorch will detect these as needing bootstrap
+	// Verify that no node has cohort members configured before multiorch starts.
+	// Nodes may have auto-initialized (data directory created, postgres running),
+	// but cohort membership (sync replication) is only configured by multiorch.
 	for name, inst := range setup.Multipoolers {
 		func() {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -67,19 +68,20 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "should get status from %s", name)
 
-			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresRole=%s, PoolerType=%s",
+			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresRole=%s, PoolerType=%s, CohortMembers=%d",
 				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
-				status.Status.PostgresReady, status.Status.PostgresRole, status.Status.PoolerType)
+				status.Status.PostgresReady, status.Status.PostgresRole, status.Status.PoolerType,
+				len(status.Status.CohortMembers))
 
-			// Nodes should be completely uninitialized (no data directory at all)
-			require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
-			require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
-			require.False(t, status.Status.PostgresReady, "Node %s should not have postgres running yet", name)
-			t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
+			// No node should have a cohort configured before multiorch starts
+			require.Empty(t, status.Status.CohortMembers, "Node %s should have no cohort members before multiorch", name)
+			// No node should be primary before multiorch elects one
+			require.NotEqual(t, "primary", status.Status.PostgresRole, "Node %s should not be primary before multiorch", name)
+			t.Logf("Node %s has no cohort members and is not primary (ready for multiorch to configure)", name)
 		}()
 	}
 
-	// Create and start multiorch to trigger bootstrap
+	// Create and start multiorch to trigger cohort initialization
 	watchTargets := []string{"postgres/default/0-inf"}
 	config := &shardsetup.SetupConfig{CellName: setup.CellName}
 	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)

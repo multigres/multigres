@@ -1319,7 +1319,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
 			} else if inRecovery == "t" {
 				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client.Manager); err != nil {
+				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
 					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
 				}
 			}
@@ -1333,15 +1333,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// Resume WAL replay if paused (for standbys)
 		if !isPrimary {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_resume()", 0)
-		}
-
-		// Reset pooler type
-		expectedType := clustermetadatapb.PoolerType_REPLICA
-		if isPrimary {
-			expectedType = clustermetadatapb.PoolerType_PRIMARY
-		}
-		if err := SetPoolerType(ctx, client.Manager, expectedType); err != nil {
-			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
 		// Note: We don't reset term here. Term can only increase and there's no
@@ -1556,7 +1547,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
 				} else if inRecovery == "t" {
 					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client.Manager); err != nil {
+					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
 						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
 					}
 				}
@@ -1571,15 +1562,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			// This ensures we leave the system in a good state even if tests paused replay.
 			if !isPrimary {
 				_, _ = client.Pooler.ExecuteQuery(cleanupCtx, "SELECT pg_wal_replay_resume()", 0)
-			}
-
-			// Reset pooler type
-			expectedType := clustermetadatapb.PoolerType_REPLICA
-			if isPrimary {
-				expectedType = clustermetadatapb.PoolerType_PRIMARY
-			}
-			if err := SetPoolerType(cleanupCtx, client.Manager, expectedType); err != nil {
-				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
 			}
 
 			// Note: We don't reset term here. Term can only increase and there's no
