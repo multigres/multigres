@@ -31,7 +31,7 @@ import (
 // with the reason and FormatPoolerDiagnostics output.
 func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string)) []string {
 	t.Helper()
-	statuses := fetchPoolerStatuses(t, poolers)
+	statuses := FetchPoolerStatuses(t, poolers)
 	var failures []string
 	for _, r := range statuses {
 		if r.Err != nil {
@@ -54,9 +54,9 @@ type PoolerStatusResult struct {
 	Err    error
 }
 
-// fetchPoolerStatuses fetches the status of each pooler in order, returning a slice
+// FetchPoolerStatuses fetches the status of each pooler in order, returning a slice
 // that preserves the input ordering (no map iteration randomness).
-func fetchPoolerStatuses(t *testing.T, poolers []*MultipoolerInstance) []PoolerStatusResult {
+func FetchPoolerStatuses(t *testing.T, poolers []*MultipoolerInstance) []PoolerStatusResult {
 	results := make([]PoolerStatusResult, 0, len(poolers))
 	for _, inst := range poolers {
 		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -93,7 +93,7 @@ func EventuallyPoolersCondition[T any](
 	t.Helper()
 	var result T
 	require.Eventually(t, func() bool {
-		statuses := fetchPoolerStatuses(t, poolers)
+		statuses := FetchPoolerStatuses(t, poolers)
 		val, met, reason := condition(statuses)
 		if !met {
 			for _, r := range statuses {

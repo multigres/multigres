@@ -690,7 +690,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 	}
 
 	logClusterState := func() {
-		for _, r := range fetchPoolerStatuses(t, poolers) {
+		for _, r := range FetchPoolerStatuses(t, poolers) {
 			if r.Err != nil {
 				t.Logf("RequireRecovery: %s: fetch error: %v", r.Name, r.Err)
 			} else {

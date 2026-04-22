@@ -519,33 +519,6 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
 }
 
-// checkPrimary checks if a specific multipooler is the primary.
-// Returns the multipooler name if it's a primary, empty string otherwise.
-// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
-	t.Helper()
-
-	var poolers []*shardsetup.MultipoolerInstance
-	for _, inst := range setup.Multipoolers {
-		poolers = append(poolers, inst)
-	}
-
-	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
-		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
-			for _, r := range statuses {
-				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
-					continue
-				}
-				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					return r.Name, true, ""
-				}
-			}
-			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
-		},
-		"new primary not elected within %v", timeout,
-	)
-}
-
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
 // and rejoin the cluster as a standby replica. It verifies the node is on the correct term,
 // streaming replication, and that the primary has added it back to its standby list.

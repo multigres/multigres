@@ -379,6 +379,9 @@ func (mp *MultiPooler) Shutdown() {
 			logger.Warn("Voluntary Drain on shutdown failed; continuing", "error", err)
 		}
 		cancel()
+		// Drive the manager through its own shutdown path so
+		// writeDrainTombstoneIfNeeded runs before the topo store closes.
+		mp.poolerManager.Shutdown()
 	}
 
 	mp.tr.Unregister()

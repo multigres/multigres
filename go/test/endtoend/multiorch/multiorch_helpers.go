@@ -15,6 +15,7 @@
 package multiorch
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -23,7 +24,9 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
@@ -56,6 +59,109 @@ func waitForReplicationBroken(t *testing.T, inst *shardsetup.MultipoolerInstance
 			return true, ""
 		},
 		"replication should be broken (primary_conninfo cleared) within %v", timeout,
+	)
+}
+
+// assertNoShardProblemsForPooler polls multiorch.GetShardStatus throughout a
+// hold window and fails the test if any DetectedProblem references poolerID.
+// Use this to prove multiorch did NOT act on a pooler (e.g., the draining-replica
+// analyzer skip, where absence-of-problem is the thing being asserted).
+func assertNoShardProblemsForPooler(
+	t *testing.T,
+	moClient *shardsetup.MultiOrchClient,
+	poolerID *clustermetadatapb.ID,
+	database, tableGroup, shard string,
+	hold time.Duration,
+	pollInterval time.Duration,
+) {
+	t.Helper()
+
+	poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
+	deadline := time.Now().Add(hold)
+	ticks := 0
+	for time.Now().Before(deadline) {
+		ticks++
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := moClient.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
+			Database:   database,
+			TableGroup: tableGroup,
+			Shard:      shard,
+		})
+		cancel()
+		require.NoError(t, err, "GetShardStatus failed at tick %d", ticks)
+		for _, p := range resp.Problems {
+			if p.PoolerId != nil && topoclient.MultiPoolerIDString(p.PoolerId) == poolerIDStr {
+				t.Fatalf("unexpected problem for pooler %s at tick %d: code=%s description=%s",
+					poolerIDStr, ticks, p.Code, p.Description)
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+	t.Logf("assertNoShardProblemsForPooler: %s remained problem-free over %d ticks (%v)", poolerIDStr, ticks, hold)
+}
+
+// assertNoNewPrimaryElected polls every pooler's Status RPC over a hold window
+// and fails if any pooler other than allowedPrimary reports PoolerType=PRIMARY.
+// Use when proving that multiorch did NOT elect a new primary (e.g., the
+// degraded-cluster test where no eligible candidate exists). The allowedPrimary
+// is typically the old primary whose topology record cannot be cleared without
+// a successor.
+func assertNoNewPrimaryElected(
+	t *testing.T,
+	setup *shardsetup.ShardSetup,
+	allowedPrimary string,
+	hold time.Duration,
+	pollInterval time.Duration,
+) {
+	t.Helper()
+
+	poolers := make([]*shardsetup.MultipoolerInstance, 0, len(setup.Multipoolers))
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	deadline := time.Now().Add(hold)
+	ticks := 0
+	for time.Now().Before(deadline) {
+		ticks++
+		statuses := shardsetup.FetchPoolerStatuses(t, poolers)
+		for _, r := range statuses {
+			if r.Err != nil || r.Status == nil || r.Name == allowedPrimary {
+				continue
+			}
+			if r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+				t.Fatalf("unexpected promotion at tick %d: pooler %s reports PoolerType=PRIMARY",
+					ticks, r.Name)
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+	t.Logf("assertNoNewPrimaryElected: no pooler other than %s became PRIMARY over %d ticks (%v)",
+		allowedPrimary, ticks, hold)
+}
+
+// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
+func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
+	t.Helper()
+
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					return r.Name, true, ""
+				}
+			}
+			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
+		},
+		"new primary not elected within %v", timeout,
 	)
 }
 
