@@ -1487,17 +1487,26 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	}
 
 	// Discover current state
-	currentState := pm.discoverPostgresState(ctx)
+	currentState, err := pm.discoverPostgresState(ctx)
+	if err != nil {
+		// Log and skip this tick; the next iteration will retry. A persistent
+		// failure keeps the error loud rather than silently triggering the wrong
+		// remediation. pgctld unavailability gets its dedicated reason code so
+		// the monitor's log-dedup path behaves as before.
+		if !currentState.pgctldAvailable {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err)
+			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+		} else {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err)
+		}
+		return
+	}
 
 	// Determine what remediation is needed
 	action := pm.determineRemedialAction(currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
-		if !currentState.pgctldAvailable {
-			// Log every time (not just on reason change) - pgctld being unavailable is critical
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
-			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
-		} else if currentState.postgresRunning {
+		if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		}
 		return
@@ -1519,7 +1528,16 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
-	currentState = pm.discoverPostgresState(lockCtx)
+	currentState, err = pm.discoverPostgresState(lockCtx)
+	if err != nil {
+		if !currentState.pgctldAvailable {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err)
+			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+		} else {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err)
+		}
+		return
+	}
 
 	// Re-determine action based on current state
 	action = pm.determineRemedialAction(currentState)
@@ -1528,22 +1546,27 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	pm.takeRemedialAction(lockCtx, action)
 }
 
-// discoverPostgresState discovers the current state of PostgreSQL
-func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgresState {
+// discoverPostgresState discovers the current state of PostgreSQL. Returns an
+// error only when a probe fails in a way that leaves the state genuinely
+// ambiguous (e.g. a sentinel stat failing for reasons other than NotExist);
+// callers must refuse to take remedial action in that case. pgctld being
+// unavailable is not such a case — it is represented as pgctldAvailable=false.
+func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgresState, error) {
 	state := postgresState{}
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
-		return state // All fields remain false
+		return state, nil // All fields remain false
 	}
 	state.pgctldAvailable = true
 
-	// Get status from pgctld
+	// Get status from pgctld. On failure return both the state (with
+	// pgctldAvailable=false) and the error so the caller can log the
+	// underlying cause while still reading the unavailability flag.
 	statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
 	if err != nil {
-		// pgctld call failed, treat as unavailable
 		state.pgctldAvailable = false
-		return state
+		return state, fmt.Errorf("pgctld status: %w", err)
 	}
 
 	// Check if directory is initialized
@@ -1564,9 +1587,15 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		state.backupsAvailable = pm.hasCompleteBackups(ctx)
 	}
 
-	state.bootstrapSentinelPresent = pm.hasBootstrapSentinel()
+	sentinelPresent, err := pm.hasBootstrapSentinel()
+	if err != nil {
+		// We can't tell whether a stale sentinel needs handling. Surface as an
+		// error so the monitor skips this tick; the operator should investigate.
+		return state, fmt.Errorf("check bootstrap sentinel: %w", err)
+	}
+	state.bootstrapSentinelPresent = sentinelPresent
 
-	return state
+	return state, nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.

@@ -32,10 +32,18 @@ import (
 )
 
 // TestBootstrapSentinelCrashRecovery verifies that a multipooler starting up
-// with a bootstrap sentinel + empty pg_data directory — the on-disk state a
-// prior crashed first-backup attempt would leave behind — recovers correctly:
-// it removes the stale directory, runs the first-backup flow, and ends up with
-// a completed backup.
+// in the on-disk state a crashed first-backup attempt could leave behind
+// recovers correctly: it removes any stale directory, runs the first-backup
+// flow, and ends up with a completed backup.
+//
+// Two prior-crash states are covered:
+//
+//   - "data dir populated": simulates a crash AFTER initdb ran — pg_data has
+//     PG_VERSION so hasDataDirectory() would otherwise refuse the flow. The
+//     sentinel triggers cleanup first.
+//   - "data dir absent": simulates a crash BEFORE initdb ran, or between the
+//     success-path removeDataDirectory and removeBootstrapSentinel. The
+//     sentinel is present but pg_data does not exist.
 //
 // The sentinel lives in pooler_dir rather than PGDATA so pgBackRest never
 // captures it in backups.
@@ -47,57 +55,77 @@ func TestBootstrapSentinelCrashRecovery(t *testing.T) {
 		t.Skip("Skipping end-to-end bootstrap test (no postgres binaries)")
 	}
 
-	// Single pooler with pgctld started but multipooler not yet running, so
-	// we can stage the crashed state under pooler_dir before the monitor ticks.
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(1),
-		shardsetup.WithDeferredMultipoolerStart(),
-	)
-	defer cleanup()
-
-	require.Len(t, setup.Multipoolers, 1)
-	var inst *shardsetup.MultipoolerInstance
-	for _, v := range setup.Multipoolers {
-		inst = v
+	tests := []struct {
+		name          string
+		plantDataDir  bool // when true, create pg_data with PG_VERSION
+		sentinelBytes []byte
+	}{
+		{
+			name:          "data dir populated from prior crash",
+			plantDataDir:  true,
+			sentinelBytes: []byte("simulated prior bootstrap attempt\n"),
+		},
+		{
+			name:          "data dir absent at crash time",
+			plantDataDir:  false,
+			sentinelBytes: []byte("simulated pre-initdb crash\n"),
+		},
 	}
-	poolerDir := inst.Pgctld.PoolerDir
 
-	// Plant the simulated post-crash state: pg_data with PG_VERSION (so
-	// hasDataDirectory() returns true and the recovery path is required) plus
-	// the sentinel in pooler_dir.
-	pgDataDir := filepath.Join(poolerDir, "pg_data")
-	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16\n"), 0o644))
-	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
-	require.NoError(t, os.WriteFile(sentinelPath, []byte("simulated prior bootstrap attempt\n"), 0o644))
-	t.Logf("planted sentinel + pg_data (with PG_VERSION) at %s", poolerDir)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Single pooler with pgctld started but multipooler not yet running, so
+			// we can stage the crashed state under pooler_dir before the monitor ticks.
+			setup, cleanup := shardsetup.NewIsolated(t,
+				shardsetup.WithMultipoolerCount(1),
+				shardsetup.WithDeferredMultipoolerStart(),
+			)
+			defer cleanup()
 
-	// Start the multipooler. Its first monitor tick should detect the sentinel,
-	// remove the empty pg_data, run a fresh initdb, and complete the first backup.
-	require.NoError(t, inst.Multipooler.Start(t.Context(), t))
-	shardsetup.WaitForManagerReady(t, inst.Multipooler)
-
-	// Poll GetBackups until at least one COMPLETE backup appears.
-	backupClient := createBackupClient(t, inst.Multipooler.GrpcPort)
-	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		resp, err := backupClient.GetBackups(ctx, &multipoolermanagerdatapb.GetBackupsRequest{Limit: 10})
-		if err != nil {
-			return false
-		}
-		for _, b := range resp.Backups {
-			if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
-				return true
+			require.Len(t, setup.Multipoolers, 1)
+			var inst *shardsetup.MultipoolerInstance
+			for _, v := range setup.Multipoolers {
+				inst = v
 			}
-		}
-		return false
-	}, 10*time.Second, 1*time.Second, "expected a COMPLETE backup to appear via GetBackups")
+			poolerDir := inst.Pgctld.PoolerDir
 
-	// The happy path removes the sentinel after the final data-directory cleanup.
-	assert.Eventually(t, func() bool {
-		_, err := os.Stat(sentinelPath)
-		return os.IsNotExist(err)
-	}, 10*time.Second, 200*time.Millisecond,
-		"sentinel should be removed after successful first backup")
+			pgDataDir := filepath.Join(poolerDir, "pg_data")
+			if tc.plantDataDir {
+				require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+			}
+			sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
+			require.NoError(t, os.WriteFile(sentinelPath, tc.sentinelBytes, 0o644))
+			t.Logf("planted sentinel (plantDataDir=%v) at %s", tc.plantDataDir, poolerDir)
+
+			// Start the multipooler. Its first monitor tick should detect the sentinel,
+			// remove any stale pg_data, run a fresh initdb, and complete the first backup.
+			require.NoError(t, inst.Multipooler.Start(t.Context(), t))
+			shardsetup.WaitForManagerReady(t, inst.Multipooler)
+
+			// Poll GetBackups until at least one COMPLETE backup appears.
+			backupClient := createBackupClient(t, inst.Multipooler.GrpcPort)
+			require.Eventually(t, func() bool {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				resp, err := backupClient.GetBackups(ctx, &multipoolermanagerdatapb.GetBackupsRequest{Limit: 10})
+				if err != nil {
+					return false
+				}
+				for _, b := range resp.Backups {
+					if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
+						return true
+					}
+				}
+				return false
+			}, 10*time.Second, 1*time.Second, "expected a COMPLETE backup to appear via GetBackups")
+
+			// The happy path removes the sentinel after the final data-directory cleanup.
+			assert.Eventually(t, func() bool {
+				_, err := os.Stat(sentinelPath)
+				return os.IsNotExist(err)
+			}, 10*time.Second, 200*time.Millisecond,
+				"sentinel should be removed after successful first backup")
+		})
+	}
 }

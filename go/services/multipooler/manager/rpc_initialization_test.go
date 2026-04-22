@@ -199,7 +199,8 @@ func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
 		pgctldClient: nil, // pgctld unavailable
 	}
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.False(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
@@ -225,7 +226,8 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
 	}
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
@@ -246,7 +248,8 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	pm := NewTestMultiPoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
@@ -267,7 +270,8 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	pm := NewTestMultiPoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
@@ -291,7 +295,8 @@ func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 	sentinelPath := filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
 	require.NoError(t, os.WriteFile(sentinelPath, []byte("prior attempt\n"), 0o644))
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.bootstrapSentinelPresent)
 }
@@ -309,9 +314,11 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 		logger:       slog.Default(),
 	}
 
-	state := pm.discoverPostgresState(ctx)
-
-	// When Status() fails, treat as pgctld unavailable
+	state, err := pm.discoverPostgresState(ctx)
+	// Status() failure returns both the error (wrapping the cause) and a state
+	// with pgctldAvailable=false so the caller can distinguish this from other
+	// discover failures.
+	require.Error(t, err)
 	assert.False(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
