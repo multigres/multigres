@@ -271,6 +271,13 @@ func (p *Planner) PlanPortal(
 		}
 		return nil, nil
 
+	case ast.T_TransactionStmt:
+		// BEGIN/COMMIT/ROLLBACK must run through the gateway's transaction
+		// primitive — executing them as a normal portal on a pooled backend
+		// connection leaks open (or aborted) transactions across clients when
+		// the connection is recycled.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
 	default:
 		return nil, nil
 	}
