@@ -17,6 +17,8 @@ package shardsetup
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -333,4 +335,52 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 		err := validator.Verify(t, poolerClients)
 		return err == nil
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
+}
+
+// TestShardSetup_InitDbSQLFilesExecuted validates the --init-db-sql-file flag
+// end-to-end: pgctld runs each provided SQL file against the target database
+// during InitDataDir (triggered by shard bootstrap). We assert that the
+// artifacts those files create — a table with data, and a cluster-wide role —
+// exist on the elected primary.
+func TestShardSetup_InitDbSQLFilesExecuted(t *testing.T) {
+	skipIfShort(t)
+
+	sqlDir := t.TempDir()
+	tableFile := filepath.Join(sqlDir, "01-table.sql")
+	roleFile := filepath.Join(sqlDir, "02-role.sql")
+
+	require.NoError(t, os.WriteFile(tableFile, []byte(`
+CREATE TABLE IF NOT EXISTS init_db_sql_test (
+    id   int PRIMARY KEY,
+    note text NOT NULL
+);
+INSERT INTO init_db_sql_test (id, note) VALUES (1, 'from-init-sql');
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(roleFile, []byte(`
+CREATE ROLE init_db_sql_role NOLOGIN;
+`), 0o644))
+
+	setup, cleanup := NewIsolated(t,
+		WithMultipoolerCount(2),
+		WithInitDbSQLFiles(tableFile, roleFile),
+	)
+	defer cleanup()
+
+	ctx := t.Context()
+
+	// Primary must have the table row created by the first init SQL file.
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	note, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT note FROM init_db_sql_test WHERE id = 1")
+	require.NoError(t, err, "primary should be queryable for init-sql table")
+	assert.Equal(t, "from-init-sql", note, "row inserted by init SQL must be present on primary")
+
+	// Primary must also have the cluster-wide role created by the second init SQL file.
+	roleFound, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT 1 FROM pg_roles WHERE rolname = 'init_db_sql_role'")
+	require.NoError(t, err)
+	assert.Equal(t, "1", roleFound, "role created by init SQL must exist")
 }

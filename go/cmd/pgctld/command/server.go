@@ -144,10 +144,11 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
 	pgctldConfig := PgCtldServiceConfig{
-		Port:     s.pgCtlCmd.pgPort.Get(),
-		User:     s.pgCtlCmd.pgUser.Get(),
-		Database: s.pgCtlCmd.pgDatabase.Get(),
-		Password: s.pgCtlCmd.pgPassword.Get(),
+		Port:           s.pgCtlCmd.pgPort.Get(),
+		User:           s.pgCtlCmd.pgUser.Get(),
+		Database:       s.pgCtlCmd.pgDatabase.Get(),
+		Password:       s.pgCtlCmd.pgPassword.Get(),
+		InitDbSQLFiles: s.pgCtlCmd.initDbSQLFiles.Get(),
 	}
 
 	pgctldService, err := NewPgCtldService(
@@ -215,11 +216,12 @@ func reapOrphanedChildren(logger *slog.Logger) {
 // parameters. These are the most commonly passed parameters and are grouped
 // here to reduce argument lists.
 type PgCtldServiceConfig struct {
-	Port       int
-	User       string
-	Database   string
-	Password   string
-	InitdbArgs string
+	Port           int
+	User           string
+	Database       string
+	Password       string
+	InitdbArgs     string
+	InitDbSQLFiles []string
 }
 
 // PgCtldService implements the pgctld gRPC service
