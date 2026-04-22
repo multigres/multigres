@@ -114,6 +114,12 @@ type Config struct {
 	// drainGracePeriod is how long to wait for in-flight connections to drain
 	// during a NOT_SERVING transition before force-closing reserved connections.
 	drainGracePeriod viperutil.Value[time.Duration]
+
+	// scramPassthrough toggles whether per-user backend connections authenticate
+	// to PostgreSQL using SCRAM passthrough keys forwarded from MultiGateway on
+	// each RPC. When false (the default), pools fall back to their existing
+	// behavior. Consumed by the user-pool dial path; no effect on the admin pool.
+	scramPassthrough viperutil.Value[bool]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -241,6 +247,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  drainGracePeriod,
 			FlagName: "connpool-drain-grace-period",
 		}),
+		scramPassthrough: viperutil.Configure(reg, "connpool.scram-passthrough", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "multipooler-scram-passthrough",
+			EnvVars:  []string{"MULTIPOOLER_SCRAM_PASSTHROUGH"},
+		}),
 	}
 }
 
@@ -276,6 +287,12 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
 	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
 	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during NOT_SERVING transitions before force-closing reserved connections")
+
+	// SCRAM passthrough: when enabled (default), per-user pools authenticate to
+	// PostgreSQL using ClientKey/ServerKey forwarded by MultiGateway instead of
+	// trust auth. Disable for legacy deployments that still rely on local trust
+	// in pg_hba.conf.
+	fs.Bool("multipooler-scram-passthrough", c.scramPassthrough.Default(), "Enable SCRAM-SHA-256 key passthrough for per-user PostgreSQL connections (default: true)")
 
 	viperutil.BindFlags(fs,
 		c.pgUser,
@@ -391,6 +408,12 @@ func (c *Config) DialTimeout() time.Duration {
 // during NOT_SERVING transitions before force-closing reserved connections.
 func (c *Config) DrainGracePeriod() time.Duration {
 	return c.drainGracePeriod.Get()
+}
+
+// ScramPassthrough reports whether per-user pools authenticate to PostgreSQL
+// using SCRAM passthrough keys from incoming RPCs. Default false.
+func (c *Config) ScramPassthrough() bool {
+	return c.scramPassthrough.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.

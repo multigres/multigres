@@ -72,6 +72,22 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	}
 }
 
+// userAuthFrom builds the outbound UserAuth payload from the session's captured
+// SCRAM passthrough keys. Returns nil for sessions that did not authenticate via
+// SCRAM (e.g. trust in tests), so this field stays absent on the wire instead of
+// carrying empty slices.
+func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
+	clientKey := conn.ScramClientKey()
+	serverKey := conn.ScramServerKey()
+	if clientKey == nil && serverKey == nil {
+		return nil
+	}
+	return &querypb.UserAuth{
+		ClientKey: clientKey,
+		ServerKey: serverKey,
+	}
+}
+
 // buildTarget constructs a routing target from the given tableGroup and shard.
 // When the connection arrived on the replica-reads port (state.TargetReplica()),
 // the target's PoolerType is set to REPLICA; otherwise PRIMARY.
@@ -157,6 +173,7 @@ func (sc *ScatterConn) StreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:          userAuthFrom(conn),
 		User:              conn.User(),
 		SessionSettings:   state.GetSessionSettings(),
 		PreparedStatement: preparedStatement,
@@ -308,6 +325,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		MaxRows:         uint64(maxRows),
 		SessionSettings: state.GetSessionSettings(),
@@ -354,6 +372,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 			"reasons", protoutil.ReasonsString(reasons))
 
 		noopEo := &querypb.ExecuteOptions{
+			UserAuth:        userAuthFrom(conn),
 			User:            conn.User(),
 			SessionSettings: state.GetSessionSettings(),
 		}
@@ -429,6 +448,7 @@ func (sc *ScatterConn) Describe(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -534,6 +554,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -638,6 +659,7 @@ func (sc *ScatterConn) DiscardTempTables(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -736,6 +758,7 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create execute options
 	execOptions := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -808,6 +831,7 @@ func (sc *ScatterConn) CopySendData(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -863,6 +887,7 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -926,6 +951,7 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -961,6 +987,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),

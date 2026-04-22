@@ -275,7 +275,7 @@ func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	result, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		if calls == 1 {
 			// Simulate reopenConnections running mid-flight: the pool we
@@ -304,7 +304,7 @@ func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		// No generation bump — manager hasn't been reopened.
 		return 0, connpool.ErrPoolClosed
@@ -327,7 +327,7 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		manager.generation.Add(1)
 		return 0, connpool.ErrPoolClosed
@@ -771,4 +771,76 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 		}
 		conn.Recycle()
 	}
+}
+
+// --- SCRAM passthrough ---
+
+// TestBuildUserClientConfig_FlagOff_KeysIgnored verifies that when the
+// passthrough flag is disabled, keys passed in are dropped and the resulting
+// config falls back to the existing empty-password path.
+func TestBuildUserClientConfig_FlagOff_KeysIgnored(t *testing.T) {
+	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "false")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+	require.False(t, config.ScramPassthrough(), "flag must be false for this scenario")
+
+	cfg := manager.buildUserClientConfig("alice", bytes32(1), bytes32(2))
+
+	assert.Empty(t, cfg.Password)
+	assert.Nil(t, cfg.ScramClientKey)
+	assert.Nil(t, cfg.ScramServerKey)
+	assert.Equal(t, "alice", cfg.User)
+}
+
+// TestBuildUserClientConfig_FlagOn_KeysApplied verifies that when the flag
+// is enabled AND both keys are supplied, the resulting client.Config carries
+// them through to the dial.
+func TestBuildUserClientConfig_FlagOn_KeysApplied(t *testing.T) {
+	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "true")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+	require.True(t, config.ScramPassthrough(), "flag must be true for this scenario")
+
+	ck, sk := bytes32(1), bytes32(2)
+	cfg := manager.buildUserClientConfig("alice", ck, sk)
+
+	assert.Equal(t, ck, cfg.ScramClientKey)
+	assert.Equal(t, sk, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+}
+
+// TestBuildUserClientConfig_FlagOn_NilKeys_FallsBack ensures that an
+// authenticated-but-keyless session (not expected in practice, but possible
+// during rollout) does not crash and falls back to the empty-password path.
+func TestBuildUserClientConfig_FlagOn_NilKeys_FallsBack(t *testing.T) {
+	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "true")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+
+	cfg := manager.buildUserClientConfig("alice", nil, nil)
+
+	assert.Nil(t, cfg.ScramClientKey)
+	assert.Nil(t, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+}
+
+// bytes32 returns a deterministic 32-byte slice for key testing.
+func bytes32(seed byte) []byte {
+	out := make([]byte, 32)
+	for i := range out {
+		out[i] = seed
+	}
+	return out
 }

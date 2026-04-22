@@ -301,6 +301,28 @@ message ExecuteOptions {
   // This field is only consumed by StreamExecute. PortalStreamExecute has
   // its own top-level prepared_statement field.
   PreparedStatement prepared_statement = 6;
+
+  // user_auth carries SCRAM-SHA-256 passthrough keys captured during the
+  // client's authentication handshake at the multigateway. When the
+  // multipooler has SCRAM passthrough enabled, it uses these keys to
+  // authenticate to the backing PostgreSQL as the session's real user
+  // instead of relying on trust on the local connection. Unset for
+  // sessions that did not authenticate via SCRAM.
+  UserAuth user_auth = 7;
+}
+
+// UserAuth carries cryptographic material extracted from the client's SCRAM
+// handshake at multigateway. The pair (client_key, server_key) is sufficient
+// to authenticate as the user to any SCRAM-SHA-256 verifier of the same
+// password, without ever holding the plaintext password.
+message UserAuth {
+  // client_key is the SCRAM ClientKey recovered from the client's proof
+  // during authentication. 32 bytes for SCRAM-SHA-256.
+  bytes client_key = 1;
+
+  // server_key is the SCRAM ServerKey read from the user's verifier in
+  // pg_authid. 32 bytes for SCRAM-SHA-256.
+  bytes server_key = 2;
 }
 
 // ReservationOptions specifies options when creating or extending a reserved connection.
