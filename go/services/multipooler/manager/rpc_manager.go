@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -179,11 +180,12 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Build primary_conninfo connection string
 	// Format: host=<host> port=<port> user=<user> application_name=<name>
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
-	pm.mu.Lock()
-	database := pm.multipooler.Database
-	pm.mu.Unlock()
+	user := constants.DefaultPostgresUser
+	if pm.connPoolMgr != nil {
+		user = pm.connPoolMgr.PgUser()
+	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, database, appName.appName)
+		host, port, user, appName.appName)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
