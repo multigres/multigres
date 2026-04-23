@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -31,14 +32,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 )
-
-// maxQueryAttempts is the maximum number of attempts for retrying queries.
-// On connection error, the connection is reconnected and the query retried.
-const maxQueryAttempts = 3
-
-// retryBackoff is the delay between retry attempts. This gives PostgreSQL
-// time to finish starting up when the connection error is due to a restart.
-const retryBackoff = 100 * time.Millisecond
 
 // errStreamingAlreadyStarted is a sentinel used internally to signal that a
 // streaming query's callback was already invoked, so retrying would duplicate
@@ -424,7 +417,7 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 // QueryWithRetry, QueryStreamingWithRetry and QueryArgsWithRetry execute queries
 // with automatic reconnection on connection errors.
 // On connection error the underlying socket is reconnected in-place and the
-// query is retried, up to maxQueryAttempts total attempts.
+// query is retried, up to constants.MaxConnPoolRetryAttempts total attempts.
 //
 // These methods are for stateless pool queries only. Stateful operations
 // (transactions, reserved connections, extended query protocol) must use the
@@ -480,10 +473,10 @@ func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) 
 
 // retryOnConnectionError executes op with automatic retry on connection error.
 // On connection error the underlying socket is reconnected in-place and op is
-// retried, up to maxQueryAttempts total. The connection is closed after
+// retried, up to constants.MaxConnPoolRetryAttempts total. The connection is closed after
 // exhausting all attempts or if reconnection fails.
 func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
-	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
+	for attempt := 1; attempt <= constants.MaxConnPoolRetryAttempts; attempt++ {
 		val, err := execOnce(c, ctx, op)
 		switch {
 		case err == nil:
@@ -491,7 +484,7 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 		case !mterrors.IsConnectionError(err):
 			var zero T
 			return zero, err
-		case attempt == maxQueryAttempts:
+		case attempt == constants.MaxConnPoolRetryAttempts:
 			c.conn.Close()
 			var zero T
 			return zero, err
@@ -502,7 +495,7 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 		}
 		// Brief backoff before reconnecting to give PostgreSQL time to
 		// finish starting up if the error is due to a restart.
-		backoffTimer := time.NewTimer(retryBackoff)
+		backoffTimer := time.NewTimer(constants.ConnPoolRetryBackoff)
 		select {
 		case <-backoffTimer.C:
 		case <-ctx.Done():

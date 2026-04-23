@@ -401,14 +401,14 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The connection is assigned a unique ID for client-side tracking.
 // The caller must call Release() when done with the connection.
-func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error) {
+func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	pool, err := m.getOrCreateUserPool(user)
 	if err != nil {
 		return nil, err
 	}
 	// Convert map to *Settings via the shared cache
 	s := m.settingsCache.GetOrCreate(settings)
-	return pool.NewReservedConn(ctx, s)
+	return pool.NewReservedConn(ctx, s, opts...)
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.

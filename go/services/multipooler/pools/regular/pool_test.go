@@ -16,12 +16,15 @@ package regular
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
@@ -96,6 +99,102 @@ func TestPool_GetWithSettings(t *testing.T) {
 
 	// Verify SET was actually called.
 	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0, "SET command should have been called")
+}
+
+// TestPool_GetWithSettings_RetriesOnConnectionError covers the case
+// where applying SETs during acquisition hits a stale socket: the
+// connpool closes the conn and surfaces a connection-class error, and
+// the regular pool wrapper retries with a fresh socket.
+func TestPool_GetWithSettings_RetriesOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: SET issued by ApplySettings comes back as a FATAL
+	// 57P01 (admin_shutdown). The connpool will close the conn.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_catalog.set_config*",
+		Error: connErrFATAL(),
+	})
+	// Second attempt (after retry on a fresh socket): SET succeeds.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+
+	pooled, err := pool.GetWithSettings(context.Background(), settings)
+	require.NoError(t, err)
+	require.NotNil(t, pooled)
+	defer pooled.Recycle()
+
+	assert.Equal(t, settings, pooled.Conn.Settings(),
+		"retried acquisition must still leave the conn marked with the desired settings")
+	server.VerifyAllExecutedOrFail()
+}
+
+// TestPool_GetWithSettings_NonConnectionErrorNoRetry covers the
+// non-connection-error branch: the error propagates verbatim with no
+// retry.
+func TestPool_GetWithSettings_NonConnectionErrorNoRetry(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// The first (and only) SET attempt fails with a plain Go error,
+	// which IsConnectionError will not classify as a connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_catalog.set_config*",
+		Error: errors.New("syntax error in SET"),
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+
+	pooled, err := pool.GetWithSettings(context.Background(), settings)
+	require.Error(t, err)
+	require.Nil(t, pooled)
+	assert.False(t, mterrors.IsConnectionError(err),
+		"non-connection error must propagate unchanged, not be wrapped as connection failure")
+	server.VerifyAllExecutedOrFail()
+}
+
+// TestPool_GetWithSettings_ExhaustedRetries covers the case where SET
+// fails with a connection error on every attempt: GetWithSettings
+// returns the wrapped final error after constants.MaxConnPoolRetryAttempts.
+func TestPool_GetWithSettings_ExhaustedRetries(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	for range constants.MaxConnPoolRetryAttempts {
+		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+			Query: "SELECT pg_catalog.set_config*",
+			Error: connErrFATAL(),
+		})
+	}
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+
+	pooled, err := pool.GetWithSettings(context.Background(), settings)
+	require.Error(t, err)
+	require.Nil(t, pooled)
+	assert.Contains(t, err.Error(), "regular connection acquisition failed after")
+	assert.True(t, mterrors.IsConnectionError(err),
+		"wrapped error must still unwrap to a connection error")
+	server.VerifyAllExecutedOrFail()
 }
 
 func TestPool_Close(t *testing.T) {
