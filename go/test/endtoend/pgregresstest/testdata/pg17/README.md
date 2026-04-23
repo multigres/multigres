@@ -48,11 +48,11 @@ diff in the PR before merging.
 
 Each test gets three columns in `results.json`:
 
-| Field | Meaning |
-| --- | --- |
-| `status` | `pass` or `fail` |
+| Field           | Meaning                                           |
+| --------------- | ------------------------------------------------- |
+| `status`        | `pass` or `fail`                                  |
 | `patch_applied` | `true` if a patch was used to make expected match |
-| `patch_path` | relative path to the patch file (empty if none) |
+| `patch_path`    | relative path to the patch file (empty if none)   |
 
 ## When to delete a patch
 
