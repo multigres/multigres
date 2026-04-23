@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
@@ -376,7 +377,7 @@ func (pm *MultiPoolerManager) Open() {
 
 	// Start health heartbeat goroutine and transition to SERVING.
 	// SetState notifies all components (query service, heartbeat, health streamer).
-	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
+	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
 	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		pm.logger.ErrorContext(pm.ctx, "Failed to transition to SERVING on open", "error", err)
 	}
