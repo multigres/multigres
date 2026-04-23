@@ -384,7 +384,9 @@ message PoolerPosition {
   // The highest shard rule this pooler has committed to local WAL.
   ShardRule rule = 1;
 
-  // The latest WAL position.
+  // The current real-time WAL head at the time of reading. Note that this is likely
+  // beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
+  // For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
   string lsn = 2;
 }
 
@@ -469,6 +471,10 @@ message ConsensusStatus {
   // ahead of current_position when the pooler has forward knowledge of an
   // upcoming rule that has not yet been replicated or written.
   HighestKnownRule highest_known_rule = 3;
+
+  // id identifies the pooler that produced this status. Makes ConsensusStatus
+  // self-describing when passed around without a surrounding envelope.
+  ID id = 4;
 }
 
 // LeadershipSignal describes a leader's self-reported status for its current term.
