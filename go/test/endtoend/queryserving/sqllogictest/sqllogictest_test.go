@@ -38,6 +38,15 @@ const (
 
 	// defaultBuildTimeout bounds the PostgreSQL source build.
 	defaultBuildTimeout = 10 * time.Minute
+
+	// defaultCorpusResolveTimeout bounds the corpus fetch/checkout. A cache
+	// hit is effectively instant; a fresh clone of the upstream mirror is
+	// ~30 s today.
+	defaultCorpusResolveTimeout = 2 * time.Minute
+
+	// defaultStandaloneStartTimeout bounds initdb + postgres launch +
+	// pg_isready polling for the baseline standalone instance.
+	defaultStandaloneStartTimeout = 2 * time.Minute
 )
 
 // protocolConfig pairs a short human name (used in report keys) with the
@@ -120,8 +129,12 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	// gregrahn/sqllogictest mirror pinned at CorpusCommit (upstream is
 	// quad-licensed GPL / BSD / MIT / CC0 — we consume under MIT). Override
 	// with SLT_CORPUS_DIR to point at a local directory.
+	//
+	// Uses its own bounded context so time already spent in Phase 1 doesn't
+	// eat into the corpus-fetch budget.
 	t.Logf("Phase 3: resolving sqllogictest corpus...")
-	corpusRoot, err := resolveCorpusDir(t, buildCtx)
+	corpusCtx := utils.WithTimeout(t, defaultCorpusResolveTimeout)
+	corpusRoot, err := resolveCorpusDir(t, corpusCtx)
 	if err != nil {
 		t.Fatalf("resolveCorpusDir: %v", err)
 	}
@@ -135,9 +148,12 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	t.Logf("Phase 3: corpus = %d files from %s (glob=%q, commit=%s)",
 		len(files), corpusRoot, firstNonEmpty(os.Getenv("SLT_CORPUS_GLOB"), DefaultCorpusGlob), CorpusCommit)
 
-	// Phase 4: start the baseline standalone postgres.
+	// Phase 4: start the baseline standalone postgres. Separate context so
+	// initdb + postgres launch + pg_isready polling each get their budget
+	// independent of what Phase 1 and Phase 3 already consumed.
 	t.Logf("Phase 4: starting standalone PostgreSQL...")
-	standalone, err := pgbuilder.StartStandalone(t, buildCtx, builder, standalonePassword)
+	standaloneCtx := utils.WithTimeout(t, defaultStandaloneStartTimeout)
+	standalone, err := pgbuilder.StartStandalone(t, standaloneCtx, builder, standalonePassword)
 	if err != nil {
 		t.Fatalf("StartStandalone: %v", err)
 	}
