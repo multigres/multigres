@@ -109,7 +109,9 @@ Each `PoolerConnection` runs a background `StreamPoolerHealth` RPC against its m
 
 The LoadBalancer consumes these updates via the `onPoolerHealthUpdate` callback for two purposes:
 
-1. **Primary caching.** LoadBalancer caches the currently-serving primary per shard in `cachedPrimaries map[shardKey]*cachedPrimary`, tagged with a term. `GetConnection` for a `PRIMARY` target hits this cache first, avoiding a scan of all poolers on the hot path. Entries with `term == 0` are provisional (derived from metadata at `AddPooler` time); once a health update reports a `PrimaryObservation` with a non-zero term, the cache is reconciled and stale entries for older terms are evicted.
+1. **Primary caching.** LoadBalancer caches the currently-serving primary per shard in `cachedPrimaries map[shardKey]*cachedPrimary`, tagged with a term. `GetConnection` for a `PRIMARY` target hits this cache first, avoiding a scan of all poolers on the hot path.
+
+   Entries with `term == 0` are provisional (derived from metadata at `AddPooler` time); once a health update reports a `PrimaryObservation` with a non-zero term, the cache is reconciled and stale entries for older terms are evicted.
 
 2. **Failover coordination.** When a new primary is observed, the LoadBalancer invokes the callback registered by `SetOnPrimaryServing`, which the gateway uses to stop failover buffering and replay buffered requests against the new primary.
 

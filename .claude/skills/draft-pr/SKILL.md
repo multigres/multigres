@@ -101,4 +101,5 @@ Print the PR URL when done so the user can review it.
 - **Title** must follow [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`. Keep it under 72 characters.
 - **Summary** should be concise — focus on _what_ and _why_, not implementation minutiae.
 - Do not pad the description with filler. Shorter is better.
-- **Do not hard-wrap paragraphs or bullet bodies in the PR body.** GitHub's PR/issue Markdown treats single newlines inside a paragraph as soft line breaks (`<br>`), so wrapping at ~70–80 chars produces visible broken-up sentences in the rendered PR. Keep each paragraph or bullet on one long line; only insert a newline to start a new paragraph, bullet, heading, or code block. Code fences and lists are fine — the rule applies to prose.
+- **Do not hard-wrap paragraphs or bullet bodies in the PR body.** GitHub's PR/issue Markdown treats single newlines inside a paragraph as soft line breaks (`<br>`), so wrapping at ~70–80 chars produces visible broken-up sentences in the rendered PR.
+- Keep each paragraph or bullet on one long line; only insert a newline to start a new paragraph, bullet, heading, or code block. Code fences and lists are fine — the rule applies to prose.
