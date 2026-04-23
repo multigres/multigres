@@ -789,11 +789,16 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		// Generate pgbackrest client config now that we have backup location
 		pgPort := int(pm.multipooler.PortMap["postgres"])
 		socketDir := filepath.Join(pm.multipooler.PoolerDir, "pg_sockets")
+		pg1User := constants.DefaultPostgresUser
+		if pm.connPoolMgr != nil {
+			pg1User = pm.connPoolMgr.PgUser()
+		}
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.multipooler.PoolerDir,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
 			Pg1Path:       postgresDataDir(),
+			Pg1User:       pg1User,
 		}, backupConfig)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
