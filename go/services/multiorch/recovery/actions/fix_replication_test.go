@@ -146,7 +146,9 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
 			"multipooler-cell1-primary": {
-				CurrentTerm: 1,
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+				},
 			},
 		},
 	}
@@ -227,7 +229,9 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
 			"multipooler-cell1-primary": {
-				CurrentTerm: 1,
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+				},
 			},
 		},
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
@@ -491,15 +495,17 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	})
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
 		"multipooler-cell1-primary": {
-			CurrentTerm: 1,
-			TimelineInfo: &consensusdatapb.TimelineInfo{
-				TimelineId: 2, // Primary on timeline 2
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 1,
+				},
 			},
 		},
 		"multipooler-cell1-replica1": {
-			CurrentTerm: 1,
-			TimelineInfo: &consensusdatapb.TimelineInfo{
-				TimelineId: 1, // Replica still on timeline 1 - DIVERGED!
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 1,
+				},
 			},
 		},
 	}

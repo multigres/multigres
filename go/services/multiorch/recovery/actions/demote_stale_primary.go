@@ -225,7 +225,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 	// Return consensus term for the RPC parameter
 	consensusTerm := int64(0)
 	if correctPrimary.ConsensusStatus != nil {
-		consensusTerm = correctPrimary.ConsensusStatus.CurrentTerm
+		consensusTerm = correctPrimary.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	}
 
 	return correctPrimary, consensusTerm, nil

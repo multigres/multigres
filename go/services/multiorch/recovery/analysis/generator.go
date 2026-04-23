@@ -233,7 +233,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 	// Store consensus status.
 	if pooler.ConsensusStatus != nil {
-		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
+		analysis.ConsensusTerm = pooler.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 		analysis.ConsensusStatus = pooler.ConsensusStatus.ConsensusStatus
 	}
 

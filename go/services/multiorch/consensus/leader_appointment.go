@@ -426,30 +426,21 @@ func (c *Coordinator) EstablishLeadership(
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
 
-	expectedLSN := ""
-	if status.WalPosition != nil {
-		if status.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
-			expectedLSN = status.WalPosition.CurrentLsn
-		} else {
-			// For standbys, use receive position (includes unreplayed WAL)
-			expectedLSN = status.WalPosition.LastReceiveLsn
+	expectedLSN := status.GetConsensusStatus().GetCurrentPosition().GetLsn()
+	if expectedLSN != "" && !commonconsensus.IsPrimary(status.GetConsensusStatus()) {
+		// Wait for standby to replay all received WAL before promotion.
+		// This ensures validateExpectedLSN in Promote will pass.
+		c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
+			"pooler", candidate.MultiPooler.Id.Name,
+			"target_lsn", expectedLSN)
 
-			// Wait for standby to replay all received WAL before promotion
-			// This ensures validateExpectedLSN in Promote will pass
-			if expectedLSN != "" {
-				c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
-					"pooler", candidate.MultiPooler.Id.Name,
-					"target_lsn", expectedLSN)
-
-				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
-					TargetLsn: expectedLSN,
-				}
-				waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
-				defer waitCancel()
-				if _, err := c.rpcClient.WaitForLSN(waitCtx, candidate.MultiPooler, waitReq); err != nil {
-					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
-				}
-			}
+		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+			TargetLsn: expectedLSN,
+		}
+		waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+		defer waitCancel()
+		if _, err := c.rpcClient.WaitForLSN(waitCtx, candidate.MultiPooler, waitReq); err != nil {
+			return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 		}
 	}
 

@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -782,17 +781,13 @@ func TestConsensusStatus(t *testing.T) {
 	tests := []struct {
 		name                string
 		initialTerm         *multipoolermanagerdatapb.ConsensusTerm
-		termInMemory        bool
-		nilQsc              bool
-		setupMock           func(*mock.QueryService)
+		fakePos             *clustermetadatapb.PoolerPosition
 		expectedCurrentTerm int64
-		expectedIsHealthy   bool
-		expectedRole        consensusdatapb.PostgresRole
 		expectedWALLsn      string
 		description         string
 	}{
 		{
-			name: "HealthyPrimary",
+			name: "WithTermAndPosition",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
@@ -800,83 +795,28 @@ func TestConsensusStatus(t *testing.T) {
 					Name: "leader-node",
 				},
 			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check SELECT 1
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/4000000"}}))
-			},
+			fakePos:             &clustermetadatapb.PoolerPosition{Lsn: "0/4000000"},
 			expectedCurrentTerm: 5,
-			expectedIsHealthy:   true,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY,
 			expectedWALLsn:      "0/4000000",
-			description:         "Healthy primary should return correct status with WAL position",
+			description:         "Returns term and WAL position from rule store",
 		},
 		{
-			name: "HealthyStandby",
+			name: "WithTermNoPosition",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    3,
-				AcceptedTermFromCoordinatorId: nil,
+				TermNumber: 7,
 			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check SELECT 1
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// queryReplicationStatus() expects full replication status query
-				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{
-						"pg_last_wal_replay_lsn",
-						"pg_last_wal_receive_lsn",
-						"pg_is_wal_replay_paused",
-						"pg_get_wal_replay_pause_state",
-						"pg_last_xact_replay_timestamp",
-						"current_setting",
-						"wal_receiver_status",
-						"last_msg_receive_time",
-						"wal_receiver_status_interval",
-						"wal_receiver_timeout",
-					},
-					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming", nil, nil, nil}}))
-			},
-			expectedCurrentTerm: 3,
-			expectedIsHealthy:   true,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA,
-			expectedWALLsn:      "0/5000000", // receive LSN
-			description:         "Healthy standby should return correct status with receive/replay LSNs",
-		},
-		{
-			name: "NoDatabaseConnection",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    7,
-				AcceptedTermFromCoordinatorId: nil,
-			},
-			termInMemory:        true,
-			nilQsc:              true,
-			setupMock:           func(m *mock.QueryService) {},
+			fakePos:             nil,
 			expectedCurrentTerm: 7,
-			expectedIsHealthy:   false,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED, // no database, we can't check the postgres role
-			description:         "Should handle missing database connection gracefully",
+			expectedWALLsn:      "",
+			description:         "Returns term with empty position when rule store has no position",
 		},
 		{
-			name: "DatabaseQueryFailure",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    4,
-				AcceptedTermFromCoordinatorId: nil,
-			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check fails
-				m.AddQueryPatternOnceWithError("^SELECT 1$", errors.New("connection refused"))
-			},
-			expectedCurrentTerm: 4,
-			expectedIsHealthy:   false,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED,
-			description:         "Should handle database query failure gracefully",
+			name:                "NoTerm",
+			initialTerm:         nil,
+			fakePos:             nil,
+			expectedCurrentTerm: 0,
+			expectedWALLsn:      "",
+			description:         "Returns zero term when no term has been set",
 		},
 	}
 
@@ -884,65 +824,28 @@ func TestConsensusStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Create mock and set ALL expectations BEFORE starting the manager
-			mockQueryService := mock.NewQueryService()
-			tt.setupMock(mockQueryService)
+			frs := &fakeRuleStore{pos: tt.fakePos}
+			pm, _ := setupManagerWithMockDB(t, mock.NewQueryService(), frs)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
-
-			// Initialize term on disk
-			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
-			require.NoError(t, err)
-
-			// Load term into consensus state if term should be in memory
-			if tt.termInMemory {
-				loadedTerm, err := pm.consensusState.Load()
+			if tt.initialTerm != nil {
+				err := pm.consensusState.setConsensusTerm(tt.initialTerm)
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedCurrentTerm, loadedTerm, "Loaded term should match expected current term")
+				_, err = pm.consensusState.Load()
+				require.NoError(t, err)
 			}
 
-			// Handle nil qsc case
-			if tt.nilQsc {
-				pm.qsc = nil
-			}
-
-			req := &consensusdatapb.StatusRequest{
-				ShardId: "test-shard",
-			}
-
+			req := &consensusdatapb.StatusRequest{ShardId: "test-shard"}
 			resp, err := pm.ConsensusStatus(ctx, req)
 
-			// Verify response
 			require.NoError(t, err, tt.description)
 			require.NotNil(t, resp)
-			assert.Equal(t, "test-pooler", resp.PoolerId)
-			assert.Equal(t, tt.expectedCurrentTerm, resp.CurrentTerm)
-			assert.Equal(t, tt.expectedIsHealthy, resp.IsHealthy, tt.description)
-			assert.True(t, resp.IsEligible)
-			assert.Equal(t, "zone1", resp.Cell)
-			assert.Equal(t, tt.expectedRole, resp.Role)
 
-			// Verify WAL position if expected
-			require.NotNil(t, resp.WalPosition)
-			if tt.expectedWALLsn != "" {
-				if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
-					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.CurrentLsn)
-				} else if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA && tt.expectedIsHealthy {
-					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.LastReceiveLsn)
-				}
-			}
-
-			// Verify term was loaded if applicable
-			if !tt.termInMemory && !tt.nilQsc {
-				// Acquire action lock to inspect consensus state
-				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
-				require.NoError(t, err)
-				currentTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedCurrentTerm, currentTerm, "Term should be loaded into memory")
-				pm.actionLock.Release(inspectCtx)
-			}
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+			cs := resp.GetConsensusStatus()
+			require.NotNil(t, cs)
+			assert.Equal(t, "test-pooler", cs.GetId().GetName())
+			assert.Equal(t, "zone1", cs.GetId().GetCell())
+			assert.Equal(t, tt.expectedCurrentTerm, cs.GetTermRevocation().GetRevokedBelowTerm())
+			assert.Equal(t, tt.expectedWALLsn, cs.GetCurrentPosition().GetLsn())
 		})
 	}
 }

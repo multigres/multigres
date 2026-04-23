@@ -15,7 +15,6 @@
 package multipooler
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -27,6 +26,8 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+
+	"github.com/multigres/multigres/go/common/consensus"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -76,30 +77,22 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.GetId().GetName(), "PoolerId should match")
 
 		// Verify cell
-		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
-
-		// Verify role (should be primary)
-		assert.Equal(t, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY, resp.Role, "Role should be primary")
+		assert.Equal(t, "test-cell", resp.GetId().GetCell(), "Cell should match")
 
 		// Verify term (should be 1 from setup)
-		assert.Equal(t, int64(1), resp.CurrentTerm, "TermNumber should be 1")
+		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
 
-		// Verify health (should be healthy with database connection)
-		assert.True(t, resp.IsHealthy, "Primary should be healthy")
-
-		// Verify eligibility
-		assert.True(t, resp.IsEligible, "Primary should be eligible")
+		// Verify this node is the consensus primary
+		assert.True(t, consensus.IsPrimary(resp.GetConsensusStatus()), "Primary should be consensus primary")
 
 		// Verify WAL position is present
-		require.NotNil(t, resp.WalPosition, "WAL position should be present")
-		assert.NotEmpty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should not be empty on primary")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.CurrentLsn, "CurrentLsn should be in PostgreSQL format")
+		assert.NotEmpty(t, resp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "CurrentLsn should not be empty on primary")
+		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "CurrentLsn should be in PostgreSQL format")
 
-		t.Logf("Primary node status verified: role=%s, healthy=%v, CurrentLSN=%s",
-			resp.Role, resp.IsHealthy, resp.WalPosition.CurrentLsn)
+		t.Logf("Primary node status verified: CurrentLSN=%s", resp.GetConsensusStatus().GetCurrentPosition().GetLsn())
 	})
 
 	t.Run("Status_Standby", func(t *testing.T) {
@@ -113,21 +106,15 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.GetId().GetName(), "PoolerId should match")
 
 		// Verify cell
-		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
+		assert.Equal(t, "test-cell", resp.GetId().GetCell(), "Cell should match")
 
-		// Verify role (should be replica)
-		assert.Equal(t, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA, resp.Role, "Role should be replica")
+		// Verify this node is not the consensus primary
+		assert.False(t, consensus.IsPrimary(resp.GetConsensusStatus()), "Standby should not be consensus primary")
 
-		// Verify health
-		assert.True(t, resp.IsHealthy, "Standby should be healthy")
-
-		// Verify eligibility
-		assert.True(t, resp.IsEligible, "Standby should be eligible")
-
-		t.Logf("Standby node status verified: role=%s, healthy=%v", resp.Role, resp.IsHealthy)
+		t.Logf("Standby node status verified")
 	})
 }
 
@@ -174,8 +161,10 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	require.NoError(t, err)
 	standbyStatusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), consensusStatusReq)
 	require.NoError(t, err)
-	expectedTerm := max(primaryStatusResp.CurrentTerm, standbyStatusResp.CurrentTerm)
-	t.Logf("Initial term: %d (primary=%d, standby=%d)", expectedTerm, primaryStatusResp.CurrentTerm, standbyStatusResp.CurrentTerm)
+	primaryTerm := primaryStatusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	standbyTerm := standbyStatusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	expectedTerm := max(primaryTerm, standbyTerm)
+	t.Logf("Initial term: %d (primary=%d, standby=%d)", expectedTerm, primaryTerm, standbyTerm)
 
 	// Run NO_ACTION tests first to verify they don't disrupt the system
 	t.Run("BeginTerm_NO_ACTION_Primary", func(t *testing.T) {
@@ -345,9 +334,12 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
+		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
 		require.Eventually(t, func() bool {
-			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
-			return err == nil && statusResp.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
+			inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
+			return err == nil && inRecovery
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("Confirmed: PostgreSQL running as standby after emergency demotion")
 
@@ -417,11 +409,11 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 	t.Run("BeginTerm_RevokeStandby_ReplayCatchesUp", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		// Verify standby is replicating
+		// Verify standby is replicating and not the consensus primary
 		statusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err)
-		require.Equal(t, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA, statusResp.Role)
-		currentTerm := statusResp.CurrentTerm
+		assert.False(t, consensus.IsPrimary(statusResp.GetConsensusStatus()), "Standby should not be consensus primary before REVOKE")
+		currentTerm := statusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 		// Send BeginTerm REVOKE to standby
 		newTerm := currentTerm + 100
@@ -456,19 +448,18 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		statusReq := &consensusdatapb.StatusRequest{}
 		statusResp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
-		require.Equal(t, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY, statusResp.Role, "Node should be primary before test")
-		currentTerm := statusResp.CurrentTerm
-		t.Logf("Current term: %d, role: %s", currentTerm, statusResp.Role)
+		assert.True(t, consensus.IsPrimary(statusResp.GetConsensusStatus()), "Node should be consensus primary before test")
+		currentTerm := statusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+		t.Logf("Current term: %d", currentTerm)
 
 		// Verify PostgreSQL is actually running as primary (not in recovery)
 		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		defer primaryPoolerClient.Close()
 
-		resp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
 		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
+		require.False(t, inRecovery, "PostgreSQL should NOT be in recovery (should be primary)")
 		t.Log("Confirmed PostgreSQL is running as primary")
 
 		// Send BeginTerm with a higher term to the primary
@@ -499,8 +490,8 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 
 		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
 		require.Eventually(t, func() bool {
-			statusResp, err := primaryConsensusClient.Status(context.Background(), &consensusdatapb.StatusRequest{})
-			return err == nil && statusResp.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
+			inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
+			return err == nil && inRecovery
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("SUCCESS: PostgreSQL is running as standby after emergency demotion")
 
@@ -584,10 +575,9 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		require.NoError(t, err, "Promote should succeed on original primary")
 
 		// Verify original primary is primary again
-		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		inRecovery, err = postgresIsInRecovery(t, primaryPoolerClient)
 		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
+		require.False(t, inRecovery, "Original primary should be primary again")
 
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})

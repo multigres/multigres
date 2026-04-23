@@ -92,56 +92,6 @@ func (BeginTermAction) EnumDescriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{0}
 }
 
-// PostgresRole identifies the role of the PostgreSQL instance on a pooler node.
-type PostgresRole int32
-
-const (
-	PostgresRole_POSTGRES_ROLE_UNSPECIFIED PostgresRole = 0
-	PostgresRole_POSTGRES_ROLE_PRIMARY     PostgresRole = 1
-	PostgresRole_POSTGRES_ROLE_REPLICA     PostgresRole = 2
-)
-
-// Enum value maps for PostgresRole.
-var (
-	PostgresRole_name = map[int32]string{
-		0: "POSTGRES_ROLE_UNSPECIFIED",
-		1: "POSTGRES_ROLE_PRIMARY",
-		2: "POSTGRES_ROLE_REPLICA",
-	}
-	PostgresRole_value = map[string]int32{
-		"POSTGRES_ROLE_UNSPECIFIED": 0,
-		"POSTGRES_ROLE_PRIMARY":     1,
-		"POSTGRES_ROLE_REPLICA":     2,
-	}
-)
-
-func (x PostgresRole) Enum() *PostgresRole {
-	p := new(PostgresRole)
-	*p = x
-	return p
-}
-
-func (x PostgresRole) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (PostgresRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_consensusdata_proto_enumTypes[1].Descriptor()
-}
-
-func (PostgresRole) Type() protoreflect.EnumType {
-	return &file_consensusdata_proto_enumTypes[1]
-}
-
-func (x PostgresRole) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use PostgresRole.Descriptor instead.
-func (PostgresRole) EnumDescriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{1}
-}
-
 // WAL position for tracking replication state
 type WALPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -478,22 +428,9 @@ func (x *StatusRequest) GetShardId() string {
 
 type StatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Pooler ID
-	PoolerId string `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// Current term from local file
-	CurrentTerm int64 `protobuf:"varint,2,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// Current WAL position
-	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
-	// Whether Postgres is healthy and reachable
-	IsHealthy bool `protobuf:"varint,5,opt,name=is_healthy,json=isHealthy,proto3" json:"is_healthy,omitempty"`
-	// Whether this pooler is eligible to be a leader
-	IsEligible bool `protobuf:"varint,6,opt,name=is_eligible,json=isEligible,proto3" json:"is_eligible,omitempty"`
-	// Cell identifier
-	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
-	// Current role of the PostgreSQL instance on this node.
-	Role PostgresRole `protobuf:"varint,9,opt,name=role,proto3,enum=consensusdata.PostgresRole" json:"role,omitempty"`
-	// Timeline information for divergence detection
-	TimelineInfo *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
+	// Identity of the responding node. Always set, even when postgres is
+	// unavailable and consensus_status cannot be constructed.
+	Id *clustermetadata.ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
 	// The term for which this multipooler was promoted to primary.
 	// Set during promotion (Promote).
 	// Preserved when consensus term increases (new elections).
@@ -502,7 +439,7 @@ type StatusResponse struct {
 	PrimaryTerm int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	// The pooler's current consensus status: its term revocation, committed
 	// rule position, and highest known rule. Authoritative view of where this
-	// pooler stands in the distributed system.
+	// pooler stands in the distributed system. Nil when postgres is unavailable.
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,12,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	// Best-effort operational fitness signals for this node. These signals are
 	// in-memory and may be absent after a process restart. Coordinators treat
@@ -542,58 +479,9 @@ func (*StatusResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *StatusResponse) GetPoolerId() string {
+func (x *StatusResponse) GetId() *clustermetadata.ID {
 	if x != nil {
-		return x.PoolerId
-	}
-	return ""
-}
-
-func (x *StatusResponse) GetCurrentTerm() int64 {
-	if x != nil {
-		return x.CurrentTerm
-	}
-	return 0
-}
-
-func (x *StatusResponse) GetWalPosition() *WALPosition {
-	if x != nil {
-		return x.WalPosition
-	}
-	return nil
-}
-
-func (x *StatusResponse) GetIsHealthy() bool {
-	if x != nil {
-		return x.IsHealthy
-	}
-	return false
-}
-
-func (x *StatusResponse) GetIsEligible() bool {
-	if x != nil {
-		return x.IsEligible
-	}
-	return false
-}
-
-func (x *StatusResponse) GetCell() string {
-	if x != nil {
-		return x.Cell
-	}
-	return ""
-}
-
-func (x *StatusResponse) GetRole() PostgresRole {
-	if x != nil {
-		return x.Role
-	}
-	return PostgresRole_POSTGRES_ROLE_UNSPECIFIED
-}
-
-func (x *StatusResponse) GetTimelineInfo() *TimelineInfo {
-	if x != nil {
-		return x.TimelineInfo
+		return x.Id
 	}
 	return nil
 }
@@ -617,52 +505,6 @@ func (x *StatusResponse) GetAvailabilityStatus() *clustermetadata.AvailabilitySt
 		return x.AvailabilityStatus
 	}
 	return nil
-}
-
-// Timeline information from PostgreSQL
-type TimelineInfo struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current timeline ID (from pg_control_checkpoint())
-	TimelineId    int64 `protobuf:"varint,1,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TimelineInfo) Reset() {
-	*x = TimelineInfo{}
-	mi := &file_consensusdata_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TimelineInfo) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TimelineInfo) ProtoMessage() {}
-
-func (x *TimelineInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TimelineInfo.ProtoReflect.Descriptor instead.
-func (*TimelineInfo) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *TimelineInfo) GetTimelineId() int64 {
-	if x != nil {
-		return x.TimelineId
-	}
-	return 0
 }
 
 var File_consensusdata_proto protoreflect.FileDescriptor
@@ -694,33 +536,16 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x10consensus_status\x18\x05 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x9c\x04\n" +
-	"\x0eStatusResponse\x12\x1b\n" +
-	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
-	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
-	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\x12\x1d\n" +
-	"\n" +
-	"is_healthy\x18\x05 \x01(\bR\tisHealthy\x12\x1f\n" +
-	"\vis_eligible\x18\x06 \x01(\bR\n" +
-	"isEligible\x12\x12\n" +
-	"\x04cell\x18\a \x01(\tR\x04cell\x12/\n" +
-	"\x04role\x18\t \x01(\x0e2\x1b.consensusdata.PostgresRoleR\x04role\x12@\n" +
-	"\rtimeline_info\x18\n" +
-	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xfb\x01\n" +
+	"\x0eStatusResponse\x12#\n" +
+	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\x12!\n" +
 	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12K\n" +
 	"\x10consensus_status\x18\f \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12T\n" +
-	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"/\n" +
-	"\fTimelineInfo\x12\x1f\n" +
-	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
-	"timelineId*s\n" +
+	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus*s\n" +
 	"\x0fBeginTermAction\x12!\n" +
 	"\x1dBEGIN_TERM_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bBEGIN_TERM_ACTION_NO_ACTION\x10\x01\x12\x1c\n" +
-	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02*c\n" +
-	"\fPostgresRole\x12\x1d\n" +
-	"\x19POSTGRES_ROLE_UNSPECIFIED\x10\x00\x12\x19\n" +
-	"\x15POSTGRES_ROLE_PRIMARY\x10\x01\x12\x19\n" +
-	"\x15POSTGRES_ROLE_REPLICA\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
+	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
 	file_consensusdata_proto_rawDescOnce sync.Once
@@ -734,38 +559,34 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 	return file_consensusdata_proto_rawDescData
 }
 
-var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_consensusdata_proto_goTypes = []any{
 	(BeginTermAction)(0),                       // 0: consensusdata.BeginTermAction
-	(PostgresRole)(0),                          // 1: consensusdata.PostgresRole
-	(*WALPosition)(nil),                        // 2: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),                   // 3: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),                  // 4: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),                      // 5: consensusdata.StatusRequest
-	(*StatusResponse)(nil),                     // 6: consensusdata.StatusResponse
-	(*TimelineInfo)(nil),                       // 7: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),              // 8: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),                 // 9: clustermetadata.ID
-	(*clustermetadata.ConsensusStatus)(nil),    // 10: clustermetadata.ConsensusStatus
-	(*clustermetadata.AvailabilityStatus)(nil), // 11: clustermetadata.AvailabilityStatus
+	(*WALPosition)(nil),                        // 1: consensusdata.WALPosition
+	(*BeginTermRequest)(nil),                   // 2: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),                  // 3: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),                      // 4: consensusdata.StatusRequest
+	(*StatusResponse)(nil),                     // 5: consensusdata.StatusResponse
+	(*timestamppb.Timestamp)(nil),              // 6: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                 // 7: clustermetadata.ID
+	(*clustermetadata.ConsensusStatus)(nil),    // 8: clustermetadata.ConsensusStatus
+	(*clustermetadata.AvailabilityStatus)(nil), // 9: clustermetadata.AvailabilityStatus
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	8,  // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	9,  // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
-	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
-	2,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
-	10, // 4: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	2,  // 5: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	1,  // 6: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
-	7,  // 7: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	10, // 8: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	11, // 9: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	6, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	7, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	0, // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
+	1, // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
+	8, // 4: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	7, // 5: consensusdata.StatusResponse.id:type_name -> clustermetadata.ID
+	8, // 6: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	9, // 7: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -778,8 +599,8 @@ func file_consensusdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   6,
+			NumEnums:      1,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

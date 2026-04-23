@@ -277,8 +277,8 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 // buildConsensusStatus constructs a ConsensusStatus from a pre-resolved term and position.
 // Both arguments may be nil; in that case the corresponding fields in the returned status
 // are left unset. Never performs I/O.
-func buildConsensusStatus(term *multipoolermanagerdatapb.ConsensusTerm, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
-	status := &clustermetadatapb.ConsensusStatus{}
+func buildConsensusStatus(id *clustermetadatapb.ID, term *multipoolermanagerdatapb.ConsensusTerm, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+	status := &clustermetadatapb.ConsensusStatus{Id: id}
 	if term != nil {
 		status.TermRevocation = &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:      term.TermNumber,
@@ -309,7 +309,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(term, pos), nil
+	return buildConsensusStatus(pm.serviceID, term, pos), nil
 }
 
 // getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
@@ -328,7 +328,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 	if pos == nil {
 		return nil, nil
 	}
-	return buildConsensusStatus(term, pos), nil
+	return buildConsensusStatus(pm.serviceID, term, pos), nil
 }
 
 // getInconsistentConsensusStatus builds a ConsensusStatus without holding the action lock.
@@ -347,7 +347,7 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(term, pos), nil
+	return buildConsensusStatus(pm.serviceID, term, pos), nil
 }
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
@@ -405,58 +405,9 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		return nil, fmt.Errorf("failed to get consensus term: %w", err)
 	}
 
-	localCurrentTerm := int64(0)
-	if term != nil {
-		localCurrentTerm = term.GetTermNumber()
-	}
 	localPrimaryTerm := int64(0)
 	if term != nil {
 		localPrimaryTerm = term.GetPrimaryTerm()
-	}
-
-	// Check if database is healthy by attempting a simple query
-	_, healthErr := pm.query(ctx, "SELECT 1")
-	isHealthy := healthErr == nil
-
-	// Get WAL position and determine role (primary/replica)
-	walPosition := &consensusdatapb.WALPosition{
-		Timestamp: timestamppb.New(time.Now()),
-	}
-	role := consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED
-
-	if isHealthy {
-		// Check role and get appropriate WAL position
-		isPrimary, err := pm.isPrimary(ctx)
-		if err == nil {
-			if isPrimary {
-				// On primary: get current write position
-				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY
-				currentLsn, err := pm.getPrimaryLSN(ctx)
-				if err == nil {
-					walPosition.CurrentLsn = currentLsn
-				}
-			} else {
-				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
-				// On standby: get receive and replay positions
-				status, err := pm.queryReplicationStatus(ctx)
-				if err == nil {
-					walPosition.LastReceiveLsn = status.LastReceiveLsn
-					walPosition.LastReplayLsn = status.LastReplayLsn
-				}
-			}
-		}
-	}
-
-	// Get timeline information for divergence detection
-	var timelineInfo *consensusdatapb.TimelineInfo
-	if isHealthy {
-		timelineID, err := pm.getTimelineID(ctx)
-		if err == nil {
-			timelineInfo = &consensusdatapb.TimelineInfo{
-				TimelineId: timelineID,
-				// TODO: Populate history for primaries
-			}
-		}
 	}
 
 	consensusStatus, statusErr := pm.getInconsistentConsensusStatus(ctx)
@@ -465,14 +416,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	return &consensusdatapb.StatusResponse{
-		PoolerId:           pm.serviceID.GetName(),
-		CurrentTerm:        localCurrentTerm,
-		WalPosition:        walPosition,
-		IsHealthy:          isHealthy,
-		IsEligible:         true, // TODO: implement eligibility logic based on policy
-		Cell:               pm.serviceID.GetCell(),
-		Role:               role,
-		TimelineInfo:       timelineInfo,
+		Id:                 pm.serviceID,
 		PrimaryTerm:        localPrimaryTerm,
 		ConsensusStatus:    consensusStatus,
 		AvailabilityStatus: pm.buildAvailabilityStatus(),
