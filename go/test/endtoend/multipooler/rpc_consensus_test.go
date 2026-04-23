@@ -15,6 +15,7 @@
 package multipooler
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -333,13 +334,17 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		assert.Equal(t, expectedTerm, resp.Term, "Response term should be updated to new term")
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
-		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
-		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		require.NoError(t, err)
-		t.Cleanup(func() { primaryPoolerClient.Close() })
+		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby).
+		// Use the manager's Status RPC (admin connection) rather than the query service, which
+		// blocks with "planned failover in progress" during BeginTerm REVOKE processing.
 		require.Eventually(t, func() bool {
-			inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
-			return err == nil && inRecovery
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			resp, err := primaryManagerClient.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+			return resp.GetStatus().GetPostgresRole() == "standby"
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("Confirmed: PostgreSQL running as standby after emergency demotion")
 
@@ -442,6 +447,11 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 	t.Run("BeginTerm_AutoEmergencyDemotesPrimary", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
+		// Register cleanup early so it runs even if assertions fail.
+		t.Cleanup(func() {
+			restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
+		})
+
 		t.Log("=== Testing BeginTerm auto emergency demotion of primary ===")
 
 		// Get current term and verify primary is actually primary
@@ -453,13 +463,13 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		t.Logf("Current term: %d", currentTerm)
 
 		// Verify PostgreSQL is actually running as primary (not in recovery)
-		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		require.NoError(t, err)
-		defer primaryPoolerClient.Close()
-
-		inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
-		require.NoError(t, err)
-		require.False(t, inRecovery, "PostgreSQL should NOT be in recovery (should be primary)")
+		require.Equal(t, "primary", func() string {
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			resp, err := primaryManagerClient.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			require.NoError(t, err, "Manager Status should succeed")
+			return resp.GetStatus().GetPostgresRole()
+		}(), "PostgreSQL should NOT be in recovery (should be primary)")
 		t.Log("Confirmed PostgreSQL is running as primary")
 
 		// Send BeginTerm with a higher term to the primary
@@ -488,10 +498,17 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		t.Logf("BeginTerm response: accepted=%v, term=%d, current_lsn=%s",
 			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.WalPosition.CurrentLsn)
 
-		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby)
+		// Verify PostgreSQL is running as standby (emergency demotion restarts as standby).
+		// Use the manager's Status RPC (admin connection) rather than the query service, which
+		// blocks with "planned failover in progress" during BeginTerm REVOKE processing.
 		require.Eventually(t, func() bool {
-			inRecovery, err := postgresIsInRecovery(t, primaryPoolerClient)
-			return err == nil && inRecovery
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			resp, err := primaryManagerClient.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+			return resp.GetStatus().GetPostgresRole() == "standby"
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("SUCCESS: PostgreSQL is running as standby after emergency demotion")
 
@@ -575,9 +592,15 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		require.NoError(t, err, "Promote should succeed on original primary")
 
 		// Verify original primary is primary again
-		inRecovery, err = postgresIsInRecovery(t, primaryPoolerClient)
-		require.NoError(t, err)
-		require.False(t, inRecovery, "Original primary should be primary again")
+		require.Eventually(t, func() bool {
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			resp, err := primaryManagerClient.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+			return resp.GetStatus().GetPostgresRole() == "primary"
+		}, 10*time.Second, 500*time.Millisecond, "Original primary should be primary again")
 
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})
