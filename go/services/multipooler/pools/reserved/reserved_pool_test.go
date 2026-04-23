@@ -725,13 +725,17 @@ func TestPool_NewConn_ValidateNonConnectionErrorPropagates(t *testing.T) {
 	assert.Nil(t, conn)
 	assert.Equal(t, 1, calls, "non-connection errors must not trigger a retry")
 
-	// No reservation was registered, and the pooled conn was recycled
-	// (not tainted): it stays alive for the next acquisition.
+	// No reservation was registered. The pooled conn is discarded
+	// (tainted + recycled) because validate ran state-modifying work on
+	// it that may have left the conn in an inconsistent state — see the
+	// acquireValidated doc for the full rationale. The happy-path
+	// non-connection-error case is indistinguishable from the
+	// state-modification case, so we discard unconditionally.
 	stats := pool.Stats()
 	assert.Equal(t, 0, stats.Active)
 	assert.Equal(t, int64(0), stats.ReserveCount, "failed acquisition should not increment ReserveCount")
 	require.NotNil(t, seenConn)
-	assert.False(t, seenConn.IsClosed(), "non-connection error must recycle (not taint) the pooled conn")
+	assert.True(t, seenConn.IsClosed(), "validate failure must taint the conn, not recycle it dirty")
 }
 
 func TestPool_NewConn_ValidateExhaustsRetries(t *testing.T) {

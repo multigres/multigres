@@ -206,15 +206,22 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 // acquireValidated borrows a regular connection from the underlying pool
 // and, if validate is non-nil, runs it against the connection. A
 // connection error from validate (stale socket exposed by the first
-// user-issued write) taints the socket and triggers another attempt on
-// a fresh one, up to constants.MaxConnPoolRetryAttempts.
+// user-issued write) triggers another attempt on a fresh socket, up to
+// constants.MaxConnPoolRetryAttempts.
+//
+// Any non-nil error from validate — connection or otherwise — taints
+// the pooled conn before returning or retrying. Validate hooks perform
+// real state-modifying work on the conn (Parse, BEGIN, COPY initiation),
+// so a failure in one of those steps may leave the conn in a partially
+// modified state (e.g. BEGIN succeeded, then InitiateCopyFromStdin
+// failed — the conn is now stuck in failed-transaction 'E' state).
+// Recycling such a conn back to the pool would poison the next user;
+// discarding it is the safe default and matches the pre-primitive
+// behavior of every caller (Release(ReleaseError) on failure).
 //
 // Connection errors from GetWithSettings itself (stale socket exposed
 // while applying SETs) are handled inside regular.Pool.GetWithSettings,
 // which retries with the same regime; this layer does not double-retry.
-//
-// Non-connection errors propagate unchanged, with the pooled conn
-// recycled.
 func (p *Pool) acquireValidated(
 	ctx context.Context,
 	settings *connstate.Settings,
@@ -239,17 +246,17 @@ func (p *Pool) acquireValidated(
 		if validateErr == nil {
 			return pooled, nil
 		}
-		if !mterrors.IsConnectionError(validateErr) {
-			pooled.Recycle()
-			return nil, validateErr
-		}
 
-		// Connection-level failure surfaced by validate. Taint nils out
+		// Any validate failure discards the conn. Taint nils out
 		// pooled.pool, so the subsequent Recycle takes the pool==nil
 		// branch and closes the orphaned socket immediately rather than
 		// waiting on the idle killer.
 		pooled.Taint()
 		pooled.Recycle()
+
+		if !mterrors.IsConnectionError(validateErr) {
+			return nil, validateErr
+		}
 		lastErr = validateErr
 
 		if attempt == constants.MaxConnPoolRetryAttempts {

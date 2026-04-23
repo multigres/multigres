@@ -172,9 +172,14 @@ accessed via `Get()`, its expiry time is reset.
 `WithValidate(fn)` option attaches a callback that runs against the underlying
 `*regular.Conn` before the reserved connection is registered in the active map.
 A connection-class error from the callback (e.g. the first user-issued write
-revealed a silently closed socket) taints the pooled conn and triggers a retry
-on a fresh socket, up to `constants.MaxConnPoolRetryAttempts` total. Non-connection
-errors propagate unchanged.
+revealed a silently closed socket) triggers a retry on a fresh socket, up to
+`constants.MaxConnPoolRetryAttempts` total. Any validate failure — connection
+or otherwise — taints the pooled conn rather than recycling it, because
+validate hooks perform real state-modifying work (Parse, BEGIN, COPY
+initiation) whose mid-failure can leave the conn in a partially modified state
+(e.g. BEGIN succeeded, `InitiateCopyFromStdin` then failed: conn is stuck in
+failed-transaction `'E'` state). Discarding the conn is the safe default and
+matches the pre-primitive behavior at every call site.
 
 This is the reserved-pool analog of the regular pool's
 `retryOnConnectionError`. It is wired by every executor call site that
