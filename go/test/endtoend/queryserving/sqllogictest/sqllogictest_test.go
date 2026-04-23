@@ -78,10 +78,6 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		t.Skip("skipping sqllogictest: set RUN_SQLLOGICTEST=1 to run")
 	}
 
-	if !utils.HasPostgreSQLBinaries() {
-		t.Skip("skipping: PostgreSQL binaries not found on PATH")
-	}
-
 	if _, err := exec.LookPath("sqllogictest"); err != nil {
 		t.Fatalf("sqllogictest binary not found on PATH; run `make tools` to install it: %v", err)
 	}
