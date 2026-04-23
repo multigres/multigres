@@ -212,3 +212,30 @@ func TestNormalizeSameShapeDifferentValues(t *testing.T) {
 	assert.Equal(t, "42", result1.BindValues[0].SqlString())
 	assert.Equal(t, "99", result2.BindValues[0].SqlString())
 }
+
+func TestFingerprint(t *testing.T) {
+	// Same shape, different values → same fingerprint.
+	result1 := Normalize(selectWhereInt(42))
+	result2 := Normalize(selectWhereInt(99))
+	assert.Equal(t, result1.Fingerprint(), result2.Fingerprint())
+
+	// Fingerprint is 16 hex chars.
+	assert.Len(t, result1.Fingerprint(), 16)
+
+	// Different shape → different fingerprint.
+	differentShape := &SelectStmt{
+		TargetList: &NodeList{Items: []Node{NewResTarget("", &ColumnRef{Fields: &NodeList{Items: []Node{&A_Star{}}}})}},
+		FromClause: &NodeList{Items: []Node{&RangeVar{RelName: "orders", Inh: true}}},
+		Op:         SETOP_NONE,
+	}
+	result3 := Normalize(differentShape)
+	assert.NotEqual(t, result1.Fingerprint(), result3.Fingerprint())
+}
+
+func TestFingerprintStable(t *testing.T) {
+	// Fingerprint must be deterministic across invocations.
+	result := Normalize(selectWhereInt(42))
+	fp1 := result.Fingerprint()
+	fp2 := result.Fingerprint()
+	assert.Equal(t, fp1, fp2)
+}

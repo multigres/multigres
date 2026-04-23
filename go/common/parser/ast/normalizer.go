@@ -14,6 +14,12 @@
 
 package ast
 
+import (
+	"fmt"
+
+	"github.com/cespare/xxhash/v2"
+)
+
 // NormalizeResult holds the output of AST normalization.
 type NormalizeResult struct {
 	// NormalizedSQL is the SQL string with literals replaced by $1, $2, ...
@@ -32,6 +38,22 @@ type NormalizeResult struct {
 // WasNormalized reports whether any literals were replaced during normalization.
 func (r *NormalizeResult) WasNormalized() bool {
 	return len(r.BindValues) > 0
+}
+
+// Fingerprint returns a stable 16-character hex hash of the normalized SQL.
+// Two queries with the same NormalizedSQL produce identical fingerprints,
+// which makes the fingerprint suitable as a per-query-shape identifier for
+// metrics aggregation and cache keys.
+func (r *NormalizeResult) Fingerprint() string {
+	return FingerprintSQL(r.NormalizedSQL)
+}
+
+// FingerprintSQL returns a stable 16-character hex hash of the given SQL
+// string. Useful for callers that already have a normalized or
+// placeholder-form SQL (e.g. extended-protocol queries whose Parse text
+// already contains $N placeholders) and don't need to run the normalizer.
+func FingerprintSQL(sql string) string {
+	return fmt.Sprintf("%016x", xxhash.Sum64String(sql))
 }
 
 // Normalize replaces literal A_Const values in the AST with ParamRef ($1, $2, ...)
