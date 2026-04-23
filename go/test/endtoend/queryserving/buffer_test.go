@@ -359,7 +359,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 	t.Helper()
 	connStr := fmt.Sprintf(
-		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
+		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=30",
 		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)

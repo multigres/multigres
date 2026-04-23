@@ -21,11 +21,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/web"
+	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
 
 // PoolerStatus represents the status of a multipooler instance.
@@ -124,6 +126,143 @@ func (mg *MultiGateway) handleReady(w http.ResponseWriter, r *http.Request) {
 type ConsolidatorDebugStatus struct {
 	Title string
 	Stats preparedstatement.ConsolidatorStats
+}
+
+// QueryView is a presentation-ready view of a queryregistry.Snapshot with
+// pre-formatted millisecond fields so the HTML template doesn't get mixed
+// units from time.Duration.String() (µs, ms, s).
+type QueryView struct {
+	Fingerprint   string    `json:"fingerprint"`
+	NormalizedSQL string    `json:"normalized_sql"`
+	Calls         uint64    `json:"calls"`
+	Errors        uint64    `json:"errors"`
+	AvgMs         string    `json:"avg_ms"`
+	MinMs         string    `json:"min_ms"`
+	MaxMs         string    `json:"max_ms"`
+	TotalRows     uint64    `json:"total_rows"`
+	LastSeen      time.Time `json:"last_seen"`
+}
+
+// QueriesDebugStatus is the view-model for the /debug/queries HTML page.
+type QueriesDebugStatus struct {
+	Title               string      `json:"title"`
+	TrackedFingerprints int         `json:"tracked_fingerprints"`
+	Returned            int         `json:"returned"`
+	Limit               int         `json:"limit"`
+	SortBy              string      `json:"sort_by"`
+	SortLinks           []SortLink  `json:"-"`
+	Queries             []QueryView `json:"queries"`
+}
+
+// SortLink represents one sort option on the /debug/queries page.
+// Precomputed in the handler so the HTML template can iterate without
+// using Go-template string literals inside attribute values (which
+// breaks HTML linters that don't understand Go templates).
+type SortLink struct {
+	Key    string
+	Label  string
+	Active bool
+}
+
+// durationToMs renders a duration as a fixed-width millisecond string with
+// 3 decimal places so the dashboard columns align. Zero durations print as
+// "0.000".
+func durationToMs(d time.Duration) string {
+	return fmt.Sprintf("%.3f", float64(d.Microseconds())/1000.0)
+}
+
+// handleQueriesDebug serves per-query-shape statistics.
+// Renders HTML by default; pass ?format=json for machine-readable output.
+// Query params:
+//
+//	limit: max entries to return (default 50, 0 = unlimited)
+//	sort:  one of calls (default), total_time, avg_time, errors, last_seen
+func (mg *MultiGateway) handleQueriesDebug(w http.ResponseWriter, r *http.Request) {
+	registry := mg.pgHandler.QueryRegistry()
+
+	limit := 50
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			limit = n
+		}
+	}
+
+	sortName := r.URL.Query().Get("sort")
+	if sortName == "" {
+		sortName = "calls"
+	}
+	var sortBy queryregistry.SortKey
+	switch sortName {
+	case "total_time":
+		sortBy = queryregistry.SortByTotalTime
+	case "avg_time":
+		sortBy = queryregistry.SortByAverageTime
+	case "errors":
+		sortBy = queryregistry.SortByErrors
+	case "last_seen":
+		sortBy = queryregistry.SortByLastSeen
+	default:
+		sortBy = queryregistry.SortByCalls
+		sortName = "calls"
+	}
+
+	var snapshots []queryregistry.Snapshot
+	if registry != nil {
+		snapshots = registry.Top(limit, sortBy)
+	}
+
+	queries := make([]QueryView, len(snapshots))
+	for i, s := range snapshots {
+		queries[i] = QueryView{
+			Fingerprint:   s.Fingerprint,
+			NormalizedSQL: s.NormalizedSQL,
+			Calls:         s.Calls,
+			Errors:        s.Errors,
+			AvgMs:         durationToMs(s.AverageDuration),
+			MinMs:         durationToMs(s.MinDuration),
+			MaxMs:         durationToMs(s.MaxDuration),
+			TotalRows:     s.TotalRows,
+			LastSeen:      s.LastSeen,
+		}
+	}
+
+	sortOptions := []struct{ Key, Label string }{
+		{"calls", "calls"},
+		{"total_time", "total time"},
+		{"avg_time", "avg time"},
+		{"errors", "errors"},
+		{"last_seen", "last seen"},
+	}
+	sortLinks := make([]SortLink, len(sortOptions))
+	for i, opt := range sortOptions {
+		sortLinks[i] = SortLink{
+			Key:    opt.Key,
+			Label:  opt.Label,
+			Active: opt.Key == sortName,
+		}
+	}
+
+	view := QueriesDebugStatus{
+		Title:               "Per-Query Metrics",
+		TrackedFingerprints: registry.Len(),
+		Returned:            len(snapshots),
+		Limit:               limit,
+		SortBy:              sortName,
+		SortLinks:           sortLinks,
+		Queries:             queries,
+	}
+
+	if r.URL.Query().Get("format") == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(view); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode JSON: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if err := web.Templates.ExecuteTemplate(w, "queries_debug.html", &view); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // handleConsolidatorDebug serves the prepared statement consolidator debug page.

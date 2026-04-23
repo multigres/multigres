@@ -72,6 +72,21 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	}
 }
 
+// buildTarget constructs a routing target from the given tableGroup and shard.
+// When the connection arrived on the replica-reads port (state.TargetReplica()),
+// the target's PoolerType is set to REPLICA; otherwise PRIMARY.
+func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.MultiGatewayConnectionState) *querypb.Target {
+	poolerType := clustermetadatapb.PoolerType_PRIMARY
+	if state.TargetReplica() {
+		poolerType = clustermetadatapb.PoolerType_REPLICA
+	}
+	return &querypb.Target{
+		TableGroup: tableGroup,
+		Shard:      shard,
+		PoolerType: poolerType,
+	}
+}
+
 // applyReservedState replaces independent bookkeeping with the authoritative reservation
 // state from the multipooler. If the reserved connection ID is zero, the connection was
 // destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
@@ -103,12 +118,19 @@ func (sc *ScatterConn) applyReservedState(
 //   - Case 1: Has reserved connection → use it
 //   - Case 2: In transaction, no reserved conn → call StreamExecute with reservation options
 //   - Case 3: Not in transaction → use regular pooled connection
+//
+// If preparedStatement is non-nil, it is attached to the ExecuteOptions so
+// the multipooler can ensurePrepared() on the backend connection before
+// running the query. Used for wrapped EXECUTE forms (EXPLAIN EXECUTE,
+// CREATE TABLE ... AS EXECUTE) that reference a gateway-managed prepared
+// statement by its canonical name.
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
 	sql string,
+	preparedStatement *querypb.PreparedStatement,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
@@ -132,18 +154,12 @@ func (sc *ScatterConn) StreamExecute(
 		"connection_id", conn.ConnectionID(),
 		"in_transaction", conn.IsInTransaction())
 
-	// Create target for routing
-	// TODO: Add query analysis to determine if this is a read or write query
-	// For now, always route to PRIMARY (safe default)
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		User:              conn.User(),
+		SessionSettings:   state.GetSessionSettings(),
+		PreparedStatement: preparedStatement,
 	}
 
 	ss := state.GetMatchingShardState(target)
@@ -288,11 +304,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
@@ -403,11 +415,7 @@ func (sc *ScatterConn) Describe(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
-	}
+	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),

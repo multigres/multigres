@@ -29,7 +29,7 @@ func (p *Planner) planVariableShowStmt(
 	conn *server.Conn,
 ) (*engine.Plan, error) {
 	if !isGatewayManagedVariable(stmt.Name) {
-		return p.planDefault(sql, conn)
+		return p.planDefault(sql, stmt, conn)
 	}
 
 	p.logger.Debug("planning SHOW gateway-managed variable", "variable", stmt.Name)

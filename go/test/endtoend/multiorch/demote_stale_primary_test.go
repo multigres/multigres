@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -74,15 +75,15 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
+	// Disable postgres restarts on old primary so postgres is not restarted by pooler
 	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	defer oldPrimaryClient.Close()
 
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err)
 	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
+		_, _ = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 	}()
 
 	// Step 1: Kill postgres on primary to trigger failover
@@ -130,8 +131,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verified primary.demotion event in multiorch log")
 
 	// Step 9: Verify term.begin event was emitted during failover.
-	// BeginTerm is called by AppointLeaderAction on all nodes during failover (unlike initial
-	// bootstrap which uses InitializeEmptyPrimary directly). The new primary receives ACCEPT.
+	// BeginTerm is called by AppointLeaderAction on all nodes during failover. The new primary receives ACCEPT.
 	t.Log("Verifying term.begin event in new primary's multipooler log...")
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")
@@ -186,20 +186,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
-	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer oldPrimaryClient.Close()
-
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	}()
-
-	// Step 1: Gracefully shutdown postgres on primary to trigger failover
+	// Step 1: Gracefully shutdown postgres on primary to trigger failover.
+	// Restarts are disabled first so the monitor does not restart postgres immediately.
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
-	setup.ShutdownPostgres(t, oldPrimaryName)
+	resumeRestarts := setup.ShutdownPostgres(t, oldPrimaryName)
+	defer resumeRestarts()
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
@@ -301,34 +292,35 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			t.Logf("Failed to get replication status: %v", err)
 			return false
 		}
-		if resp.Status == nil {
+		if statusResp.Status == nil || statusResp.Status.ReplicationStatus == nil {
 			t.Logf("Replication status is nil")
 			return false
 		}
-		if resp.Status.PrimaryConnInfo == nil {
+		repStatus := statusResp.Status.ReplicationStatus
+		if repStatus.PrimaryConnInfo == nil {
 			t.Logf("Primary conninfo is nil")
 			return false
 		}
-		if resp.Status.LastReceiveLsn == "" {
+		if repStatus.LastReceiveLsn == "" {
 			t.Logf("Last receive LSN is empty")
 			return false
 		}
-		if resp.Status.WalReceiverStatus != "streaming" {
-			t.Logf("WAL receiver status is %q, waiting for 'streaming'", resp.Status.WalReceiverStatus)
+		if repStatus.WalReceiverStatus != "streaming" {
+			t.Logf("WAL receiver status is %q, waiting for 'streaming'", repStatus.WalReceiverStatus)
 			return false
 		}
 
 		t.Logf("Replica %s is streaming from %s:%d, last_receive_lsn=%s, wal_receiver_status=%s",
 			replicaName,
-			resp.Status.PrimaryConnInfo.Host,
-			resp.Status.PrimaryConnInfo.Port,
-			resp.Status.LastReceiveLsn,
-			resp.Status.WalReceiverStatus)
+			repStatus.PrimaryConnInfo.Host,
+			repStatus.PrimaryConnInfo.Port,
+			repStatus.LastReceiveLsn,
+			repStatus.WalReceiverStatus)
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
 
@@ -369,16 +361,16 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	t.Logf("Wrote test data to primary: %s", testValue)
 
 	// Get primary's current LSN
-	primaryPosResp, err := primaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+	consensusStatusResp, err := primaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary LSN position")
-	primaryLSN := primaryPosResp.LsnPosition
+	primaryLSN := consensusStatusResp.WalPosition.CurrentLsn
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 	// Wait for replica PostgreSQL to be ready after pg_rewind and restart
 	t.Logf("Waiting for replica %s PostgreSQL to be ready...", replicaName)
 	require.Eventually(t, func() bool {
-		statusResp, err := replicaClient.Manager.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-		return err == nil && statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
+		statusResp, err := replicaClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		return err == nil && statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil && statusResp.Status.ReplicationStatus.PrimaryConnInfo != nil
 	}, 10*time.Second, 500*time.Millisecond, "replica should be ready after pg_rewind")
 	t.Logf("Replica PostgreSQL is ready")
 

@@ -17,7 +17,6 @@ package multipooler
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -117,21 +116,17 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	require.NotNil(t, standbyInst, "expected a standby instance")
 	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
-	// Disable postgres monitoring on all nodes so that multipooler does not
+	// Disable postgres restarts on all nodes so that multipooler does not
 	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
 	for name, inst := range setup.Multipoolers {
 		mc := createBackupClient(t, inst.Multipooler.GrpcPort)
-		_, err := mc.SetMonitor(t.Context(), &multipoolermanagerdata.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err, "failed to disable monitoring on %s", name)
-		t.Logf("Disabled postgres monitoring on %s", name)
+		_, err := mc.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdata.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err, "failed to disable postgres restarts on %s", name)
+		t.Logf("Disabled postgres restarts on %s", name)
 	}
 
 	// Tag the backup so we can check its specific status after failure.
 	const testJobID = "failover-test-backup"
-
-	// pg2-path is required even in TLS mode (pgBackRest 2.58+).
-	// Pass the primary's pg_data directory so pgBackRest can connect to it remotely.
-	primaryPg2Path := filepath.Join(primary.Pgctld.PoolerDir, "pg_data")
 
 	// Start a full backup from the standby in a goroutine (it will block inside s3mock).
 	// The standby connects to the primary's pgBackRest TLS server (pg2-host-type=tls).
@@ -140,9 +135,8 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, err := backupClient.Backup(ctx, &multipoolermanagerdata.BackupRequest{
-			Type:      "full",
-			JobId:     testJobID,
-			Overrides: map[string]string{"pg2_path": primaryPg2Path},
+			Type:  "full",
+			JobId: testJobID,
 		})
 		backupErrCh <- err
 	}()
@@ -198,7 +192,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 			}
 			if resp.Status.IsInitialized &&
 				resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
-				resp.Status.PostgresRunning {
+				resp.Status.PostgresReady {
 				t.Logf("New primary elected: %s", name)
 				return true
 			}

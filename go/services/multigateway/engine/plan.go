@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -66,19 +67,44 @@ func NewPlan(original string, primitive Primitive) *Plan {
 }
 
 // StreamExecute executes the plan by calling the root primitive's StreamExecute.
+// bindVars contains literal values extracted during normalization; nil for non-cached paths.
 func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, state, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.
 func (p *Plan) GetTableGroup() string {
 	return p.Primitive.GetTableGroup()
+}
+
+// CachedSize returns the approximate memory cost of this plan in bytes.
+// Used by the theine cache to enforce memory-based capacity limits.
+// Can be refined to return actual byte size.
+// TODO: Generate cached size
+func (p *Plan) CachedSize(_ bool) int64 {
+	// Plan struct overhead + pointer/interface/slice headers.
+	size := int64(256)
+	size += int64(len(p.Original))
+	size += int64(len(p.Type))
+	for _, t := range p.TablesUsed {
+		size += int64(len(t)) + 16 // string header + content
+	}
+	if r, ok := p.Primitive.(*Route); ok {
+		size += int64(len(r.Query)) + int64(len(r.TableGroup)) + int64(len(r.Shard))
+		// NormalizedAST is a cloned AST tree. Rough estimate: ~10x the query
+		// string length accounts for node structs, pointers, and metadata.
+		if r.NormalizedAST != nil {
+			size += int64(len(r.Query)) * 10
+		}
+	}
+	return size
 }
 
 // String returns a string representation of the plan for debugging.

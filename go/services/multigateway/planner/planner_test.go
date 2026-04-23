@@ -32,7 +32,7 @@ func TestPrimitiveName(t *testing.T) {
 	}{
 		{
 			name:      "Route",
-			primitive: engine.NewRoute("default", "0-inf", "SELECT 1"),
+			primitive: engine.NewRoute("default", "0-inf", "SELECT 1", nil),
 			want:      engine.PlanTypeRoute,
 		},
 		{
@@ -62,7 +62,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "Sequence",
-			primitive: engine.NewSequence([]engine.Primitive{engine.NewRoute("default", "0-inf", "SELECT 1")}),
+			primitive: engine.NewSequence([]engine.Primitive{engine.NewRoute("default", "0-inf", "SELECT 1", nil)}),
 			want:      engine.PlanTypeSequence,
 		},
 	}

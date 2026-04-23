@@ -149,11 +149,6 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 				CurrentTerm: 1,
 			},
 		},
-		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-			"multipooler-cell1-replica1": {
-				Status: &multipoolermanagerdatapb.StandbyReplicationStatus{},
-			},
-		},
 	}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
@@ -218,25 +213,27 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
 				},
 			},
+			"multipooler-cell1-replica1": {
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{
+						ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+							// No PrimaryConnInfo - replication not configured (triggers fix)
+							WalReceiverStatus: "streaming", // Streaming after fix is applied
+							LastReceiveLsn:    "0/1234",
+						},
+					},
+				},
+			},
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
 			"multipooler-cell1-primary": {
 				CurrentTerm: 1,
 			},
 		},
-		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-			"multipooler-cell1-replica1": {
-				Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					// No PrimaryConnInfo - replication not configured
-					WalReceiverStatus: "streaming", // WAL receiver connected after fix
-					LastReceiveLsn:    "0/1234",    // Set after fix
-				},
-			},
-		},
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
 		},
-		UpdateSynchronousStandbyListResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
 			"multipooler-cell1-primary": {},
 		},
 	}
@@ -292,8 +289,8 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	// Verify SetPrimaryConnInfo was called on the replica
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
-	// Verify UpdateSynchronousStandbyList was called on the primary to add the replica
-	assert.Contains(t, fakeClient.CallLog, "UpdateSynchronousStandbyList(multipooler-cell1-primary)")
+	// Verify UpdateConsensusRule was called on the primary to add the replica
+	assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
@@ -308,19 +305,21 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
 				},
 			},
-		},
-		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
 			"multipooler-cell1-replica1": {
-				Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					// Already configured correctly
-					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-						Host: "primary.example.com",
-						Port: 5432,
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{
+						ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+							// Already configured correctly
+							PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+								Host: "primary.example.com",
+								Port: 5432,
+							},
+							WalReceiverStatus: "streaming",
+							LastReceiveLsn:    "0/1234",
+							LastReplayLsn:     "0/1234",
+							IsWalReplayPaused: false,
+						},
 					},
-					WalReceiverStatus: "streaming",
-					LastReceiveLsn:    "0/1234",
-					LastReplayLsn:     "0/1234",
-					IsWalReplayPaused: false,
 				},
 			},
 		},
@@ -385,23 +384,27 @@ type delayedStreamingClient struct {
 	streamAfterCalls int // Return "streaming" starting at this call number
 }
 
-func (c *delayedStreamingClient) StandbyReplicationStatus(
+func (c *delayedStreamingClient) Status(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
-	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
-) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
 	c.callCount++
 	if c.callCount >= c.streamAfterCalls {
-		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				WalReceiverStatus: "streaming",
-				LastReceiveLsn:    "0/1234",
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					WalReceiverStatus: "streaming",
+					LastReceiveLsn:    "0/1234",
+				},
 			},
 		}, nil
 	}
-	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			WalReceiverStatus: "startup",
+	return &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: "startup",
+			},
 		},
 	}, nil
 }
@@ -448,29 +451,36 @@ type connInfoSetNotStreamingClient struct {
 	port      int32
 }
 
-func (c *connInfoSetNotStreamingClient) StandbyReplicationStatus(
+func (c *connInfoSetNotStreamingClient) Status(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
-	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
-) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
+	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
+		return c.FakeClient.Status(ctx, pooler, request)
+	}
 	c.callCount++
 	if c.callCount == 1 {
 		// verifyProblemExists: primary_conninfo set but WAL receiver not streaming
-		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-					Host: c.host,
-					Port: c.port,
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+						Host: c.host,
+						Port: c.port,
+					},
+					WalReceiverStatus: "none",
 				},
-				WalReceiverStatus: "none",
 			},
 		}, nil
 	}
 	// verifyReplicationStarted: streaming after the fix is re-applied
-	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			WalReceiverStatus: "streaming",
-			LastReceiveLsn:    "0/5678",
+	return &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: "streaming",
+				LastReceiveLsn:    "0/5678",
+			},
 		},
 	}, nil
 }
@@ -495,7 +505,7 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
 	}
-	baseFakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
 		"multipooler-cell1-primary": {},
 	}
 
@@ -559,33 +569,42 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 }
 
-// replicationStatusClient wraps FakeClient to return different StandbyReplicationStatus responses
+// replicationStatusClient wraps FakeClient to return different Status responses for the replica
 // based on call count, simulating the progression from "not configured" to a failure state.
 // The walReceiverStatus field controls what subsequent calls return.
+// Primary calls are delegated to the embedded FakeClient.
 type replicationStatusClient struct {
 	*rpcclient.FakeClient
 	callCount         int
 	walReceiverStatus string // WAL receiver status for calls after the first
 }
 
-func (c *replicationStatusClient) StandbyReplicationStatus(
+func (c *replicationStatusClient) Status(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
-	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
-) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
+	// Delegate primary calls to embedded FakeClient
+	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
+		return c.FakeClient.Status(ctx, pooler, request)
+	}
 	c.callCount++
 	// First call is verifyProblemExists (no primary_conninfo - triggers the fix)
 	// Subsequent calls are verifyReplicationStarted polling (never reaches streaming)
 	if c.callCount == 1 {
-		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				// No PrimaryConnInfo - triggers the fix
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					// No PrimaryConnInfo - triggers the fix
+				},
 			},
 		}, nil
 	}
-	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
-		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			WalReceiverStatus: c.walReceiverStatus,
+	return &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: c.walReceiverStatus,
+			},
 		},
 	}, nil
 }
@@ -616,7 +635,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
 	}
-	baseFakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
 		"multipooler-cell1-primary": {},
 	}
 	// pg_rewind dry-run fails, so it marks the pooler as DRAINED

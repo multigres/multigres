@@ -77,7 +77,7 @@ func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 
 	// Verify the deadline was set
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -117,7 +117,7 @@ func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 
 	// Get the deadline
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	firstDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -177,7 +177,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Wait a bit
@@ -187,7 +187,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	afterUnhealthyDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	afterUnhealthyDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Deadline should be unchanged (frozen)
@@ -200,7 +200,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	stillFrozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	stillFrozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, frozenDeadline, stillFrozenDeadline, "deadline should remain frozen across multiple unhealthy observations")
@@ -209,7 +209,7 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	resetDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
+	resetDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.True(t, resetDeadline.After(frozenDeadline), "deadline should be reset when healthy again")
@@ -240,6 +240,7 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
 		ShardKey:       shardKey,
+		Scope:          types.ScopeShard,
 		RecoveryAction: action,
 		PoolerID: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -249,7 +250,7 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 	}
 
 	// Reset deadline (now + 10s)
-	tracker.Observe(types.ProblemPrimaryIsDead, topoclient.MultiPoolerIDString(problem.PoolerID), action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, shardKey.String(), action, true)
 
 	// Check immediately - should not be expired
 	expired := tracker.ShouldExecute(problem)
@@ -281,6 +282,7 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
 		ShardKey:       shardKey,
+		Scope:          types.ScopeShard,
 		RecoveryAction: action,
 		PoolerID: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -290,7 +292,7 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 	}
 
 	// Reset deadline (now + 100ms)
-	tracker.Observe(types.ProblemPrimaryIsDead, topoclient.MultiPoolerIDString(problem.PoolerID), action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, shardKey.String(), action, true)
 
 	// Wait for deadline to expire
 	time.Sleep(150 * time.Millisecond)
@@ -357,7 +359,7 @@ func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 		tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 		tracker.mu.Lock()
-		key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+		key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 		deadline := tracker.deadlines[key]
 		tracker.mu.Unlock()
 
@@ -395,7 +397,7 @@ func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 
 	// Get deadline
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	deadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -433,6 +435,7 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
 		ShardKey:       shardKey,
+		Scope:          types.ScopeShard,
 		RecoveryAction: action,
 		PoolerID: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -445,16 +448,16 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	testRng := rand.New(rand.NewPCG(99999, 88888))
 	expectedJitter := time.Duration(testRng.Int64N(int64(8 * time.Second)))
 
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	entityID := problem.EntityID() // shard key string for shard-wide problems
 
 	// First observation is unhealthy (problem detected immediately)
 	before := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, entityID, action, false)
 	after := time.Now()
 
 	// Verify deadline was initialized with base + jitter
 	tracker.mu.Lock()
-	deadline, exists := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
+	deadline, exists := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: entityID}]
 	tracker.mu.Unlock()
 
 	require.True(t, exists, "deadline should be initialized even when first observation is unhealthy")
@@ -472,10 +475,10 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	assert.False(t, shouldExecute, "should not execute immediately when first observed as unhealthy")
 
 	// Observe unhealthy again - deadline should remain frozen (exact same value)
-	tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, entityID, action, false)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: entityID}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, deadline, frozenDeadline, "deadline should remain frozen on subsequent unhealthy observations")
@@ -521,7 +524,7 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 
 	// Verify no entry was created
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemReplicaNotReplicating, poolerID: poolerIDStr}
+	key := gracePeriodKey{code: types.ProblemReplicaNotReplicating, entityID: poolerIDStr}
 	_, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -546,14 +549,17 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 		},
 	}
 
+	shardKey := commontypes.ShardKey{
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+	}
+
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
 		RecoveryAction: action,
-		ShardKey: commontypes.ShardKey{
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-		},
+		ShardKey:       shardKey,
+		Scope:          types.ScopeShard,
 		PoolerID: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -561,14 +567,14 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 		},
 	}
 
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	entityID := problem.EntityID()
 
 	// Run concurrent operations
 	done := make(chan bool)
 	for range 10 {
 		go func() {
 			for range 100 {
-				tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, true)
+				tracker.Observe(types.ProblemPrimaryIsDead, entityID, action, true)
 				tracker.ShouldExecute(problem)
 			}
 			done <- true
@@ -582,12 +588,57 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 
 	// Verify state is consistent
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: entityID}
 	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	assert.True(t, exists, "deadline should exist after concurrent access")
 	assert.False(t, deadline.IsZero(), "deadline should not be zero")
+}
+
+func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
+	cfg := config.NewTestConfig(
+		config.WithPrimaryFailoverGracePeriodBase(10*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0),
+	)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
+
+	action := &mockActionWithGracePeriod{
+		gracePeriod: &types.GracePeriodConfig{
+			BaseDelay: 10 * time.Second,
+		},
+	}
+
+	// Build problems the same way the recovery loop would.
+	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c", Name: "pooler-1"}
+
+	problemA := types.Problem{
+		Code:           types.ProblemPrimaryIsDead,
+		ShardKey:       shardKey,
+		RecoveryAction: action,
+	}
+	problemB := types.Problem{
+		Code:           types.ProblemStalePrimary,
+		Scope:          types.ScopePooler,
+		PoolerID:       poolerID,
+		ShardKey:       shardKey,
+		RecoveryAction: action,
+	}
+
+	// Observe both problems as unhealthy using the same entity IDs as the recovery loop
+	// (shardKey.String() for shard-wide, MultiPoolerIDString for pooler-scoped).
+	tracker.Observe(types.ProblemPrimaryIsDead, problemA.EntityID(), action, false)
+	tracker.Observe(types.ProblemStalePrimary, problemB.EntityID(), action, false)
+
+	// Neither problem should execute yet (deadline is 10s away)
+	require.False(t, tracker.ShouldExecute(problemA), "should not execute before grace period expires")
+	require.False(t, tracker.ShouldExecute(problemB), "should not execute before grace period expires")
+
+	// After ForceExpireAll, both should execute immediately
+	tracker.ForceExpireAll()
+	assert.True(t, tracker.ShouldExecute(problemA), "should execute after ForceExpireAll")
+	assert.True(t, tracker.ShouldExecute(problemB), "should execute after ForceExpireAll")
 }
 
 func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
@@ -611,7 +662,7 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	after1 := time.Now()
 
 	tracker.mu.Lock()
-	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	originalDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
@@ -643,7 +694,7 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	after2 := time.Now()
 
 	newTracker.mu.Lock()
-	key2 := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	key2 := gracePeriodKey{code: types.ProblemPrimaryIsDead, entityID: "zone1-pooler1"}
 	newDeadline := newTracker.deadlines[key2]
 	newTracker.mu.Unlock()
 

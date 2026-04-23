@@ -57,6 +57,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	problems := []types.Problem{
 		{
 			CheckName: "PrimaryIsDead",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -70,6 +71,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		},
 		{
 			CheckName: "ReplicaNotReplicating",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -90,12 +92,12 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	assert.Equal(t, "PrimaryIsDead", data[0].AnalysisType)
 	assert.Equal(t, "testdb", data[0].DBNamespace)
 	assert.Equal(t, "shard1", data[0].Shard)
-	assert.Contains(t, data[0].PoolerID, "pooler1")
+	assert.Contains(t, data[0].EntityID, "pooler1")
 
 	assert.Equal(t, "ReplicaNotReplicating", data[1].AnalysisType)
 	assert.Equal(t, "testdb", data[1].DBNamespace)
 	assert.Equal(t, "shard2", data[1].Shard)
-	assert.Contains(t, data[1].PoolerID, "pooler2")
+	assert.Contains(t, data[1].EntityID, "pooler2")
 }
 
 func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
@@ -118,6 +120,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 	initialProblems := []types.Problem{
 		{
 			CheckName: "PrimaryIsDead",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -136,6 +139,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 	newProblems := []types.Problem{
 		{
 			CheckName: "ReplicaNotReplicating",
+			Scope:     types.ScopePooler,
 			ShardKey: commontypes.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
@@ -154,7 +158,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 	data := engine.collectDetectedProblemsData()
 	require.Len(t, data, 1)
 	assert.Equal(t, "ReplicaNotReplicating", data[0].AnalysisType)
-	assert.Contains(t, data[0].PoolerID, "pooler2")
+	assert.Contains(t, data[0].EntityID, "pooler2")
 }
 
 func TestEngine_DetectedProblems_ThreadSafety(t *testing.T) {
@@ -247,7 +251,7 @@ func TestMetrics_DetectedProblemsCallback(t *testing.T) {
 				AnalysisType: "PrimaryIsDead",
 				DBNamespace:  "testdb",
 				Shard:        "shard1",
-				PoolerID:     "pooler1",
+				EntityID:     "pooler1",
 			},
 		}
 		return capturedData

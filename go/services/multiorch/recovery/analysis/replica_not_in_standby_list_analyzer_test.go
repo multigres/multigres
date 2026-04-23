@@ -48,9 +48,13 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	require.Equal(t, types.CheckName("ReplicaNotInStandbyList"), analyzer.Name())
 
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
+	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+
 	tests := []struct {
 		name          string
-		analysis      *PoolerAnalysis
+		buildShard    func() *ShardAnalysis
 		expectProblem bool
 		expectedCode  types.ProblemCode
 		expectedScope types.ProblemScope
@@ -58,16 +62,21 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 	}{
 		{
 			name: "detects replica not in standby list",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:              false,
-				IsInitialized:          true,
-				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				PrimaryReachable:       true,
-				PrimaryConnInfoHost:    "primary.example.com",
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey:                       shardKey,
+					HighestTermDiscoveredPrimaryID: primaryID,
+					PrimaryReachable:               true,
+					// PrimaryStandbyIDs is empty — replica is not in standby list
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:            replicaID,
+						ShardKey:            shardKey,
+						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
+						IsPrimary:           false,
+						IsInitialized:       true,
+						PrimaryConnInfoHost: "primary.example.com",
+					}},
+				}
 			},
 			expectProblem: true,
 			expectedCode:  types.ProblemReplicaNotInStandbyList,
@@ -76,85 +85,111 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		},
 		{
 			name: "ignores replica already in standby list",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:              false,
-				IsInitialized:          true,
-				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				PrimaryReachable:       true,
-				PrimaryConnInfoHost:    "primary.example.com",
-				IsInPrimaryStandbyList: true,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey:                       shardKey,
+					HighestTermDiscoveredPrimaryID: primaryID,
+					PrimaryReachable:               true,
+					PrimaryStandbyIDs:              []*clustermetadatapb.ID{replicaID},
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:            replicaID,
+						ShardKey:            shardKey,
+						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
+						IsPrimary:           false,
+						IsInitialized:       true,
+						PrimaryConnInfoHost: "primary.example.com",
+					}},
+				}
 			},
 			expectProblem: false,
 		},
 		{
 			name: "ignores primary nodes",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_PRIMARY,
-				IsPrimary:              true,
-				IsInitialized:          true,
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey: shardKey,
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:      primaryID,
+						ShardKey:      shardKey,
+						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+						IsPrimary:     true,
+						IsInitialized: true,
+					}},
+				}
 			},
 			expectProblem: false,
 		},
 		{
 			name: "ignores uninitialized replica",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:              false,
-				IsInitialized:          false,
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey: shardKey,
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:      replicaID,
+						ShardKey:      shardKey,
+						PoolerType:    clustermetadatapb.PoolerType_REPLICA,
+						IsPrimary:     false,
+						IsInitialized: false,
+					}},
+				}
 			},
 			expectProblem: false,
 		},
 		{
 			name: "ignores replica when primary is unreachable",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:              false,
-				IsInitialized:          true,
-				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				PrimaryReachable:       false,
-				PrimaryConnInfoHost:    "primary.example.com",
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey:                       shardKey,
+					HighestTermDiscoveredPrimaryID: primaryID,
+					PrimaryReachable:               false,
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:            replicaID,
+						ShardKey:            shardKey,
+						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
+						IsPrimary:           false,
+						IsInitialized:       true,
+						PrimaryConnInfoHost: "primary.example.com",
+					}},
+				}
 			},
 			expectProblem: false,
 		},
 		{
 			name: "ignores replica with no replication configured",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:              false,
-				IsInitialized:          true,
-				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				PrimaryReachable:       true,
-				PrimaryConnInfoHost:    "",
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				return &ShardAnalysis{
+					ShardKey:                       shardKey,
+					HighestTermDiscoveredPrimaryID: primaryID,
+					PrimaryReachable:               true,
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:            replicaID,
+						ShardKey:            shardKey,
+						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
+						IsPrimary:           false,
+						IsInitialized:       true,
+						PrimaryConnInfoHost: "", // No replication configured
+					}},
+				}
 			},
 			expectProblem: false,
 		},
 		{
 			name: "ignores UNKNOWN pooler type",
-			analysis: &PoolerAnalysis{
-				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "unknown1"},
-				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_UNKNOWN,
-				IsPrimary:              false,
-				IsInitialized:          true,
-				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-				PrimaryReachable:       true,
-				PrimaryConnInfoHost:    "primary.example.com",
-				IsInPrimaryStandbyList: false,
+			buildShard: func() *ShardAnalysis {
+				unknownID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "unknown1"}
+				return &ShardAnalysis{
+					ShardKey:                       shardKey,
+					HighestTermDiscoveredPrimaryID: primaryID,
+					PrimaryReachable:               true,
+					Analyses: []*PoolerAnalysis{{
+						PoolerID:            unknownID,
+						ShardKey:            shardKey,
+						PoolerType:          clustermetadatapb.PoolerType_UNKNOWN,
+						IsPrimary:           false,
+						IsInitialized:       true,
+						PrimaryConnInfoHost: "primary.example.com",
+					}},
+				}
 			},
 			expectProblem: false,
 		},
@@ -162,38 +197,40 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			problem, err := analyzeOne(analyzer, tt.analysis)
+			sa := tt.buildShard()
+			problems, err := analyzer.Analyze(sa)
 			require.NoError(t, err)
 
 			if tt.expectProblem {
-				require.NotNil(t, problem)
-				require.Equal(t, tt.expectedCode, problem.Code)
-				require.Equal(t, tt.expectedScope, problem.Scope)
-				require.Equal(t, tt.expectedPrio, problem.Priority)
-				require.NotNil(t, problem.RecoveryAction)
+				require.Len(t, problems, 1)
+				require.Equal(t, tt.expectedCode, problems[0].Code)
+				require.Equal(t, tt.expectedScope, problems[0].Scope)
+				require.Equal(t, tt.expectedPrio, problems[0].Priority)
+				require.NotNil(t, problems[0].RecoveryAction)
 			} else {
-				require.Nil(t, problem)
+				require.Empty(t, problems)
 			}
 		})
 	}
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotInStandbyListAnalyzer{factory: nil}
-		analysis := &PoolerAnalysis{
-			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			PoolerType:             clustermetadatapb.PoolerType_REPLICA,
-			IsPrimary:              false,
-			IsInitialized:          true,
-			PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
-			PrimaryReachable:       true,
-			PrimaryConnInfoHost:    "primary.example.com",
-			IsInPrimaryStandbyList: false,
+		sa := &ShardAnalysis{
+			ShardKey:                       shardKey,
+			HighestTermDiscoveredPrimaryID: primaryID,
+			PrimaryReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				PoolerType:          clustermetadatapb.PoolerType_REPLICA,
+				IsPrimary:           false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "primary.example.com",
+			}},
 		}
-
-		problem, err := analyzeOne(nilFactoryAnalyzer, analysis)
+		problems, err := nilFactoryAnalyzer.Analyze(sa)
 		require.Error(t, err)
-		require.Nil(t, problem)
+		require.Nil(t, problems)
 		require.Contains(t, err.Error(), "factory not initialized")
 	})
 }

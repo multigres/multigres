@@ -15,7 +15,6 @@
 package multiorch
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,7 +121,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	defer r1Client.Close()
 
 	// Stop R1's WAL receiver (postgres stays running, primary_conninfo cleared)
-	_, err = r1Client.Manager.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	_, err = r1Client.Consensus.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               nil,
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
@@ -149,27 +148,18 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.NoError(t, err, "should write diverging data to R1")
 	t.Log("Wrote diverging data to R1 on timeline 2")
 
-	// Disable monitoring to prevent multipooler from interfering with postgres lifecycle
-	_, err = r1Client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err, "should disable monitoring on R1")
-	t.Cleanup(func() {
-		_, _ = r1Client.Manager.SetMonitor(context.Background(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	})
-
 	// Close R1 DB connection before stopping postgres
 	_ = r1DB.Close()
+
+	// Stop R1's postgres (currently running as a promoted primary on timeline 2).
+	// StopPostgres disables auto-restarts before stopping, preventing the monitor
+	// from immediately restarting the instance. resumeRestarts re-enables them.
+	resumeRestarts := setup.StopPostgres(t, r1Name, "fast")
+	t.Log("Stopped R1 postgres")
 
 	r1PgctldClient, err := shardsetup.NewPgctldClient(r1Inst.Pgctld.GrpcPort)
 	require.NoError(t, err, "should create R1 pgctld client")
 	defer r1PgctldClient.Close()
-
-	// Stop R1's postgres (currently running as a promoted primary on timeline 2)
-	_, err = r1PgctldClient.Stop(t.Context(), &pgctldpb.StopRequest{
-		Mode:    "fast",
-		Timeout: durationpb.New(15 * time.Second),
-	})
-	require.NoError(t, err, "should stop R1 postgres")
-	t.Log("Stopped R1 postgres")
 
 	// Restart R1 as a standby — creates standby.signal; postgres starts with no
 	// primary_conninfo (cleared earlier), so the WAL receiver doesn't start yet.
@@ -183,9 +173,8 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.NoError(t, err, "should restart R1 as standby")
 	t.Log("Restarted R1 as standby (timeline 2 WAL present, no primary_conninfo)")
 
-	// Re-enable monitoring so multipooler manages R1 going forward
-	_, err = r1Client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	require.NoError(t, err, "should re-enable monitoring on R1")
+	// Re-enable postgres restarts so multipooler manages R1 going forward
+	resumeRestarts()
 
 	// Block until orch fully repairs R1 via pg_rewind.
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
@@ -319,7 +308,7 @@ func TestRewindRejectedByHigherTerm(t *testing.T) {
 	// Clear R1's primary_conninfo so orch detects "not replicating".
 	// Force=true bypasses R1's term check, allowing us to stop the WAL receiver
 	// even though R1 is now on a higher term than any orch request would use.
-	_, err = r1Client.Manager.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	_, err = r1Client.Consensus.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               nil,
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,

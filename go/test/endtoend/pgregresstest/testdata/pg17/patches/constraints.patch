@@ -1,0 +1,68 @@
+--- a
++++ b
+@@ -48,16 +48,12 @@
+ -- syntax errors
+ --  test for extraneous comma
+ CREATE TABLE error_tbl (i int DEFAULT (100, ));
+-ERROR:  syntax error at or near ")"
+-LINE 1: CREATE TABLE error_tbl (i int DEFAULT (100, ));
+-                                                    ^
++ERROR:  parse error at position 45: syntax error
+ --  this will fail because gram.y uses b_expr not a_expr for defaults,
+ --  to avoid a shift/reduce conflict that arises from NOT NULL being
+ --  part of the column definition syntax:
+ CREATE TABLE error_tbl (b1 bool DEFAULT 1 IN (1, 2));
+-ERROR:  syntax error at or near "IN"
+-LINE 1: CREATE TABLE error_tbl (b1 bool DEFAULT 1 IN (1, 2));
+-                                                  ^
++ERROR:  parse error at position 44: syntax error
+ --  this should work, however:
+ CREATE TABLE error_tbl (b1 bool DEFAULT (1 IN (1, 2)));
+ DROP TABLE error_tbl;
+@@ -560,8 +556,7 @@
+ BEGIN;
+ INSERT INTO unique_tbl VALUES (3, 'Three'); -- should succeed for now
+ COMMIT; -- should fail
+-ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+-DETAIL:  Key (i)=(3) already exists.
++ERROR:  conclude transaction failed for table_group:"default" shard:"0-inf" pooler_type:PRIMARY: conclude transaction failed: rpc error: code = Unknown desc = failed to commit transaction: ERROR: duplicate key value violates unique constraint "unique_tbl_i_key"
+ -- make constraint check immediate
+ BEGIN;
+ SET CONSTRAINTS ALL IMMEDIATE;
+@@ -600,8 +595,7 @@
+ SET CONSTRAINTS parted_uniq_tbl_i_key DEFERRED;
+ INSERT INTO parted_uniq_tbl VALUES (1);	-- OK now, fail at commit
+ COMMIT;
+-ERROR:  duplicate key value violates unique constraint "parted_uniq_tbl_1_i_key"
+-DETAIL:  Key (i)=(1) already exists.
++ERROR:  conclude transaction failed for table_group:"default" shard:"0-inf" pooler_type:PRIMARY: conclude transaction failed: rpc error: code = Unknown desc = failed to commit transaction: ERROR: duplicate key value violates unique constraint "parted_uniq_tbl_1_i_key"
+ DROP TABLE parted_uniq_tbl;
+ -- test naming a constraint in a partition when a conflict exists
+ CREATE TABLE parted_fk_naming (
+@@ -675,8 +669,7 @@
+ INSERT INTO unique_tbl VALUES (3, 'Three'); -- should succeed for now
+ UPDATE unique_tbl SET t = 'THREE' WHERE i = 3 AND t = 'Three';
+ COMMIT; -- should fail
+-ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+-DETAIL:  Key (i)=(3) already exists.
++ERROR:  conclude transaction failed for table_group:"default" shard:"0-inf" pooler_type:PRIMARY: conclude transaction failed: rpc error: code = Unknown desc = failed to commit transaction: ERROR: duplicate key value violates unique constraint "unique_tbl_i_key"
+ SELECT * FROM unique_tbl;
+  i |   t   
+ ---+-------
+@@ -769,14 +762,12 @@
+ BEGIN;
+ INSERT INTO deferred_excl VALUES(2); -- no fail here
+ COMMIT; -- should fail here
+-ERROR:  conflicting key value violates exclusion constraint "deferred_excl_con"
+-DETAIL:  Key (f1)=(2) conflicts with existing key (f1)=(2).
++ERROR:  conclude transaction failed for table_group:"default" shard:"0-inf" pooler_type:PRIMARY: conclude transaction failed: rpc error: code = Unknown desc = failed to commit transaction: ERROR: conflicting key value violates exclusion constraint "deferred_excl_con"
+ BEGIN;
+ INSERT INTO deferred_excl VALUES(3);
+ INSERT INTO deferred_excl VALUES(3); -- no fail here
+ COMMIT; -- should fail here
+-ERROR:  conflicting key value violates exclusion constraint "deferred_excl_con"
+-DETAIL:  Key (f1)=(3) conflicts with existing key (f1)=(3).
++ERROR:  conclude transaction failed for table_group:"default" shard:"0-inf" pooler_type:PRIMARY: conclude transaction failed: rpc error: code = Unknown desc = failed to commit transaction: ERROR: conflicting key value violates exclusion constraint "deferred_excl_con"
+ -- bug #13148: deferred constraint versus HOT update
+ BEGIN;
+ INSERT INTO deferred_excl VALUES(2, 1); -- no fail here

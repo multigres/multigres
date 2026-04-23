@@ -1,0 +1,13 @@
+--- a
++++ b
+@@ -515,9 +515,7 @@
+ 
+ -- casting
+ SELECT CAST('42' AS text COLLATE "C");
+-ERROR:  syntax error at or near "COLLATE"
+-LINE 1: SELECT CAST('42' AS text COLLATE "C");
+-                                 ^
++ERROR:  parse error at position 33: syntax error
+ SELECT a, CAST(b AS varchar) FROM collate_test1 ORDER BY 2;
+  a |  b  
+ ---+-----

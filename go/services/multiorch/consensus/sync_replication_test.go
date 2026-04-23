@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -125,7 +126,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Len(t, config.StandbyIds, 2)
 	})
 
-	t.Run("MULTI_CELL_ANY_N with required_count=2 and 3 standbys", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with required_count=2 and 3 standbys", func(t *testing.T) {
 		rule := topoclient.MultiCellAtLeastN(2)
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
@@ -202,9 +203,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, config.ReloadConfig)
 	})
 
-	// ========== MULTI_CELL_ANY_N Cell Filtering Tests ==========
+	// ========== MULTI_CELL_AT_LEAST_N Cell Filtering Tests ==========
 
-	t.Run("MULTI_CELL_ANY_N excludes same-cell standbys", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N excludes same-cell standbys", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := topoclient.MultiCellAtLeastN(2)
 
@@ -234,7 +235,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, names["mp3"], "mp3 should be included (different cell)")
 	})
 
-	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := topoclient.MultiCellAtLeastN(2)
 		rule.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW
@@ -250,7 +251,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary with ALLOW mode")
 	})
 
-	t.Run("MULTI_CELL_ANY_N with mixed cells only includes different cells", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N with mixed cells only includes different cells", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := topoclient.MultiCellAtLeastN(3)
 
@@ -274,7 +275,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("MULTI_CELL_ANY_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
+	t.Run("MULTI_CELL_AT_LEAST_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := topoclient.MultiCellAtLeastN(4) // Would need 3 standbys
 		rule.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW
@@ -292,26 +293,26 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Len(t, config.StandbyIds, 2, "Should include all available different-cell standbys")
 	})
 
-	t.Run("ANY_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
+	t.Run("AT_LEAST_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := topoclient.AtLeastN(2)
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
-			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
+			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for AT_LEAST_N
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
-		require.Len(t, config.StandbyIds, 2, "ANY_N should include all standbys regardless of cell")
+		require.Len(t, config.StandbyIds, 2, "AT_LEAST_N should include all standbys regardless of cell")
 
-		// Verify same-cell standby IS included for ANY_N
+		// Verify same-cell standby IS included for AT_LEAST_N
 		names := make(map[string]bool)
 		for _, id := range config.StandbyIds {
 			names[id.Name] = true
 		}
-		require.True(t, names["mp1"], "mp1 should be included for ANY_N (cell filtering only for MULTI_CELL)")
+		require.True(t, names["mp1"], "mp1 should be included for AT_LEAST_N (cell filtering only for MULTI_CELL)")
 		require.True(t, names["mp2"], "mp2 should be included")
 	})
 
@@ -371,7 +372,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 	// ========== Additional REJECT Mode Edge Cases ==========
 
-	t.Run("REJECT mode with ANY_N and no standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with AT_LEAST_N and no standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := topoclient.AtLeastN(2)
 		rule.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
@@ -386,7 +387,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "async_fallback=REJECT")
 	})
 
-	t.Run("REJECT mode with ANY_N and insufficient standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with AT_LEAST_N and insufficient standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := topoclient.AtLeastN(5) // Requires 4 standbys to achieve quorum
 		rule.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
@@ -405,7 +406,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "required 4 standbys")
 	})
 
-	t.Run("REJECT mode with MULTI_CELL_ANY_N and insufficient different-cell standbys returns error", func(t *testing.T) {
+	t.Run("REJECT mode with MULTI_CELL_AT_LEAST_N and insufficient different-cell standbys returns error", func(t *testing.T) {
 		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := topoclient.MultiCellAtLeastN(4) // Requires 3 standbys in different cells
 		rule.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
@@ -424,4 +425,26 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Contains(t, err.Error(), "async_fallback=REJECT")
 		require.Contains(t, err.Error(), "required 3 standbys")
 	})
+}
+
+// mustPolicy parses a proto DurabilityPolicy into the typed interface used by
+// Coordinator methods. Fails the test on error.
+func mustPolicy(t *testing.T, p *clustermetadatapb.DurabilityPolicy) commonconsensus.DurabilityPolicy {
+	t.Helper()
+	parsed, err := commonconsensus.NewPolicyFromProto(p)
+	require.NoError(t, err)
+	return parsed
+}
+
+// createTestPoolerHealth creates a test pooler health with minimal configuration.
+func createTestPoolerHealth(name, cell string) *multiorchdatapb.PoolerHealthState {
+	return &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      cell,
+				Name:      name,
+			},
+		},
+	}
 }

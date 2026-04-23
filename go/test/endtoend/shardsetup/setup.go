@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,15 +62,19 @@ type SetupConfig struct {
 	TableGroup                          string
 	Shard                               string
 	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "ANY_2")
+	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
 	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                      string   // S3 region
 	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport                 bool     // Enable Prometheus metrics export on all services
+	LogLevel                            string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
+	InitDbSQLFiles                      []string // Paths to .sql files executed on each pgctld after initdb against the target database
 }
 
 // SetupOption is a function that configures setup creation.
@@ -130,6 +135,15 @@ func WithMultigateway() SetupOption {
 	}
 }
 
+// WithMultigatewayReplicaPort enables the replica-reads listener port on multigateway.
+// Connections on this port target replicas. Implies WithMultigateway().
+func WithMultigatewayReplicaPort() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayReplicaPort = true
+	}
+}
+
 // WithMultigatewayTLS enables TLS for the multigateway PostgreSQL listener.
 // Implies WithMultigateway(). TLS certificates are auto-generated during setup.
 func WithMultigatewayTLS() SetupOption {
@@ -179,6 +193,15 @@ func WithMultigatewayBuffering() SetupOption {
 	}
 }
 
+// WithLogLevel sets the --log-level flag for multipooler, multiorch, and multigateway
+// processes. Defaults to "debug" so tests retain verbose logs; pass "warn" or "error"
+// when log volume itself perturbs the measurement (e.g. benchmarks).
+func WithLogLevel(level string) SetupOption {
+	return func(c *SetupConfig) {
+		c.LogLevel = level
+	}
+}
+
 // WithOTelExport configures the multigateway to export traces to the given
 // OTLP HTTP endpoint. Use with NewTestOTLPCollector to capture spans in tests.
 // Implies WithMultigateway().
@@ -189,12 +212,31 @@ func WithOTelExport(endpoint string) SetupOption {
 	}
 }
 
+// WithMetricsExport enables Prometheus metrics export on multipooler and multigateway.
+// Each service gets its own Prometheus port, accessible via ShardSetup.MetricsPorts.
+// Implies WithMultigateway().
+func WithMetricsExport() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMetricsExport = true
+	}
+}
+
+// WithInitDbSQLFiles forwards the given SQL file paths to every pgctld in the
+// shard via --init-db-sql-file. pgctld runs each file against the target
+// database after initdb completes (during the InitDataDir RPC triggered by
+// shard bootstrap). Files run in the order provided.
+func WithInitDbSQLFiles(files ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.InitDbSQLFiles = files
+	}
+}
+
 // SetupTestConfig holds configuration for SetupTest.
 type SetupTestConfig struct {
 	NoReplication    bool     // Don't configure replication
 	PauseReplication bool     // Configure replication but pause WAL replay
 	GucsToReset      []string // GUCs to save before test and restore after
-	EnableMonitor    bool     // Enable PostgreSQL monitor during test (default: disabled)
 }
 
 // SetupTestOption is a function that configures SetupTest behavior.
@@ -221,15 +263,6 @@ func WithPausedReplication() SetupTestOption {
 func WithResetGuc(gucNames ...string) SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.GucsToReset = append(c.GucsToReset, gucNames...)
-	}
-}
-
-// WithEnabledMonitor returns an option that enables the PostgreSQL monitor during the test.
-// By default the monitor is disabled to prevent interference with test operations.
-// Use this for tests that specifically need postgres auto-restart functionality.
-func WithEnabledMonitor() SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.EnableMonitor = true
 	}
 }
 
@@ -421,6 +454,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
+		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 	}
 
@@ -433,6 +467,19 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+
+		// Configure Prometheus metrics export on multipooler if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts[name] = metricsPort
+			inst.Multipooler.Environment = append(inst.Multipooler.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
+			)
+		}
+
+		inst.Multipooler.LogLevel = config.LogLevel
+		inst.Pgctld.InitDbSQLFiles = config.InitDbSQLFiles
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -458,9 +505,18 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		httpPort := utils.GetFreePort(t)
 		grpcPort := utils.GetFreePort(t)
 
+		// Allocate replica port if enabled
+		var replicaPgPort int
+		if config.EnableMultigatewayReplicaPort {
+			replicaPgPort = utils.GetFreePort(t)
+		}
+
 		// Create multigateway instance (doesn't start it)
 		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
+		mgw.ReplicaPgPort = replicaPgPort
+		setup.MultigatewayReplicaPgPort = replicaPgPort
 		mgw.ExtraArgs = config.MultigatewayExtraArgs
+		mgw.LogLevel = config.LogLevel
 
 		// Configure OTel trace export if an endpoint was provided.
 		if config.OTelCollectorEndpoint != "" {
@@ -471,7 +527,17 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 				"OTEL_TRACES_SAMPLER=always_on",
 			)
 		}
-		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
+
+		// Configure Prometheus metrics export if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts["multigateway"] = metricsPort
+			mgw.Environment = append(mgw.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
+			)
+		}
+		t.Logf("Created multigateway instance: PG=%d, ReplicaPG=%d, HTTP=%d, gRPC=%d", pgPort, replicaPgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)
 		// Use setupCtx for process lifetime, passed ctx only for tracing
@@ -527,7 +593,7 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 		if err := mo.Start(ctx, t); err != nil {
 			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
 		}
-		t.Cleanup(mo.CleanupFunc(t))
+		t.Cleanup(mo.CleanupFunc(t.Logf))
 
 		// Register cleanup to ensure recovery is always enabled
 		// This prevents test failures from leaving recovery disabled
@@ -546,16 +612,7 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("DisableRecovery: multiorch '%s' not found", orchName)
-	}
-
-	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("DisableRecovery: failed to create gRPC client: %v", err)
-	}
+	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
 	client := multiorchpb.NewMultiOrchServiceClient(conn)
@@ -568,7 +625,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	if !resp.Success {
 		t.Fatalf("DisableRecovery: returned success=false: %s", resp.Message)
 	}
-	t.Logf("Disabled recovery on multiorch '%s' (port %d)", orchName, mo.GrpcPort)
+	t.Logf("Disabled recovery on multiorch '%s'", orchName)
 
 	return func() {
 		s.EnableRecovery(t, orchName)
@@ -579,16 +636,7 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("EnableRecovery: multiorch '%s' not found", orchName)
-	}
-
-	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("EnableRecovery: failed to create gRPC client: %v", err)
-	}
+	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
 	client := multiorchpb.NewMultiOrchServiceClient(conn)
@@ -601,7 +649,7 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	if !resp.Success {
 		t.Fatalf("EnableRecovery: returned success=false: %s", resp.Message)
 	}
-	t.Logf("Enabled recovery on multiorch '%s' (port %d)", orchName, mo.GrpcPort)
+	t.Logf("Enabled recovery on multiorch '%s'", orchName)
 }
 
 // TriggerRecoveryOnce runs a single immediate recovery cycle and returns any problem codes
@@ -696,9 +744,7 @@ func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.Cli
 	t.Helper()
 
 	mo := s.MultiOrchInstances[orchName]
-	if mo == nil {
-		t.Fatalf("connectToMultiOrch: multiorch '%s' not found", orchName)
-	}
+	require.NotNilf(t, mo, "connectToMultiOrch: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -759,7 +805,7 @@ func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetu
 		for name, inst := range setup.MultiOrchInstances {
 			mo = inst
 			moName = name
-			moCleanup = inst.CleanupFunc(t)
+			moCleanup = inst.CleanupFunc(t.Logf)
 			break
 		}
 	} else {
@@ -854,7 +900,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 // checkBootstrapStatus checks if all nodes are initialized and returns the primary name.
 // A node is considered initialized only if it can be queried AND has an explicit type (PRIMARY or REPLICA).
 // Additionally checks that:
-// - PRIMARY has sync replication configured with the expected number of standbys
+// - PRIMARY has sync replication configured with the full cohort and all replicas connected
 // - REPLICA has primary_conn_info configured
 func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) (string, bool) {
 	t.Helper()
@@ -867,7 +913,11 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 	var primaryName string
 	var initializedCount int
-	expectedReplicaCount := len(setup.Multipoolers) - 1
+	// Build the set of all multipooler names for exact membership checks.
+	allNames := make(map[string]struct{}, len(setup.Multipoolers))
+	for n := range setup.Multipoolers {
+		allNames[n] = struct{}{}
+	}
 
 	// Build human-readable status for each pooler
 	poolerStatuses := make([]string, 0, len(setup.Multipoolers))
@@ -924,14 +974,36 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			// Check that sync replication is configured with expected standbys
-			standbyCount := 0
+			// Verify the sync standby list contains every multipooler in the cohort.
+			syncNames := make(map[string]struct{})
 			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-				standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+				for _, id := range status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+					syncNames[id.Name] = struct{}{}
+				}
 			}
-			if standbyCount < expectedReplicaCount {
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d standbys)%s %s",
-					name, standbyCount, expectedReplicaCount, actionSuffix, diag))
+			missingSync := missingNames(allNames, syncNames)
+
+			// Verify connected_followers contains every replica (all names except this primary).
+			followerNames := make(map[string]struct{})
+			if status.PrimaryStatus != nil {
+				for _, id := range status.PrimaryStatus.ConnectedFollowers {
+					followerNames[id.Name] = struct{}{}
+				}
+			}
+			expectedFollowers := make(map[string]struct{}, len(allNames)-1)
+			for n := range allNames {
+				if n != name {
+					expectedFollowers[n] = struct{}{}
+				}
+			}
+			missingFollowers := missingNames(expectedFollowers, followerNames)
+
+			if len(missingSync) > 0 {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (missing %v)%s %s",
+					name, missingSync, actionSuffix, diag))
+			} else if len(missingFollowers) > 0 {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, followers_waiting (missing %v)%s %s",
+					name, missingFollowers, actionSuffix, diag))
 			} else {
 				primaryName = name
 				isFullyInitialized = true
@@ -1223,7 +1295,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	// Stop multiorch instances first (clean state = not running)
 	for name, mo := range s.MultiOrchInstances {
 		if mo.IsRunning() {
-			mo.TerminateGracefully(t, 5*time.Second)
+			mo.TerminateGracefully(t.Logf, 5*time.Second)
 			t.Logf("Reset: Stopped multiorch %s", name)
 		}
 	}
@@ -1247,7 +1319,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
 			} else if inRecovery == "t" {
 				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client.Manager); err != nil {
+				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
 					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
 				}
 			}
@@ -1261,15 +1333,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// Resume WAL replay if paused (for standbys)
 		if !isPrimary {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_resume()", 0)
-		}
-
-		// Reset pooler type
-		expectedType := clustermetadatapb.PoolerType_REPLICA
-		if isPrimary {
-			expectedType = clustermetadatapb.PoolerType_PRIMARY
-		}
-		if err := SetPoolerType(ctx, client.Manager, expectedType); err != nil {
-			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
 		// Note: We don't reset term here. Term can only increase and there's no
@@ -1294,14 +1357,14 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 1. Stop multigateway (routes to multipoolers, stop first)
 	if s.Multigateway != nil {
-		s.Multigateway.TerminateGracefully(t, gracePeriod)
+		s.Multigateway.TerminateGracefully(t.Logf, gracePeriod)
 		t.Logf("ReinitializeCluster: stopped multigateway")
 	}
 
 	// 2. Stop multiorch instances
 	for name, mo := range s.MultiOrchInstances {
 		if mo.IsRunning() {
-			mo.TerminateGracefully(t, gracePeriod)
+			mo.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
 		}
 	}
@@ -1311,13 +1374,13 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// the postgres process survives and holds the port.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
-			inst.Multipooler.TerminateGracefully(t, gracePeriod)
+			inst.Multipooler.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
 			inst.Pgctld.StopPostgres(t)
 			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
-			inst.Pgctld.TerminateGracefully(t, gracePeriod)
+			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
 
@@ -1432,13 +1495,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Configure PostgreSQL monitor (disabled by default, can be enabled with WithEnabledMonitor)
-	if config.EnableMonitor {
-		s.enableMonitorOnAll(t, ctx)
-	} else {
-		s.disableMonitorOnAll(t, ctx)
-	}
-
 	// If WithoutReplication is set, actively break replication
 	if config.NoReplication {
 		s.breakReplication(t, ctx)
@@ -1467,7 +1523,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Use explicit termination here since multiorch should be stopped before restoring state.
 		for name, mo := range s.MultiOrchInstances {
 			if mo.IsRunning() {
-				mo.TerminateGracefully(t, 5*time.Second)
+				mo.TerminateGracefully(t.Logf, 5*time.Second)
 				t.Logf("Cleanup: Stopped multiorch %s", name)
 			}
 		}
@@ -1491,7 +1547,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
 				} else if inRecovery == "t" {
 					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client.Manager); err != nil {
+					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
 						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
 					}
 				}
@@ -1508,23 +1564,11 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 				_, _ = client.Pooler.ExecuteQuery(cleanupCtx, "SELECT pg_wal_replay_resume()", 0)
 			}
 
-			// Reset pooler type
-			expectedType := clustermetadatapb.PoolerType_REPLICA
-			if isPrimary {
-				expectedType = clustermetadatapb.PoolerType_PRIMARY
-			}
-			if err := SetPoolerType(cleanupCtx, client.Manager, expectedType); err != nil {
-				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
-			}
-
 			// Note: We don't reset term here. Term can only increase and there's no
 			// safe way to reset it without an RPC. Tests should handle any starting term.
 
 			client.Close()
 		}
-
-		// Ensure monitor is disabled (in case something during test re-enabled it)
-		s.disableMonitorOnAll(t, cleanupCtx)
 
 		// Validate cleanup worked.
 		// Use a generous timeout: GUC values written by RestoreGUCs are already
@@ -1534,44 +1578,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			return s.ValidateCleanState() == nil
 		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
-}
-
-// disableMonitorOnAll disables the PostgreSQL monitor on all multipooler instances.
-func (s *ShardSetup) disableMonitorOnAll(t *testing.T, ctx context.Context) {
-	t.Helper()
-
-	for name, inst := range s.Multipoolers {
-		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		if err != nil {
-			t.Logf("failed to connect to %s to disable monitor: %v", name, err)
-			continue
-		}
-
-		_, err = client.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-		client.Close()
-		if err != nil {
-			t.Logf("failed to disable monitor on %s: %v", name, err)
-		}
-	}
-}
-
-// enableMonitorOnAll enables the PostgreSQL monitor on all multipooler instances.
-func (s *ShardSetup) enableMonitorOnAll(t *testing.T, ctx context.Context) {
-	t.Helper()
-
-	for name, inst := range s.Multipoolers {
-		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		if err != nil {
-			t.Logf("failed to connect to %s to enable monitor: %v", name, err)
-			continue
-		}
-
-		_, err = client.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-		client.Close()
-		if err != nil {
-			t.Logf("failed to enable monitor on %s: %v", name, err)
-		}
-	}
 }
 
 // breakReplication clears replication configuration on all nodes.
@@ -1725,32 +1731,61 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
 }
 
-// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
-// This is different from KillPostgres which uses SIGKILL for immediate termination.
-// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
-func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) {
+// StopPostgres disables automatic postgres restarts on the named node, then stops postgres
+// via the pgctld Stop RPC with the given mode (e.g. "fast", "immediate").
+// It returns a resume function that re-enables restarts; the caller should defer it.
+//
+// This is safer than calling pgctld Stop directly because the postgres monitor runs
+// continuously and would otherwise restart postgres immediately after it stops.
+func (s *ShardSetup) StopPostgres(t *testing.T, name, mode string) (resume func()) {
 	t.Helper()
 
 	inst := s.GetMultipoolerInstance(name)
 	require.NotNil(t, inst, "node %s not found", name)
 
-	t.Logf("Gracefully shutting down postgres on node %s via pgctld Stop RPC", name)
+	// Disable automatic restarts so the monitor does not restart postgres before we stop it.
+	mpClient, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err, "Failed to connect to multipooler for %s", name)
+	defer mpClient.Close()
 
-	// Create pgctld client
-	client, err := NewPgctldClient(inst.Pgctld.GrpcPort)
+	_, err = mpClient.Manager.SetPostgresRestartsEnabled(t.Context(),
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err, "Failed to disable postgres restarts on %s", name)
+
+	// Stop postgres via pgctld.
+	pgClient, err := NewPgctldClient(inst.Pgctld.GrpcPort)
 	require.NoError(t, err, "Failed to connect to pgctld for %s", name)
-	defer client.Close()
+	defer pgClient.Close()
 
-	// Call Stop RPC with "fast" mode for graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = client.Stop(ctx, &pgctldpb.StopRequest{
-		Mode: "fast",
-	})
-	require.NoError(t, err, "Failed to stop postgres on %s", name)
+	_, err = pgClient.Stop(ctx, &pgctldpb.StopRequest{Mode: mode})
+	require.NoError(t, err, "Failed to stop postgres on %s (mode=%s)", name, mode)
+	t.Logf("Postgres stopped on %s (mode=%s)", name, mode)
 
-	t.Logf("Postgres gracefully stopped on %s - multipooler should detect failure", name)
+	grpcPort := inst.Multipooler.GrpcPort
+	return func() {
+		resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer resumeCancel()
+		mpClient2, err := NewMultipoolerClient(grpcPort)
+		if err != nil {
+			t.Logf("StopPostgres resume: failed to connect to multipooler on port %d: %v", grpcPort, err)
+			return
+		}
+		defer mpClient2.Close()
+		_, _ = mpClient2.Manager.SetPostgresRestartsEnabled(resumeCtx,
+			&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		t.Logf("Re-enabled postgres restarts on %s", name)
+	}
+}
+
+// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
+// This is different from KillPostgres which uses SIGKILL for immediate termination.
+// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
+func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) (resume func()) {
+	t.Helper()
+	return s.StopPostgres(t, name, "fast")
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.
@@ -1833,6 +1868,18 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 	}
 }
 
+// missingNames returns the sorted list of keys present in expected but absent from actual.
+func missingNames(expected, actual map[string]struct{}) []string {
+	var missing []string
+	for name := range expected {
+		if _, ok := actual[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
 // formatProblemsCompact creates a one-line summary: [code1@pooler1, code2@pooler2]
 func formatProblemsCompact(problems []*multiorchpb.DetectedProblem) string {
 	if len(problems) == 0 {
@@ -1875,7 +1922,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.Reachable && h.PostgresRunning {
+		if h.Reachable && h.PostgresReady {
 			status = "up"
 		}
 

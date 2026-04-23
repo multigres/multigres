@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -53,7 +55,7 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 
 func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Initially empty
 	assert.Equal(t, 0, lb.ConnectionCount())
@@ -96,7 +98,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add a primary and simulate health update to populate cache
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -121,7 +123,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add replicas in both cells
 	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -141,7 +143,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add primary only in remote cell and simulate health update
 	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -166,7 +168,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	_, err := lb.GetConnection(nil)
 	require.Error(t, err)
@@ -175,7 +177,7 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add a primary
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -193,7 +195,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add primaries for different shards and simulate health updates
 	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -223,7 +225,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 
 func TestLoadBalancer_Close(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add some poolers
 	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -262,7 +264,7 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("highest term wins", func(t *testing.T) {
 		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -314,7 +316,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 	t.Run("replica reports higher term primary", func(t *testing.T) {
 		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -366,7 +368,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 	t.Run("no observations uses discovery seed", func(t *testing.T) {
 		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -388,7 +390,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 	t.Run("unwatched primary keeps discovery seed", func(t *testing.T) {
 		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		require.NoError(t, lb.AddPooler(primary1))
@@ -425,7 +427,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 	t.Run("cache invalidated on pooler removal", func(t *testing.T) {
 		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		require.NoError(t, lb.AddPooler(primary))
@@ -463,7 +465,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// AddPooler with PRIMARY type seeds the cache — no health update needed
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -481,7 +483,7 @@ func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 
 func TestLoadBalancer_PrimarySeedInvalidatedOnTypeChange(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add as PRIMARY — seeds cache
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -503,7 +505,7 @@ func TestLoadBalancer_PrimarySeedInvalidatedOnTypeChange(t *testing.T) {
 
 func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Add as PRIMARY — seeds cache with term 0
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -533,7 +535,7 @@ func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
 
 func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Create UNKNOWN-type poolers (simulating initial discovery before multiorch assigns types)
 	unknown1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
@@ -595,7 +597,7 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 
 func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Create replicas in different cells
 	localReplica1 := createTestMultiPooler("local-replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -661,7 +663,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 
 func TestLoadBalancerListener(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	listener := NewLoadBalancerListener(lb)
 
 	// OnPoolerChanged should add pooler

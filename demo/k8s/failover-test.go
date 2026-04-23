@@ -80,9 +80,9 @@ type Config struct {
 // PoolerStatus represents the status returned from the HTTP API
 type PoolerStatus struct {
 	Status struct {
-		PoolerType      string `json:"pooler_type"`
-		PostgresRunning bool   `json:"postgres_running"`
-		PrimaryStatus   *struct {
+		PoolerType    string `json:"pooler_type"`
+		PostgresReady bool   `json:"postgres_ready"`
+		PrimaryStatus *struct {
 			Ready              bool `json:"ready"`
 			ConnectedFollowers []struct {
 				Cell string `json:"cell"`
@@ -254,7 +254,7 @@ func disablePostgresMonitoring(ctx context.Context, config *Config) error {
 		logInfo(fmt.Sprintf("  Disabling monitoring on: %s (cell=%s, service_id=%s)", poolerName, cell, serviceID))
 
 		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := client.SetPostgresMonitor(reqCtx, &multiadminpb.SetPostgresMonitorRequest{
+		_, err := client.SetPostgresRestartsEnabled(reqCtx, &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{
 				Cell: cell,
 				Name: serviceID,
@@ -367,14 +367,14 @@ func findPrimary(config *Config) (*PoolerInfo, error) {
 			continue
 		}
 
-		postgresRunning := status.Status.PostgresRunning
-		isReady := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+		postgresReady := status.Status.PostgresReady
+		primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
 
-		if postgresRunning && isReady {
+		if postgresReady && primaryIsOperational {
 			poolerInfo := getPoolerInfo(cell, serviceID)
 			logSuccess(fmt.Sprintf("Found primary: %s/%s (pod: %s)", cell, serviceID, poolerInfo.PodName))
-			logInfo(fmt.Sprintf("  - PostgreSQL running: %v", postgresRunning))
-			logInfo(fmt.Sprintf("  - Ready: %v", isReady))
+			logInfo(fmt.Sprintf("  - PostgreSQL ready: %v", postgresReady))
+			logInfo(fmt.Sprintf("  - Primary is ready: %v", primaryIsOperational))
 			return poolerInfo, nil
 		}
 	}
@@ -462,14 +462,14 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 				continue
 			}
 
-			postgresRunning := status.Status.PostgresRunning
-			isReady := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+			postgresReady := status.Status.PostgresReady
+			primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
 
 			if debug && attempt%10 == 0 {
-				fmt.Fprintf(os.Stderr, "  [DEBUG]   postgres_running=%v, ready=%v\n", postgresRunning, isReady)
+				fmt.Fprintf(os.Stderr, "  [DEBUG]   postgres_ready=%v, primary_is_operational=%v\n", postgresReady, primaryIsOperational)
 			}
 
-			if postgresRunning && isReady {
+			if postgresReady && primaryIsOperational {
 				fmt.Fprintln(os.Stderr)
 				logSuccess(fmt.Sprintf("New primary elected: %s/%s", cell, serviceID))
 				return nil
@@ -499,10 +499,10 @@ func waitForReplicaHealth(config *Config, cell, serviceID string, maxAttempts in
 		}
 
 		poolerType := status.Status.PoolerType
-		postgresRunning := status.Status.PostgresRunning
+		postgresReady := status.Status.PostgresReady
 		replStatus := status.Status.ReplicationStatus
 
-		if poolerType == "REPLICA" && postgresRunning && replStatus != nil {
+		if poolerType == "REPLICA" && postgresReady && replStatus != nil {
 			lastReceiveLSN := replStatus.LastReceiveLSN
 			lastReplayLSN := replStatus.LastReplayLSN
 			isPaused := replStatus.IsWALReplayPaused
@@ -530,7 +530,7 @@ func waitForReplicaHealth(config *Config, cell, serviceID string, maxAttempts in
 						continue
 					}
 
-					if !primaryStatus.Status.PostgresRunning {
+					if !primaryStatus.Status.PostgresReady {
 						continue
 					}
 
@@ -601,7 +601,7 @@ func printReplicationStatus(config *Config) {
 			continue
 		}
 
-		if status.Status.PostgresRunning && status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready {
+		if status.Status.PostgresReady && status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready {
 			primaryCell = cell
 			primaryServiceID = serviceID
 			primaryPodName = serviceID // Pod name is same as service ID
@@ -650,8 +650,8 @@ func printReplicationStatus(config *Config) {
 			continue
 		}
 
-		if !status.Status.PostgresRunning {
-			fmt.Fprintf(os.Stderr, "  %sPostgreSQL not running%s\n", colorRed, colorReset)
+		if !status.Status.PostgresReady {
+			fmt.Fprintf(os.Stderr, "  %sPostgreSQL not ready%s\n", colorRed, colorReset)
 			continue
 		}
 

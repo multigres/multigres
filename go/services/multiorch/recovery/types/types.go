@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -34,7 +35,7 @@ type ProblemCode string
 
 const (
 	// Shard bootstrap problems (highest priority - shard cannot function at all).
-	ProblemShardNeedsBootstrap ProblemCode = "ShardNeedsBootstrap"
+	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
 	// Primary problems (catastrophic - block everything else).
 	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
@@ -107,13 +108,28 @@ const (
 type Problem struct {
 	Code           ProblemCode           // Category of problem
 	CheckName      CheckName             // Which check detected it
-	PoolerID       *clustermetadatapb.ID // Affected pooler
+	PoolerID       *clustermetadatapb.ID // Affected pooler; can be nil for shard-scoped problems
 	ShardKey       commontypes.ShardKey  // Identifies the affected shard
 	Description    string                // Human-readable description
 	Priority       Priority              // Priority of this problem
 	Scope          ProblemScope          // Whether this affects the whole cluster or just one pooler
 	DetectedAt     time.Time             // When the problem was detected
 	RecoveryAction RecoveryAction        // What to do about it
+}
+
+// IsShardWide reports whether this problem affects the entire shard.
+func (p Problem) IsShardWide() bool {
+	return p.Scope == ScopeShard
+}
+
+// EntityID returns a stable string identifying the affected entity.
+// For pooler-scoped problems this is the pooler ID string; for shard-scoped
+// problems it is the shard key string. Safe to call when PoolerID is nil.
+func (p Problem) EntityID() string {
+	if p.Scope == ScopePooler && p.PoolerID != nil {
+		return topoclient.MultiPoolerIDString(p.PoolerID)
+	}
+	return p.ShardKey.String()
 }
 
 // GracePeriodConfig holds grace period settings for recovery actions.

@@ -522,7 +522,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Create multiple shard-wide problems with different priorities
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemShardNeedsBootstrap,
+			Code:     types.ProblemShardNeedsInitialization,
 			PoolerID: poolerID1,
 			Priority: types.PriorityShardBootstrap,
 			Scope:    types.ScopeShard,
@@ -550,7 +550,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Should return only the highest priority shard-wide problem
 	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, types.ProblemShardNeedsBootstrap, filtered[0].Code)
+	assert.Equal(t, types.ProblemShardNeedsInitialization, filtered[0].Code)
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
@@ -742,10 +742,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
-			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				IsWalReplayPaused: true, // Replication stopped
+			LastSeen:         timestamppb.Now(),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					IsWalReplayPaused: true, // Replication stopped
+				},
 			},
-			LastSeen: timestamppb.Now(),
 		}
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -800,10 +803,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
-			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				IsWalReplayPaused: true, // Replication stopped
+			LastSeen:         timestamppb.Now(),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					IsWalReplayPaused: true, // Replication stopped
+				},
 			},
-			LastSeen: timestamppb.Now(),
 		}
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -890,10 +896,13 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Replication stopped
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Replication stopped
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -1078,7 +1087,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.recoveryGracePeriodTracker.Observe(types.ProblemPrimaryIsDead, "multipooler-cell1-primary-pooler", problems[0].RecoveryAction, false)
+	engine.recoveryGracePeriodTracker.Observe(types.ProblemPrimaryIsDead, problems[0].EntityID(), problems[0].RecoveryAction, false)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{
@@ -1238,10 +1247,13 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Problem
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Problem
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
 
@@ -1254,10 +1266,13 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Problem
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Problem
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
 
@@ -1423,10 +1438,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true,
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true,
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -1540,10 +1558,13 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true,
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true,
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-zone1-replica-pooler", replicaPooler)
 
@@ -1864,7 +1885,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	initialDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 	require.True(t, exists, "deadline should be set after problem detected")
@@ -1886,7 +1907,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	resetDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
@@ -1908,7 +1929,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	recurrenceDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
-		poolerID: "multipooler-cell1-replica-pooler",
+		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
@@ -2080,7 +2101,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 // and returns all detected problems. Fails the test if any analyzer returns an error.
 func detectProblems(t *testing.T, engine *Engine) []types.Problem {
 	t.Helper()
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore, nil)
 	var problems []types.Problem
 	for _, sa := range generator.GenerateShardAnalyses() {
 		for _, az := range analysis.DefaultAnalyzers(engine.actionFactory) {
