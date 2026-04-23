@@ -287,8 +287,25 @@ func (e *Executor) reserveAndStreamExecute(
 		"begin_tx", beginTx,
 		"query", sql)
 
+	// If the query references a gateway-managed prepared statement (wrapped
+	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), parse it during
+	// reserved-connection acquisition. Doing the Parse via the validate
+	// callback lets the reserved pool transparently swap a stale (silently
+	// closed) socket for a fresh one before we register the connection — the
+	// failure mode that flaked TestWrappedPreparedStatementExecution.
+	//
+	// Parse is a session-level operation in PostgreSQL, so running it before
+	// BEGIN is safe; the prepared statement persists into the transaction.
+	var reservedOpts []reserved.ReservedConnOption
+	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+		validate := func(ctx context.Context, conn *regular.Conn) error {
+			return e.ensurePreparedWithName(ctx, conn, preparedStmt)
+		}
+		reservedOpts = append(reservedOpts, reserved.WithValidate(validate))
+	}
+
 	// Create a reserved connection
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -313,16 +330,6 @@ func (e *Executor) reserveAndStreamExecute(
 		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, err
-		}
-	}
-
-	// If the query references a gateway-managed prepared statement (wrapped
-	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), ensure it is
-	// parsed on this newly created backend connection before running the query.
-	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
-		if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
-			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", err)
 		}
 	}
 

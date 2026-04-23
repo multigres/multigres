@@ -237,10 +237,11 @@ func (p *UserPool) GetRegularConnWithSettings(ctx context.Context, settings *con
 }
 
 // NewReservedConn creates a new reserved connection for transactions or portal operations.
-// The connection is already authenticated as the pool's user.
-func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Settings) (*reserved.Conn, error) {
+// The connection is already authenticated as the pool's user. Optional
+// ReservedConnOption values configure validate-with-retry behavior.
+func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Settings, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	p.touchActivity()
-	return p.reservedPool.NewConn(ctx, settings)
+	return p.reservedPool.NewConn(ctx, settings, opts...)
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID.
