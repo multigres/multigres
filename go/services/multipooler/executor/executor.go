@@ -287,8 +287,24 @@ func (e *Executor) reserveAndStreamExecute(
 		"begin_tx", beginTx,
 		"query", sql)
 
+	// If the query references a gateway-managed prepared statement (wrapped
+	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), the Parse must
+	// land on the same backend connection the query will run on. Wire it
+	// through the reserved pool's validate hook so that if the first write
+	// hits a silently-closed socket (idle timeout on the backend), the pool
+	// taints the stale conn and retries on a fresh one.
+	//
+	// Running Parse before BEGIN is safe — prepared statements are session
+	// level, not transaction level.
+	var reservedOpts []reserved.ReservedConnOption
+	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+		reservedOpts = append(reservedOpts, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			return e.ensurePreparedWithName(ctx, conn, preparedStmt)
+		}))
+	}
+
 	// Create a reserved connection
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -313,16 +329,6 @@ func (e *Executor) reserveAndStreamExecute(
 		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, err
-		}
-	}
-
-	// If the query references a gateway-managed prepared statement (wrapped
-	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), ensure it is
-	// parsed on this newly created backend connection before running the query.
-	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
-		if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
-			return nil, fmt.Errorf("failed to ensure prepared statement on new reserved connection: %w", err)
 		}
 	}
 

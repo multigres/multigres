@@ -23,10 +23,49 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
 )
+
+// maxNewConnAttempts is the maximum number of times NewConn will try to
+// obtain and validate a pooled connection. Mirrors regular.maxQueryAttempts.
+const maxNewConnAttempts = 3
+
+// newConnRetryBackoff is the delay between NewConn attempts when the
+// previous attempt's validate callback reported a connection error.
+// Matches regular.retryBackoff style to give PostgreSQL a brief window
+// to finish starting up when the underlying error is due to a restart.
+const newConnRetryBackoff = 100 * time.Millisecond
+
+// ReservedConnOption configures a NewConn call on a reserved Pool.
+// See WithValidate.
+type ReservedConnOption func(*reservedConnOpts)
+
+// reservedConnOpts is the internal options bag populated by
+// ReservedConnOption functions. Zero value means "no validate hook,
+// behave as before".
+type reservedConnOpts struct {
+	validate func(context.Context, *regular.Conn) error
+}
+
+// WithValidate attaches a callback that runs on the underlying regular
+// connection before the reserved connection is registered. If the
+// callback returns a connection error (per mterrors.IsConnectionError),
+// the pool taints the pooled conn (forcing a fresh socket on the next
+// get) and retries up to maxNewConnAttempts. Non-connection errors are
+// returned unchanged with the pooled conn recycled normally.
+//
+// This is the pool-layer equivalent of retryOnConnectionError in the
+// regular pool: it transparently recovers from silent stale-socket
+// failures on the first write to a freshly-handed-out reserved
+// connection (e.g. a Parse issued during connection setup).
+func WithValidate(fn func(context.Context, *regular.Conn) error) ReservedConnOption {
+	return func(o *reservedConnOpts) {
+		o.validate = fn
+	}
+}
 
 // PoolConfig holds configuration for the reserved pool.
 type PoolConfig struct {
@@ -152,7 +191,13 @@ func (p *Pool) idleKiller(interval time.Duration) {
 // NewConn acquires a new reserved connection.
 // The connection is assigned a unique ID for client-side tracking.
 // The connection is already authenticated as the pool's configured user.
-func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn, error) {
+//
+// If a validate callback is supplied via WithValidate, it runs on the
+// underlying regular connection before the reservation is registered.
+// A connection error from validate taints the pooled conn and triggers
+// a retry (up to maxNewConnAttempts), transparently recovering from
+// stale sockets that PostgreSQL silently closed.
+func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts ...ReservedConnOption) (*Conn, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -160,10 +205,14 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	}
 	p.mu.Unlock()
 
-	// Get a regular connection from the pool.
-	pooled, err := p.conns.GetWithSettings(ctx, settings)
+	var o reservedConnOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	pooled, err := p.getValidatedConn(ctx, settings, o.validate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
+		return nil, err
 	}
 
 	// Generate unique ID. Since lastID is initialized with Unix nanoseconds,
@@ -189,6 +238,69 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 		"process_id", rc.ProcessID())
 
 	return rc, nil
+}
+
+// getValidatedConn acquires a pooled regular connection and, if a
+// validate callback is provided, runs it against the connection before
+// returning. On a connection-error from validate, the pooled conn is
+// tainted (forcing a fresh socket on the next get) and the acquire is
+// retried up to maxNewConnAttempts. Non-connection errors cause the
+// pooled conn to be recycled normally and the error is returned
+// unchanged.
+//
+// The retry logic mirrors retryOnConnectionError in regular_conn.go: a
+// brief backoff (newConnRetryBackoff) between attempts gives PostgreSQL
+// time to come back after a restart, and ctx cancellation short-circuits
+// the loop.
+func (p *Pool) getValidatedConn(ctx context.Context, settings *connstate.Settings, validate func(context.Context, *regular.Conn) error) (regular.PooledConn, error) {
+	if validate == nil {
+		pooled, err := p.conns.GetWithSettings(ctx, settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+		return pooled, nil
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxNewConnAttempts; attempt++ {
+		pooled, err := p.conns.GetWithSettings(ctx, settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+
+		if err := validate(ctx, pooled.Conn); err == nil {
+			return pooled, nil
+		} else if !mterrors.IsConnectionError(err) {
+			pooled.Recycle()
+			return nil, err
+		} else {
+			// Connection error: taint the stale socket and close it.
+			// Taint returns the slot to the pool as empty, which
+			// schedules a replacement; the subsequent Recycle (with
+			// pool==nil after Taint) closes the orphaned socket so it
+			// does not linger until the idle killer reaps it.
+			pooled.Taint()
+			pooled.Recycle()
+			lastErr = err
+		}
+
+		if attempt == maxNewConnAttempts {
+			break
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+
+		backoffTimer := time.NewTimer(newConnRetryBackoff)
+		select {
+		case <-backoffTimer.C:
+		case <-ctx.Done():
+			backoffTimer.Stop()
+			return nil, context.Cause(ctx)
+		}
+	}
+
+	return nil, fmt.Errorf("reserved connection validate failed after %d attempts: %w", maxNewConnAttempts, lastErr)
 }
 
 // Get retrieves a reserved connection by ID and resets its expiry time.

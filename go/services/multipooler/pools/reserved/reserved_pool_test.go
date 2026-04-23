@@ -16,6 +16,7 @@ package reserved
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
@@ -680,4 +682,190 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		assert.Greater(t, conn.ConnID(), maxPool1ID, "new pool IDs should be greater than old pool IDs")
 		conn.Release(ReleaseCommit)
 	}
+}
+
+// connErrFATAL returns a PgDiagnostic that IsConnectionError recognises
+// (Class 08 / FATAL 57P01 admin_shutdown). Used to drive the validate-retry
+// path below.
+func connErrFATAL() error {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "FATAL",
+		Code:        "57P01",
+		Message:     "terminating connection due to administrator command",
+	}
+}
+
+// TestPool_NewConn_NilValidate covers the nil-validate case: existing
+// behavior must be unchanged — a single pooled conn is returned without
+// ever consulting a callback.
+func TestPool_NewConn_NilValidate(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Release(ReleaseCommit)
+
+	stats := pool.Stats()
+	assert.Equal(t, 1, stats.Active)
+	assert.Equal(t, int64(1), stats.ReserveCount)
+}
+
+// TestPool_NewConn_WithValidate_Success covers the happy path: validate
+// is invoked exactly once on the pooled conn, and the returned reserved
+// conn wraps that same pooled conn.
+func TestPool_NewConn_WithValidate_Success(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	var calls int
+	var lastConn *regular.Conn
+	conn, err := pool.NewConn(ctx, nil, WithValidate(func(_ context.Context, c *regular.Conn) error {
+		calls++
+		lastConn = c
+		return nil
+	}))
+	require.NoError(t, err)
+	defer conn.Release(ReleaseCommit)
+
+	assert.Equal(t, 1, calls, "validate must run exactly once on success")
+	assert.Same(t, lastConn, conn.Conn(), "reserved conn must wrap the validated pooled conn")
+}
+
+// TestPool_NewConn_WithValidate_RetriesOnConnectionError covers the
+// key retry case: validate reports a connection error the first time,
+// the pool taints the stale pooled conn and retries on a fresh socket,
+// and the returned reserved conn wraps the replacement.
+func TestPool_NewConn_WithValidate_RetriesOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	var (
+		calls     int
+		firstConn *regular.Conn
+		finalConn *regular.Conn
+	)
+	conn, err := pool.NewConn(ctx, nil, WithValidate(func(_ context.Context, c *regular.Conn) error {
+		calls++
+		switch calls {
+		case 1:
+			firstConn = c
+			return connErrFATAL()
+		default:
+			finalConn = c
+			return nil
+		}
+	}))
+	require.NoError(t, err)
+	defer conn.Release(ReleaseCommit)
+
+	assert.Equal(t, 2, calls, "validate must be re-invoked on the replacement conn")
+	require.NotNil(t, firstConn)
+	require.NotNil(t, finalConn)
+	assert.NotSame(t, firstConn, finalConn,
+		"the stale conn should have been tainted and replaced by a fresh one")
+	assert.True(t, firstConn.IsClosed(),
+		"tainted conn should be closed after retry")
+	assert.Same(t, finalConn, conn.Conn(),
+		"reserved conn must wrap the replacement pooled conn")
+
+	// Reservation bookkeeping only records the final success.
+	stats := pool.Stats()
+	assert.Equal(t, 1, stats.Active)
+	assert.Equal(t, int64(1), stats.ReserveCount)
+}
+
+// TestPool_NewConn_WithValidate_NonConnectionErrorNoRetry covers the
+// non-connection-error branch: the error propagates verbatim, the
+// pooled conn is recycled (not tainted, so it stays available), and
+// validate runs exactly once.
+func TestPool_NewConn_WithValidate_NonConnectionErrorNoRetry(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	sentinel := errors.New("not a connection error")
+	var (
+		calls    int
+		seenConn *regular.Conn
+	)
+	conn, err := pool.NewConn(ctx, nil, WithValidate(func(_ context.Context, c *regular.Conn) error {
+		calls++
+		seenConn = c
+		return sentinel
+	}))
+	require.Nil(t, conn)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel, "non-connection errors must propagate unchanged")
+	assert.Equal(t, 1, calls, "no retry on non-connection errors")
+
+	// No reservation was registered.
+	stats := pool.Stats()
+	assert.Equal(t, 0, stats.Active)
+	assert.Equal(t, int64(0), stats.ReserveCount)
+
+	// The pooled conn was recycled, not tainted: it remains alive and
+	// available for the next acquisition.
+	require.NotNil(t, seenConn)
+	assert.False(t, seenConn.IsClosed(),
+		"non-connection error must recycle (not taint) the pooled conn")
+}
+
+// TestPool_NewConn_WithValidate_ExhaustedRetries covers the case where
+// validate always reports a connection error: NewConn must stop after
+// maxNewConnAttempts and return the final error wrapped with context.
+func TestPool_NewConn_WithValidate_ExhaustedRetries(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	var calls int
+	conn, err := pool.NewConn(ctx, nil, WithValidate(func(_ context.Context, _ *regular.Conn) error {
+		calls++
+		return connErrFATAL()
+	}))
+	require.Nil(t, conn)
+	require.Error(t, err)
+	assert.Equal(t, maxNewConnAttempts, calls,
+		"validate must be invoked exactly maxNewConnAttempts times")
+	assert.Contains(t, err.Error(), "reserved connection validate failed after")
+	// The underlying connection error must remain accessible via errors
+	// unwrapping so callers can still classify it.
+	assert.True(t, mterrors.IsConnectionError(err),
+		"wrapped error must still unwrap to a connection error")
+
+	// No reservation was registered.
+	stats := pool.Stats()
+	assert.Equal(t, 0, stats.Active)
+	assert.Equal(t, int64(0), stats.ReserveCount)
 }
