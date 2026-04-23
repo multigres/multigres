@@ -1,0 +1,56 @@
+# Aggregation, GROUP BY, HAVING, ORDER BY, LIMIT.
+
+statement ok
+CREATE TABLE sales (region TEXT, product TEXT, amount INT)
+
+statement ok
+INSERT INTO sales VALUES
+  ('north', 'a', 10),
+  ('north', 'b', 20),
+  ('north', 'a', 5),
+  ('south', 'a', 15),
+  ('south', 'b', 25),
+  ('west',  'a', 30)
+
+query TI rowsort
+SELECT region, sum(amount) FROM sales GROUP BY region
+----
+north	35
+south	40
+west	30
+
+query TTI rowsort
+SELECT region, product, sum(amount) FROM sales GROUP BY region, product
+----
+north	a	15
+north	b	20
+south	a	15
+south	b	25
+west	a	30
+
+query TI rowsort
+SELECT region, sum(amount) FROM sales GROUP BY region HAVING sum(amount) >= 35
+----
+north	35
+south	40
+
+query TI
+SELECT region, sum(amount) FROM sales GROUP BY region ORDER BY sum(amount) DESC
+----
+south	40
+north	35
+west	30
+
+query I
+SELECT count(DISTINCT product) FROM sales
+----
+2
+
+query TI
+SELECT region, count(*) FROM sales GROUP BY region ORDER BY region LIMIT 2
+----
+north	3
+south	2
+
+statement ok
+DROP TABLE sales

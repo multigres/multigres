@@ -243,11 +243,21 @@ is exercised for a given query.
 ### Connection Stickiness
 
 Because reconnection on a regular pool connection wipes per-connection
-prepared statement state, the wrapped-EXECUTE path cannot use the
-retry-on-connection-error variant of `QueryStreaming`: a silent reconnect
-would leave the backend without the statement the rewritten SQL references.
-The path uses plain `QueryStreaming` instead and surfaces connection errors
-to the caller, who can reissue the query at the application level.
+prepared statement state, the wrapped-EXECUTE path on the regular pool
+cannot use the retry-on-connection-error variant of `QueryStreaming`: a
+silent reconnect would leave the backend without the statement the
+rewritten SQL references. The regular path uses plain `QueryStreaming`
+instead and surfaces connection errors to the caller, who can reissue
+the query at the application level.
+
+The reserved-pool wrapped-EXECUTE path (`reserveAndStreamExecute` in
+`executor.go` and the `portalExecuteWithReserved` new-conn branch) does
+recover from stale sockets transparently: it wires `ensurePreparedWithName`
+/ `ensurePrepared` through `reserved.WithValidate`, so a connection-class
+error on the Parse triggers a retry on a fresh socket and re-runs the
+Parse there before the conn is registered. Both the empty-settings and
+non-empty-settings cases benefit. See `connection_pooling.md` for the
+underlying primitive.
 
 ### Scope and Known Limitation
 

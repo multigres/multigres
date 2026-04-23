@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -179,11 +180,12 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Build primary_conninfo connection string
 	// Format: host=<host> port=<port> user=<user> application_name=<name>
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
-	pm.mu.Lock()
-	database := pm.multipooler.Database
-	pm.mu.Unlock()
+	user := constants.DefaultPostgresUser
+	if pm.connPoolMgr != nil {
+		user = pm.connPoolMgr.PgUser()
+	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, database, appName.appName)
+		host, port, user, appName.appName)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -549,9 +551,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		updatedStandbys = applyReplaceOperation(requestedApplicationNames)
-
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported operation: "+operation.String())
@@ -801,79 +800,6 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 
 	// Call the locked version
 	return pm.changeTypeLocked(ctx, newType)
-}
-
-// State returns the current manager status and error information
-func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdatapb.StateResponse, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	state := string(pm.state)
-	var errorMessage string
-	if pm.stateError != nil {
-		errorMessage = pm.stateError.Error()
-	}
-
-	return &multipoolermanagerdatapb.StateResponse{
-		State:        state,
-		ErrorMessage: errorMessage,
-	}, nil
-}
-
-// GetFollowers gets the list of follower servers with detailed replication status
-func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	// Check PRIMARY guardrails (only primary can have followers)
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return nil, err
-	}
-
-	// Get current synchronous replication configuration
-	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Query pg_stat_replication for all connected followers with full details
-	connectedMap, err := pm.queryFollowerReplicationStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build the response with all configured standbys
-	followers := make([]*multipoolermanagerdatapb.FollowerInfo, 0, len(syncConfig.StandbyIds))
-	for _, standbyID := range syncConfig.StandbyIds {
-		pid, pidErr := newPoolerID(standbyID)
-		if pidErr != nil {
-			// We're in a suspicious state since this follower can't be represented in Postgres,
-			// but it seems better to return a blank ApplicationName than to fail this entire request.
-			pm.logger.WarnContext(ctx, "Could not generate application name for follower", "follower_id", standbyID, "error", pidErr)
-		}
-
-		followerInfo := &multipoolermanagerdatapb.FollowerInfo{
-			FollowerId:      standbyID,
-			ApplicationName: pid.appName,
-		}
-
-		// Check if this standby is currently connected
-		if stats, connected := connectedMap[pid.appName]; connected {
-			followerInfo.IsConnected = true
-			followerInfo.ReplicationStats = stats
-		} else {
-			followerInfo.IsConnected = false
-			// ReplicationStats remains nil for disconnected followers
-		}
-
-		followers = append(followers, followerInfo)
-	}
-
-	return &multipoolermanagerdatapb.GetFollowersResponse{
-		Followers:  followers,
-		SyncConfig: syncConfig,
-	}, nil
 }
 
 // EmergencyDemote demotes the current primary server

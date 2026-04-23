@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/prototest"
@@ -41,6 +42,19 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
+
+// fakeConnPoolMgr is a minimal PoolManager stub for tests that only need to
+// control the superuser name visible to MultiPoolerManager (e.g. asserting the
+// rendered primary_conninfo). All other methods inherit the embedded nil
+// interface and will panic if called — keep usage scoped to tests that don't
+// exercise the real pool.
+type fakeConnPoolMgr struct {
+	connpoolmanager.PoolManager
+	user string
+}
+
+func (f *fakeConnPoolMgr) PgUser() string { return f.user }
+func (f *fakeConnPoolMgr) Close()         {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
@@ -1260,8 +1274,14 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
-	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo — capture the full
+	// SQL so we can assert on the rendered libpq conninfo.
+	var capturedConnInfoSQL string
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(sql string) { capturedConnInfoSQL = sql },
+	)
 	// SetPrimaryConnInfo executes pg_reload_conf()
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
@@ -1271,6 +1291,13 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Inject a fake pool manager so we can verify primary_conninfo uses the
+	// configured superuser name.
+	const testSuperuser = "admin"
+	pm.mu.Lock()
+	pm.connPoolMgr = &fakeConnPoolMgr{user: testSuperuser}
+	pm.mu.Unlock()
 
 	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
@@ -1295,6 +1322,12 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 
 	// Verify all mock expectations were met
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+
+	// Verify the rendered primary_conninfo wires the configured superuser into
+	// the user= slot. Regression guard for the bug where the database name was
+	// being passed here.
+	assert.Contains(t, capturedConnInfoSQL, "user="+testSuperuser,
+		"primary_conninfo must contain user=%s, got: %s", testSuperuser, capturedConnInfoSQL)
 
 	// Verify the primaryPoolerID is stored in the manager as a *clustermetadatapb.ID
 	pm.mu.Lock()

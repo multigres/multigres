@@ -192,6 +192,7 @@ Several mechanisms prevent unbounded buffering:
   guard, multi-shard independence, and retry completion signaling
 - **`poolergateway/pooler_gateway_test.go`**: unit tests for
   `classifyError` and `withBuffering` retry loop
-- **`queryserving/buffer_test.go`**: end-to-end integration test
-  that runs continuous writes through a multigateway, triggers a
-  planned failover, and asserts zero failed writes
+- **`test/endtoend/queryserving/buffer_test.go`**: end-to-end
+  integration test that runs continuous writes through a
+  multigateway, triggers a planned failover, and asserts zero
+  failed writes

@@ -37,7 +37,7 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true, // even if field is true, unreachable means not initialized
+				Status:           &multipoolermanagerdata.Status{IsInitialized: true}, // even if field is true, unreachable means not initialized
 			},
 			expected: false,
 		},
@@ -46,7 +46,7 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      nil,
-				IsInitialized:    true,
+				Status:           &multipoolermanagerdata.Status{IsInitialized: true},
 			},
 			expected: false,
 		},
@@ -55,7 +55,7 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true,
+				Status:           &multipoolermanagerdata.Status{IsInitialized: true},
 			},
 			expected: true,
 		},
@@ -64,7 +64,7 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    false,
+				Status:           &multipoolermanagerdata.Status{IsInitialized: false},
 			},
 			expected: false,
 		},
@@ -73,9 +73,11 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				IsInitialized:    true,
-				PrimaryStatus:    &multipoolermanagerdata.PrimaryStatus{Lsn: "0/1234"},
+				Status: &multipoolermanagerdata.Status{
+					PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					IsInitialized: true,
+					PrimaryStatus: &multipoolermanagerdata.PrimaryStatus{Lsn: "0/1234"},
+				},
 			},
 			expected: true,
 		},
@@ -84,10 +86,12 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    true,
-				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
-					LastReplayLsn: "0/1234",
+				Status: &multipoolermanagerdata.Status{
+					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
+					IsInitialized: true,
+					ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
+						LastReplayLsn: "0/1234",
+					},
 				},
 			},
 			expected: true,
@@ -97,10 +101,12 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    false,
-				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
-					LastReplayLsn: "0/1234",
+				Status: &multipoolermanagerdata.Status{
+					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
+					IsInitialized: false,
+					ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
+						LastReplayLsn: "0/1234",
+					},
 				},
 			},
 			expected: false,

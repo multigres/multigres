@@ -91,20 +91,26 @@ func (e *Executor) StreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	plan, bindVars, cacheHit, err := e.resolvePlan(ctx, queryStr, astStmt, conn)
+	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", queryStr,
 			"error", err)
-		return &handler.ExecuteResult{PlanTime: planTime}, err
+		return &handler.ExecuteResult{
+			PlanTime:      planTime,
+			NormalizedSQL: normalizedSQL,
+			Fingerprint:   fingerprint,
+		}, err
 	}
 
 	result := &handler.ExecuteResult{
-		TablesUsed: plan.TablesUsed,
-		PlanType:   plan.Type,
-		PlanTime:   planTime,
-		CacheHit:   cacheHit,
+		TablesUsed:    plan.TablesUsed,
+		PlanType:      plan.Type,
+		PlanTime:      planTime,
+		CacheHit:      cacheHit,
+		NormalizedSQL: normalizedSQL,
+		Fingerprint:   fingerprint,
 	}
 
 	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
@@ -119,22 +125,24 @@ func (e *Executor) StreamExecute(
 
 // resolvePlan obtains a query plan, using the plan cache when possible.
 // Returns the plan, bind variables extracted during normalization (nil if none),
-// whether the plan was a cache hit, and any planning error.
+// whether the plan was a cache hit, the normalized SQL string (empty for
+// non-cacheable statements), a stable fingerprint hash of that normalized SQL,
+// and any planning error.
 func (e *Executor) resolvePlan(
 	ctx context.Context,
 	queryStr string,
 	astStmt ast.Stmt,
 	conn *server.Conn,
-) (*engine.Plan, []*ast.A_Const, bool, error) {
+) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
 	if !isCacheable(astStmt) {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, false, "", "", err
 		}
 		e.logger.DebugContext(ctx, "query plan created (non-cacheable)",
 			"plan", plan.String(),
 			"tablegroup", plan.GetTableGroup())
-		return plan, nil, false, nil
+		return plan, nil, false, "", "", nil
 	}
 
 	// Normalize: replace literals with $1, $2, ... placeholders.
@@ -142,6 +150,7 @@ func (e *Executor) resolvePlan(
 	// and BindValues is empty — the plan is still cached by its SQL string.
 	normResult := ast.Normalize(astStmt)
 	normalizedSQL := normResult.NormalizedSQL
+	fingerprint := normResult.Fingerprint()
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
 	var bindVars []*ast.A_Const
 	if normResult.WasNormalized() {
@@ -152,20 +161,20 @@ func (e *Executor) resolvePlan(
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "plan cache hit",
 			"normalized_query", normalizedSQL)
-		return cachedPlan, bindVars, true, nil
+		return cachedPlan, bindVars, true, normalizedSQL, fingerprint, nil
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
 	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, false, normalizedSQL, fingerprint, err
 	}
 
 	e.planCache.Put(cacheKey, plan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
 		"normalized_query", normalizedSQL,
 		"plan", plan.String())
-	return plan, bindVars, false, nil
+	return plan, bindVars, false, normalizedSQL, fingerprint, nil
 }
 
 // isCacheable returns true if the statement type is eligible for plan caching.
@@ -213,19 +222,27 @@ func (e *Executor) PortalStreamExecute(
 	if isCacheable(astStmt) {
 		plan, cacheHit, err := e.resolvePortalPlan(ctx, astStmt, conn)
 		planTime := time.Since(planStart)
+		normalizedSQL := astStmt.SqlString()
+		fingerprint := ast.FingerprintSQL(normalizedSQL)
 		if err != nil {
 			e.logger.ErrorContext(ctx, "portal query planning failed",
 				"query", portalInfo.PreparedStatementInfo.Query, "error", err)
-			return &handler.ExecuteResult{PlanTime: planTime}, err
+			return &handler.ExecuteResult{
+				PlanTime:      planTime,
+				NormalizedSQL: normalizedSQL,
+				Fingerprint:   fingerprint,
+			}, err
 		}
 
 		tg, sh := extractRouting(plan, e.planner.GetDefaultTableGroup(), constants.DefaultShard)
 		err = e.exec.PortalStreamExecute(ctx, tg, sh, conn, state, portalInfo, maxRows, callback)
 		return &handler.ExecuteResult{
-			TablesUsed: plan.TablesUsed,
-			PlanType:   plan.Type,
-			PlanTime:   planTime,
-			CacheHit:   cacheHit,
+			TablesUsed:    plan.TablesUsed,
+			PlanType:      plan.Type,
+			PlanTime:      planTime,
+			CacheHit:      cacheHit,
+			NormalizedSQL: normalizedSQL,
+			Fingerprint:   fingerprint,
 		}, err
 	}
 

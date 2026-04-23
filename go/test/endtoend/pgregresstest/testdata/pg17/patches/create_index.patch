@@ -1,0 +1,13 @@
+--- a
++++ b
+@@ -11,9 +11,7 @@
+ CREATE INDEX IF NOT EXISTS onek_unique1 ON onek USING btree(unique1 int4_ops);
+ NOTICE:  relation "onek_unique1" already exists, skipping
+ CREATE INDEX IF NOT EXISTS ON onek USING btree(unique1 int4_ops);
+-ERROR:  syntax error at or near "ON"
+-LINE 1: CREATE INDEX IF NOT EXISTS ON onek USING btree(unique1 int4_...
+-                                   ^
++ERROR:  parse error at position 29: syntax error
+ CREATE INDEX onek_unique2 ON onek USING btree(unique2 int4_ops);
+ CREATE INDEX onek_hundred ON onek USING btree(hundred int4_ops);
+ CREATE INDEX onek_stringu1 ON onek USING btree(stringu1 name_ops);

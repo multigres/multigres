@@ -26,6 +26,7 @@
 //
 // What should stay (test-specific helpers):
 //   - getPrimaryStatusFromClient, waitForSyncConfigConvergenceWithClient, containsStandbyIDInConfig
+//     (these access sync replication config via the unified Status RPC)
 
 package multipooler
 
@@ -213,15 +214,16 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 	}
 }
 
-// Helper function to get PrimaryStatus from a manager client.
+// Helper function to get PrimaryStatus from a manager client via the unified Status RPC.
 func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	statusResp, err := client.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
-	require.NoError(t, err, "PrimaryStatus should succeed")
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
 	require.NotNil(t, statusResp.Status, "Status should not be nil")
-	return statusResp.Status
+	require.NotNil(t, statusResp.Status.PrimaryStatus, "PrimaryStatus should not be nil (must be called on a primary)")
+	return statusResp.Status.PrimaryStatus
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value.

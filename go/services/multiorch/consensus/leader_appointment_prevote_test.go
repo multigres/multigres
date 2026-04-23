@@ -67,9 +67,11 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: isHealthy,
-		ConsensusTerm:    consensusTerm,
-		IsInitialized:    isInitialized,
-		IsPostgresReady:  isHealthy && isInitialized, // postgres is ready if healthy and initialized
+		Status: &multipoolermanagerdatapb.Status{
+			ConsensusTerm: consensusTerm,
+			IsInitialized: isInitialized,
+			PostgresReady: isHealthy && isInitialized, // postgres is ready if healthy and initialized
+		},
 	}
 }
 
@@ -222,10 +224,10 @@ func TestPreVote(t *testing.T) {
 
 		// Create 3 poolers: 2 healthy but with postgres not ready, 1 healthy with postgres ready
 		pooler1 := createPoolerForPreVote("mp1", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
-		pooler1.IsPostgresReady = false // postgres not ready
+		pooler1.Status.PostgresReady = false // postgres not ready
 
 		pooler2 := createPoolerForPreVote("mp2", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
-		pooler2.IsPostgresReady = false // postgres not ready
+		pooler2.Status.PostgresReady = false // postgres not ready
 
 		pooler3 := createPoolerForPreVote("mp3", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
 		// pooler3 has postgres ready (default from helper)

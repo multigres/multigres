@@ -37,7 +37,7 @@ The LoadBalancer manages connections to multipooler instances and routes queries
 
 **LoadBalancer** - Manages all pooler connections and selects the best one for each query. Maintains a map of pooler ID → PoolerConnection.
 
-**PoolerConnection** - Wraps a gRPC connection to a single multipooler instance. Implements `QueryService` interface and tracks pooler metadata (type, cell, shard).
+**PoolerConnection** - Wraps a gRPC connection to a single multipooler instance. Holds a `queryservice.QueryService` client for query execution, tracks pooler metadata (type, cell, shard), and runs a background health stream (`StreamPoolerHealth`) that reports serving state, replication lag, and the pooler's current `PrimaryObservation`.
 
 **LoadBalancerListener** - Adapter between discovery events and LoadBalancer operations. Translates `OnPoolerChanged` / `OnPoolerRemoved` callbacks into `AddPooler` / `RemovePooler` calls.
 
@@ -99,6 +99,31 @@ Connections are created and removed based on etcd topology changes:
 
 Connections persist until the pooler is removed from topology. No per-query connection creation - all queries share the same connections. gRPC handles multiplexing multiple concurrent queries over a single connection.
 
+## Health Streaming and Primary Caching
+
+Each `PoolerConnection` runs a background `StreamPoolerHealth` RPC against its multipooler. Each response carries:
+
+- Serving status (e.g. `SERVING`, `NOT_SERVING`)
+- Replication lag for replicas (`replication_lag_ns`)
+- `PrimaryObservation` — which pooler this multipooler believes is the current primary, along with a term number
+
+The LoadBalancer consumes these updates via the `onPoolerHealthUpdate` callback for two purposes:
+
+1. **Primary caching.** LoadBalancer caches the currently-serving primary per shard in `cachedPrimaries map[shardKey]*cachedPrimary`, tagged with a term. `GetConnection` for a `PRIMARY` target hits this cache first, avoiding a scan of all poolers on the hot path.
+
+   Entries with `term == 0` are provisional (derived from metadata at `AddPooler` time); once a health update reports a `PrimaryObservation` with a non-zero term, the cache is reconciled and stale entries for older terms are evicted.
+
+2. **Failover coordination.** When a new primary is observed, the LoadBalancer invokes the callback registered by `SetOnPrimaryServing`, which the gateway uses to stop failover buffering and replay buffered requests against the new primary.
+
+## Replication Lag Filtering
+
+`SetReplicationLagThresholds(lowLag, highTolerance)` configures a two-tier filter for replica selection:
+
+- **lowLag**: replicas at or below this lag are considered "healthy" and are preferred.
+- **highTolerance**: absolute upper bound. Replicas exceeding this are never returned. `0` disables the upper bound.
+
+If all replicas in the preferred locality exceed `lowLag` but are still under `highTolerance`, they remain eligible — the filter degrades gracefully rather than returning no replicas.
+
 ## Error Handling
 
 ### Fail-Fast Design
@@ -147,9 +172,9 @@ discovery.RegisterListener(listener)
 // - listener.OnPoolerRemoved() for deleted poolers
 ```
 
-### QueryService Interface
+### QueryService
 
-PoolerConnection implements `queryservice.QueryService`, allowing it to be used interchangeably with other query service implementations. Internally it delegates to a gRPC client.
+PoolerConnection holds a `queryservice.QueryService` client (backed by the multipooler gRPC stub) and exposes its query methods (`StreamExecute`, `ReserveStreamExecute`, `ConcludeTransaction`, etc.) through thin wrappers so callers can treat it as a connected query endpoint.
 
 ## Operational Concerns
 
@@ -174,7 +199,3 @@ If there are a large number of replicas, each gate can connection to a different
 - **Round-robin**: Distribute load across multiple replicas in same cell
 - **Health-aware**: Skip poolers with high error rates or slow responses
 - **Weighted selection**: Route more traffic to poolers with more capacity
-
-### Health Streaming Integration
-
-When health streaming is added, LoadBalancer can avoid routing to unhealthy poolers.

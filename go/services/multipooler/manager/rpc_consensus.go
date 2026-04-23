@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
@@ -478,88 +476,5 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		PrimaryTerm:        localPrimaryTerm,
 		ConsensusStatus:    consensusStatus,
 		AvailabilityStatus: pm.buildAvailabilityStatus(),
-	}, nil
-}
-
-// GetLeadershipView returns leadership information from the heartbeat table
-func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consensusdatapb.LeadershipViewRequest) (*consensusdatapb.LeadershipViewResponse, error) {
-	if pm.replTracker == nil {
-		return nil, errors.New("replication tracker not initialized")
-	}
-
-	// Use the heartbeat reader to get leadership view
-	reader := pm.replTracker.HeartbeatReader()
-	view, err := reader.GetLeadershipView()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get leadership view: %w", err)
-	}
-
-	return &consensusdatapb.LeadershipViewResponse{
-		LeaderId:         view.LeaderID,
-		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
-		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
-	}, nil
-}
-
-// CanReachPrimary checks if this node can reach the specified primary
-// by querying the pg_stat_wal_receiver view to check the WAL receiver status
-// and verifying it's connected to the expected primary host/port
-func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
-	// Query pg_stat_wal_receiver to check if we can reach the primary
-	result, err := pm.query(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver")
-	if err != nil {
-		//nolint:nilerr // Error is communicated via response struct, not error return
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: "database connection not available",
-		}, nil
-	}
-	var status, conninfo string
-	err = executor.ScanSingleRow(result, &status, &conninfo)
-	if err != nil {
-		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
-		//nolint:nilerr // Error is communicated via response struct, not error return
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: "no active WAL receiver",
-		}, nil
-	}
-
-	// If status is "stopping", the connection is not healthy
-	if status == "stopping" {
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: "WAL receiver is stopping",
-		}, nil
-	}
-
-	// Parse conninfo to extract host and port
-	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(conninfo)
-	if err != nil {
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: fmt.Sprintf("failed to parse conninfo: %v", err),
-		}, nil
-	}
-
-	// Compare with requested primary host and port
-	if parsedConnInfo.Host != req.PrimaryHost {
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: fmt.Sprintf("WAL receiver connected to different host: expected %s, got %s", req.PrimaryHost, parsedConnInfo.Host),
-		}, nil
-	}
-
-	if parsedConnInfo.Port != req.PrimaryPort {
-		return &consensusdatapb.CanReachPrimaryResponse{
-			Reachable:    false,
-			ErrorMessage: fmt.Sprintf("WAL receiver connected to different port: expected %d, got %d", req.PrimaryPort, parsedConnInfo.Port),
-		}, nil
-	}
-
-	// WAL receiver is active and connected to the expected primary
-	return &consensusdatapb.CanReachPrimaryResponse{
-		Reachable:    true,
-		ErrorMessage: "",
 	}, nil
 }
