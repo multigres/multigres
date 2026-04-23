@@ -872,7 +872,8 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		cmd = executil.Command(ctx, pgIsoRegress, args...).WithProcessGroup()
 		t.Logf("Running selective isolation tests: %s", testsEnv)
 	} else {
-		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck").WithProcessGroup()
+		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck",
+			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
 		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
 	}
 
