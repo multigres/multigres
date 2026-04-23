@@ -604,8 +604,16 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 			return format, columnFormats, nil
 
 		case protocol.MsgErrorResponse:
-			// Parse and return the error
-			return 0, nil, c.parseError(body)
+			// Parse the error, then drain the trailing ReadyForQuery so
+			// the connection is left in a clean state and is safe to
+			// return to the pool. Without this, the next operation on
+			// this socket would see the leftover RFQ as its first
+			// response and fail with "received ReadyForQuery before X".
+			// waitForReadyForQuery also updates txnStatus from the RFQ
+			// payload, which we want even on the error path.
+			pgErr := c.parseError(body)
+			_ = c.waitForReadyForQuery(ctx)
+			return 0, nil, pgErr
 
 		case protocol.MsgNoticeResponse:
 			// Skip notices (PostgreSQL might send notices before CopyInResponse)
