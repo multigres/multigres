@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-94770607/a	2026-04-22 02:01:50
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-94770607/b	2026-04-22 02:01:50
+--- a
++++ b
 @@ -10,7 +10,9 @@
  CREATE SCHEMA addr_nsp;
  SET search_path TO 'addr_nsp';

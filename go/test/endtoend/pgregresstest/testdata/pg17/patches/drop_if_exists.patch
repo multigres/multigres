@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1543893922/a	2026-04-22 02:01:50
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1543893922/b	2026-04-22 02:01:50
+--- a
++++ b
 @@ -333,10 +333,10 @@
  -- This test checks both the functionality of 'if exists' and the syntax
  -- of the drop database command.

@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-874069341/a	2026-04-22 02:01:50
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-874069341/b	2026-04-22 02:01:50
+--- a
++++ b
 @@ -60,81 +60,63 @@
  ON t.tid = s.sid
  WHEN MATCHED THEN

@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-208698216/a	2026-04-22 02:01:49
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-208698216/b	2026-04-22 02:01:49
+--- a
++++ b
 @@ -48,16 +48,12 @@
  -- syntax errors
  --  test for extraneous comma

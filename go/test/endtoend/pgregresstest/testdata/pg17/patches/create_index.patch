@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-760533315/a	2026-04-22 02:01:49
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-760533315/b	2026-04-22 02:01:49
+--- a
++++ b
 @@ -11,9 +11,7 @@
  CREATE INDEX IF NOT EXISTS onek_unique1 ON onek USING btree(unique1 int4_ops);
  NOTICE:  relation "onek_unique1" already exists, skipping

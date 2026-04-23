@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1727287536/a	2026-04-22 02:01:50
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-1727287536/b	2026-04-22 02:01:50
+--- a
++++ b
 @@ -157,57 +157,63 @@
  -- Foreign Data Wrapper and Foreign Server
  --

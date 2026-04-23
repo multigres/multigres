@@ -1,5 +1,5 @@
---- /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-4105914998/a	2026-04-22 02:01:50
-+++ /var/folders/pn/2dkqhb2x237_jnnqxfj12lgr0000gn/T/pgregress-diff-4105914998/b	2026-04-22 02:01:50
+--- a
++++ b
 @@ -2301,7 +2301,7 @@
               1 preceding and 1.1::float8 following);  -- currently unsupported
  ERROR:  RANGE with offset PRECEDING/FOLLOWING is not supported for column type numeric and offset type double precision

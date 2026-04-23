@@ -244,14 +244,20 @@ func applyPatch(ctx context.Context, original []byte, patchPath string) ([]byte,
 	return os.ReadFile(dstPath)
 }
 
-// generateDiff runs `diff -U3 -b a b` and returns the unified diff bytes.
-// Returns an empty slice when files are identical (modulo whitespace).
+// generateDiff runs `diff -U3 -b --label a --label b` and returns the unified
+// diff bytes. Returns an empty slice when files are identical (modulo
+// whitespace).
 //
 // The `-b` flag ignores changes in the amount of whitespace — lines that
 // differ only in spacing (e.g. the `^` caret position under a `LINE N:`
 // error block) are treated as matching. This lets us accept psql-format
 // nits that don't represent real regressions without maintaining a patch
 // per test file for every column-alignment tweak.
+//
+// The `--label` flags replace the `---`/`+++` header lines with stable
+// literals so patch files don't embed absolute temp-directory paths or
+// per-run timestamps. Without this, every regenerated patch would churn
+// on its header even when the hunks are unchanged.
 //
 // Errors are returned only on actual failure (exit code > 1); exit code 1
 // ("differences found") is normal.
@@ -270,7 +276,10 @@ func generateDiff(ctx context.Context, a, b []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	cmd := executil.Command(ctx, "diff", "-U3", "-b", aPath, bPath)
+	cmd := executil.Command(ctx, "diff", "-U3", "-b",
+		"--label", "a",
+		"--label", "b",
+		aPath, bPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
