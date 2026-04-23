@@ -7,7 +7,7 @@ actual output. The regress runner applies the patch to the upstream
 
 ## Layout
 
-```
+```text
 pg17/
   README.md            # you are here
   patches/
@@ -25,17 +25,21 @@ inspect each patch like any other diff.
 ## Workflow
 
 **Verify mode (default, CI):**
-```
+
+```bash
 make pgregress
 ```
+
 Applies each patch to the upstream expected output, strict-diffs against
 actual output, and fails if any diff remains. A test whose patch no longer
 applies (upstream PG changed the file) also fails.
 
 **Generate mode (developer):**
-```
+
+```bash
 make pgregress-update-patches
 ```
+
 For every test where the current patch doesn't produce a clean match, writes
 a fresh `<testname>.patch` containing the actual delta. Review the resulting
 diff in the PR before merging.
@@ -45,7 +49,7 @@ diff in the PR before merging.
 Each test gets three columns in `results.json`:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `status` | `pass` or `fail` |
 | `patch_applied` | `true` if a patch was used to make expected match |
 | `patch_path` | relative path to the patch file (empty if none) |
