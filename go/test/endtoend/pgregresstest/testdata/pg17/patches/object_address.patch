@@ -1,0 +1,112 @@
+--- a
++++ b
+@@ -10,7 +10,9 @@
+ CREATE SCHEMA addr_nsp;
+ SET search_path TO 'addr_nsp';
+ CREATE FOREIGN DATA WRAPPER addr_fdw;
++ERROR:  CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ CREATE SERVER addr_fserv FOREIGN DATA WRAPPER addr_fdw;
++ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ CREATE TEXT SEARCH DICTIONARY addr_ts_dict (template=simple);
+ CREATE TEXT SEARCH CONFIGURATION addr_ts_conf (copy=english);
+ CREATE TEXT SEARCH TEMPLATE addr_ts_temp (lexize=dsimple_lexize);
+@@ -28,6 +30,7 @@
+ CREATE TYPE addr_nsp.gencomptype AS (a int);
+ CREATE TYPE addr_nsp.genenum AS ENUM ('one', 'two');
+ CREATE FOREIGN TABLE addr_nsp.genftable (a int) SERVER addr_fserv;
++ERROR:  server "addr_fserv" does not exist
+ CREATE AGGREGATE addr_nsp.genaggr(int4) (sfunc = int4pl, stype = int4);
+ CREATE DOMAIN addr_nsp.gendomain AS int4 CONSTRAINT domconstr CHECK (value > 0);
+ CREATE FUNCTION addr_nsp.trig() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN END; $$;
+@@ -35,7 +38,9 @@
+ CREATE POLICY genpol ON addr_nsp.gentable;
+ CREATE PROCEDURE addr_nsp.proc(int4) LANGUAGE SQL AS $$ $$;
+ CREATE SERVER "integer" FOREIGN DATA WRAPPER addr_fdw;
++ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ CREATE USER MAPPING FOR regress_addr_user SERVER "integer";
++ERROR:  server "integer" does not exist
+ ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user IN SCHEMA public GRANT ALL ON TABLES TO regress_addr_user;
+ ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user REVOKE DELETE ON TABLES FROM regress_addr_user;
+ -- this transform would be quite unsafe to leave lying around,
+@@ -49,8 +54,7 @@
+ CREATE PUBLICATION addr_pub_schema FOR TABLES IN SCHEMA addr_nsp;
+ RESET client_min_messages;
+ CREATE SUBSCRIPTION regress_addr_sub CONNECTION '' PUBLICATION bar WITH (connect = false, slot_name = NONE);
+-WARNING:  subscription was created, but is not connected
+-HINT:  To initiate replication, you must manually create the replication slot, enable the subscription, and refresh the subscription.
++ERROR:  CREATE SUBSCRIPTION is not supported: creating replication subscriptions is not permitted through the connection pooler
+ CREATE STATISTICS addr_nsp.gentable_stat ON a, b FROM addr_nsp.gentable;
+ -- test some error cases
+ SELECT pg_get_object_address('stone', '{}', '{}');
+@@ -455,68 +459,16 @@
+      pg_identify_object_as_address(classid, objid, objsubid) AS ioa (typ, nms, args),
+      pg_get_object_address(typ, nms, ioa.args) AS addr2
+ ORDER BY addr1.classid, addr1.objid, addr1.objsubid;
+-default acl|NULL|NULL|for role regress_addr_user in schema public on tables|t
+-default acl|NULL|NULL|for role regress_addr_user on tables|t
+-type|pg_catalog|_int4|integer[]|t
+-type|addr_nsp|gencomptype|addr_nsp.gencomptype|t
+-type|addr_nsp|genenum|addr_nsp.genenum|t
+-type|addr_nsp|gendomain|addr_nsp.gendomain|t
+-function|pg_catalog|NULL|pg_catalog.pg_identify_object(pg_catalog.oid,pg_catalog.oid,integer)|t
+-aggregate|addr_nsp|NULL|addr_nsp.genaggr(integer)|t
+-procedure|addr_nsp|NULL|addr_nsp.proc(integer)|t
+-sequence|addr_nsp|gentable_a_seq|addr_nsp.gentable_a_seq|t
+-table|addr_nsp|gentable|addr_nsp.gentable|t
+-table column|addr_nsp|gentable|addr_nsp.gentable.b|t
+-index|addr_nsp|gentable_pkey|addr_nsp.gentable_pkey|t
+-table|addr_nsp|parttable|addr_nsp.parttable|t
+-index|addr_nsp|parttable_pkey|addr_nsp.parttable_pkey|t
+-view|addr_nsp|genview|addr_nsp.genview|t
+-materialized view|addr_nsp|genmatview|addr_nsp.genmatview|t
+-foreign table|addr_nsp|genftable|addr_nsp.genftable|t
+-foreign table column|addr_nsp|genftable|addr_nsp.genftable.a|t
+-role|NULL|regress_addr_user|regress_addr_user|t
+-server|NULL|addr_fserv|addr_fserv|t
+-user mapping|NULL|NULL|regress_addr_user on server integer|t
+-foreign-data wrapper|NULL|addr_fdw|addr_fdw|t
+-access method|NULL|btree|btree|t
+-operator of access method|NULL|NULL|operator 1 (integer, integer) of pg_catalog.integer_ops USING btree|t
+-function of access method|NULL|NULL|function 2 (integer, integer) of pg_catalog.integer_ops USING btree|t
+-default value|NULL|NULL|for addr_nsp.gentable.b|t
+-cast|NULL|NULL|(bigint AS integer)|t
+-table constraint|addr_nsp|NULL|a_chk on addr_nsp.gentable|t
+-domain constraint|addr_nsp|NULL|domconstr on addr_nsp.gendomain|t
+-conversion|pg_catalog|koi8_r_to_mic|pg_catalog.koi8_r_to_mic|t
+-language|NULL|plpgsql|plpgsql|t
+-schema|NULL|addr_nsp|addr_nsp|t
+-operator class|pg_catalog|int4_ops|pg_catalog.int4_ops USING btree|t
+-operator|pg_catalog|NULL|pg_catalog.+(integer,integer)|t
+-rule|NULL|NULL|"_RETURN" on addr_nsp.genview|t
+-trigger|NULL|NULL|t on addr_nsp.gentable|t
+-operator family|pg_catalog|integer_ops|pg_catalog.integer_ops USING btree|t
+-policy|NULL|NULL|genpol on addr_nsp.gentable|t
+-statistics object|addr_nsp|gentable_stat|addr_nsp.gentable_stat|t
+-collation|pg_catalog|"default"|pg_catalog."default"|t
+-transform|NULL|NULL|for integer language sql|t
+-text search dictionary|addr_nsp|addr_ts_dict|addr_nsp.addr_ts_dict|t
+-text search parser|addr_nsp|addr_ts_prs|addr_nsp.addr_ts_prs|t
+-text search configuration|addr_nsp|addr_ts_conf|addr_nsp.addr_ts_conf|t
+-text search template|addr_nsp|addr_ts_temp|addr_nsp.addr_ts_temp|t
+-subscription|NULL|regress_addr_sub|regress_addr_sub|t
+-publication|NULL|addr_pub|addr_pub|t
+-publication relation|NULL|NULL|addr_nsp.gentable in publication addr_pub|t
+-publication namespace|NULL|NULL|addr_nsp in publication addr_pub_schema|t
++ERROR:  relation "addr_nsp.genftable" does not exist
+ ---
+ --- Cleanup resources
+ ---
+ DROP FOREIGN DATA WRAPPER addr_fdw CASCADE;
+-NOTICE:  drop cascades to 4 other objects
+-DETAIL:  drop cascades to server addr_fserv
+-drop cascades to foreign table genftable
+-drop cascades to server integer
+-drop cascades to user mapping for regress_addr_user on server integer
++ERROR:  foreign-data wrapper "addr_fdw" does not exist
+ DROP PUBLICATION addr_pub;
+ DROP PUBLICATION addr_pub_schema;
+ DROP SUBSCRIPTION regress_addr_sub;
++ERROR:  subscription "regress_addr_sub" does not exist
+ DROP SCHEMA addr_nsp CASCADE;
+ NOTICE:  drop cascades to 14 other objects
+ DETAIL:  drop cascades to text search dictionary addr_ts_dict

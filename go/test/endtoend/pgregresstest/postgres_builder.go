@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -67,6 +68,19 @@ type IndividualTestResult struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"` // "pass", "fail", "skip"
 	Duration string `json:"duration"`
+	// PatchApplied is true when a per-test patch (testdata/pg17/patches/<name>.patch)
+	// was applied to the upstream expected output before diffing. This signals
+	// that multigres's output intentionally differs from stock PostgreSQL for
+	// this test (typically error-message wording) and the difference is
+	// documented in the patch file.
+	PatchApplied bool `json:"patch_applied,omitempty"`
+	// PatchPath is the repo-relative path to the patch file (when applied),
+	// so status reports can link back to it.
+	PatchPath string `json:"patch_path,omitempty"`
+	// FailReason is a short description populated when Status == "fail" and
+	// the failure comes from the patch-verification step (e.g. "patch did not
+	// apply" or "actual output does not match patched expected").
+	FailReason string `json:"fail_reason,omitempty"`
 }
 
 // TestFailure represents a single test failure.
@@ -220,6 +234,17 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
 	makeArgs := []string{"-C", regressDir}
 
+	// --use-existing: skip pg_regress's automatic DROP + CREATE of the
+	// "regression" database. Multigateway rejects DROP DATABASE (see the
+	// unsafe-statement list in go/services/multigateway/planner/unsafe_stmt.go),
+	// so we can't let pg_regress manage the database. Instead we run against
+	// the existing "postgres" database for the whole suite.
+	//
+	// --dbname=postgres: point pg_regress at that existing database. pg_regress
+	// will create/drop the expected schema objects per test; cross-test state
+	// leakage is still possible but has not surfaced in practice.
+	makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
+
 	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
 		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
 		t.Logf("Running selective regression tests: %s", testsEnv)
@@ -297,6 +322,161 @@ func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error)
 	}
 
 	return results, nil
+}
+
+// PatchesDir returns the absolute path to the per-test patch directory for
+// the PostgreSQL major version this builder is pinned to. Patches live under
+// testdata/pg<major>/patches/ next to this file.
+func PatchesDir() string {
+	_, file, _, _ := runtime.Caller(0)
+	pkgDir := filepath.Dir(file)
+	return filepath.Join(pkgDir, "testdata", pgMajorDir(), "patches")
+}
+
+// pgMajorDir returns the directory name under testdata/ that holds patches for
+// the PostgreSQL version this test targets. Pinned to pg17 today; add a case
+// when PostgresVersion advances.
+func pgMajorDir() string {
+	// "REL_17_6" → "pg17"
+	if strings.HasPrefix(PostgresVersion, "REL_17") {
+		return "pg17"
+	}
+	// Unknown version: fall back to pg17 and let the test fail if patches
+	// are missing.
+	return "pg17"
+}
+
+// findRepoRoot walks up from this source file until it finds a directory
+// containing go.mod. Returns empty string if not found — callers degrade to
+// absolute paths in that case.
+func findRepoRoot() string {
+	_, file, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(file)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// findExpectedFile locates the expected-output file pg_regress would use for
+// the given test name. PostgreSQL ships variant files (name_1.out, name_2.out,
+// …) for platform-dependent output. We try the canonical name first, then
+// numbered variants in order. Returns the empty string if none exist.
+func findExpectedFile(regressDir, name string) string {
+	canonical := filepath.Join(regressDir, "expected", name+".out")
+	if fileExists(canonical) {
+		return canonical
+	}
+	for i := 1; i < 10; i++ {
+		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
+		if fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// VerifyWithPatches re-evaluates each test's pass/fail status using the
+// patch-based pipeline (see patch_verify.go). After pg_regress runs, this
+// ignores pg_regress's own pass/fail verdict (which is a strict text diff)
+// and replaces it with: does the actual output match the (patched) expected
+// output? Results are updated in-place, including aggregate counters.
+//
+// In generate mode, any residual diffs are absorbed by (re)writing patches.
+//
+// Expected output lives in the source tree (prep_buildtree does not symlink
+// .out files into the build tree). Actual output is written by pg_regress
+// into the build tree's results/ directory.
+func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir string) error {
+	t.Helper()
+	mode := GetPatchMode()
+	patchDir := PatchesDir()
+	repoRoot := findRepoRoot()
+	sourceRegressDir := filepath.Join(pb.SourceDir, "src", "test", "regress")
+
+	// Ensure patch dir exists in generate mode so writes don't fail.
+	if mode == PatchModeGenerate {
+		if err := os.MkdirAll(patchDir, 0o755); err != nil {
+			return fmt.Errorf("mkdir patches: %w", err)
+		}
+	}
+
+	t.Logf("Patch-based verification: mode=%s patches=%s", mode, patchDir)
+	t.Logf("  expected source: %s", sourceRegressDir)
+	t.Logf("  actual source:   %s", buildRegressDir)
+
+	// Recompute aggregates from the per-test results after verification.
+	// We intentionally discard pg_regress's TAP-derived aggregates because
+	// patch-based verification is authoritative.
+	var passed, failed int
+	failures := results.FailureDetails[:0]
+
+	for i := range results.Tests {
+		test := &results.Tests[i]
+		if test.Status == "skip" {
+			// Leave skipped tests alone.
+			continue
+		}
+
+		expPath := findExpectedFile(sourceRegressDir, test.Name)
+		actPath := filepath.Join(buildRegressDir, "results", test.Name+".out")
+		if expPath == "" || !fileExists(actPath) {
+			// Infrastructure problem (test didn't run, expected missing).
+			// Preserve TAP verdict, count accordingly.
+			test.FailReason = "expected or actual output missing; kept TAP verdict"
+			if test.Status == "pass" {
+				passed++
+			} else {
+				failed++
+				failures = append(failures, TestFailure{
+					TestName: test.Name,
+					Error:    test.FailReason,
+				})
+			}
+			continue
+		}
+
+		outcome, err := VerifyTest(ctx, VerifyInput{
+			Name:         test.Name,
+			ExpectedPath: expPath,
+			ActualPath:   actPath,
+			PatchDir:     patchDir,
+			RepoRoot:     repoRoot,
+		}, mode)
+		if err != nil {
+			return fmt.Errorf("verify %s: %w", test.Name, err)
+		}
+
+		test.Status = outcome.Status
+		test.PatchApplied = outcome.PatchApplied
+		test.PatchPath = outcome.PatchPath
+		test.FailReason = outcome.Reason
+
+		if outcome.Status == "pass" {
+			passed++
+		} else {
+			failed++
+			failures = append(failures, TestFailure{
+				TestName: test.Name,
+				Error:    outcome.Reason,
+			})
+		}
+	}
+
+	results.PassedTests = passed
+	results.FailedTests = failed
+	// Preserve SkippedTests + any pre-existing total if it exceeds ran.
+	if results.TotalTests < passed+failed+results.SkippedTests {
+		results.TotalTests = passed + failed + results.SkippedTests
+	}
+	results.FailureDetails = failures
+	return nil
 }
 
 // CountScheduleTests parses a PostgreSQL schedule file and returns the number
@@ -396,8 +576,8 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			}
 		}
 
-		sb.WriteString("| # | Test | Status | Duration |\n")
-		sb.WriteString("|---|------|--------|----------|\n")
+		sb.WriteString("| # | Test | Status | Patch | Duration |\n")
+		sb.WriteString("|---|------|--------|-------|----------|\n")
 
 		for i, test := range s.Results.Tests {
 			status := "✅ ok"
@@ -411,7 +591,15 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			if duration == "" {
 				duration = "-"
 			}
-			fmt.Fprintf(&sb, "| %d | %s | %s | %s |\n", i+1, test.Name, status, duration)
+			patchCell := "-"
+			if test.PatchApplied {
+				if test.PatchPath != "" {
+					patchCell = fmt.Sprintf("📎 [patch](%s)", test.PatchPath)
+				} else {
+					patchCell = "📎 applied"
+				}
+			}
+			fmt.Fprintf(&sb, "| %d | %s | %s | %s | %s |\n", i+1, test.Name, status, patchCell, duration)
 		}
 		sb.WriteString("\n")
 	}

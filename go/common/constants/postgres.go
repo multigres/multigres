@@ -40,6 +40,10 @@ const (
 	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
 	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
 
+	// PgInitDbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
+	// Multiple files are comma-separated.
+	PgInitDbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"

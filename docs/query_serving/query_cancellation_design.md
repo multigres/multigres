@@ -21,6 +21,11 @@ Key capabilities:
   cancel vs statement timeout
 - **Secret key authentication** preventing unauthorized cancellation
   of arbitrary queries
+- **Replica-reads listener support**: a gateway that runs a separate
+  listener on `--pg-replica-port` registers a second cancel function
+  (`replicaCancelFn` on `CancelManager`); cancel requests targeting
+  connections accepted on that listener are routed identically to
+  primary-listener cancels
 
 ## Background
 

@@ -17,11 +17,13 @@ package grpcconsensusservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/manager"
 )
 
@@ -63,18 +65,77 @@ func (s *consensusService) Status(ctx context.Context, req *consensusdata.Status
 	return resp, nil
 }
 
-// GetLeadershipView returns leadership information from the heartbeat table
-func (s *consensusService) GetLeadershipView(ctx context.Context, req *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error) {
-	resp, err := s.manager.GetLeadershipView(ctx, req)
+// EmergencyDemote demotes the current leader server
+func (s *consensusService) EmergencyDemote(ctx context.Context, req *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+	drainTimeout := 5 * time.Second
+	if req.DrainTimeout != nil {
+		drainTimeout = req.DrainTimeout.AsDuration()
+	}
+	resp, err := s.manager.EmergencyDemote(ctx, req.ConsensusTerm, drainTimeout, req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 	return resp, nil
 }
 
-// CanReachPrimary checks if this node can reach the primary
-func (s *consensusService) CanReachPrimary(ctx context.Context, req *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error) {
-	resp, err := s.manager.CanReachPrimary(ctx, req)
+// DemoteStalePrimary demotes a stale primary that came back after failover
+func (s *consensusService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// Promote promotes a replica to leader
+func (s *consensusService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
+	resp, err := s.manager.Promote(ctx,
+		req.ConsensusTerm,
+		req.ExpectedLsn,
+		req.SyncReplicationConfig,
+		req.Force,
+		req.Reason,
+		req.CoordinatorId,
+		req.CohortMembers,
+		req.AcceptedMembers)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// UpdateConsensusRule updates the synchronous standby list (quorum membership)
+func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
+	err := s.manager.UpdateSynchronousStandbyList(ctx,
+		req.Operation,
+		req.StandbyIds,
+		req.ReloadConfig,
+		req.ConsensusTerm,
+		req.Force,
+		req.CoordinatorId)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
+}
+
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
+	err := s.manager.SetPrimaryConnInfo(ctx,
+		req.Primary,
+		req.StopReplicationBefore,
+		req.StartReplicationAfter,
+		req.CurrentTerm,
+		req.Force)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
+}
+
+// RewindToSource performs pg_rewind to synchronize this server with a source
+func (s *consensusService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	resp, err := s.manager.RewindToSource(ctx, req.Source)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

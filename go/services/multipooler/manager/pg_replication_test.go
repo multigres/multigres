@@ -764,37 +764,6 @@ func TestApplyRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestApplyReplaceOperation(t *testing.T) {
-	tests := []struct {
-		name     string
-		names    []poolerID
-		expected []poolerID
-	}{
-		{
-			name:     "replace with single standby",
-			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
-			expected: []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
-		},
-		{
-			name:     "replace with multiple standbys",
-			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
-			expected: []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
-		},
-		{
-			name:     "replace with empty list",
-			names:    []poolerID{},
-			expected: []poolerID{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := applyReplaceOperation(tt.names)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsInRecovery(t *testing.T) {
 	tests := []struct {
 		name         string

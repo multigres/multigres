@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -258,6 +259,118 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 
 	// Verify SET was called.
 	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
+}
+
+// TestWithReopenRetry_RetriesOnReopen covers the race in which
+// reopenConnections (triggered by MonitorPostgres after a postgres restart)
+// closes the user pool while a connection acquisition is already in-flight.
+// The helper must notice the generation bump and retry against the fresh pool
+// rather than surfacing the transient ErrPoolClosed to the caller.
+func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	calls := 0
+	result, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+		calls++
+		if calls == 1 {
+			// Simulate reopenConnections running mid-flight: the pool we
+			// were handed has been closed, but a new one has already been
+			// installed with a bumped generation.
+			manager.generation.Add(1)
+			return 0, connpool.ErrPoolClosed
+		}
+		return 42, nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 42, result)
+	assert.Equal(t, 2, calls, "should have retried once after the reopen")
+}
+
+// TestWithReopenRetry_SurfacesGenuineClose covers the non-reopen case: the
+// manager is actually shutting down, so ErrPoolClosed must be returned to the
+// caller instead of being retried into an infinite loop.
+func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	calls := 0
+	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+		calls++
+		// No generation bump — manager hasn't been reopened.
+		return 0, connpool.ErrPoolClosed
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	assert.Equal(t, 1, calls, "should not retry when generation did not advance")
+}
+
+// TestWithReopenRetry_OnlyRetriesOnce ensures the helper stops after one retry
+// even if the retry also fails with ErrPoolClosed (e.g. if a second reopen
+// races with the retry). Without a cap this could loop forever.
+func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	calls := 0
+	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+		calls++
+		manager.generation.Add(1)
+		return 0, connpool.ErrPoolClosed
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+}
+
+// TestManager_NewReservedConn_SurvivesReopen exercises the end-to-end path:
+// close+reopen the manager between calls and verify subsequent reserved-conn
+// acquisition still works. This mirrors the production crash-recovery path
+// where reopenConnections swaps the pools after postgres auto-restart.
+func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Warm up: create a user pool.
+	c1, err := manager.NewReservedConn(ctx, nil, "testuser")
+	require.NoError(t, err)
+	c1.Release(reserved.ReleaseCommit)
+
+	// Simulate reopenConnections: close then reopen against the same fake server.
+	manager.Close()
+	manager.Open(ctx, &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Host:       server.ClientConfig().Host,
+		Port:       server.ClientConfig().Port,
+		Database:   server.ClientConfig().Database,
+	})
+
+	// Reserved-conn acquisition must succeed against the fresh pool.
+	c2, err := manager.NewReservedConn(ctx, nil, "testuser")
+	require.NoError(t, err)
+	require.NotNil(t, c2)
+	c2.Release(reserved.ReleaseCommit)
 }
 
 func TestManager_GetReservedConn(t *testing.T) {

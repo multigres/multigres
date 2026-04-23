@@ -1086,8 +1086,6 @@ func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperati
 		return "add"
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		return "remove"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		return "replace"
 	default:
 		return "unknown"
 	}
@@ -1126,11 +1124,6 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 	return updatedStandbys
 }
 
-// applyReplaceOperation replaces the entire standby list
-func applyReplaceOperation(newStandbys []poolerID) []poolerID {
-	return newStandbys
-}
-
 // ----------------------------------------------------------------------------
 // Primary-side Replication Queries
 // ----------------------------------------------------------------------------
@@ -1165,98 +1158,4 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 	}
 
 	return followers, nil
-}
-
-// queryFollowerReplicationStats queries pg_stat_replication for detailed replication statistics
-// Returns a map of application_name -> ReplicationStats
-func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context) (map[string]*multipoolermanagerdatapb.ReplicationStats, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	sql := `SELECT
-		pid,
-		application_name,
-		client_addr::text,
-		state,
-		sync_state,
-		sent_lsn::text,
-		write_lsn::text,
-		flush_lsn::text,
-		replay_lsn::text,
-		EXTRACT(EPOCH FROM write_lag),
-		EXTRACT(EPOCH FROM flush_lag),
-		EXTRACT(EPOCH FROM replay_lag)
-	FROM pg_stat_replication
-	WHERE application_name IS NOT NULL AND application_name != ''`
-
-	result, err := pm.query(queryCtx, sql)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query replication status")
-	}
-
-	// Build a map of connected followers by application_name
-	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
-	if result != nil {
-		for _, row := range result.Rows {
-			var pid int32
-			var appName string
-			var clientAddr string
-			var state string
-			var syncState string
-			var sentLsn string
-			var writeLsn string
-			var flushLsn string
-			var replayLsn string
-			var writeLagSecs *float64
-			var flushLagSecs *float64
-			var replayLagSecs *float64
-
-			err := executor.ScanRow(
-				row,
-				&pid,
-				&appName,
-				&clientAddr,
-				&state,
-				&syncState,
-				&sentLsn,
-				&writeLsn,
-				&flushLsn,
-				&replayLsn,
-				&writeLagSecs,
-				&flushLagSecs,
-				&replayLagSecs,
-			)
-			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan replication row", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan replication statistics")
-			}
-
-			stats := &multipoolermanagerdatapb.ReplicationStats{
-				Pid:        pid,
-				ClientAddr: clientAddr,
-				State:      state,
-				SyncState:  syncState,
-				SentLsn:    sentLsn,
-				WriteLsn:   writeLsn,
-				FlushLsn:   flushLsn,
-				ReplayLsn:  replayLsn,
-			}
-
-			// Convert lag values from seconds to Duration (only if not null/empty)
-			// Convert lag values from seconds to Duration (only if not null)
-			if writeLagSecs != nil {
-				stats.WriteLag = durationpb.New(time.Duration(*writeLagSecs * float64(time.Second)))
-			}
-			if flushLagSecs != nil {
-				stats.FlushLag = durationpb.New(time.Duration(*flushLagSecs * float64(time.Second)))
-			}
-			if replayLagSecs != nil {
-				stats.ReplayLag = durationpb.New(time.Duration(*replayLagSecs * float64(time.Second)))
-			}
-
-			connectedMap[appName] = stats
-		}
-	}
-
-	return connectedMap, nil
 }

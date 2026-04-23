@@ -22,6 +22,7 @@ package consensus
 
 import (
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -39,37 +40,57 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto2\xf1\x02\n" +
+	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xfb\x06\n" +
 	"\x14MultiPoolerConsensus\x12N\n" +
 	"\tBeginTerm\x12\x1f.consensusdata.BeginTermRequest\x1a .consensusdata.BeginTermResponse\x12E\n" +
-	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12`\n" +
-	"\x11GetLeadershipView\x12$.consensusdata.LeadershipViewRequest\x1a%.consensusdata.LeadershipViewResponse\x12`\n" +
-	"\x0fCanReachPrimary\x12%.consensusdata.CanReachPrimaryRequest\x1a&.consensusdata.CanReachPrimaryResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
+	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12r\n" +
+	"\x0fEmergencyDemote\x12..multipoolermanagerdata.EmergencyDemoteRequest\x1a/.multipoolermanagerdata.EmergencyDemoteResponse\x12Z\n" +
+	"\aPromote\x12&.multipoolermanagerdata.PromoteRequest\x1a'.multipoolermanagerdata.PromoteResponse\x12\x90\x01\n" +
+	"\x13UpdateConsensusRule\x12;.multipoolermanagerdata.UpdateSynchronousStandbyListRequest\x1a<.multipoolermanagerdata.UpdateSynchronousStandbyListResponse\x12{\n" +
+	"\x12DemoteStalePrimary\x121.multipoolermanagerdata.DemoteStalePrimaryRequest\x1a2.multipoolermanagerdata.DemoteStalePrimaryResponse\x12{\n" +
+	"\x12SetPrimaryConnInfo\x121.multipoolermanagerdata.SetPrimaryConnInfoRequest\x1a2.multipoolermanagerdata.SetPrimaryConnInfoResponse\x12o\n" +
+	"\x0eRewindToSource\x12-.multipoolermanagerdata.RewindToSourceRequest\x1a..multipoolermanagerdata.RewindToSourceResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
 
 var file_consensusservice_proto_goTypes = []any{
-	(*consensusdata.BeginTermRequest)(nil),        // 0: consensusdata.BeginTermRequest
-	(*consensusdata.StatusRequest)(nil),           // 1: consensusdata.StatusRequest
-	(*consensusdata.LeadershipViewRequest)(nil),   // 2: consensusdata.LeadershipViewRequest
-	(*consensusdata.CanReachPrimaryRequest)(nil),  // 3: consensusdata.CanReachPrimaryRequest
-	(*consensusdata.BeginTermResponse)(nil),       // 4: consensusdata.BeginTermResponse
-	(*consensusdata.StatusResponse)(nil),          // 5: consensusdata.StatusResponse
-	(*consensusdata.LeadershipViewResponse)(nil),  // 6: consensusdata.LeadershipViewResponse
-	(*consensusdata.CanReachPrimaryResponse)(nil), // 7: consensusdata.CanReachPrimaryResponse
+	(*consensusdata.BeginTermRequest)(nil),                              // 0: consensusdata.BeginTermRequest
+	(*consensusdata.StatusRequest)(nil),                                 // 1: consensusdata.StatusRequest
+	(*multipoolermanagerdata.EmergencyDemoteRequest)(nil),               // 2: multipoolermanagerdata.EmergencyDemoteRequest
+	(*multipoolermanagerdata.PromoteRequest)(nil),                       // 3: multipoolermanagerdata.PromoteRequest
+	(*multipoolermanagerdata.UpdateSynchronousStandbyListRequest)(nil),  // 4: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
+	(*multipoolermanagerdata.DemoteStalePrimaryRequest)(nil),            // 5: multipoolermanagerdata.DemoteStalePrimaryRequest
+	(*multipoolermanagerdata.SetPrimaryConnInfoRequest)(nil),            // 6: multipoolermanagerdata.SetPrimaryConnInfoRequest
+	(*multipoolermanagerdata.RewindToSourceRequest)(nil),                // 7: multipoolermanagerdata.RewindToSourceRequest
+	(*consensusdata.BeginTermResponse)(nil),                             // 8: consensusdata.BeginTermResponse
+	(*consensusdata.StatusResponse)(nil),                                // 9: consensusdata.StatusResponse
+	(*multipoolermanagerdata.EmergencyDemoteResponse)(nil),              // 10: multipoolermanagerdata.EmergencyDemoteResponse
+	(*multipoolermanagerdata.PromoteResponse)(nil),                      // 11: multipoolermanagerdata.PromoteResponse
+	(*multipoolermanagerdata.UpdateSynchronousStandbyListResponse)(nil), // 12: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
+	(*multipoolermanagerdata.DemoteStalePrimaryResponse)(nil),           // 13: multipoolermanagerdata.DemoteStalePrimaryResponse
+	(*multipoolermanagerdata.SetPrimaryConnInfoResponse)(nil),           // 14: multipoolermanagerdata.SetPrimaryConnInfoResponse
+	(*multipoolermanagerdata.RewindToSourceResponse)(nil),               // 15: multipoolermanagerdata.RewindToSourceResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
-	0, // 0: consensus.MultiPoolerConsensus.BeginTerm:input_type -> consensusdata.BeginTermRequest
-	1, // 1: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
-	2, // 2: consensus.MultiPoolerConsensus.GetLeadershipView:input_type -> consensusdata.LeadershipViewRequest
-	3, // 3: consensus.MultiPoolerConsensus.CanReachPrimary:input_type -> consensusdata.CanReachPrimaryRequest
-	4, // 4: consensus.MultiPoolerConsensus.BeginTerm:output_type -> consensusdata.BeginTermResponse
-	5, // 5: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
-	6, // 6: consensus.MultiPoolerConsensus.GetLeadershipView:output_type -> consensusdata.LeadershipViewResponse
-	7, // 7: consensus.MultiPoolerConsensus.CanReachPrimary:output_type -> consensusdata.CanReachPrimaryResponse
-	4, // [4:8] is the sub-list for method output_type
-	0, // [0:4] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0,  // 0: consensus.MultiPoolerConsensus.BeginTerm:input_type -> consensusdata.BeginTermRequest
+	1,  // 1: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
+	2,  // 2: consensus.MultiPoolerConsensus.EmergencyDemote:input_type -> multipoolermanagerdata.EmergencyDemoteRequest
+	3,  // 3: consensus.MultiPoolerConsensus.Promote:input_type -> multipoolermanagerdata.PromoteRequest
+	4,  // 4: consensus.MultiPoolerConsensus.UpdateConsensusRule:input_type -> multipoolermanagerdata.UpdateSynchronousStandbyListRequest
+	5,  // 5: consensus.MultiPoolerConsensus.DemoteStalePrimary:input_type -> multipoolermanagerdata.DemoteStalePrimaryRequest
+	6,  // 6: consensus.MultiPoolerConsensus.SetPrimaryConnInfo:input_type -> multipoolermanagerdata.SetPrimaryConnInfoRequest
+	7,  // 7: consensus.MultiPoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
+	8,  // 8: consensus.MultiPoolerConsensus.BeginTerm:output_type -> consensusdata.BeginTermResponse
+	9,  // 9: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
+	10, // 10: consensus.MultiPoolerConsensus.EmergencyDemote:output_type -> multipoolermanagerdata.EmergencyDemoteResponse
+	11, // 11: consensus.MultiPoolerConsensus.Promote:output_type -> multipoolermanagerdata.PromoteResponse
+	12, // 12: consensus.MultiPoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateSynchronousStandbyListResponse
+	13, // 13: consensus.MultiPoolerConsensus.DemoteStalePrimary:output_type -> multipoolermanagerdata.DemoteStalePrimaryResponse
+	14, // 14: consensus.MultiPoolerConsensus.SetPrimaryConnInfo:output_type -> multipoolermanagerdata.SetPrimaryConnInfoResponse
+	15, // 15: consensus.MultiPoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
+	8,  // [8:16] is the sub-list for method output_type
+	0,  // [0:8] is the sub-list for method input_type
+	0,  // [0:0] is the sub-list for extension type_name
+	0,  // [0:0] is the sub-list for extension extendee
+	0,  // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_consensusservice_proto_init() }

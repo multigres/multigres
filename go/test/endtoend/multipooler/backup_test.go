@@ -96,6 +96,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Create backup client connections
 			backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
 			standbyBackupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+			standbyConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 			// Connect to primary PostgreSQL database using Unix socket
 			var err error
@@ -191,7 +192,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 false,
 					}
 					updateTermCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
 					require.NoError(t, err, "Should be able to update term")
 
 					// Verify term was updated
@@ -251,7 +252,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 true,         // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 					require.NoError(t, err, "Should be able to configure replication after restore")
 
 					// Connect to the standby database after restore
@@ -592,6 +593,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 				// Configure replication after restore
 				standbyClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+				standbyRestoreConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 				// Wait for PostgreSQL to be ready after restore
 				require.Eventually(t, func() bool {
@@ -619,7 +621,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				}
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
-				_, err = standbyClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+				_, err = standbyRestoreConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 				require.NoError(t, err, "Should be able to configure replication after restore")
 				t.Log("Replication configured after restore")
 

@@ -110,11 +110,11 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
 
-	// If the target database is not the default "postgres" (always created by initdb),
-	// start PostgreSQL transiently and create it — same as docker-library/postgres does.
-	if cfg.Database != constants.DefaultPostgresDatabase {
-		if err := setupDatabase(logger, cfg); err != nil {
-			return nil, fmt.Errorf("failed to create database %q: %w", cfg.Database, err)
+	// Post-initdb steps that need a running server (custom DB creation, init
+	// SQL files) share a single transient PostgreSQL instance.
+	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitDbSQLFiles) > 0 {
+		if err := postInitdbSetup(logger, cfg); err != nil {
+			return nil, err
 		}
 	}
 
@@ -124,13 +124,58 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 	return result, nil
 }
 
+// postInitdbSetup starts a transient PostgreSQL instance and performs any
+// post-initdb setup steps: creating a custom target database (if requested)
+// and running user-provided init SQL files against the target database.
+func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
+	createDB := cfg.Database != constants.DefaultPostgresDatabase
+
+	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
+		"create_database", createDB, "init_sql_files", len(cfg.InitDbSQLFiles))
+	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg.Port, cfg.User)
+	if err != nil {
+		return err
+	}
+	defer pg.stop()
+
+	if createDB {
+		if err := createDatabaseOnInstance(logger, pg, cfg.Database); err != nil {
+			return fmt.Errorf("failed to create database %q: %w", cfg.Database, err)
+		}
+	}
+
+	if err := runInitDbSQLFiles(logger, pg, cfg.Database, cfg.InitDbSQLFiles); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// runInitDbSQLFiles executes each SQL file against database with
+// ON_ERROR_STOP=1 so a failing statement aborts its script.
+func runInitDbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, files []string) error {
+	for _, file := range files {
+		if _, err := os.Stat(file); err != nil {
+			return fmt.Errorf("init SQL file not accessible (%s): %w", file, err)
+		}
+		logger.Info("Running init SQL file", "file", file, "database", database)
+		out, err := pg.psql(database, "-v", "ON_ERROR_STOP=1", "-f", file)
+		if err != nil {
+			return fmt.Errorf("init SQL file failed (%s): %w\nOutput: %s", file, err, out)
+		}
+		logger.Info("Init SQL file applied", "file", file)
+	}
+	return nil
+}
+
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
 	cfg := PgCtldServiceConfig{
-		Port:     i.pgCtlCmd.pgPort.Get(),
-		User:     i.pgCtlCmd.pgUser.Get(),
-		Database: i.pgCtlCmd.pgDatabase.Get(),
-		Password: i.pgCtlCmd.pgPassword.Get(),
+		Port:           i.pgCtlCmd.pgPort.Get(),
+		User:           i.pgCtlCmd.pgUser.Get(),
+		Database:       i.pgCtlCmd.pgDatabase.Get(),
+		Password:       i.pgCtlCmd.pgPassword.Get(),
+		InitDbSQLFiles: i.pgCtlCmd.initDbSQLFiles.Get(),
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
 	if err != nil {
@@ -147,46 +192,36 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// setupDatabase starts a transient pgInstance and creates pgDatabase if it does
-// not already exist, then stops the instance.  This mirrors what the official
+// createDatabaseOnInstance creates database on an already-running transient
+// pgInstance if it does not already exist. This mirrors what the official
 // docker-library/postgres image does in its docker_setup_db() entrypoint function.
-func setupDatabase(logger *slog.Logger, cfg PgCtldServiceConfig) error {
-	dataDir := pgctld.PostgresDataDir()
-	configFile := pgctld.PostgresConfigFile()
-
-	logger.Info("Starting PostgreSQL transiently to create database", "database", cfg.Database)
-	pg, err := newPgInstance(logger, dataDir, configFile, cfg.Port, cfg.User)
-	if err != nil {
-		return err
-	}
-	defer pg.stop()
-
+func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database string) error {
 	// Check whether the target database already exists.
 	// Use Go string formatting to build the SQL — the database name comes from
 	// operator config, not untrusted user input, so simple quoting is safe.
 	// Single quotes in the name are escaped as '' per the SQL standard.
 	checkOut, err := pg.psql(constants.DefaultPostgresDatabase,
 		"-Atc", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'",
-			strings.ReplaceAll(cfg.Database, "'", "''")),
+			strings.ReplaceAll(database, "'", "''")),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", cfg.Database, err, checkOut)
+		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", database, err, checkOut)
 	}
 	if strings.TrimSpace(string(checkOut)) == "1" {
-		logger.Info("Database already exists, skipping creation", "database", cfg.Database)
+		logger.Info("Database already exists, skipping creation", "database", database)
 		return nil
 	}
 
 	// CREATE DATABASE with a double-quoted identifier; double quotes in the name
 	// are escaped as "" per the SQL standard.
-	logger.Info("Creating database", "database", cfg.Database)
+	logger.Info("Creating database", "database", database)
 	if out, err := pg.psql(constants.DefaultPostgresDatabase,
-		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(cfg.Database, `"`, `""`)),
+		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(database, `"`, `""`)),
 	); err != nil {
-		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", cfg.Database, err, out)
+		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", database, err, out)
 	}
 
-	logger.Info("Database created successfully", "database", cfg.Database)
+	logger.Info("Database created successfully", "database", database)
 	return nil
 }
 
