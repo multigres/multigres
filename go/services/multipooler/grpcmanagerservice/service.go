@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/timeouts"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/manager"
@@ -149,25 +150,21 @@ func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *mu
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)
 }
 
-// managerHealthPollingInterval is how often ManagerHealthStream proactively
-// polls Status() even without a broadcast notification. This guarantees that
-// postgres state changes (e.g. process death) reach the orchestrator within
-// this interval even when the multipooler's local monitor is disabled.
-const managerHealthPollingInterval = 5 * time.Second
-
 // ManagerHealthStream is the bidirectional health stream implementation.
 //
-// The orchestrator sends a start message to open the stream, then may send poll
-// requests at any time to trigger an immediate snapshot.
+// The orchestrator sends a start message (optionally carrying snapshot_interval
+// and staleness_timeout preferences) to open the stream. The server responds
+// immediately with a ManagerHealthStreamStartResponse confirming the actual
+// values it will use. Subsequent messages are health snapshots.
 //
 // On each healthStreamer broadcast or poll request we call Status() to build a
 // full snapshot and send it. Every message is a complete snapshot — there are
-// no incremental updates or separate heartbeat message types.
+// no incremental updates.
 //
 // In addition to broadcast-driven snapshots, we also send a snapshot every
-// managerHealthPollingInterval (5s) regardless of broadcasts. This ensures that
-// postgres state changes — particularly process death detected by pgctld —
-// reach the orchestrator promptly even when the local monitor is disabled.
+// snapshotInterval regardless of broadcasts. This ensures that postgres state
+// changes — particularly process death detected by pgctld — reach the
+// orchestrator promptly even when the local monitor is disabled.
 //
 // When the health channel is closed (buffer full), we return Unavailable to
 // force the client to reconnect and receive a fresh initial snapshot.
@@ -181,8 +178,35 @@ func (s *managerService) ManagerHealthStream(
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "expected start message: %v", err)
 	}
-	if startMsg.GetStart() == nil {
+	req := startMsg.GetStart()
+	if req == nil {
 		return status.Error(codes.InvalidArgument, "first message must be a start message")
+	}
+
+	// Resolve effective timing values from the request, falling back to defaults.
+	// Use AsDuration() rather than direct .Seconds access: proto fields are nil
+	// when not set, and AsDuration() is nil-safe (returns 0 for nil).
+	snapshotInterval := timeouts.DefaultSnapshotInterval
+	if d := req.SnapshotInterval.AsDuration(); d > 0 {
+		snapshotInterval = d
+	}
+
+	timeout := timeouts.DefaultHealthStreamStalenessTimeout
+	if d := req.StalenessTimeout.AsDuration(); d > 0 {
+		timeout = d
+	}
+
+	// Send start response so the orchestrator knows the actual values in use.
+	response := &multipoolermanagerdatapb.ManagerHealthStreamResponse{
+		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Start{
+			Start: &multipoolermanagerdatapb.ManagerHealthStreamStartResponse{
+				SnapshotInterval: durationpb.New(snapshotInterval),
+				StalenessTimeout: durationpb.New(timeout),
+			},
+		},
+	}
+	if err := stream.Send(response); err != nil {
+		return status.Errorf(codes.Internal, "send start response: %v", err)
 	}
 
 	// Subscribe to health state changes. We use the channel as a notification
@@ -198,7 +222,7 @@ func (s *managerService) ManagerHealthStream(
 	}
 
 	// Send initial snapshot immediately upon connection.
-	if err := s.sendManagerHealthSnapshot(ctx, stream, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL); err != nil {
+	if err := s.sendManagerHealthSnapshot(ctx, stream, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL, timeout); err != nil {
 		return err
 	}
 
@@ -223,9 +247,15 @@ func (s *managerService) ManagerHealthStream(
 
 	// Periodic ticker so we poll Status() even without a broadcast.
 	// This catches postgres process death (reported by pgctld) within
-	// managerHealthPollingInterval even when the local monitor is disabled.
-	pollTicker := time.NewTicker(managerHealthPollingInterval)
+	// snapshotInterval even when the local monitor is disabled.
+	pollTicker := time.NewTicker(snapshotInterval)
 	defer pollTicker.Stop()
+
+	// Convenience function to send a snapshot with the given trigger, used by
+	// all cases in the select below.
+	sendSnapshot := func(trigger multipoolermanagerdatapb.SnapshotTrigger) error {
+		return s.sendManagerHealthSnapshot(ctx, stream, trigger, timeout)
+	}
 
 	// Stream updates until the client disconnects or the context is cancelled.
 	for {
@@ -238,15 +268,15 @@ func (s *managerService) ManagerHealthStream(
 				// so the client reconnects and receives a fresh initial snapshot.
 				return status.Error(codes.Unavailable, "health stream buffer full, reconnect required")
 			}
-			if err := s.sendManagerHealthSnapshot(ctx, stream, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_BROADCAST); err != nil {
+			if err := sendSnapshot(multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_BROADCAST); err != nil {
 				return err
 			}
 		case <-pollCh:
-			if err := s.sendManagerHealthSnapshot(ctx, stream, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_POLL); err != nil {
+			if err := sendSnapshot(multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_POLL); err != nil {
 				return err
 			}
 		case <-pollTicker.C:
-			if err := s.sendManagerHealthSnapshot(ctx, stream, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_HEARTBEAT); err != nil {
+			if err := sendSnapshot(multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_HEARTBEAT); err != nil {
 				return err
 			}
 		}
@@ -263,6 +293,7 @@ func (s *managerService) sendManagerHealthSnapshot(
 	ctx context.Context,
 	stream multipoolermanagerpb.MultiPoolerManager_ManagerHealthStreamServer,
 	trigger multipoolermanagerdatapb.SnapshotTrigger,
+	timeout time.Duration,
 ) error {
 	st, err := s.manager.Status(ctx)
 	if err != nil {
@@ -271,12 +302,14 @@ func (s *managerService) sendManagerHealthSnapshot(
 
 	healthSnapshot := &multipoolermanagerdatapb.ManagerHealthSnapshot{
 		Status:  &multipoolermanagerdatapb.StatusResponse{Status: st},
-		Timeout: durationpb.New(manager.DefaultRecommendedStalenessTimeout),
+		Timeout: durationpb.New(timeout),
 		Trigger: trigger,
 	}
 
 	response := &multipoolermanagerdatapb.ManagerHealthStreamResponse{
-		Snapshot: healthSnapshot,
+		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Snapshot{
+			Snapshot: healthSnapshot,
+		},
 	}
 
 	return stream.Send(response)

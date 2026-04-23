@@ -37,10 +37,34 @@ import (
 // makeSnapshot wraps a Status into a HealthStreamResponse snapshot.
 func makeSnapshot(status *multipoolermanagerdatapb.Status) *multipoolermanagerdatapb.ManagerHealthStreamResponse {
 	return &multipoolermanagerdatapb.ManagerHealthStreamResponse{
-		Snapshot: &multipoolermanagerdatapb.ManagerHealthSnapshot{
-			Status: &multipoolermanagerdatapb.StatusResponse{Status: status},
+		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Snapshot{
+			Snapshot: &multipoolermanagerdatapb.ManagerHealthSnapshot{
+				Status: &multipoolermanagerdatapb.StatusResponse{Status: status},
+			},
 		},
 	}
+}
+
+// makeStartResponse builds a ManagerHealthStreamStartResponse with the given
+// timing values and wraps it in a ManagerHealthStreamResponse.
+func makeStartResponse(snapshotInterval, stalenessTimeout time.Duration) *multipoolermanagerdatapb.ManagerHealthStreamResponse {
+	return &multipoolermanagerdatapb.ManagerHealthStreamResponse{
+		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Start{
+			Start: &multipoolermanagerdatapb.ManagerHealthStreamStartResponse{
+				SnapshotInterval: durationpb.New(snapshotInterval),
+				StalenessTimeout: durationpb.New(stalenessTimeout),
+			},
+		},
+	}
+}
+
+// completeHandshake reads the start message from the client and injects a
+// default start response on the stream. Tests that need to verify specific
+// timing values should inject their own start response instead.
+func completeHandshake(t *testing.T, stream *rpcclient.FakeManagerHealthStream) {
+	t.Helper()
+	waitForStart(t, stream.Sent)
+	stream.Ch <- makeStartResponse(5*time.Second, 90*time.Second)
 }
 
 // newTestHealthStream creates a HealthStream wired to the given FakeClient and store.
@@ -107,7 +131,7 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 		PoolerType: clustermetadata.PoolerType_PRIMARY,
@@ -157,7 +181,7 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 		PoolerType: clustermetadata.PoolerType_REPLICA,
@@ -214,7 +238,7 @@ func TestHealthStream_Poll(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Inject initial snapshot.
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
@@ -271,7 +295,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Inject one snapshot so the stream is "connected" with valid data.
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
@@ -317,7 +341,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Concurrently promote the pooler in the topology (simulates PoolerWatcher update).
 	// The WaitGroup ensures the promotion is applied before we assert the final state.
@@ -335,10 +359,14 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 		PostgresRunning: true,
 	})
 
+	// Wait until both the snapshot has been applied (IsLastCheckValid) and the
+	// concurrent watcher update has run (Type == PRIMARY). The goroutine fires
+	// 5ms after being spawned; using a combined condition ensures we don't race
+	// past the assertion before the watcher update lands.
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
-	}, 2*time.Second, 10*time.Millisecond)
+		return ok && s.IsLastCheckValid && s.MultiPooler.Type == clustermetadata.PoolerType_PRIMARY
+	}, 2*time.Second, 10*time.Millisecond, "watcher's topology update should not be overwritten by snapshot")
 
 	wg.Wait()
 
@@ -371,7 +399,7 @@ func TestHealthStream_DeletedDuringStream(t *testing.T) {
 	sm.Start(key)
 
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Delete the pooler from the store before the snapshot arrives.
 	poolerStore.Delete(key)
@@ -406,7 +434,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		sm.Start(key)
 		stream := <-streamCh
-		waitForStart(t, stream.Sent)
+		completeHandshake(t, stream)
 
 		before := time.Now()
 		stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
@@ -448,7 +476,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		sm.Start(key)
 		stream := <-streamCh
-		waitForStart(t, stream.Sent)
+		completeHandshake(t, stream)
 
 		stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadata.PoolerType_PRIMARY,
@@ -492,7 +520,7 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 
 	// First stream connection.
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Send one snapshot so the stream is marked connected.
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
@@ -522,6 +550,57 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 	}
 }
 
+// TestHealthStream_StartResponseConfig verifies that the start response from the server
+// is used to arm the staleness watchdog, and that WithSnapshotInterval / WithStalenessTimeout
+// options populate the start request sent to the server.
+func TestHealthStream_StartResponseConfig(t *testing.T) {
+	ctx := t.Context()
+
+	fakeClient := rpcclient.NewFakeClient()
+	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
+	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+		streamCh <- s
+	}
+
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	// Request snapshot_interval=2s and staleness_timeout=20s.
+	sm := newTestHealthStream(ctx, fakeClient, poolerStore,
+		WithSnapshotInterval(2*time.Second),
+		WithStalenessTimeout(20*time.Second),
+	)
+
+	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "config-pooler"}
+	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+
+	sm.Start(key)
+
+	stream := <-streamCh
+
+	// Verify the client sent our preferred values in the start message.
+	select {
+	case msg := <-stream.Sent:
+		req := msg.GetStart()
+		require.NotNil(t, req, "first message should be a start message")
+		require.Equal(t, durationpb.New(2*time.Second), req.SnapshotInterval, "snapshot_interval should be 2s")
+		require.Equal(t, durationpb.New(20*time.Second), req.StalenessTimeout, "staleness_timeout should be 20s")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for start message")
+	}
+
+	// Server responds with confirmed values.
+	stream.Ch <- makeStartResponse(2*time.Second, 20*time.Second)
+
+	// Send an initial snapshot so the stream is marked connected.
+	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
+		PoolerType:    clustermetadata.PoolerType_PRIMARY,
+		PostgresReady: true,
+	})
+	require.Eventually(t, func() bool {
+		s, ok := poolerStore.Get(key)
+		return ok && s.IsLastCheckValid
+	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
+}
+
 // TestHealthStream_TypeMismatch tests that when a pooler reports a different type than topology,
 // both are preserved: MultiPooler.Type stays as topology, PoolerType reflects what the pooler reports.
 func TestHealthStream_TypeMismatch(t *testing.T) {
@@ -542,7 +621,7 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 
 	sm.Start(key)
 	stream := <-streamCh
-	waitForStart(t, stream.Sent)
+	completeHandshake(t, stream)
 
 	// Pooler reports PRIMARY (type mismatch).
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
