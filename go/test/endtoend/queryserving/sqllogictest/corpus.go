@@ -104,21 +104,22 @@ func ensureUpstreamCorpus(t *testing.T, ctx context.Context) (string, error) {
 	}
 
 	t.Logf("Cloning sqllogictest corpus from %s (~30s)...", CorpusRepoURL)
+	var cloneStderr bytes.Buffer
 	cloneCmd := executil.Command(ctx, "git", "clone",
 		"--filter=blob:none",
 		CorpusRepoURL,
 		dir,
 	)
-	var stderr bytes.Buffer
-	cloneCmd.Stderr = &stderr
+	cloneCmd.Stderr = &cloneStderr
 	if err := cloneCmd.Run(); err != nil {
-		return "", fmt.Errorf("clone corpus: %w (stderr: %s)", err, stderr.String())
+		return "", fmt.Errorf("clone corpus: %w (stderr: %s)", err, cloneStderr.String())
 	}
 
+	var checkoutStderr bytes.Buffer
 	checkoutCmd := executil.Command(ctx, "git", "-C", dir, "checkout", CorpusCommit)
-	checkoutCmd.Stderr = &stderr
+	checkoutCmd.Stderr = &checkoutStderr
 	if err := checkoutCmd.Run(); err != nil {
-		return "", fmt.Errorf("checkout pinned corpus commit: %w (stderr: %s)", err, stderr.String())
+		return "", fmt.Errorf("checkout pinned corpus commit: %w (stderr: %s)", err, checkoutStderr.String())
 	}
 
 	t.Logf("sqllogictest corpus ready at %s (sha=%s)", dir, CorpusCommit)
