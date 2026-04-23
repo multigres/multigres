@@ -493,14 +493,25 @@ func (e *Executor) portalExecuteWithReserved(
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 	} else {
-		// Create a new reserved connection
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		// Create a new reserved connection. Wire ensurePrepared as the
+		// validate hook so that the Parse — the first user-issued write
+		// on this freshly acquired socket — triggers a transparent
+		// retry on a fresh socket if the pooled conn has been silently
+		// closed by PostgreSQL. The post-acquire ensurePrepared call
+		// below is a no-op for the new-conn path because connState
+		// dedupes by canonical name.
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
+			return err
+		}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
 	}
 
-	// Ensure the statement is prepared on this connection (with consolidation)
+	// Ensure the statement is prepared on this connection (with consolidation).
+	// For the new-conn branch this is a no-op because the validate hook above
+	// already parsed it; for the existing-conn branch this is the only call.
 	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
@@ -737,8 +748,12 @@ func (e *Executor) CopyReady(
 		"query", copyQuery,
 		"user", user)
 
-	var reservedConn *reserved.Conn
-	var err error
+	var (
+		reservedConn  *reserved.Conn
+		err           error
+		format        int16
+		columnFormats []int16
+	)
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -746,40 +761,57 @@ func (e *Executor) CopyReady(
 		if reservedConn == nil {
 			return 0, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
+
+		// Existing reserved conns are actively held (never idle in the
+		// regular pool), so PostgreSQL's idle timeout cannot have closed
+		// the socket between uses. InitiateCopyFromStdin runs directly
+		// here without a stale-socket retry hop.
+		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
+		if err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+		}
 	} else {
-		// Create a new reserved connection (COPY requires connection affinity)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		// New reserved conn — wire BEGIN-if-needed and InitiateCopyFromStdin
+		// through the validate hook so that the first writes on this
+		// freshly acquired socket can be transparently retried on a fresh
+		// socket if the pooled conn was silently closed by PostgreSQL.
+		// Capture format / columnFormats via closure for use after acquisition.
+		requiresBegin := protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions))
+		beginQuery := "BEGIN"
+		if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+			beginQuery = reservationOptions.BeginQuery
+		}
+
+		validate := func(ctx context.Context, conn *regular.Conn) error {
+			if requiresBegin {
+				if _, err := conn.Query(ctx, beginQuery); err != nil {
+					return fmt.Errorf("failed to begin transaction for COPY: %w", err)
+				}
+			}
+			var initErr error
+			format, columnFormats, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
+			if initErr != nil {
+				return fmt.Errorf("failed to initiate COPY FROM STDIN: %w", initErr)
+			}
+			return nil
+		}
+
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}
 
-		// If this is a transaction reservation, execute BEGIN before COPY.
-		// This handles the deferred-BEGIN case where the client sent BEGIN
-		// but no query has been executed yet to create a reserved connection.
-		if protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions)) {
-			beginQuery := "BEGIN"
-			if reservationOptions != nil && reservationOptions.BeginQuery != "" {
-				beginQuery = reservationOptions.BeginQuery
-			}
-			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
-				reservedConn.Release(reserved.ReleaseError)
-				return 0, nil, nil, fmt.Errorf("failed to begin transaction for COPY: %w", err)
-			}
+		// validate ran BEGIN via the raw *regular.Conn, which bypassed
+		// reserved.Conn.BeginWithQuery's bookkeeping. Mark the
+		// reservation reason explicitly so the txn shows up in
+		// RemainingReasons / RequiresBegin checks.
+		if requiresBegin {
+			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		}
 	}
 
 	connID := reservedConn.ConnID()
-
-	// Get the pooled connection for COPY operations
-	conn := reservedConn.Conn()
-
-	// Send COPY command and read CopyInResponse
-	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
-	if err != nil {
-		// Connection is in bad state after failed COPY initiation - close it instead of recycling
-		reservedConn.Release(reserved.ReleaseError)
-		return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
-	}
 
 	// Mark the connection as reserved for COPY. If the connection is also
 	// reserved for a transaction, this adds the COPY reason alongside it.

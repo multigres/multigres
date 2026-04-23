@@ -114,6 +114,25 @@ messages until `ReadyForQuery` to keep connections clean. Connection-level error
 (read failures, broken pipes) cause the connection to be closed rather than
 returned to the pool.
 
+**Stale-Connection Retry:**
+
+A pooled socket can be silently closed by PostgreSQL while it sits idle (idle
+session timeout, server restart, etc.). The first write on that socket fails
+with a connection-class error (EOF, EPIPE, FATAL 57P0x). The regular pool
+recovers transparently in two places, both bounded by
+`constants.MaxConnPoolRetryAttempts` attempts with `constants.ConnPoolRetryBackoff`
+between them:
+
+- `regular.Pool.GetWithSettings` retries when applying SETs hits a stale socket
+  during acquisition (the underlying connpool closes the conn but does not
+  retry on its own); each attempt dials a fresh replacement.
+- `Conn.QueryWithRetry` / `QueryStreamingWithRetry` / `QueryArgsWithRetry`
+  reconnect the same socket in place via `retryOnConnectionError` and re-run
+  the op.
+
+Together these cover both acquisition-time and execution-time stale-socket
+failures for the non-reserved query path.
+
 #### ReservedPool
 
 **Purpose:** Long-lived connections for transactions and portal operations.
@@ -146,6 +165,33 @@ Reserved connections have two timeout configurations:
 A background goroutine runs at 1/10th of the inactivity timeout interval to scan
 and kill connections that have exceeded their timeout. Each time a connection is
 accessed via `Get()`, its expiry time is reset.
+
+**Stale-Connection Retry on Acquisition:**
+
+`reserved.Pool.NewConn` accepts variadic `ReservedConnOption` values. The
+`WithValidate(fn)` option attaches a callback that runs against the underlying
+`*regular.Conn` before the reserved connection is registered in the active map.
+A connection-class error from the callback (e.g. the first user-issued write
+revealed a silently closed socket) taints the pooled conn and triggers a retry
+on a fresh socket, up to `constants.MaxConnPoolRetryAttempts` total. Non-connection
+errors propagate unchanged.
+
+This is the reserved-pool analog of the regular pool's
+`retryOnConnectionError`. It is wired by every executor call site that
+allocates a fresh reserved conn:
+
+- `reserveAndStreamExecute` — `ensurePreparedWithName` runs in validate when
+  the request carries a wrapped EXECUTE prepared statement.
+- `portalExecuteWithReserved` (new-conn branch) — `ensurePrepared` runs in
+  validate; the post-acquire `ensurePrepared` becomes a no-op (deduped by
+  per-connection state).
+- `CopyInitiate` (new-conn branch) — BEGIN-if-needed and
+  `InitiateCopyFromStdin` run in validate; the captured COPY format and column
+  formats are used after acquisition.
+
+Existing-reserved-conn paths (`GetReservedConn`) are not exposed: those conns
+are actively held and never sit idle in the regular pool, so PostgreSQL's idle
+timeout cannot have closed them between uses.
 
 ## Dynamic Fair Share Allocation
 
@@ -569,8 +615,10 @@ type PoolManager interface {
     GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
     GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error)
 
-    // Reserved pool operations (per-user)
-    NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error)
+    // Reserved pool operations (per-user). Optional ReservedConnOption
+    // values (e.g. WithValidate) are forwarded to the underlying reserved
+    // pool to enable stale-socket retry during acquisition.
+    NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
     GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
     Stats() ManagerStats
