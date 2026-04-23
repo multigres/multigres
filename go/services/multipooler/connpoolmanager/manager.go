@@ -81,6 +81,13 @@ type Manager struct {
 	// closed indicates whether the manager has been closed.
 	closed atomic.Bool
 
+	// generation is incremented on every Open(). Callers that get
+	// ErrPoolClosed from an in-flight pool operation can compare the
+	// pre-call generation against the current one: if it advanced, a
+	// reopen swapped the pools underneath them and the call is safe to
+	// retry against the fresh snapshot.
+	generation atomic.Uint64
+
 	// Rebalancer goroutine management
 	rebalancerCtx    context.Context
 	rebalancerCancel context.CancelFunc
@@ -118,6 +125,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 	m.closed.Store(false)
+	m.generation.Add(1)
 
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
@@ -375,24 +383,19 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 // GetRegularConn acquires a regular connection for the specified user.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error) {
-	pool, err := m.getOrCreateUserPool(user)
-	if err != nil {
-		return nil, err
-	}
-	return pool.GetRegularConn(ctx)
+	return withReopenRetry(m, user, func(pool *UserPool) (regular.PooledConn, error) {
+		return pool.GetRegularConn(ctx)
+	})
 }
 
 // GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
 // Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error) {
-	pool, err := m.getOrCreateUserPool(user)
-	if err != nil {
-		return nil, err
-	}
-	// Convert map to *Settings via the shared cache
 	s := m.settingsCache.GetOrCreate(settings)
-	return pool.GetRegularConnWithSettings(ctx, s)
+	return withReopenRetry(m, user, func(pool *UserPool) (regular.PooledConn, error) {
+		return pool.GetRegularConnWithSettings(ctx, s)
+	})
 }
 
 // --- Reserved Pool Operations ---
@@ -402,13 +405,36 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // The connection is assigned a unique ID for client-side tracking.
 // The caller must call Release() when done with the connection.
 func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	s := m.settingsCache.GetOrCreate(settings)
+	return withReopenRetry(m, user, func(pool *UserPool) (*reserved.Conn, error) {
+		return pool.NewReservedConn(ctx, s, opts...)
+	})
+}
+
+// withReopenRetry runs op against the current user pool and, if op returns
+// ErrPoolClosed because a concurrent reopenConnections() swapped the pools
+// mid-flight, retries once against the fresh pool. Genuine closed-pool errors
+// (manager shutting down for real) are surfaced to the caller unchanged
+// because the generation will not have advanced.
+func withReopenRetry[T any](m *Manager, user string, op func(*UserPool) (T, error)) (T, error) {
+	var zero T
+	startGen := m.generation.Load()
 	pool, err := m.getOrCreateUserPool(user)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
-	// Convert map to *Settings via the shared cache
-	s := m.settingsCache.GetOrCreate(settings)
-	return pool.NewReservedConn(ctx, s, opts...)
+	result, err := op(pool)
+	if err == nil || !errors.Is(err, connpool.ErrPoolClosed) {
+		return result, err
+	}
+	if m.generation.Load() == startGen {
+		return zero, err
+	}
+	pool, err2 := m.getOrCreateUserPool(user)
+	if err2 != nil {
+		return zero, err2
+	}
+	return op(pool)
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.
