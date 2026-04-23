@@ -56,13 +56,18 @@ jobs:
       - name: Build
         run: make build
 
+      # Only nightly cron runs save to the baseline (see "Save current
+      # results as new baseline" below), so restore only from the
+      # nightly-scoped key prefix. PR-labeled runs, weekly summary runs,
+      # and workflow_dispatch runs all read the latest nightly result
+      # without being able to pollute it.
       - name: Restore baseline results
         id: baseline
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: /tmp/sqllogictest-baseline/results.json
-          key: sqllogictest-baseline-dummy
-          restore-keys: sqllogictest-baseline-
+          key: sqllogictest-baseline-nightly-dummy
+          restore-keys: sqllogictest-baseline-nightly-
 
       - name: Start port pool server
         run: |
@@ -239,12 +244,18 @@ jobs:
           mkdir -p /tmp/sqllogictest-baseline
           cp "$RESULTS_PATH" /tmp/sqllogictest-baseline/results.json
 
+      # Only the nightly cron run (`30 3 * * *`) updates the baseline. PR-
+      # labeled runs and workflow_dispatch can read the baseline but never
+      # overwrite it, so a bad PR can't poison the next run's regression
+      # diff. The weekly summary cron is deliberately skipped too — it
+      # runs against the same multigres tree a couple of days later and
+      # shouldn't be treated as a fresher baseline than Monday's.
       - name: Save current results as new baseline
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: ${{ !cancelled() && steps.results.outputs.path != '' && github.event.schedule == '30 3 * * *' }}
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: /tmp/sqllogictest-baseline/results.json
-          key: sqllogictest-baseline-${{ github.run_id }}
+          key: sqllogictest-baseline-nightly-${{ github.run_id }}
 
       # Note: the Go test writes the pass/fail summary (including shields.io
       # badge) directly to GITHUB_STEP_SUMMARY via report.go.
