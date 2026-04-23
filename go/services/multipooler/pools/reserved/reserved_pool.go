@@ -204,49 +204,53 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 }
 
 // acquireValidated borrows a regular connection from the underlying pool
-// and, if validate is non-nil, runs it against the connection. Any
-// connection-classified error encountered along the way — whether from
-// GetWithSettings (stale socket exposed while applying SETs) or from
-// validate (stale socket exposed by the first user-issued write) —
-// triggers a retry on a fresh socket, up to constants.MaxConnPoolRetryAttempts. The
-// connpool itself only self-heals across ResetAllSettings failures
-// (connReopen at connpool/pool.go), not ApplySettings failures, so the
-// retry loop here closes the gap for new reserved-conn acquisition.
+// and, if validate is non-nil, runs it against the connection. A
+// connection error from validate (stale socket exposed by the first
+// user-issued write) taints the socket and triggers another attempt on
+// a fresh one, up to constants.MaxConnPoolRetryAttempts.
+//
+// Connection errors from GetWithSettings itself (stale socket exposed
+// while applying SETs) are handled inside regular.Pool.GetWithSettings,
+// which retries with the same regime; this layer does not double-retry.
 //
 // Non-connection errors propagate unchanged, with the pooled conn
-// recycled (or no conn to clean up if Get failed).
+// recycled.
 func (p *Pool) acquireValidated(
 	ctx context.Context,
 	settings *connstate.Settings,
 	validate func(context.Context, *regular.Conn) error,
 ) (regular.PooledConn, error) {
+	if validate == nil {
+		pooled, err := p.conns.GetWithSettings(ctx, settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+		return pooled, nil
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= constants.MaxConnPoolRetryAttempts; attempt++ {
 		pooled, err := p.conns.GetWithSettings(ctx, settings)
 		if err != nil {
-			if !mterrors.IsConnectionError(err) {
-				return nil, fmt.Errorf("failed to get connection: %w", err)
-			}
-			// GetWithSettings already closed the stale socket internally
-			// on ApplySettings failure (connpool/pool.go), so there is
-			// nothing for us to taint here — just record and back off.
-			lastErr = err
-		} else if validate == nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+
+		validateErr := validate(ctx, pooled.Conn)
+		if validateErr == nil {
 			return pooled, nil
-		} else if validateErr := validate(ctx, pooled.Conn); validateErr == nil {
-			return pooled, nil
-		} else if !mterrors.IsConnectionError(validateErr) {
+		}
+		if !mterrors.IsConnectionError(validateErr) {
 			pooled.Recycle()
 			return nil, validateErr
-		} else {
-			// Connection-level failure surfaced by validate. Taint nils
-			// out pooled.pool, so the subsequent Recycle takes the
-			// pool==nil branch and closes the orphaned socket
-			// immediately rather than waiting on the idle killer.
-			pooled.Taint()
-			pooled.Recycle()
-			lastErr = validateErr
 		}
+
+		// Connection-level failure surfaced by validate. Taint nils out
+		// pooled.pool, so the subsequent Recycle takes the pool==nil
+		// branch and closes the orphaned socket immediately rather than
+		// waiting on the idle killer.
+		pooled.Taint()
+		pooled.Recycle()
+		lastErr = validateErr
 
 		if attempt == constants.MaxConnPoolRetryAttempts {
 			break
@@ -262,7 +266,7 @@ func (p *Pool) acquireValidated(
 			return nil, context.Cause(ctx)
 		}
 	}
-	return nil, fmt.Errorf("reserved connection acquisition failed after %d attempts: %w", constants.MaxConnPoolRetryAttempts, lastErr)
+	return nil, fmt.Errorf("reserved connection validate failed after %d attempts: %w", constants.MaxConnPoolRetryAttempts, lastErr)
 }
 
 // Get retrieves a reserved connection by ID and resets its expiry time.

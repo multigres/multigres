@@ -754,7 +754,7 @@ func TestPool_NewConn_ValidateExhaustsRetries(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, conn)
 	assert.Equal(t, constants.MaxConnPoolRetryAttempts, calls, "validate should be invoked exactly constants.MaxConnPoolRetryAttempts times")
-	assert.Contains(t, err.Error(), "reserved connection acquisition failed after")
+	assert.Contains(t, err.Error(), "reserved connection validate failed after")
 	// The wrapped error must still classify as a connection error so
 	// upstream callers can react accordingly.
 	assert.True(t, mterrors.IsConnectionError(err), "wrapped error must still unwrap to a connection error")
