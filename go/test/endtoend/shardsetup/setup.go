@@ -72,7 +72,9 @@ type SetupConfig struct {
 	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport                 bool     // Enable Prometheus metrics export on all services
 	LogLevel                            string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
+	InitDbSQLFiles                      []string // Paths to .sql files executed on each pgctld after initdb against the target database
 }
 
 // SetupOption is a function that configures setup creation.
@@ -207,6 +209,26 @@ func WithOTelExport(endpoint string) SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.OTelCollectorEndpoint = endpoint
+	}
+}
+
+// WithMetricsExport enables Prometheus metrics export on multipooler and multigateway.
+// Each service gets its own Prometheus port, accessible via ShardSetup.MetricsPorts.
+// Implies WithMultigateway().
+func WithMetricsExport() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMetricsExport = true
+	}
+}
+
+// WithInitDbSQLFiles forwards the given SQL file paths to every pgctld in the
+// shard via --init-db-sql-file. pgctld runs each file against the target
+// database after initdb completes (during the InitDataDir RPC triggered by
+// shard bootstrap). Files run in the order provided.
+func WithInitDbSQLFiles(files ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.InitDbSQLFiles = files
 	}
 }
 
@@ -432,6 +454,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
+		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 	}
 
@@ -444,7 +467,19 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+
+		// Configure Prometheus metrics export on multipooler if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts[name] = metricsPort
+			inst.Multipooler.Environment = append(inst.Multipooler.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
+			)
+		}
+
 		inst.Multipooler.LogLevel = config.LogLevel
+		inst.Pgctld.InitDbSQLFiles = config.InitDbSQLFiles
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -490,6 +525,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 				"OTEL_EXPORTER_OTLP_ENDPOINT="+config.OTelCollectorEndpoint,
 				"OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
 				"OTEL_TRACES_SAMPLER=always_on",
+			)
+		}
+
+		// Configure Prometheus metrics export if enabled.
+		if config.EnableMetricsExport {
+			metricsPort := utils.GetFreePort(t)
+			setup.MetricsPorts["multigateway"] = metricsPort
+			mgw.Environment = append(mgw.Environment,
+				"OTEL_METRICS_EXPORTER=prometheus",
+				fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
 			)
 		}
 		t.Logf("Created multigateway instance: PG=%d, ReplicaPG=%d, HTTP=%d, gRPC=%d", pgPort, replicaPgPort, httpPort, grpcPort)
@@ -1274,7 +1319,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
 			} else if inRecovery == "t" {
 				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client.Manager); err != nil {
+				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
 					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
 				}
 			}
@@ -1288,15 +1333,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// Resume WAL replay if paused (for standbys)
 		if !isPrimary {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_resume()", 0)
-		}
-
-		// Reset pooler type
-		expectedType := clustermetadatapb.PoolerType_REPLICA
-		if isPrimary {
-			expectedType = clustermetadatapb.PoolerType_PRIMARY
-		}
-		if err := SetPoolerType(ctx, client.Manager, expectedType); err != nil {
-			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
 		// Note: We don't reset term here. Term can only increase and there's no
@@ -1511,7 +1547,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
 				} else if inRecovery == "t" {
 					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client.Manager); err != nil {
+					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
 						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
 					}
 				}
@@ -1526,15 +1562,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			// This ensures we leave the system in a good state even if tests paused replay.
 			if !isPrimary {
 				_, _ = client.Pooler.ExecuteQuery(cleanupCtx, "SELECT pg_wal_replay_resume()", 0)
-			}
-
-			// Reset pooler type
-			expectedType := clustermetadatapb.PoolerType_REPLICA
-			if isPrimary {
-				expectedType = clustermetadatapb.PoolerType_PRIMARY
-			}
-			if err := SetPoolerType(cleanupCtx, client.Manager, expectedType); err != nil {
-				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
 			}
 
 			// Note: We don't reset term here. Term can only increase and there's no

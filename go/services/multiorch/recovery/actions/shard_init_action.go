@@ -97,32 +97,33 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	// Load the bootstrap durability policy from topology (not from nodes) because poolers
 	// are UNKNOWN type at this point — they have just restored from backup and are in
 	// hot-standby mode.
-	policy, err := a.coordinator.GetBootstrapPolicy(ctx, problem.ShardKey.Database)
+	policyProto, err := a.coordinator.GetBootstrapPolicy(ctx, problem.ShardKey.Database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
+	durabilityPolicy, err := commonconsensus.NewPolicyFromProto(policyProto)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse durability policy")
+	}
 
-	// Ensure enough initialized poolers are available to satisfy the durability policy.
-	if !commonconsensus.IsDurabilityPolicyAchievable(policy, len(initializedPoolers)) {
+	// Ensure the initialized poolers we see could ever satisfy the durability policy.
+	initializedIDs := make([]*clustermetadatapb.ID, len(initializedPoolers))
+	for i, p := range initializedPoolers {
+		initializedIDs[i] = p.MultiPooler.Id
+	}
+	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"insufficient initialized poolers for initial cohort: have %d, need %d for quorum",
-			len(initializedPoolers), policy.RequiredCount)
+			"insufficient initialized poolers for initial cohort (have %d): %v", len(initializedPoolers), err)
 	}
 
 	a.logger.InfoContext(ctx, "quorum of initialized poolers available",
 		"shard_key", problem.ShardKey.String(),
 		"initialized_count", len(initializedPoolers),
-		"required_count", policy.RequiredCount)
-
-	// Build the proposed cohort IDs from initialized poolers.
-	proposedIDs := make([]*clustermetadatapb.ID, len(initializedPoolers))
-	for i, p := range initializedPoolers {
-		proposedIDs[i] = p.MultiPooler.Id
-	}
+		"policy", durabilityPolicy.Description())
 
 	// Claim the exclusive right to initialize this shard and persist the cohort.
 	// On crash-retry the committed cohort is returned so we reuse the same members.
-	won, committedIDs, err := a.topoStore.ClaimShardInitialization(ctx, problem.ShardKey, a.coordinator.GetCoordinatorID(), proposedIDs)
+	won, committedIDs, err := a.topoStore.ClaimShardInitialization(ctx, problem.ShardKey, a.coordinator.GetCoordinatorID(), initializedIDs)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to claim shard initialization")
 	}
@@ -138,10 +139,14 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 
 	// Resolve committed IDs to full PoolerHealthState entries from the pooler store.
 	committedCohort := a.buildCohortFromIDs(initializedPoolers, committedIDs)
-	if !commonconsensus.IsDurabilityPolicyAchievable(policy, len(committedCohort)) {
+	committedCohortIDs := make([]*clustermetadatapb.ID, len(committedCohort))
+	for i, p := range committedCohort {
+		committedCohortIDs[i] = p.MultiPooler.Id
+	}
+	if err := durabilityPolicy.CheckAchievable(committedCohortIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"insufficient committed cohort poolers reachable: have %d of %d, need %d for quorum",
-			len(committedCohort), len(committedIDs), policy.RequiredCount)
+			"insufficient committed cohort poolers reachable (have %d of %d): %v",
+			len(committedCohort), len(committedIDs), err)
 	}
 
 	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
@@ -167,11 +172,12 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (
 			pooler.MultiPooler.Shard != shardKey.Shard {
 			return true
 		}
-		if len(pooler.CohortMembers) > 0 {
+		if len(pooler.GetStatus().GetCohortMembers()) > 0 {
 			cohortEstablished = true
+			initialized = nil
 			return false // stop iteration
 		}
-		if pooler.IsInitialized {
+		if pooler.GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
 		return true

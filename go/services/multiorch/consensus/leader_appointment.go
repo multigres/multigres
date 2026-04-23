@@ -22,12 +22,15 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
+	"github.com/multigres/multigres/go/tools/pgutil"
+
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -44,7 +47,7 @@ import (
 // The proposedTerm parameter is the term number to use (computed as maxTerm + 1).
 //
 // Returns the candidate pooler, standbys that accepted the term, the term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy commonconsensus.DurabilityPolicy, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
 	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID, "term", proposedTerm)
 
 	// Recruit Nodes - Send BeginTerm RPC to all poolers in parallel
@@ -76,14 +79,20 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 		recruitedPoolers = append(recruitedPoolers, r.pooler)
 	}
 
-	// Validate Quorum
-	c.logger.InfoContext(ctx, "Validating quorum",
+	// Validate recruitment: proposal-agnostic invariants (revocation + majority)
+	// plus the candidacy check for this failover (does the recruited set satisfy
+	// the durability policy's quorum?). Candidacy is proposal-specific and
+	// lives at this layer rather than inside the policy method.
+	c.logger.InfoContext(ctx, "Validating recruitment",
 		"shard", shardID,
-		"quorum_type", policy.QuorumType,
-		"required_count", policy.RequiredCount)
+		"policy", policy.Description())
 
-	if err := c.ValidateQuorum(policy, cohort, recruitedPoolers); err != nil {
-		return nil, nil, 0, mterrors.Wrapf(err, "quorum validation failed for shard %s", shardID)
+	recruitedIDs := poolerIDs(recruitedPoolers)
+	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), recruitedIDs); err != nil {
+		return nil, nil, 0, mterrors.Wrapf(err, "recruitment validation failed for shard %s", shardID)
+	}
+	if err := policy.CheckAchievable(recruitedIDs); err != nil {
+		return nil, nil, 0, mterrors.Wrapf(err, "candidacy validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys
@@ -104,14 +113,14 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 
 	for _, pooler := range cohort {
 		// Invariant: poolers in the cohort with successful health checks must have ConsensusTerm populated
-		if pooler.IsLastCheckValid && pooler.ConsensusTerm == nil {
+		if pooler.IsLastCheckValid && pooler.GetStatus().GetConsensusTerm() == nil {
 			return 0, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 				"healthy pooler %s in cohort missing consensus term data - health check invariant violated",
 				pooler.MultiPooler.Id.Name)
 		}
 
-		if pooler.ConsensusTerm != nil && pooler.ConsensusTerm.TermNumber > maxTerm {
-			maxTerm = pooler.ConsensusTerm.TermNumber
+		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.TermNumber > maxTerm {
+			maxTerm = ct.TermNumber
 		}
 	}
 
@@ -534,55 +543,62 @@ func (c *Coordinator) EstablishLeadership(
 	return nil
 }
 
-// preVote performs a pre-election check to determine if an election is likely to succeed.
-// This prevents disruptive elections that would fail due to:
-// 1. Insufficient healthy poolers to form a quorum (based on durability policy)
-// 2. Another coordinator recently started an election (within last 10 seconds)
+// preVote performs a pre-election check to decide whether an election is
+// likely to succeed. It prevents disruptive elections that would fail due to:
+//  1. Not enough currently reachable poolers to achieve a valid recruitment
+//     (candidacy + revocation) under the durability policy.
+//  2. Another coordinator recently started an election (within last 10 seconds).
 //
 // Returns (canProceed, reason) where canProceed indicates if election should proceed.
-func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64) (bool, string) {
+func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, policy commonconsensus.DurabilityPolicy, proposedTerm int64) (bool, string) {
 	now := time.Now()
 	const recentAcceptanceWindow = 4 * time.Second
 
-	// Check 1: Verify we have enough healthy initialized poolers with consensus term data
-	// PreVote is conservative and doesn't handle bootstrap - if poolers lack consensus
-	// term information, we can't make an informed decision about election safety.
-	// We also skip poolers where postgres is not running, as they cannot participate
-	// in an election.
-	var healthyInitializedPoolers []*multiorchdatapb.PoolerHealthState
+	// Filter cohort to poolers eligible to participate in recruitment right now.
+	// A pooler is eligible only if we can reach it, it's initialized with
+	// consensus-term data, and its postgres is running. Without consensus-term
+	// info we can't reason about election safety; without postgres the pooler
+	// can't participate.
+	var eligiblePoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
-		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresReady {
-			healthyInitializedPoolers = append(healthyInitializedPoolers, pooler)
+		status := pooler.GetStatus()
+		if pooler.IsLastCheckValid && status.GetIsInitialized() && status.GetConsensusTerm() != nil && status.GetPostgresReady() {
+			eligiblePoolers = append(eligiblePoolers, pooler)
 		}
 	}
 
 	c.logger.InfoContext(ctx, "pre-vote health check",
-		"healthy_initialized_poolers", len(healthyInitializedPoolers),
+		"eligible_poolers", len(eligiblePoolers),
 		"total_poolers", len(cohort),
-		"quorum_type", policy.QuorumType,
-		"required_count", policy.RequiredCount,
+		"policy", policy.Description(),
 		"proposed_term", proposedTerm)
 
-	// Validate we have enough healthy initialized poolers to satisfy quorum
-	if err := c.ValidateQuorum(policy, cohort, healthyInitializedPoolers); err != nil {
-		return false, fmt.Sprintf("insufficient healthy initialized poolers for quorum: %v", err)
+	// If we attempted recruitment right now with the eligible poolers, would
+	// the result be sufficient (candidacy + revocation) under the policy?
+	// If not, abort early rather than disrupt the cluster with a doomed election.
+	eligibleIDs := poolerIDs(eligiblePoolers)
+	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), eligibleIDs); err != nil {
+		return false, fmt.Sprintf("not enough eligible poolers to achieve valid recruitment: %v", err)
+	}
+	if err := policy.CheckAchievable(eligibleIDs); err != nil {
+		return false, fmt.Sprintf("not enough eligible poolers to achieve valid recruitment: %v", err)
 	}
 
 	// Check 2: Has another coordinator recently started an election?
 	// If we detect a recent term acceptance (within the last 10 seconds), back off
 	// to give the other coordinator a chance to complete their election.
-	for _, pooler := range healthyInitializedPoolers {
+	for _, pooler := range eligiblePoolers {
 		// Check if this pooler recently accepted a term from another coordinator
-		if pooler.ConsensusTerm.LastAcceptanceTime != nil {
-			lastAcceptanceTime := pooler.ConsensusTerm.LastAcceptanceTime.AsTime()
+		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.LastAcceptanceTime != nil {
+			lastAcceptanceTime := ct.LastAcceptanceTime.AsTime()
 			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
 
 			// If the acceptance was recent (within our window), back off
 			if timeSinceAcceptance < recentAcceptanceWindow && timeSinceAcceptance >= 0 {
 				c.logger.InfoContext(ctx, "detected recent term acceptance, backing off to avoid disruption",
 					"pooler", pooler.MultiPooler.Id.Name,
-					"accepted_term", pooler.ConsensusTerm.TermNumber,
-					"accepted_from", pooler.ConsensusTerm.AcceptedTermFromCoordinatorId,
+					"accepted_term", ct.TermNumber,
+					"accepted_from", ct.AcceptedTermFromCoordinatorId,
 					"time_since_acceptance", timeSinceAcceptance,
 					"backoff_window", recentAcceptanceWindow)
 
@@ -594,7 +610,18 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 
 	c.logger.InfoContext(ctx, "pre-vote check passed",
 		"proposed_term", proposedTerm,
-		"healthy_initialized_poolers", len(healthyInitializedPoolers))
+		"eligible_poolers", len(eligiblePoolers))
 
 	return true, ""
+}
+
+// poolerIDs extracts the clustermetadata IDs from a slice of PoolerHealthState.
+// Used at the boundary where poolers cross into the durability-policy layer,
+// which operates on bare *clustermetadatapb.ID values.
+func poolerIDs(poolers []*multiorchdatapb.PoolerHealthState) []*clustermetadatapb.ID {
+	out := make([]*clustermetadatapb.ID, len(poolers))
+	for i, p := range poolers {
+		out[i] = p.MultiPooler.Id
+	}
+	return out
 }

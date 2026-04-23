@@ -86,10 +86,6 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		WalPosition: beginTermWalPos,
 	}
 
-	fakeClient.StateResponses[poolerKey] = &multipoolermanagerdatapb.StateResponse{
-		State: "ready",
-	}
-
 	fakeClient.PromoteResponses[poolerKey] = &multipoolermanagerdatapb.PromoteResponse{}
 
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
@@ -105,8 +101,10 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: healthy,
-		IsInitialized:    term > 0,
-		ConsensusTerm:    consensusTerm,
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: term > 0,
+			ConsensusTerm: consensusTerm,
+		},
 	}
 }
 
@@ -923,7 +921,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
@@ -985,7 +983,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
@@ -1036,12 +1034,12 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum")
+		require.Contains(t, err.Error(), "recruitment validation failed")
 	})
 
 	t.Run("success - selects node with highest LSN from recruited nodes", func(t *testing.T) {
@@ -1078,7 +1076,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited), NOT mp1
@@ -1121,7 +1119,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited)
@@ -1201,7 +1199,7 @@ func TestBeginTerm(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, int64(6))
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 
@@ -1247,13 +1245,13 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "quorum",
-			"should fail quorum validation when only 1 node recruited but need 2")
+		require.Contains(t, err.Error(), "recruitment validation failed",
+			"should fail recruitment validation when only 1 node recruited but need 2")
 	})
 }
 
@@ -1399,13 +1397,13 @@ func TestAppointLeader(t *testing.T) {
 
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
-		mp1.IsPostgresReady = true
+		mp1.Status.PostgresReady = true
 
 		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
-		mp2.IsPostgresReady = true
+		mp2.Status.PostgresReady = true
 
 		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
-		mp3.IsPostgresReady = true
+		mp3.Status.PostgresReady = true
 
 		// mp3 rejects the term during BeginTerm
 		mp3Key := topoclient.MultiPoolerIDString(mp3.MultiPooler.Id)
@@ -1494,14 +1492,14 @@ func TestAppointInitialLeader(t *testing.T) {
 
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
-		mp1.IsInitialized = true
-		mp1.IsPostgresReady = true
-		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp1.Status.IsInitialized = true
+		mp1.Status.PostgresReady = true
+		mp1.Status.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
-		mp2.IsInitialized = true
-		mp2.IsPostgresReady = true
-		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp2.Status.IsInitialized = true
+		mp2.Status.PostgresReady = true
+		mp2.Status.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp2.MultiPooler))

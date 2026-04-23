@@ -29,7 +29,7 @@ option go_package = "github.com/multigres/multigres/go/pb/multiorchdata";
 // It contains:
 // - Core pooler metadata (embedded MultiPooler from topology)
 // - Timestamps for staleness detection
-// - Health metrics from Status RPC
+// - Full health status from the Status RPC (embedded as multipoolermanagerdata.Status)
 // - Computed fields for quick access
 message PoolerHealthState {
   // Core pooler metadata from topology.
@@ -46,51 +46,30 @@ message PoolerHealthState {
   google.protobuf.Timestamp last_check_successful = 5;
   google.protobuf.Timestamp last_seen = 6;
 
-  // Health status from Status RPC (populated after successful health check).
-  // This is the type the pooler reports itself as, which may differ from
-  // the topology type (multi_pooler.type) if there's a failover in progress
-  // or type mismatch.
-  clustermetadata.PoolerType pooler_type = 7;
-
-  // Primary-specific status (populated when pooler_type == PRIMARY)
-  multipoolermanagerdata.PrimaryStatus primary_status = 8;
-
-  // Replica-specific status (populated when pooler_type == REPLICA)
-  multipoolermanagerdata.StandbyReplicationStatus replication_status = 9;
-
-  // Whether PostgreSQL is currently running and accepting connections on this node.
-  // Determined from the Status RPC's postgres_ready field.
-  // Used to determine PrimaryReachable in the analyzer - a primary with postgres down
-  // should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
-  bool is_postgres_ready = 10;
-
-  // Whether the pooler considers itself initialized.
-  // Determined from the Status RPC's is_initialized field.
-  // This is based on the data directory state, not LSN.
-  bool is_initialized = 11;
-
-  // Whether the PostgreSQL data directory exists.
-  // Determined from the Status RPC's has_data_directory field.
-  bool has_data_directory = 12;
-
-  // Consensus term information from Status RPC
-  multipoolermanagerdata.ConsensusTerm consensus_term = 13;
+  // Field numbers 7–13, 15, 17 were individual mirrored Status fields;
+  // replaced by the embedded status field below (field 22).
+  reserved 7, 8, 9, 10, 11, 12, 13, 15, 17;
+  reserved "pooler_type", "primary_status", "replication_status",
+           "is_postgres_ready", "is_initialized", "has_data_directory",
+           "consensus_term", "cohort_members", "is_postgres_running";
 
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   consensusdata.StatusResponse consensus_status = 14;
-
-  // Cohort members from the most recent multigres.rule_history record,
-  // populated from the Status RPC response. An empty list (not nil) on an
-  // initialized pooler signals the shard needs its initial cohort established.
-  repeated clustermetadata.ID cohort_members = 15;
 
   // Timestamp of the last time PostgreSQL specifically responded as healthy
   // (i.e. pg_isready passed). Never cleared on failure — callers must compare
   // against time.Now() to detect staleness.
   google.protobuf.Timestamp last_postgres_ready_time = 16;
 
-  // Whether the PostgreSQL process exists on this node, regardless of whether
-  // it accepts connections. Mirrors multipoolermanagerdata.Status.postgres_running.
-  // Used to distinguish SIGSTOP (process alive but unresponsive) from SIGKILL (process dead).
-  bool is_postgres_running = 17;
+  // Stream health fields (populated when multiorch uses ManagerHealthStream).
+
+  // Whether a ManagerHealthStream stream is currently active for this pooler.
+  bool stream_connected = 20;
+
+  // The time at which the current stream was established.
+  google.protobuf.Timestamp stream_connected_since = 21;
+
+  // Full health status from the most recent successful Status RPC or
+  // ManagerHealthStream snapshot. Nil until the first successful check.
+  multipoolermanagerdata.Status status = 22;
 }

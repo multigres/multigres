@@ -143,15 +143,6 @@ message StopReplicationResponse {
   StandbyReplicationStatus status = 1;
 }
 
-// StandbyReplicationStatus gets the current replication status of the standby
-message StandbyReplicationStatusRequest {
-}
-
-message StandbyReplicationStatusResponse {
-  // Current replication status
-  StandbyReplicationStatus status = 1;
-}
-
 // Synchronous replication configuration
 message SynchronousReplicationConfiguration {
   // Synchronous commit level
@@ -181,7 +172,6 @@ message PrimaryStatus {
 
   // Follower servers that are currently connected to the primary (parsed from pg_stat_replication).
   // This only includes followers that have an active replication connection, not all configured standbys.
-  // For a complete view of all configured standbys (connected and disconnected), use GetFollowers.
   repeated clustermetadata.ID connected_followers = 3;
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
@@ -190,24 +180,6 @@ message PrimaryStatus {
   // The term for which this pooler was promoted to primary.
   // Non-zero for current primaries. See ConsensusTerm.primary_term for full lifecycle details.
   int64 primary_term = 5;
-}
-
-// PrimaryStatus gets the status of the primary server
-message PrimaryStatusRequest {
-}
-
-message PrimaryStatusResponse {
-  // Primary server status
-  PrimaryStatus status = 1;
-}
-
-// PrimaryPosition gets the current LSN position of the primary
-message PrimaryPositionRequest {
-}
-
-message PrimaryPositionResponse {
-  // Current primary LSN position
-  string lsn_position = 1;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -291,70 +263,67 @@ message StatusResponse {
   Status status = 1;
 }
 
-// Replication statistics for a connected follower from pg_stat_replication
-message ReplicationStats {
-  // PostgreSQL backend process ID for this replication connection
-  int32 pid = 1;
+// ManagerHealthStreamClientMessage is sent from the orchestrator to the pooler.
+// The first message on a new stream must be a start message; subsequent messages
+// may be poll requests.
+message ManagerHealthStreamClientMessage {
+  oneof message {
+    // Sent once at stream open to identify the orchestrator.
+    ManagerHealthStreamStartRequest start = 1;
 
-  // Client IP address of the follower
-  string client_addr = 2;
-
-  // Current WAL sender state (startup, catchup, streaming, backup, stopping)
-  string state = 3;
-
-  // Synchronous state (async, potential, sync, quorum)
-  string sync_state = 4;
-
-  // LSN of the last WAL location sent to this standby
-  string sent_lsn = 5;
-
-  // LSN of the last WAL location written to disk on this standby
-  string write_lsn = 6;
-
-  // LSN of the last WAL location flushed to disk on this standby
-  string flush_lsn = 7;
-
-  // LSN of the last WAL location replayed on this standby
-  string replay_lsn = 8;
-
-  // Time taken to write recent WAL locally (may be null)
-  google.protobuf.Duration write_lag = 9;
-
-  // Time taken to flush recent WAL locally (may be null)
-  google.protobuf.Duration flush_lag = 10;
-
-  // Time taken to replay recent WAL on standby (may be null)
-  google.protobuf.Duration replay_lag = 11;
+    // Requests an immediate health snapshot from the pooler.
+    // Used by the orchestrator to trigger fresh state on demand (e.g. in tests).
+    ManagerHealthStreamPollRequest poll = 2;
+  }
 }
 
-// Information about a follower that is part of the current cohort (configured in
-// synchronous_standby_names). Includes connection status and replication stats if connected.
-message FollowerInfo {
-  // Cluster ID of the follower from synchronous_standby_names configuration
-  clustermetadata.ID follower_id = 1;
-
-  // Application name (format: {cell}_{name})
-  string application_name = 2;
-
-  // Whether this follower is currently connected to the primary
-  bool is_connected = 3;
-
-  // Replication statistics (only populated if is_connected is true)
-  ReplicationStats replication_stats = 4;
+// ManagerHealthStreamStartRequest is sent as the first message inside
+// ManagerHealthStreamClientMessage. There are no fields in this message; its
+// presence is the signal to start the stream.
+message ManagerHealthStreamStartRequest {
 }
 
-// GetFollowers gets the list of follower servers with detailed replication status
-message GetFollowersRequest {
+// ManagerHealthStreamPollRequest triggers an immediate health snapshot.
+// The message carries no payload; its presence on the stream is the signal.
+message ManagerHealthStreamPollRequest {
 }
 
-message GetFollowersResponse {
-  // Information about all followers configured in synchronous_standby_names.
-  // Each entry indicates whether the follower is connected and includes replication
-  // statistics if available. This provides a complete view of the expected cohort.
-  repeated FollowerInfo followers = 1;
+// ManagerHealthStreamResponse is sent by the pooler on connection, on every
+// state change, on poll request, and periodically as a heartbeat snapshot.
+// Every message is a full health snapshot — there are no incremental updates.
+message ManagerHealthStreamResponse {
+  // The full health state of the pooler.
+  ManagerHealthSnapshot snapshot = 1;
+}
 
-  // Current synchronous replication configuration for context
-  SynchronousReplicationConfiguration sync_config = 2;
+// SnapshotTrigger describes why a ManagerHealthSnapshot was sent.
+enum SnapshotTrigger {
+  // Default / unknown trigger. Not used by the server.
+  SNAPSHOT_TRIGGER_UNSPECIFIED = 0;
+  // Sent immediately when the stream is first opened.
+  SNAPSHOT_TRIGGER_INITIAL = 1;
+  // Triggered by a state-change broadcast (e.g. type change, SetPrimaryConnInfo).
+  SNAPSHOT_TRIGGER_BROADCAST = 2;
+  // Triggered by an explicit poll request from the orchestrator.
+  SNAPSHOT_TRIGGER_POLL = 3;
+  // Sent by the periodic heartbeat ticker.
+  SNAPSHOT_TRIGGER_HEARTBEAT = 4;
+}
+
+// ManagerHealthSnapshot is a full health snapshot of the pooler.
+// Sent immediately on connection, on any state change, and periodically as a
+// heartbeat when no state change has occurred.
+message ManagerHealthSnapshot {
+  // Full health state of the pooler.
+  StatusResponse status = 1;
+
+  // The duration the orchestrator should use to detect a stale or dead stream.
+  // If no message is received within this duration, the pooler should be marked
+  // unhealthy.
+  google.protobuf.Duration timeout = 2;
+
+  // Why this snapshot was sent. Useful for diagnostics and testing.
+  SnapshotTrigger trigger = 3;
 }
 
 // EmergencyDemote demotes the current leader server
@@ -415,39 +384,6 @@ message DemoteStalePrimaryResponse {
   string lsn_position = 3;
 }
 
-// UndoDemote undoes a demotion
-message UndoDemoteRequest {
-}
-
-message UndoDemoteResponse {
-}
-
-// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
-// and returns the status
-message StopReplicationAndGetStatusRequest {
-  // Mode specifying what aspect of replication to pause
-  ReplicationPauseMode mode = 1;
-
-  // Whether to wait for the pause operation to complete before returning
-  // If true, the response will include the replication status after pausing
-  // If false, the operation is asynchronous and status reflects state when call was made
-  bool wait = 2;
-}
-
-message StopReplicationAndGetStatusResponse {
-  // Replication status after stopping
-  StandbyReplicationStatus status = 1;
-}
-
-// ChangeType changes the pooler type
-message ChangeTypeRequest {
-  // New pooler type (PRIMARY or REPLICA - maps to LEADER/FOLLOWER)
-  clustermetadata.PoolerType pooler_type = 1;
-}
-
-message ChangeTypeResponse {
-}
-
 // Promote promotes a replica to leader (Multigres-level operation)
 // This is called during the Propagate stage of generalized consensus
 // to safely transition a standby to primary and reconfigure replication.
@@ -496,15 +432,6 @@ message PromoteResponse {
   int64 consensus_term = 3;
 }
 
-// ResetReplication resets the standby's connection to its primary
-message ResetReplicationRequest {
-}
-
-message ResetReplicationResponse {
-  // Replication status when replication was reset
-  StandbyReplicationStatus status = 1;
-}
-
 // Replication pause mode - defines what aspect of replication to pause
 enum ReplicationPauseMode {
   // PAUSE_REPLAY_ONLY pauses WAL replay only (using pg_wal_replay_pause)
@@ -537,7 +464,6 @@ enum StandbyUpdateOperation {
   STANDBY_UPDATE_OPERATION_UNSPECIFIED = 0;
   STANDBY_UPDATE_OPERATION_ADD = 1;
   STANDBY_UPDATE_OPERATION_REMOVE = 2;
-  STANDBY_UPDATE_OPERATION_REPLACE = 3;
 }
 
 // Synchronous commit level
@@ -583,18 +509,6 @@ message ConfigureSynchronousReplicationRequest {
 }
 
 message ConfigureSynchronousReplicationResponse {
-}
-
-// State gets the current status of the manager
-message StateRequest {
-}
-
-message StateResponse {
-  // Manager state (starting, ready, error)
-  string state = 1;
-
-  // Error message if state is error
-  string error_message = 2;
 }
 
 // UpdateSynchronousStandbyList updates the synchronous standby list
@@ -755,31 +669,6 @@ message BackupMetadata {
     COMPLETE = 2;
     // TODO: add VALID/INVALID states
   }
-}
-
-// =============================================================================
-// Durability Policy APIs
-// =============================================================================
-
-// GetDurabilityPolicyRequest requests the active durability policy
-message GetDurabilityPolicyRequest {
-  // Empty - retrieves the currently active policy
-}
-
-// GetDurabilityPolicyResponse returns the active durability policy
-message GetDurabilityPolicyResponse {
-  // The active durability policy, or null if none is configured
-  clustermetadata.DurabilityPolicy policy = 1;
-}
-
-// CreateDurabilityPolicyRequest creates a new durability policy
-message CreateDurabilityPolicyRequest {
-  clustermetadata.DurabilityPolicy durability_policy = 1;
-}
-
-// CreateDurabilityPolicyResponse confirms policy creation
-// Errors are returned via gRPC status codes, not in the response body
-message CreateDurabilityPolicyResponse {
 }
 
 // =============================================================================

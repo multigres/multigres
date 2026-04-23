@@ -114,6 +114,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	preFailoverSuccess, preFailoverFailed := validator.Stats()
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
+	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
+	// and multigateway learns the new primary via PrimaryObservation health streams,
+	// so neither component requires etcd during or after failover.
+	t.Log("Stopping etcd to verify etcd-independent failover...")
+	setup.StopEtcd(t)
+	t.Log("etcd stopped; all failovers will proceed without etcd")
+
 	// Perform 3 consecutive failovers
 	for i := range 3 {
 		t.Logf("=== Failover iteration %d ===", i+1)
@@ -171,12 +178,16 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
 		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
 
-		// No need to restart validator or switch connections - multigateway automatically routes to new primary
-		// We track failed writes just for debugging purposes, but during a failover it is expected
-		// that we will see some failures (at least until we get to buffering)
+		// Verify multigateway has rerouted to the new primary by confirming a write succeeds.
+		require.Eventually(t, func() bool {
+			return validator.WriteNow(t.Context()) == nil
+		}, 10*time.Second, 200*time.Millisecond,
+			"multigateway should route writes to new primary %s after failover", newPrimaryName)
+		t.Logf("Iteration %d: multigateway confirmed routing writes to %s", i+1, newPrimaryName)
+
 		successWrites, failedWrites := validator.Stats()
-		t.Logf("Iteration %d: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
-			i+1, successWrites, failedWrites, newPrimaryName)
+		t.Logf("Iteration %d: %d successful, %d failed writes so far",
+			i+1, successWrites, failedWrites)
 		time.Sleep(200 * time.Millisecond) // Let writes accumulate before next failover
 	}
 
@@ -408,9 +419,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer finalPrimaryClient.Close()
 
 		// Get the final primary's LSN position
-		primaryPosResp, err := finalPrimaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+		consensusStatusResp, err := finalPrimaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get final primary position")
-		primaryLSN := primaryPosResp.LsnPosition
+		primaryLSN := consensusStatusResp.WalPosition.CurrentLsn
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultiPoolerTestClient

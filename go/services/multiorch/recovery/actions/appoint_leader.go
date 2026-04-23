@@ -83,9 +83,9 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// need to trigger failover.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
-			pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY ||
+			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
 			!pooler.IsLastCheckValid ||
-			!pooler.IsPostgresReady {
+			!pooler.GetStatus().GetPostgresReady() {
 			continue
 		}
 		if types.PrimaryNeedsReplacement(pooler) {

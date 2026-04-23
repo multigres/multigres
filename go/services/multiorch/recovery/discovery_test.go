@@ -310,7 +310,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	)
 	startEngine(t, engine)
 
-	poolerStoreDiscovered := func(val int) func() bool {
+	poolerStoreDiscovered := func(_ int) func() bool {
 		return func() bool {
 			_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 			return ok

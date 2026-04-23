@@ -45,6 +45,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -97,6 +98,15 @@ type MultiGateway struct {
 	statementTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
+	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
+	// tracking (0 disables fingerprint labeling and /debug/queries).
+	queryMetricsMemory viperutil.Value[int]
+	// queryMetricsSQLMaxBytes is the maximum bytes of representative normalized
+	// SQL stored per tracked fingerprint.
+	queryMetricsSQLMaxBytes viperutil.Value[int]
+	// queryRegistry tracks per-fingerprint query statistics; shared across
+	// primary and replica handlers so metrics aggregate to the same bucket.
+	queryRegistry *queryregistry.Registry
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
@@ -151,6 +161,18 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
+		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
+			Default:  2 * 1024 * 1024, // 2 MB; 0 disables per-query tracking
+			FlagName: "query-metrics-memory",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_QUERY_METRICS_MEMORY"},
+		}),
+		queryMetricsSQLMaxBytes: viperutil.Configure(reg, "query-metrics-sql-max-bytes", viperutil.Options[int]{
+			Default:  4096,
+			FlagName: "query-metrics-sql-max-bytes",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_QUERY_METRICS_SQL_MAX_BYTES"},
+		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-tls-cert-file",
@@ -193,6 +215,7 @@ func NewMultiGateway() *MultiGateway {
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
 				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
+				{"Queries", "Per-query-shape metrics", "/debug/queries"},
 			},
 		},
 	}
@@ -221,6 +244,9 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
+	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
+	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and /debug/queries")
+	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -232,6 +258,9 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
+		mg.planCacheMemory,
+		mg.queryMetricsMemory,
+		mg.queryMetricsSQLMaxBytes,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
@@ -388,8 +417,20 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	pidPrefix := multigateway.PidPrefix
 	logger.InfoContext(ctx, "registered gateway", "pid_prefix", pidPrefix)
 
+	// Construct the per-query-shape metrics registry. Shared across primary
+	// and replica handlers so a query hitting either listener aggregates to
+	// the same stats bucket.
+	mg.queryRegistry = queryregistry.New(queryregistry.Config{
+		MaxMemoryBytes: mg.queryMetricsMemory.Get(),
+		MaxSQLLength:   mg.queryMetricsSQLMaxBytes.Get(),
+	})
+	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
+		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
+	}
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
@@ -432,6 +473,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
 		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
+		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:      replicaAddr,
@@ -448,6 +490,21 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if lowLagMs > 0 || highToleranceMs > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
 				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
+		}
+	}
+
+	// Register client connection metrics.
+	gatewayMetrics, err := NewGatewayMetrics()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
+	}
+	if gatewayMetrics != nil {
+		var replicaConnCount func() int
+		if mg.pgReplicaListener != nil {
+			replicaConnCount = mg.pgReplicaListener.ConnectionCount
+		}
+		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount, replicaConnCount); err != nil {
+			logger.WarnContext(ctx, "failed to register client connections callback", "error", err)
 		}
 	}
 
@@ -504,6 +561,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
 	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
+	mg.senv.HTTPHandleFunc("/debug/queries", mg.handleQueriesDebug)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()
@@ -554,6 +612,11 @@ func (mg *MultiGateway) Shutdown() {
 	// Close executor (plan cache cleanup)
 	if mg.executor != nil {
 		mg.executor.Close()
+	}
+
+	// Close per-query-shape metrics registry.
+	if mg.queryRegistry != nil {
+		mg.queryRegistry.Close()
 	}
 
 	// Stop failover buffer
