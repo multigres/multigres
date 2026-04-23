@@ -693,7 +693,10 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
-	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres",
+	// connect_timeout ensures pg_rewind fails fast if the source is not yet ready to accept
+	// connections (e.g. newly-promoted primary still in crash recovery), allowing the caller
+	// to retry rather than blocking for the OS TCP timeout.
+	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres connect_timeout=5",
 		req.GetSourceHost(), req.GetSourcePort(), s.ctldConfig.User)
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
