@@ -1,0 +1,77 @@
+# Basic SELECT coverage: literals, arithmetic, boolean logic.
+# Tests run against both direct postgres and multigateway — the results must match.
+
+query I
+SELECT 1
+----
+1
+
+query I
+SELECT 1 + 2
+----
+3
+
+query I
+SELECT 10 - 4
+----
+6
+
+query I
+SELECT 3 * 7
+----
+21
+
+query R
+SELECT 7.0 / 2.0
+----
+3.500
+
+query I
+SELECT 17 % 5
+----
+2
+
+query I
+SELECT CASE WHEN 1 = 1 THEN 10 ELSE 20 END
+----
+10
+
+query I
+SELECT CASE WHEN 1 = 2 THEN 10 ELSE 20 END
+----
+20
+
+query T
+SELECT 'hello'
+----
+hello
+
+query T
+SELECT 'multi' || 'gres'
+----
+multigres
+
+query I
+SELECT length('multigres')
+----
+9
+
+query T
+SELECT upper('multigres')
+----
+MULTIGRES
+
+query T
+SELECT lower('MULTIGRES')
+----
+multigres
+
+query I
+SELECT NULL
+----
+NULL
+
+query I
+SELECT COALESCE(NULL, NULL, 42)
+----
+42
