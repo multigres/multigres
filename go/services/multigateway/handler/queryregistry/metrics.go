@@ -24,11 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/cache/theine"
 )
 
-// maxSQLLabelLen caps the normalized SQL exposed as a Prometheus label so that
-// downstream label storage and Grafana legends stay readable. The full text
-// remains available via /debug/queries.
-const maxSQLLabelLen = 256
-
 // meterName is the OTel meter scope for query-registry metrics.
 const meterName = "github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 
@@ -57,13 +52,12 @@ func (r *Registry) RegisterMetrics() error {
 	_, err = meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
 			r.store.Range(0, func(_ theine.StringKey, v *QueryStats) bool {
-				sql := v.normalizedSQL
-				if len(sql) > maxSQLLabelLen {
-					sql = sql[:maxSQLLabelLen]
-				}
+				// normalizedSQL is already capped at r.maxSQLLen when the
+				// registry admits the entry (see Record); reuse that cap as
+				// the single source of truth for the exposed label too.
 				o.ObserveInt64(info, 1, metric.WithAttributes(
 					attribute.String("query.fingerprint", v.fingerprint),
-					attribute.String("query.normalized_sql", sql),
+					attribute.String("query.normalized_sql", v.normalizedSQL),
 				))
 				return true
 			})
