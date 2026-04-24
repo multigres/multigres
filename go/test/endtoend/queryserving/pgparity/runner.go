@@ -25,23 +25,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
-
-// Target identifies a PostgreSQL-compatible endpoint under test.
-type Target struct {
-	Name string // "postgres" or "multigateway"
-	Host string
-	Port int
-	User string
-	Pass string
-	DB   string
-}
-
-// DSN returns a libpq-style connection string for this target.
-func (t Target) DSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		t.Host, t.Port, t.User, t.Pass, t.DB)
-}
 
 // RecordResult holds the outcome of a single parsed record.
 type RecordResult struct {
@@ -66,7 +52,7 @@ type FileResult struct {
 // Connection errors for individual records are reported as failures rather
 // than aborting the file: this makes it easy to see how much of a file a
 // target can handle. A hard connection failure at the start aborts the run.
-func RunFile(ctx context.Context, tf *TestFile, target Target) (*FileResult, error) {
+func RunFile(ctx context.Context, tf *TestFile, target suiteutil.Target) (*FileResult, error) {
 	conn, err := pgx.Connect(ctx, target.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("connect %s: %w", target.Name, err)

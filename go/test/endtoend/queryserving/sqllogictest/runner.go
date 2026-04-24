@@ -23,29 +23,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/tools/executil"
 )
-
-// target describes one endpoint the sqllogictest runner should execute a test
-// file against. Both the direct-PostgreSQL target and the Multigres
-// multigateway target are expressed as one of these.
-type target struct {
-	// Name is a human-readable label used in logs, reports, and results
-	// JSON ("postgres", "multigateway").
-	Name string
-	// Host / Port / User / Password / Database are forwarded to sqllogictest
-	// via its -h / -p / -u / -w / -d flags.
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Database string
-	// Engine selects the sqllogictest-rs executor mode ("postgres" = simple
-	// protocol, "postgres-extended" = extended). Defaults to "postgres".
-	Engine string
-}
 
 // runResult captures the outcome of running one .test/.slt file against one
 // target. Divergences between two runResults are not fatal: the harness
@@ -81,7 +61,11 @@ type runResult struct {
 // The runner always returns a *runResult; it never fails the test. Callers
 // decide what to do with the outcome (typically: aggregate into the
 // results.json report).
-func runSqllogictest(ctx context.Context, t target, file string) *runResult {
+//
+// engine selects the sqllogictest-rs executor mode: "postgres" for the simple
+// wire protocol and "postgres-extended" for the extended one. An empty string
+// defaults to "postgres".
+func runSqllogictest(ctx context.Context, t suiteutil.Target, engine, file string) *runResult {
 	bin, lookErr := exec.LookPath("sqllogictest")
 	if lookErr != nil {
 		return &runResult{
@@ -90,14 +74,13 @@ func runSqllogictest(ctx context.Context, t target, file string) *runResult {
 		}
 	}
 
-	if err := resetTarget(ctx, t); err != nil {
+	if err := suiteutil.ResetPublicSchema(ctx, t); err != nil {
 		return &runResult{
 			File:    file,
 			ExecErr: fmt.Errorf("reset target %s: %w", t.Name, err),
 		}
 	}
 
-	engine := t.Engine
 	if engine == "" {
 		engine = "postgres"
 	}
@@ -107,8 +90,8 @@ func runSqllogictest(ctx context.Context, t target, file string) *runResult {
 		"-h", t.Host,
 		"-p", strconv.Itoa(t.Port),
 		"-u", t.User,
-		"-w", t.Password,
-		"-d", t.Database,
+		"-w", t.Pass,
+		"-d", t.DB,
 		"--color", "never",
 		file,
 	}
@@ -158,28 +141,4 @@ func truncateOutput(s string, limit int) string {
 func isExitError(err error) bool {
 	var ee *exec.ExitError
 	return errors.As(err, &ee)
-}
-
-// resetSQL returns the public schema to an empty state. sqllogictest corpus
-// files start with their own CREATE TABLE statements, so anything the
-// previous invocation created would otherwise trigger "already exists" errors
-// on the next run — especially since every file is run four times (2 targets
-// × 2 protocols) against the same shared database.
-const resetSQL = `DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;`
-
-// resetTarget connects to the target and clears the public schema. A fresh
-// connection is used each time so session state (search_path, transaction
-// state, prepared statements) can't leak in either direction.
-func resetTarget(ctx context.Context, t target) error {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		t.Host, t.Port, t.User, t.Password, t.Database)
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx, resetSQL); err != nil {
-		return fmt.Errorf("reset public schema: %w", err)
-	}
-	return nil
 }

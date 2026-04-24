@@ -15,13 +15,13 @@
 package sqllogictest
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
 
 // fileReport is the per-file record in the serialized report. It captures
@@ -167,18 +167,7 @@ func toPerRun(r *runResult) perRun {
 // .github/scripts/detect-regressions.sh expects, so regression tracking
 // is cross-run-portable per protocol.
 func writeJSON(outputDir string, reports []*suiteReport) (string, error) {
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", outputDir, err)
-	}
-	data, err := json.MarshalIndent(reports, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal reports: %w", err)
-	}
-	path := filepath.Join(outputDir, "results.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return "", fmt.Errorf("write %s: %w", path, err)
-	}
-	return path, nil
+	return suiteutil.WriteJSON(outputDir, "results.json", reports)
 }
 
 // writeMarkdownSummary emits one section per suite (i.e. per protocol),
@@ -187,9 +176,6 @@ func writeJSON(outputDir string, reports []*suiteReport) (string, error) {
 // shows pass rates without downloading artifacts.
 func writeMarkdownSummary(t *testing.T, outputDir string, reports []*suiteReport) (string, error) {
 	t.Helper()
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", outputDir, err)
-	}
 
 	var sb strings.Builder
 	sb.WriteString("## SQLLogicTest Pass Rate\n\n")
@@ -212,8 +198,8 @@ func writeMarkdownSummary(t *testing.T, outputDir string, reports []*suiteReport
 		pgLabel := r.Name + "-postgres"
 		mgLabel := r.Name + "-multigateway"
 		fmt.Fprintf(&sb, "%s %s\n\n",
-			badgeMarkdown(pgLabel, r.PGPassed, r.TotalFiles, r.TimedOut),
-			badgeMarkdown(mgLabel, r.GatewayPassed, r.TotalFiles, r.TimedOut),
+			suiteutil.BadgeMarkdown(pgLabel, r.PGPassed, r.TotalFiles, 0, r.TimedOut),
+			suiteutil.BadgeMarkdown(mgLabel, r.GatewayPassed, r.TotalFiles, 0, r.TimedOut),
 		)
 
 		if r.TimedOut {
@@ -246,49 +232,12 @@ func writeMarkdownSummary(t *testing.T, outputDir string, reports []*suiteReport
 	}
 
 	summary := sb.String()
-	path := filepath.Join(outputDir, "compatibility-report.md")
-	if err := os.WriteFile(path, []byte(summary), 0o644); err != nil {
-		return summary, fmt.Errorf("write %s: %w", path, err)
+	path, err := suiteutil.WriteMarkdown(outputDir, "compatibility-report.md", summary)
+	if err != nil {
+		return summary, err
 	}
 	t.Logf("Markdown summary written to: %s", path)
-
-	if f := os.Getenv("GITHUB_STEP_SUMMARY"); f != "" {
-		if fh, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-			_, _ = fh.WriteString(summary)
-			_ = fh.Close()
-			t.Logf("Appended summary to GITHUB_STEP_SUMMARY (%d bytes)", len(summary))
-		}
-	}
-
 	return summary, nil
-}
-
-// badgeMarkdown renders a shields.io badge URL. Colour goes green at 100%,
-// yellow from 80%+, orange from 50%+, red below. Timed-out runs get
-// downgraded one level to visually flag "not representative".
-func badgeMarkdown(label string, passed, total int, timedOut bool) string {
-	colour := "lightgrey"
-	if total > 0 {
-		pct := passed * 100 / total
-		switch {
-		case pct == 100:
-			colour = "brightgreen"
-		case pct >= 80:
-			colour = "yellow"
-		case pct >= 50:
-			colour = "orange"
-		default:
-			colour = "red"
-		}
-	}
-	value := fmt.Sprintf("%d%%2F%d_passed", passed, total)
-	if timedOut {
-		value += "_(timed_out)"
-		if colour == "brightgreen" {
-			colour = "yellow"
-		}
-	}
-	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, label, value, colour)
 }
 
 func firstLine(s string) string {

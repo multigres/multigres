@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -48,7 +49,7 @@ func TestPgBench(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Minute)
 
 	primary := setup.GetPrimary(t)
-	pgTarget := BenchmarkTarget{
+	pgTarget := suiteutil.Target{
 		Name: "postgres",
 		Host: "localhost",
 		Port: primary.Pgctld.PgPort,
@@ -56,7 +57,7 @@ func TestPgBench(t *testing.T) {
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
 	}
-	mgwTarget := BenchmarkTarget{
+	mgwTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "localhost",
 		Port: setup.MultigatewayPgPort,
@@ -65,14 +66,14 @@ func TestPgBench(t *testing.T) {
 		DB:   "postgres",
 	}
 
-	targets := []BenchmarkTarget{pgTarget, mgwTarget}
+	targets := []suiteutil.Target{pgTarget, mgwTarget}
 
 	// Optional pgbouncer target
 	pgb, err := NewPgBouncerInstance(t, "localhost", primary.Pgctld.PgPort,
 		shardsetup.DefaultTestUser, shardsetup.TestPostgresPassword)
 	if err == nil && pgb != nil {
 		t.Cleanup(func() { pgb.Stop(t) })
-		targets = append(targets, BenchmarkTarget{
+		targets = append(targets, suiteutil.Target{
 			Name: "pgbouncer",
 			Host: "localhost",
 			Port: pgb.Port(),
