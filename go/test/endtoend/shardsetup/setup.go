@@ -1373,14 +1373,22 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
 	// StopPostgres must be called BEFORE killing pgctld, otherwise
 	// the postgres process survives and holds the port.
+	//
+	// Use immediate shutdown (SIGQUIT, no checkpoint): the data dir is
+	// about to be wiped, so clean-shutdown state is irrelevant. Fast mode's
+	// pre-shutdown checkpoint can take >10s on the primary (especially under
+	// replication load), triggering a graceful-period SIGKILL that leaves
+	// postgres's listen port in TIME_WAIT on Linux for ~60s. The subsequent
+	// postgres restart then cannot bind its port and retries until
+	// WaitForManagerReady times out.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
 			inst.Multipooler.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
-			inst.Pgctld.StopPostgres(t)
-			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
+			inst.Pgctld.StopPostgresImmediate(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s (immediate)", name)
 			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
