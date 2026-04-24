@@ -23,16 +23,13 @@ const REFRESH_INTERVAL_MS = 10_000;
 const MAX_FINGERPRINTS_PER_FETCH = 200;
 
 // parseDurationSec converts a protojson Duration string ("0.012s", "5s", etc.)
-// into seconds as a number. Returns 0 on missing/malformed input.
+// into seconds as a number. Used only for the cumulative % of runtime
+// calculation; per-cell values use the trend slices directly.
 function parseDurationSec(s?: string): number {
   if (!s) return 0;
   const trimmed = s.endsWith("s") ? s.slice(0, -1) : s;
   const n = parseFloat(trimmed);
   return isNaN(n) ? 0 : n;
-}
-
-function formatMs(s?: string): string {
-  return (parseDurationSec(s) * 1000).toFixed(2);
 }
 
 function formatRelativeTime(iso?: string): string {
@@ -99,6 +96,10 @@ export default function GatewayQueriesPage({ params }: PageProps) {
   }, [api, cellName, gatewayName]);
 
   // Derive % of runtime per row from total_duration vs the sum across all.
+  // % of runtime stays cumulative (since-admission share) — that's what
+  // makes "which queries dominate this gateway" answerable. The per-cell
+  // numeric values use the last trend sample so the scalar and sparkline
+  // share a consistent meaning.
   const rows = useMemo(() => {
     const totalNs = queries.reduce(
       (acc, q) => acc + parseDurationSec(q.total_duration),
@@ -113,7 +114,7 @@ export default function GatewayQueriesPage({ params }: PageProps) {
       .map((q) => {
         const totalSec = parseDurationSec(q.total_duration);
         const pct = totalNs > 0 ? (totalSec / totalNs) * 100 : 0;
-        return { q, totalSec, pct };
+        return { q, pct };
       })
       .sort((a, b) => b.pct - a.pct);
   }, [queries, filter]);
@@ -169,7 +170,7 @@ export default function GatewayQueriesPage({ params }: PageProps) {
                 <TableHead className="pl-6">query</TableHead>
                 <TableHead className="w-40">% of runtime</TableHead>
                 <TableHead className="w-36 text-right">count / s</TableHead>
-                <TableHead className="w-36 text-right">total time (s)</TableHead>
+                <TableHead className="w-36 text-right">total time (ms/s)</TableHead>
                 <TableHead className="w-32 text-right">p50 (ms)</TableHead>
                 <TableHead className="w-32 text-right">p99 (ms)</TableHead>
                 <TableHead className="w-32 text-right">rows / s</TableHead>
@@ -177,7 +178,7 @@ export default function GatewayQueriesPage({ params }: PageProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(({ q, totalSec, pct }) => (
+              {rows.map(({ q, pct }) => (
                 <TableRow key={q.fingerprint}>
                   <TableCell className="pl-6 align-top py-3">
                     <code className="text-xs whitespace-pre-wrap break-words block max-w-[640px]">
@@ -191,13 +192,13 @@ export default function GatewayQueriesPage({ params }: PageProps) {
                     <CellWithSparkline value={lastValue(q.call_rate_trends, 2)} trend={q.call_rate_trends} />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={totalSec.toFixed(2)} trend={q.total_time_ms_trends} />
+                    <CellWithSparkline value={lastValue(q.total_time_ms_trends, 2)} trend={q.total_time_ms_trends} />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={formatMs(q.p50_duration)} trend={q.p50_ms_trends} />
+                    <CellWithSparkline value={lastValue(q.p50_ms_trends, 2)} trend={q.p50_ms_trends} />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={formatMs(q.p99_duration)} trend={q.p99_ms_trends} />
+                    <CellWithSparkline value={lastValue(q.p99_ms_trends, 2)} trend={q.p99_ms_trends} />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
                     <CellWithSparkline value={lastValue(q.rows_rate_trends, 2)} trend={q.rows_rate_trends} />

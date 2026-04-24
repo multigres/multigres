@@ -111,13 +111,12 @@ func TestSampleAllRingBufferWraps(t *testing.T) {
 // cumulative distribution since admission. Pushing cumulative percentiles
 // would flatten the sparkline under sustained load and hide recent spikes.
 func TestPercentileTrendIsWindowed(t *testing.T) {
-	r := NewForTest(Config{
-		MaxMemoryBytes:     1 << 20,
-		MaxSQLLength:       1024,
-		SampleInterval:     1 * time.Second,
-		TrendWindowSamples: 4,
-	})
+	// Sampler-disabled config + manual field overrides: lets the test drive
+	// sampleAll() deterministically without racing a background ticker.
+	r := NewForTest(Config{MaxMemoryBytes: 1 << 20, MaxSQLLength: 1024})
 	defer r.Close()
+	r.sampleInterval = 1 * time.Second
+	r.trendCapacity = 4
 
 	fp := "abc"
 	sql := "SELECT 1"
