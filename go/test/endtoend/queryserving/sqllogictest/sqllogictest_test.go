@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -74,18 +75,16 @@ var protocols = []protocolConfig{
 // file, per-protocol pass/fail counts over time (like pgregresstest). CI
 // compares against a cached baseline; regressions surface there.
 //
-// Skipped by default. Set RUN_SQLLOGICTEST=1 to run.
+// Skipped by default. Set RUN_EXTENDED_QUERY_SERVING_TESTS=1 to run.
 //
 // Environment variables:
 //
-//	RUN_SQLLOGICTEST=1        — enable the test (required)
-//	SLT_CORPUS_DIR=<dir>      — use an external corpus instead of testdata/
-//	SLT_CORPUS_GLOB=<glob>    — scope which corpus files run (default: **/*.slt)
-//	SLT_PER_FILE_TIMEOUT=<d>  — Go duration, e.g. "90s" (default: 5m)
+//	RUN_EXTENDED_QUERY_SERVING_TESTS=1  — enable the test (required)
+//	SLT_CORPUS_DIR=<dir>                — use an external corpus instead of testdata/
+//	SLT_CORPUS_GLOB=<glob>              — scope which corpus files run (default: **/*.slt)
+//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 5m)
 func TestPostgreSQLSqlLogicTest(t *testing.T) {
-	if os.Getenv("RUN_SQLLOGICTEST") != "1" {
-		t.Skip("skipping sqllogictest: set RUN_SQLLOGICTEST=1 to run")
-	}
+	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 
 	if _, err := exec.LookPath("sqllogictest"); err != nil {
 		t.Fatalf("sqllogictest binary not found on PATH; run `make tools` to install it: %v", err)
@@ -164,21 +163,21 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	pgTarget := target{
-		Name:     "postgres",
-		Host:     "127.0.0.1",
-		Port:     standalone.Port,
-		User:     standalone.User,
-		Password: standalone.Password,
-		Database: standalone.Database,
+	pgTarget := suiteutil.Target{
+		Name: "postgres",
+		Host: "127.0.0.1",
+		Port: standalone.Port,
+		User: standalone.User,
+		Pass: standalone.Password,
+		DB:   standalone.Database,
 	}
-	mgTarget := target{
-		Name:     "multigateway",
-		Host:     "127.0.0.1",
-		Port:     setup.MultigatewayPgPort,
-		User:     shardsetup.DefaultTestUser,
-		Password: shardsetup.TestPostgresPassword,
-		Database: "postgres",
+	mgTarget := suiteutil.Target{
+		Name: "multigateway",
+		Host: "127.0.0.1",
+		Port: setup.MultigatewayPgPort,
+		User: shardsetup.DefaultTestUser,
+		Pass: shardsetup.TestPostgresPassword,
+		DB:   "postgres",
 	}
 
 	// Phase 6: for each file, run both targets under both protocols. Four
@@ -265,12 +264,10 @@ type protoResults struct {
 
 // runOne invokes sqllogictest against a single target under a single
 // protocol for one file, with its own bounded context.
-func runOne(parent context.Context, perFileTimeout time.Duration, base target, engine, file string) *runResult {
+func runOne(parent context.Context, perFileTimeout time.Duration, t suiteutil.Target, engine, file string) *runResult {
 	ctx, cancel := context.WithTimeout(parent, perFileTimeout)
 	defer cancel()
-	t := base
-	t.Engine = engine
-	return runSqllogictest(ctx, t, file)
+	return runSqllogictest(ctx, t, engine, file)
 }
 
 func passedCount(results []*runResult) int {

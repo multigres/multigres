@@ -17,7 +17,6 @@ package pgregresstest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +30,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -504,25 +504,6 @@ type SuiteResult struct {
 	ExpectedTests int          // total tests from schedule file (0 = unknown)
 }
 
-// badgeColor returns a shields.io color based on the pass rate.
-func badgeColor(passed, total int) string {
-	if total == 0 {
-		return "lightgrey"
-	}
-	if passed == total {
-		return "brightgreen"
-	}
-	pct := passed * 100 / total
-	switch {
-	case pct >= 80:
-		return "yellow"
-	case pct >= 50:
-		return "orange"
-	default:
-		return "red"
-	}
-}
-
 // WriteMarkdownSummary generates a unified markdown report covering one or more
 // test suites. It writes the report to pb.OutputDir/compatibility-report.md and
 // appends it to GITHUB_STEP_SUMMARY when running in CI.
@@ -532,32 +513,20 @@ func badgeColor(passed, total int) string {
 func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
 
-	if err := os.MkdirAll(pb.OutputDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create output directory: %w", err)
-	}
-
 	var sb strings.Builder
 
 	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
 
 	for _, s := range suites {
-		passed := s.Results.PassedTests
-		ran := s.Results.TotalTests
-		color := badgeColor(passed, ran)
-
 		label := strings.TrimSuffix(s.Name, " Tests")
-		value := fmt.Sprintf("%d%%2F%d_passed", passed, ran)
-		if s.ExpectedTests > 0 && s.ExpectedTests > ran {
-			value = fmt.Sprintf("%d%%2F%d_passed_(of_%d)", passed, ran, s.ExpectedTests)
-		}
-		if s.Results.TimedOut {
-			value += "_(timed_out)"
-			if color == "brightgreen" {
-				color = "yellow"
-			}
-		}
-
-		fmt.Fprintf(&sb, "![%s](https://img.shields.io/badge/%s-%s-%s) ", label, label, value, color)
+		sb.WriteString(suiteutil.BadgeMarkdown(
+			label,
+			s.Results.PassedTests,
+			s.Results.TotalTests,
+			s.ExpectedTests,
+			s.Results.TimedOut,
+		))
+		sb.WriteString(" ")
 	}
 	sb.WriteString("\n\n")
 
@@ -605,23 +574,11 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	}
 
 	summary := sb.String()
-
-	summaryPath := filepath.Join(pb.OutputDir, "compatibility-report.md")
-	if err := os.WriteFile(summaryPath, []byte(summary), 0o644); err != nil {
-		return summary, fmt.Errorf("failed to write markdown summary: %w", err)
+	summaryPath, err := suiteutil.WriteMarkdown(pb.OutputDir, "compatibility-report.md", summary)
+	if err != nil {
+		return summary, err
 	}
-
 	t.Logf("Markdown summary written to: %s", summaryPath)
-
-	if summaryFile := os.Getenv("GITHUB_STEP_SUMMARY"); summaryFile != "" {
-		f, err := os.OpenFile(summaryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err == nil {
-			_, _ = f.WriteString(summary)
-			f.Close()
-			t.Logf("Written to GitHub Actions job summary (%d bytes)", len(summary))
-		}
-	}
-
 	return summary, nil
 }
 
@@ -636,10 +593,6 @@ type jsonSuiteResult struct {
 func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
 
-	if err := os.MkdirAll(pb.OutputDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create output directory: %w", err)
-	}
-
 	var out []jsonSuiteResult
 	for _, s := range suites {
 		out = append(out, jsonSuiteResult{
@@ -648,16 +601,10 @@ func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) 
 		})
 	}
 
-	data, err := json.MarshalIndent(out, "", "  ")
+	resultsPath, err := suiteutil.WriteJSON(pb.OutputDir, "results.json", out)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal results: %w", err)
+		return "", err
 	}
-
-	resultsPath := filepath.Join(pb.OutputDir, "results.json")
-	if err := os.WriteFile(resultsPath, data, 0o644); err != nil {
-		return "", fmt.Errorf("failed to write results JSON: %w", err)
-	}
-
 	t.Logf("JSON results written to: %s", resultsPath)
 	return resultsPath, nil
 }
