@@ -54,6 +54,9 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	}
 	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
+	// Swap in a fake rule store so tests that exercise observePosition /
+	// cachedPosition don't crash on the real store's nil query service.
+	pm.rules = &fakeRuleStore{}
 	return pm
 }
 
@@ -519,14 +522,9 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				},
 			}
-			cs := NewConsensusState("", nil)
-			if tt.primaryTerm != 0 {
-				cs.mu.Lock()
-				cs.term = &multipoolermanagerdatapb.ConsensusTerm{PrimaryTerm: tt.primaryTerm}
-				cs.mu.Unlock()
-			}
-			pm.consensusState = cs
+			pm.consensusState = NewConsensusState("", nil)
 			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
+			tt.state.primaryTerm = tt.primaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
 			require.Equal(t, tt.expectedAction, got)
@@ -548,7 +546,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log error and take no action
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -571,7 +569,7 @@ func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log info and take no action (no type mismatch)
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -594,7 +592,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should attempt to start postgres
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
@@ -620,7 +618,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should handle error gracefully
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
@@ -640,7 +638,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// With no backups and uninitialized dir, action is None - doesn't do anything
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// takeRemedialAction with None action doesn't modify last logged reason
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -668,17 +666,17 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Call multiple times with same action - reason should stay the same (log deduplication)
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
 	// Change action type - reason should change
-	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup)
+	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
 	assert.Equal(t, "restoring_from_backup", pm.pgMonitorLastLoggedReason)
 }
 
@@ -758,7 +756,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			cs := NewConsensusState("", nil)
 			cs.mu.Lock()
-			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1, PrimaryTerm: tc.primaryTerm}
+			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
 			cs.mu.Unlock()
 			pm.consensusState = cs
 
@@ -770,7 +768,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action)
+			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})

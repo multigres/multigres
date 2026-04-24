@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -145,6 +146,7 @@ func TestPrimaryPosition(t *testing.T) {
 			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
+			manager.rules = newRuleStore(logger, mockQueryService)
 
 			// Mark as initialized to skip auto-restore (not testing backup functionality)
 			err = manager.setInitialized()
@@ -220,6 +222,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService)
 
 	// Start and wait for ready
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -443,6 +446,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, 
 	// Assign mock pooler controller and rule store BEFORE starting the manager
 	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = newRuleStore(logger, mockQueryService)
 	pm.rules = rules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -989,9 +993,11 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Verify primary_term is 0 before promotion
-	term, err := pm.consensusState.GetInconsistentTerm()
+	cs, err := pm.getInconsistentConsensusStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be 0 before promotion")
+	require.Equal(t, int64(0),
+		commonconsensus.PrimaryTerm(cs),
+		"primary_term should be 0 before promotion")
 
 	// Call Promote - should FAIL because rule history write fails
 	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", nil, nil, nil)
@@ -1001,15 +1007,13 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	// Error message should indicate the rule history failure
 	assert.Contains(t, err.Error(), "rule history")
 
-	// CRITICAL: Verify that primary_term WAS set even though promotion failed.
-	// This is intentional - we set primary_term (local state) before writing to history table
-	// (committed transaction). If the order were reversed and history write succeeded but
-	// primary_term write failed, we'd have a committed transaction without local state.
-	// With this ordering, on retry the primary_term set is idempotent and history write will succeed.
-	term, err = pm.consensusState.GetInconsistentTerm()
+	// Primary term is derived from the highest known rule; since the rule history
+	// write failed, the rule was not updated and primary_term remains 0.
+	cs, err = pm.getInconsistentConsensusStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, int64(10), term.GetPrimaryTerm(),
-		"primary_term should be set to 10 even though promotion failed (set before history write)")
+	assert.Equal(t, int64(0),
+		commonconsensus.PrimaryTerm(cs),
+		"primary_term should be 0 because the rule history write failed")
 
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
 	// The coordinator should handle this partial promotion state (e.g., retry or repair).
@@ -1097,6 +1101,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	fakeRules := &fakeRuleStore{}
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = newRuleStore(logger, mockQueryService)
 	pm.rules = fakeRules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1141,78 +1146,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
-	ctx := context.Background()
-	tmpDir := t.TempDir()
-
-	// Create pg_data directory structure
-	createPgDataDir(t, tmpDir)
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-pooler",
-	}
-
-	// Create consensus state and set initial term to 5
-	consensusState := NewConsensusState(tmpDir, serviceID)
-	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:  5,
-		PrimaryTerm: 0,
-	}
-	setTermForTest(t, tmpDir, initialTerm)
-	_, err := consensusState.Load()
-	require.NoError(t, err)
-
-	// Create action lock and acquire it
-	actionLock := NewActionLock()
-	lockCtx, err := actionLock.Acquire(ctx, "test-primary-term")
-	require.NoError(t, err)
-	defer actionLock.Release(lockCtx)
-
-	// Setting primary_term to match current term should succeed
-	err = consensusState.SetPrimaryTerm(lockCtx, 5, false /* force */)
-	require.NoError(t, err, "Should be able to set primary_term to current term value")
-
-	term, err := consensusState.GetInconsistentTerm()
-	require.NoError(t, err)
-	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should be set to 5")
-
-	// Setting primary_term to a different value should fail (invariant violation)
-	err = consensusState.SetPrimaryTerm(lockCtx, 7, false /* force */)
-	require.Error(t, err, "Should fail when primary_term doesn't match current term")
-
-	// Verify primary_term was not changed
-	term, err = consensusState.GetInconsistentTerm()
-	require.NoError(t, err)
-	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should still be 5")
-
-	// But with force=true, setting a mismatched term should succeed
-	err = consensusState.SetPrimaryTerm(lockCtx, 7, true /* force */)
-	require.NoError(t, err, "Should succeed with force=true even when terms don't match")
-
-	term, err = consensusState.GetInconsistentTerm()
-	require.NoError(t, err)
-	assert.Equal(t, int64(7), term.GetPrimaryTerm(), "primary_term should be updated to 7 with force")
-
-	// Clearing primary_term to 0 should always succeed (exception to invariant)
-	err = consensusState.SetPrimaryTerm(lockCtx, 0, false /* force */)
-	require.NoError(t, err, "Should be able to clear primary_term to 0 regardless of current term")
-
-	term, err = consensusState.GetInconsistentTerm()
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be cleared to 0")
-
-	// Negative primary_term should fail even with force
-	err = consensusState.SetPrimaryTerm(lockCtx, -1, false /* force */)
-	require.Error(t, err, "Should fail with negative primary_term")
-	assert.Contains(t, err.Error(), "primary_term cannot be negative")
-
-	err = consensusState.SetPrimaryTerm(lockCtx, -1, true /* force */)
-	require.Error(t, err, "Should fail with negative primary_term even with force=true")
-	assert.Contains(t, err.Error(), "primary_term cannot be negative")
 }
 
 func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
@@ -1285,6 +1218,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	// SetPrimaryConnInfo executes pg_reload_conf()
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	pm.rules = newRuleStore(logger, mockQueryService)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
@@ -1405,6 +1339,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = newRuleStore(logger, mockQueryService)
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1493,6 +1428,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = newRuleStore(logger, mockQueryService)
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1576,6 +1512,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = newRuleStore(logger, mockQueryService)
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1642,6 +1579,7 @@ func TestReplicationStatus(t *testing.T) {
 		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = newRuleStore(logger, mockQueryService)
 		pm.rules = &fakeRuleStore{
 			pos: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
@@ -1726,6 +1664,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+		pm.rules = newRuleStore(logger, mockQueryService)
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1786,7 +1725,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 
 	// Set consensus term
 	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		PrimaryTerm: 1,
+		TermNumber: 1,
 	})
 
 	config := &Config{
@@ -1813,6 +1752,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService)
 	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
 
 	// Mark as initialized
@@ -1893,7 +1833,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 
 	// Set consensus term
 	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		PrimaryTerm: 5,
+		TermNumber: 5,
 	})
 
 	config := &Config{
@@ -1920,6 +1860,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService)
 	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
 
 	err = manager.setInitialized()
@@ -2022,6 +1963,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 
 	// Assign mock pooler controller BEFORE opening to avoid race conditions
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService)
 
 	// Simulate the manager being open and ready (set internal state without starting goroutines)
 	manager.mu.Lock()
