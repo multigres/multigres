@@ -441,7 +441,10 @@ func (s *MultiAdminServer) GetGatewayQueries(ctx context.Context, req *multiadmi
 	}
 	defer conn.Close()
 
-	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetQueryRegistry(ctx, &multigatewaymanagerpb.GetQueryRegistryRequest{})
+	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetQueryRegistry(ctx, &multigatewaymanagerpb.GetQueryRegistryRequest{
+		Limit:    req.GetLimit(),
+		MinCalls: req.GetMinCalls(),
+	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get query registry from gateway", "gateway_id", req.GatewayId, "error", err)
 		return nil, status.Errorf(codes.Unavailable, "failed to get query registry from gateway: %v", err)

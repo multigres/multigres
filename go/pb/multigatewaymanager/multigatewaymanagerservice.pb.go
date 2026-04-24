@@ -40,9 +40,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// GetQueryRegistryRequest is empty — the registry is per-instance.
+// GetQueryRegistryRequest specifies which slice of the per-fingerprint
+// registry to return. The registry can hold thousands of fingerprints with
+// multi-KB trend arrays each, so admin UIs SHOULD set limit and may set
+// min_calls to keep responses bounded.
 type GetQueryRegistryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// limit caps the number of fingerprints returned, sorted by call count
+	// descending. 0 means no limit (return all tracked fingerprints).
+	Limit uint32 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	// min_calls drops fingerprints whose total call count is below this
+	// threshold. 0 means no threshold.
+	MinCalls      uint64 `protobuf:"varint,2,opt,name=min_calls,json=minCalls,proto3" json:"min_calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,6 +84,20 @@ func (x *GetQueryRegistryRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetQueryRegistryRequest.ProtoReflect.Descriptor instead.
 func (*GetQueryRegistryRequest) Descriptor() ([]byte, []int) {
 	return file_multigatewaymanagerservice_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetQueryRegistryRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *GetQueryRegistryRequest) GetMinCalls() uint64 {
+	if x != nil {
+		return x.MinCalls
+	}
+	return 0
 }
 
 // GetQueryRegistryResponse wraps the registry snapshot.
@@ -208,8 +231,10 @@ var File_multigatewaymanagerservice_proto protoreflect.FileDescriptor
 
 const file_multigatewaymanagerservice_proto_rawDesc = "" +
 	"\n" +
-	" multigatewaymanagerservice.proto\x12\x13multigatewaymanager\x1a\x1dmultigatewaymanagerdata.proto\"\x19\n" +
-	"\x17GetQueryRegistryRequest\"f\n" +
+	" multigatewaymanagerservice.proto\x12\x13multigatewaymanager\x1a\x1dmultigatewaymanagerdata.proto\"L\n" +
+	"\x17GetQueryRegistryRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tmin_calls\x18\x02 \x01(\x04R\bminCalls\"f\n" +
 	"\x18GetQueryRegistryResponse\x12J\n" +
 	"\bsnapshot\x18\x01 \x01(\v2..multigatewaymanagerdata.QueryRegistrySnapshotR\bsnapshot\"\x1d\n" +
 	"\x1bGetConsolidatorStatsRequest\"`\n" +

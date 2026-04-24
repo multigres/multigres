@@ -425,10 +425,19 @@ message SetPostgresRestartsEnabledResponse {
 
 // Gateway diagnostics operation messages
 
-// GetGatewayQueriesRequest specifies which gateway to query.
+// GetGatewayQueriesRequest specifies which gateway to query and how to bound
+// the response.
 message GetGatewayQueriesRequest {
   // gateway_id identifies which gateway to query (required)
   clustermetadata.ID gateway_id = 1;
+
+  // limit caps the number of fingerprints returned, sorted by call count
+  // descending. 0 means no limit.
+  uint32 limit = 2;
+
+  // min_calls drops fingerprints whose total call count is below this
+  // threshold. 0 means no threshold.
+  uint64 min_calls = 3;
 }
 
 // GetGatewayQueriesResponse contains the gateway's per-fingerprint query registry snapshot.

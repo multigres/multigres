@@ -1847,11 +1847,18 @@ func (*SetPostgresRestartsEnabledResponse) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{28}
 }
 
-// GetGatewayQueriesRequest specifies which gateway to query.
+// GetGatewayQueriesRequest specifies which gateway to query and how to bound
+// the response.
 type GetGatewayQueriesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// gateway_id identifies which gateway to query (required)
-	GatewayId     *clustermetadata.ID `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	GatewayId *clustermetadata.ID `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	// limit caps the number of fingerprints returned, sorted by call count
+	// descending. 0 means no limit.
+	Limit uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// min_calls drops fingerprints whose total call count is below this
+	// threshold. 0 means no threshold.
+	MinCalls      uint64 `protobuf:"varint,3,opt,name=min_calls,json=minCalls,proto3" json:"min_calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1891,6 +1898,20 @@ func (x *GetGatewayQueriesRequest) GetGatewayId() *clustermetadata.ID {
 		return x.GatewayId
 	}
 	return nil
+}
+
+func (x *GetGatewayQueriesRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *GetGatewayQueriesRequest) GetMinCalls() uint64 {
+	if x != nil {
+		return x.MinCalls
+	}
+	return 0
 }
 
 // GetGatewayQueriesResponse contains the gateway's per-fingerprint query registry snapshot.
@@ -2145,10 +2166,12 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"!SetPostgresRestartsEnabledRequest\x120\n" +
 	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"$\n" +
-	"\"SetPostgresRestartsEnabledResponse\"N\n" +
+	"\"SetPostgresRestartsEnabledResponse\"\x81\x01\n" +
 	"\x18GetGatewayQueriesRequest\x122\n" +
 	"\n" +
-	"gateway_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tgatewayId\"g\n" +
+	"gateway_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tgatewayId\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tmin_calls\x18\x03 \x01(\x04R\bminCalls\"g\n" +
 	"\x19GetGatewayQueriesResponse\x12J\n" +
 	"\bsnapshot\x18\x01 \x01(\v2..multigatewaymanagerdata.QueryRegistrySnapshotR\bsnapshot\"S\n" +
 	"\x1dGetGatewayConsolidatorRequest\x122\n" +

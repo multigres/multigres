@@ -38,8 +38,18 @@ service MultiGatewayManager {
       returns (GetConsolidatorStatsResponse);
 }
 
-// GetQueryRegistryRequest is empty — the registry is per-instance.
+// GetQueryRegistryRequest specifies which slice of the per-fingerprint
+// registry to return. The registry can hold thousands of fingerprints with
+// multi-KB trend arrays each, so admin UIs SHOULD set limit and may set
+// min_calls to keep responses bounded.
 message GetQueryRegistryRequest {
+  // limit caps the number of fingerprints returned, sorted by call count
+  // descending. 0 means no limit (return all tracked fingerprints).
+  uint32 limit = 1;
+
+  // min_calls drops fingerprints whose total call count is below this
+  // threshold. 0 means no threshold.
+  uint64 min_calls = 2;
 }
 
 // GetQueryRegistryResponse wraps the registry snapshot.

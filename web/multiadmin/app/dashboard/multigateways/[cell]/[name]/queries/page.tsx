@@ -17,6 +17,10 @@ import { useApi } from "@/lib/api/context";
 import type { QueryStatSnapshot } from "@/lib/api/types";
 
 const REFRESH_INTERVAL_MS = 10_000;
+// Cap the response at this many fingerprints so a saturated registry can't
+// ship megabytes of trend data per poll. Equivalent to the typical OLTP
+// "top queries" working set; rare long-tail entries fall off naturally.
+const MAX_FINGERPRINTS_PER_FETCH = 200;
 
 // parseDurationSec converts a protojson Duration string ("0.012s", "5s", etc.)
 // into seconds as a number. Returns 0 on missing/malformed input.
@@ -66,11 +70,14 @@ export default function GatewayQueriesPage({ params }: PageProps) {
 
     async function load() {
       try {
-        const { snapshot } = await api.getGatewayQueries({
-          component: "MULTIGATEWAY",
-          cell: cellName,
-          name: gatewayName,
-        });
+        const { snapshot } = await api.getGatewayQueries(
+          {
+            component: "MULTIGATEWAY",
+            cell: cellName,
+            name: gatewayName,
+          },
+          { limit: MAX_FINGERPRINTS_PER_FETCH },
+        );
         if (cancelled) return;
         setQueries(snapshot.queries || []);
         setTracked(snapshot.tracked_fingerprints || 0);

@@ -220,9 +220,17 @@ export class MultiAdminClient {
 
   // Gateway diagnostics
 
-  async getGatewayQueries(gatewayId: ID): Promise<GetGatewayQueriesResponse> {
+  async getGatewayQueries(
+    gatewayId: ID,
+    options?: { limit?: number; minCalls?: number },
+  ): Promise<GetGatewayQueriesResponse> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append("limit", options.limit.toString());
+    if (options?.minCalls)
+      params.append("min_calls", options.minCalls.toString());
+    const qs = params.toString();
     return this.fetch<GetGatewayQueriesResponse>(
-      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/queries`,
+      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/queries${qs ? `?${qs}` : ""}`,
     );
   }
 
