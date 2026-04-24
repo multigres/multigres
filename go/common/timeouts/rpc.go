@@ -47,3 +47,8 @@ const DefaultSnapshotInterval = 5 * time.Second
 // sufficient for most network conditions and allows for some variability in
 // response times without causing undue delays in recovery.
 const PollResponseWait = 500 * time.Millisecond
+
+// readyDialTimeout bounds each probe dial. Local dials complete in microseconds,
+// 500ms stays well within Kubernetes' default probe timeoutSeconds: 1, leaving
+// headroom for HTTP overhead. It is a safety net for a kernel under extreme load.
+const ReadyDialTimeout = 500 * time.Millisecond

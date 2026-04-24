@@ -164,6 +164,30 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Register /ready probe: postgres socket accepting + gRPC accepting.
+	// Replication health is intentionally excluded (see pgctldReadyHandler).
+	pgSocketPath := filepath.Join(
+		pgctld.PostgresSocketDir(poolerDir),
+		fmt.Sprintf(".s.PGSQL.%d", s.pgCtlCmd.pgPort.Get()),
+	)
+	s.senv.RegisterReadyCheck(func() error {
+		if !unixSocketAccepting(pgSocketPath) {
+			return errors.New("postgres socket not accepting")
+		}
+		return nil
+	})
+
+	grpcSocketPath := s.grpcServer.SocketFile()
+	grpcBindAddress := s.grpcServer.BindAddress()
+	grpcPort := s.grpcServer.Port()
+
+	s.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
+
 	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),

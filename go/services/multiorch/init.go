@@ -158,7 +158,14 @@ func (mo *MultiOrch) Init() error {
 	)
 
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
-	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
+	mo.senv.RegisterReadyCheck(func() error {
+		mo.serverStatus.mu.Lock()
+		defer mo.serverStatus.mu.Unlock()
+		if len(mo.serverStatus.InitError) > 0 {
+			return errors.New(mo.serverStatus.InitError)
+		}
+		return nil
+	})
 
 	// Create RPC client for recovery engine health checks
 	transportCreds, err := mo.connConfig.TransportCredentials(logger)
