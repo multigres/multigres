@@ -28,7 +28,7 @@ jobs:
     name: Run pgbench benchmarks
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run PgBench Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Benchmarks')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,7 +68,7 @@ jobs:
 
       - name: Run pgbench benchmarks
         env:
-          RUN_PGBENCH: "1"
+          RUN_BENCHMARKS: "1"
           PGBENCH_DURATION: "30"
           PGBENCH_CLIENTS: "1,10,50"
           TEST_PRINT_LOGS: "1"

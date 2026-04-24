@@ -75,18 +75,16 @@ var protocols = []protocolConfig{
 // file, per-protocol pass/fail counts over time (like pgregresstest). CI
 // compares against a cached baseline; regressions surface there.
 //
-// Skipped by default. Set RUN_SQLLOGICTEST=1 to run.
+// Skipped by default. Set RUN_EXTENDED_QUERY_SERVING_TESTS=1 to run.
 //
 // Environment variables:
 //
-//	RUN_SQLLOGICTEST=1        — enable the test (required)
-//	SLT_CORPUS_DIR=<dir>      — use an external corpus instead of testdata/
-//	SLT_CORPUS_GLOB=<glob>    — scope which corpus files run (default: **/*.slt)
-//	SLT_PER_FILE_TIMEOUT=<d>  — Go duration, e.g. "90s" (default: 5m)
+//	RUN_EXTENDED_QUERY_SERVING_TESTS=1  — enable the test (required)
+//	SLT_CORPUS_DIR=<dir>                — use an external corpus instead of testdata/
+//	SLT_CORPUS_GLOB=<glob>              — scope which corpus files run (default: **/*.slt)
+//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 5m)
 func TestPostgreSQLSqlLogicTest(t *testing.T) {
-	if os.Getenv("RUN_SQLLOGICTEST") != "1" {
-		t.Skip("skipping sqllogictest: set RUN_SQLLOGICTEST=1 to run")
-	}
+	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 
 	if _, err := exec.LookPath("sqllogictest"); err != nil {
 		t.Fatalf("sqllogictest binary not found on PATH; run `make tools` to install it: %v", err)

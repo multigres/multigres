@@ -29,7 +29,7 @@ jobs:
     name: Run PostgreSQL compatibility tests
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run PgRegress Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,8 +68,7 @@ jobs:
 
       - name: Run PostgreSQL compatibility tests
         env:
-          RUN_PGREGRESS: "1"
-          RUN_PGISOLATION: "1"
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
