@@ -494,20 +494,14 @@ type StatusResponse struct {
 	Role PostgresRole `protobuf:"varint,9,opt,name=role,proto3,enum=consensusdata.PostgresRole" json:"role,omitempty"`
 	// Timeline information for divergence detection
 	TimelineInfo *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
-	// The term for which this multipooler was promoted to primary.
-	// Set during promotion (Promote).
-	// Preserved when consensus term increases (new elections).
-	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
-	// 0 if never primary. For current primaries, must be non-zero.
-	PrimaryTerm int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	// The pooler's current consensus status: its term revocation, committed
 	// rule position, and highest known rule. Authoritative view of where this
 	// pooler stands in the distributed system.
-	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,12,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
+	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,11,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	// Best-effort operational fitness signals for this node. These signals are
 	// in-memory and may be absent after a process restart. Coordinators treat
 	// absence as "unknown," not "unfit."
-	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,13,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
+	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,12,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -596,13 +590,6 @@ func (x *StatusResponse) GetTimelineInfo() *TimelineInfo {
 		return x.TimelineInfo
 	}
 	return nil
-}
-
-func (x *StatusResponse) GetPrimaryTerm() int64 {
-	if x != nil {
-		return x.PrimaryTerm
-	}
-	return 0
 }
 
 func (x *StatusResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
@@ -694,7 +681,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x10consensus_status\x18\x05 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x9c\x04\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xf9\x03\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -706,10 +693,9 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04cell\x18\a \x01(\tR\x04cell\x12/\n" +
 	"\x04role\x18\t \x01(\x0e2\x1b.consensusdata.PostgresRoleR\x04role\x12@\n" +
 	"\rtimeline_info\x18\n" +
-	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
-	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\x12K\n" +
-	"\x10consensus_status\x18\f \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12T\n" +
-	"\x13availability_status\x18\r \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"/\n" +
+	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12K\n" +
+	"\x10consensus_status\x18\v \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12T\n" +
+	"\x13availability_status\x18\f \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\"/\n" +
 	"\fTimelineInfo\x12\x1f\n" +
 	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
 	"timelineId*s\n" +

@@ -29,11 +29,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
-	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	adminserver "github.com/multigres/multigres/go/services/multiadmin"
 	"github.com/multigres/multigres/go/test/utils"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // removeDataDirectory removes the pg_data directory for a given pgctld instance
@@ -240,7 +243,10 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
 					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
-					assert.Equal(t, int64(0), statusResp.Status.ConsensusTerm.PrimaryTerm,
+					consensusStatusCtx := utils.WithShortDeadline(t)
+					consensusResp, err := standbyConsensusClient.Status(consensusStatusCtx, &consensusdatapb.StatusRequest{})
+					require.NoError(t, err, "Should be able to get consensus status after restore")
+					assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore

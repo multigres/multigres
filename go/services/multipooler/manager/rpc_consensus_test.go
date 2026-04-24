@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -37,6 +38,45 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
+
+// observePositionRow builds a mock result row for the observePosition query
+// where the rule names primaryAppName (e.g. "zone1_stale-primary") as the
+// primary with the given coordinator term.
+func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string, [][]any) {
+	cols := []string{
+		"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+		"durability_policy_name", "durability_quorum_type", "durability_required_count",
+		"durability_async_fallback", "current_lsn",
+	}
+	row := [][]any{{
+		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
+		nil, nil, nil, nil, "0/1",
+	}}
+	return cols, row
+}
+
+// expectObservePositionAsCurrentPrimary queues one-shot mocks so that the pre-
+// demotion observePosition calls (one from manager startup's checkAndSetReady
+// and one from DemoteStalePrimary's "already demoted" check) both report this
+// pooler as the primary of the current rule with the given coordinatorTerm.
+// A subsequent expectObservePositionAsStalePrimary call can install a persistent
+// post-demotion mock for the final assertion.
+func expectObservePositionAsCurrentPrimary(m *mock.QueryService, appName string, coordinatorTerm int64) {
+	cols, row := observePositionRow(appName, coordinatorTerm)
+	// Consumed by checkAndSetReady during manager startup.
+	m.AddQueryPatternOnce("FROM multigres.current_rule", mock.MakeQueryResult(cols, row))
+	// Consumed by DemoteStalePrimary's "already demoted" check.
+	m.AddQueryPatternOnce("FROM multigres.current_rule", mock.MakeQueryResult(cols, row))
+}
+
+// expectObservePositionAsStalePrimary sets up a persistent mock so subsequent
+// calls to pm.primaryTermLocked return 0 for the original pooler:
+// observePosition reports primaryAppName (a different pooler) as the rule
+// primary. Useful for asserting state after DemoteStalePrimary has completed.
+func expectObservePositionAsStalePrimary(m *mock.QueryService, primaryAppName string, coordinatorTerm int64) {
+	cols, row := observePositionRow(primaryAppName, coordinatorTerm)
+	m.AddQueryPattern("FROM multigres.current_rule", mock.MakeQueryResult(cols, row))
+}
 
 // expectStandbyRevokeMocks sets up mock expectations for the standby revoke path:
 // receiver disconnect, wait for disconnect, and replay stabilization.
@@ -968,8 +1008,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		{
 			name: "SuccessfulDemotion_UpdatesTermFromLowerToHigher",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:  5,
-				PrimaryTerm: 5, // Was primary in term 5
+				TermNumber: 5,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -981,6 +1020,13 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				}
 			},
 			setupQueryMock: func(m *mock.QueryService) {
+				// observePosition reports this pooler as the current primary, so
+				// the "already demoted" check does not short-circuit.
+				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
+				// After demotion, the rule names the source pooler as primary; this
+				// persistent mock lets the post-demotion assertion see primary_term=0.
+				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
+
 				// waitForDatabaseConnection after restart - health check
 				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 
@@ -1001,8 +1047,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		{
 			name: "OutdatedTerm_RejectedWithoutForce",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:  15,
-				PrimaryTerm: 15,
+				TermNumber: 15,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -1010,7 +1055,12 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// Should not reach pg_rewind since term validation fails
 			},
 			setupQueryMock: func(m *mock.QueryService) {
-				// No queries should execute
+				// observePosition reports this pooler as the current primary, so
+				// DemoteStalePrimary proceeds to term validation (which fails).
+				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 15)
+				// Demotion didn't happen, so the rule still names this pooler as
+				// primary for the post-error assertion.
+				expectObservePositionAsStalePrimary(m, "zone1_stale-primary", 15)
 			},
 			expectedFinalConsensusTerm: 15, // Term should remain unchanged
 			expectedPrimaryTerm:        15, // Primary term should remain unchanged
@@ -1021,8 +1071,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		{
 			name: "OutdatedTerm_AcceptedWithForce",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:  15,
-				PrimaryTerm: 15,
+				TermNumber: 15,
 			},
 			requestTerm: 10,
 			force:       true,
@@ -1033,6 +1082,13 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				}
 			},
 			setupQueryMock: func(m *mock.QueryService) {
+				// observePosition reports this pooler as the current primary, so
+				// the "already demoted" check does not short-circuit.
+				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
+				// After demotion, the rule names the source pooler as primary; this
+				// persistent mock lets the post-demotion assertion see primary_term=0.
+				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
+
 				// waitForDatabaseConnection after restart - health check
 				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 
@@ -1053,8 +1109,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		{
 			name: "SameTerm_Idempotent",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:  10,
-				PrimaryTerm: 10,
+				TermNumber: 10,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -1065,6 +1120,13 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				}
 			},
 			setupQueryMock: func(m *mock.QueryService) {
+				// observePosition reports this pooler as the current primary, so
+				// the "already demoted" check does not short-circuit.
+				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
+				// After demotion, the rule names the source pooler as primary; this
+				// persistent mock lets the post-demotion assertion see primary_term=0.
+				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
+
 				// waitForDatabaseConnection after restart - health check
 				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 
@@ -1142,6 +1204,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 			tt.setupQueryMock(mockQueryService)
 			pm.qsc = &mockPoolerController{queryService: mockQueryService}
+			pm.rules = newRuleStore(logger, mockQueryService)
 
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			pm.Start(senv)
@@ -1190,8 +1253,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFinalConsensusTerm, persistedTerm.TermNumber,
 				"Consensus term should be %d but got %d", tt.expectedFinalConsensusTerm, persistedTerm.TermNumber)
-			assert.Equal(t, tt.expectedPrimaryTerm, persistedTerm.PrimaryTerm,
-				"Primary term should be %d but got %d", tt.expectedPrimaryTerm, persistedTerm.PrimaryTerm)
+			cs, err := pm.getInconsistentConsensusStatus(ctx)
+			require.NoError(t, err)
+			primaryTerm := commonconsensus.PrimaryTerm(cs)
+			assert.Equal(t, tt.expectedPrimaryTerm, primaryTerm,
+				"Primary term should be %d but got %d", tt.expectedPrimaryTerm, primaryTerm)
 
 			// Verify topology was updated to REPLICA (only on success).
 			// The write is asynchronous so we poll until the publisher catches up.

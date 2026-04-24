@@ -363,6 +363,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
+			manager.rules = newRuleStore(logger, mockQueryService)
+			manager.rules = newRuleStore(logger, mockQueryService)
 
 			// Start and wait for ready
 			senv := servenv.NewServEnv(viperutil.NewRegistry())

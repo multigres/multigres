@@ -32,10 +32,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -152,9 +154,13 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err, "Should be able to get status from primary")
 		require.NotNil(t, status.Status.ConsensusTerm, "Primary should have consensus term")
 		assert.Equal(t, int64(1), status.Status.ConsensusTerm.TermNumber, "Primary should be on term 1 after bootstrap")
-		assert.Equal(t, int64(1), status.Status.ConsensusTerm.PrimaryTerm, "Primary term should be set to 1 after bootstrap")
+		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
+		consensusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
+		require.NoError(t, err, "Should be able to get consensus status from primary")
+		primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
+		assert.Equal(t, int64(1), primaryTerm, "Primary term should be set to 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.Status.ConsensusTerm.TermNumber, status.Status.ConsensusTerm.PrimaryTerm)
+			status.Status.ConsensusTerm.TermNumber, primaryTerm)
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -175,20 +181,22 @@ func TestBootstrapInitialization(t *testing.T) {
 
 			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
-
 			require.NoError(t, err)
 			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
 				require.NotNil(t, status.Status.ConsensusTerm, "Standby %s should have consensus term", name)
-				assert.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+				consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
+				require.NoError(t, err, "Standby %s: should be able to get consensus status", name)
+				primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
+				assert.Equal(t, int64(0), primaryTerm,
 					"Standby %s should have primary_term=0 (never been primary)", name)
 
 				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
-					name, status.Status.PoolerType, status.Status.ConsensusTerm.PrimaryTerm)
+					name, status.Status.PoolerType, primaryTerm)
 			}
+			client.Close()
 		}
 		// Should have at least 1 standby
 		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")

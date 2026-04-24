@@ -31,12 +31,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/utils"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestDeadPrimaryRecovery tests multiorch's ability to detect a primary failure
@@ -164,10 +165,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
 		require.NoError(t, err)
 		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get status from new primary")
+		consensusResp, err := newPrimaryClient.Consensus.Status(utils.WithTimeout(t, 5*time.Second), &consensusdatapb.StatusRequest{})
+		newPrimaryClient.Close()
+		require.NoError(t, err, "should be able to get consensus status from new primary")
 		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
-		newPrimaryTermActual := status.Status.ConsensusTerm.PrimaryTerm
+		newPrimaryTermActual := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -297,14 +300,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err)
 
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-		client.Close()
-
 		require.NoError(t, err)
 		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 			require.NotNil(t, status.Status.ConsensusTerm, "Replica %s should have consensus term", name)
-			assert.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+			consensusResp, err := client.Consensus.Status(utils.WithTimeout(t, 5*time.Second), &consensusdatapb.StatusRequest{})
+			require.NoError(t, err, "Replica %s: should be able to get consensus status", name)
+			assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
 				"Replica %s should have primary_term=0 (never been primary)", name)
 		}
+		client.Close()
 	}
 
 	// Verify final primary is functional

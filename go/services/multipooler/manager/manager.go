@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -715,12 +716,17 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			close(pm.readyChan)
 		}
 
-		// Set initial primary observation from loaded consensus state.
-		if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
-			pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-				PrimaryID:   pm.serviceID,
-				PrimaryTerm: term.GetPrimaryTerm(),
-			})
+		// Set initial primary observation from the highest known rule.
+		// TODO: This publishes PrimaryID as ourselves without first verifying that
+		// the highest known rule actually has us as the primary. Address in a
+		// follow-up PR (check rule.PrimaryId before publishing).
+		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
+			if primaryTerm := commonconsensus.PrimaryTerm(cs); primaryTerm > 0 {
+				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+					PrimaryID:   pm.serviceID,
+					PrimaryTerm: primaryTerm,
+				})
+			}
 		}
 	}
 }
@@ -1453,6 +1459,9 @@ type postgresState struct {
 	backupsAvailable         bool
 	isPrimary                bool
 	bootstrapSentinelPresent bool
+	// primaryTerm is the coordinator term at which this pooler is the primary
+	// per the highest known rule. 0 if we are not the primary for that rule.
+	primaryTerm int64
 }
 
 // remedialAction represents actions the postgres monitor can take
@@ -1544,7 +1553,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	action = pm.determineRemedialAction(currentState)
 
 	// Take remedial action with lock held
-	pm.takeRemedialAction(lockCtx, action)
+	pm.takeRemedialAction(lockCtx, action, currentState)
 }
 
 // discoverPostgresState discovers the current state of PostgreSQL. Returns an
@@ -1581,6 +1590,11 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
 		}
+		// Lock-free first pass from the monitor: use the inconsistent read,
+		// which falls back to the cached rule when postgres is unreachable.
+		if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
+			state.primaryTerm = commonconsensus.PrimaryTerm(cs)
+		}
 	}
 
 	// Check if backups are available (only if directory not initialized)
@@ -1597,6 +1611,25 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	state.bootstrapSentinelPresent = sentinelPresent
 
 	return state, nil
+}
+
+// primaryTermLocked returns the coordinator term of the pooler's current
+// committed rule if this pooler is the primary per that rule. Uses a
+// consistent consensus status read and therefore requires the action lock.
+// Returns (0, nil) when the rule does not name this pooler as primary.
+// Returns (0, err) only when the consensus status cannot be read at all —
+// callers that need to distinguish "confirmed not primary" from "unknown"
+// must inspect the error.
+//
+// Callers that cannot hold the action lock should read
+// getInconsistentConsensusStatus themselves and pass the result to
+// consensus.PrimaryTerm.
+func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
+	cs, err := pm.getConsensusStatus(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read consensus status: %w", err)
+	}
+	return commonconsensus.PrimaryTerm(cs), nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
@@ -1628,11 +1661,10 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		// signal needs to be (re-)published. This handles the case where the signal was
 		// lost after a process restart following EmergencyDemote.
 		if !currentState.isPrimary {
-			term, _ := pm.consensusState.GetInconsistentTerm()
 			pm.mu.Lock()
 			resigned := pm.resignedPrimaryAtTerm
 			pm.mu.Unlock()
-			if term.GetPrimaryTerm() != 0 && resigned == 0 {
+			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
 			}
 		}
@@ -1661,7 +1693,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 
 // takeRemedialAction executes the specified remedial action.
 // Caller must hold the action lock.
-func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction) {
+func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
 	// Assert that the action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
@@ -1696,11 +1728,10 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// Signal voluntary resignation so the coordinator can trigger an immediate
 		// election. Use the primary_term (the term at which we were elected) since
 		// the coordinator uses this to decide whether the signal is still active.
-		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
-		// consensus term from there for a more precise resignation signal.
-		if term, err := pm.consensusState.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
-			if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+		if state.primaryTerm != 0 {
+			if err := pm.setResignedPrimaryAtTerm(ctx, state.primaryTerm); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+				return
 			}
 		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {

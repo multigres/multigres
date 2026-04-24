@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -203,11 +204,8 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		}
 
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Get its PrimaryTerm (not consensus term)
-			var primaryTerm int64
-			if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil {
-				primaryTerm = ct.PrimaryTerm
-			}
+			// Get its PrimaryTerm (not consensus term) from its current rule.
+			primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 
 			if primaryTerm > maxPrimaryTerm {
 				maxPrimaryTerm = primaryTerm

@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/tools/pgutil"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -95,12 +96,19 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 		return nil, nil, 0, mterrors.Wrapf(err, "candidacy validation failed for shard %s", shardID)
 	}
 
-	// Separate candidate from standbys
+	// Resigned poolers are excluded: they may still carry a stale primary rule
+	// that needs pg_rewind, which the stale-primary analyzer owns.
 	var standbys []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range recruitedPoolers {
-		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
-			standbys = append(standbys, pooler)
+		if pooler.MultiPooler.Id.Name == candidate.MultiPooler.Id.Name {
+			continue
 		}
+		if types.PrimaryNeedsReplacement(pooler) {
+			c.logger.InfoContext(ctx, "Skipping resigned pooler from standbys",
+				"pooler", pooler.MultiPooler.Id.Name)
+			continue
+		}
+		standbys = append(standbys, pooler)
 	}
 
 	return candidate, standbys, proposedTerm, nil
@@ -226,7 +234,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 		// unconditionally avoids confusing re-elections of a node that just
 		// stepped down. If all candidates are resigned the election is deferred
 		// until a non-resigned candidate is available.
-		if poolerRequestingDemotion(r.pooler) {
+		if types.PrimaryNeedsReplacement(r.pooler) {
 			c.logger.InfoContext(ctx, "Skipping resigned candidate during selection",
 				"pooler", r.pooler.MultiPooler.Id.Name)
 			continue
@@ -284,18 +292,6 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 type recruitmentResult struct {
 	pooler      *multiorchdatapb.PoolerHealthState
 	walPosition *consensusdatapb.WALPosition
-}
-
-// poolerRequestingDemotion reports whether the pooler's cached health state shows it has
-// voluntarily requested to be replaced (REQUESTING_DEMOTION signal at its current primary term).
-// This duplicates the logic in recovery/types.PrimaryNeedsReplacement to avoid a circular import
-// (recovery imports consensus; consensus cannot import recovery).
-func poolerRequestingDemotion(pooler *multiorchdatapb.PoolerHealthState) bool {
-	ls := pooler.GetConsensusStatus().GetAvailabilityStatus().GetLeadershipStatus()
-	return ls != nil &&
-		ls.Signal == clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION &&
-		ls.PrimaryTerm != 0 &&
-		ls.PrimaryTerm == pooler.GetConsensusStatus().GetPrimaryTerm()
 }
 
 // recruitNodes sends BeginTerm RPC to all poolers in parallel and returns those that accepted.
