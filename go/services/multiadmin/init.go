@@ -139,7 +139,6 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 
 	ma.senv.HTTPHandleFunc("/", ma.handleIndex)
 	ma.senv.HTTPHandleFunc("/proxy/", ma.handleProxy)
-	ma.senv.HTTPHandleFunc("/ready", ma.handleReady)
 	ma.senv.HTTPHandleFunc("/services", ma.handleServices)
 
 	ma.senv.OnClose(func() {

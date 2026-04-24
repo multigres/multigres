@@ -74,11 +74,3 @@ func (ma *MultiAdmin) handleServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
-
-// handleReady serves the readiness check. For now, it's always ready.
-func (ma *MultiAdmin) handleReady(w http.ResponseWriter, r *http.Request) {
-	if err := web.Templates.ExecuteTemplate(w, "isok.html", true); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
-}

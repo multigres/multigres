@@ -15,9 +15,14 @@
 package servenv
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestGenerateRandomServiceID(t *testing.T) {
@@ -42,5 +47,57 @@ func TestGenerateRandomServiceID(t *testing.T) {
 			require.False(t, seen[id], "should not generate duplicate IDs")
 			seen[id] = true
 		}
+	})
+}
+
+func TestRegisterReadyCheck(t *testing.T) {
+	newSE := func() *ServEnv {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.RegisterCommonHTTPEndpoints()
+		return se
+	}
+
+	t.Run("no checks returns 200", func(t *testing.T) {
+		se := newSE()
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("failing check returns 503", func(t *testing.T) {
+		se := newSE()
+		se.RegisterReadyCheck(func() error { return errors.New("not ready") })
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
+		require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	})
+
+	t.Run("first check fails short-circuits", func(t *testing.T) {
+		se := newSE()
+		secondCalled := false
+		se.RegisterReadyCheck(func() error { return errors.New("first") })
+		se.RegisterReadyCheck(func() error { secondCalled = true; return nil })
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
+		require.Equal(t, http.StatusServiceUnavailable, w.Code)
+		require.False(t, secondCalled)
+	})
+
+	t.Run("second check fails returns 503", func(t *testing.T) {
+		se := newSE()
+		se.RegisterReadyCheck(func() error { return nil })
+		se.RegisterReadyCheck(func() error { return errors.New("second") })
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
+		require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	})
+
+	t.Run("all checks pass returns 200", func(t *testing.T) {
+		se := newSE()
+		se.RegisterReadyCheck(func() error { return nil })
+		se.RegisterReadyCheck(func() error { return nil })
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
+		require.Equal(t, http.StatusOK, w.Code)
 	})
 }
