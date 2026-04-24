@@ -37,7 +37,7 @@ Three things are true in the final design that are not true of a trust-on-the-so
 
 - **Client-certificate authentication.** Cert-authenticated sessions do not produce SCRAM keys; how MultiPooler dials for them is a separate design.
 - **SCRAM-SHA-256-PLUS (channel binding).** Internal gRPC between MultiGateway and MultiPooler is mTLS-protected, which covers the bulk of the MITM story for the wire segment where keys are exposed.
-- **Per-user key caching on MultiPooler.** Possible optimization; not required for correctness.
+- **Per-user key caching on MultiPooler.** A pool caches keys at first-creation and relies on rotation-triggered eviction (see *Password rotation*) to refresh them. A short-TTL key cache is a possible future optimization for scenarios where eviction churn becomes visible.
 - **Credential storage outside PostgreSQL.** All verifiers continue to live in `pg_authid`.
 - **Fallback to MD5 or cleartext auth.** Both are explicitly rejected by the wire-protocol client.
 
@@ -61,9 +61,17 @@ MultiGateway populates `UserAuth` from the session's captured keys on every outb
 
 `pgprotocol/client.Config` carries optional `ClientKey` and `ServerKey`. The client-side auth dispatch in `client/startup.go:handleAuthenticationRequest` branches on their presence: when set, it constructs a SCRAM client via `newScramClientWithKeys(user, clientKey, serverKey)`; otherwise it uses the password path.
 
-`connpoolmanager.Manager` routes keys from the inbound RPC into the user-pool backend dial. User pools are keyed by username and carry the session's keys into their `client.Config` at dial time. Because keys are a property of the user session, distinct sessions for the same user carry their own keys independently — the pool's identity-of-user semantics are unchanged.
+`connpoolmanager.Manager` routes keys from the inbound RPC into the user-pool backend dial. User pools are keyed by username and carry the session's keys into their `client.Config` at the pool's first-time creation. Because `ClientKey` is deterministic over `(user, password)`, keys cached on the pool are correct for every concurrent session of that user as long as the password is stable — see *Password rotation* below for the self-heal.
 
 The admin pool is unaffected: it authenticates with a configured superuser password, independent of any user's session, and is what makes `GetAuthCredentials` (the `pg_authid` lookup that feeds the handshake) possible in the first place.
+
+### Password rotation
+
+`ClientKey` is a function of `SaltedPassword`, so rotating a user's password in `pg_authid` makes every pool whose `ClientConfig` was built from the old verifier unable to dial a fresh backend connection — the new pg_authid verifier rejects the proof. Without intervention, the pool stays in place and keeps failing authentication on every refill attempt.
+
+The manager self-heals. `withReopenRetry` detects a class-28 SQLSTATE (`28P01` or any other *Invalid Authorization Specification* code) on the dial path, evicts the stale user pool from the snapshot, and retries once using the triggering session's keys. Those keys are known-current: they were derived moments earlier during the session's SCRAM handshake at MultiGateway against whatever verifier `pg_authid` holds right now. A concurrent session racing the same rotation may evict first, in which case the late caller's eviction is a no-op and it retries against the fresh pool.
+
+The retry is single-shot. If the retry itself auth-fails — e.g. the retrier is a long-running session still carrying old keys — the clean class-28 error propagates to the client, who reconnects, re-handshakes against the new verifier, and their reconnect is what populates a fresh pool.
 
 ### `pg_hba.conf`
 
@@ -75,7 +83,7 @@ Replication-related trust lines remain as a narrower scope, separate from the qu
 
 ### Failure modes
 
-- **Stale keys (password rotated in PostgreSQL).** The SCRAM handshake from MultiPooler to PostgreSQL fails. MultiPooler treats this as a non-retryable, session-fatal error: the failed connection is discarded, the client is disconnected with a clean error, and a reconnect through MultiGateway re-derives fresh keys from the new verifier.
+- **Stale keys on an existing pool (password rotated in PostgreSQL).** The first dial from the pool with stale keys fails with class-28 SQLSTATE. The manager evicts the pool (see *Password rotation*) and retries with the triggering session's fresh keys. If the retry also auth-fails, the error propagates and the client reconnects to re-derive keys.
 - **Missing keys on an RPC.** The RPC fails closed with a clear error. In steady state this should not happen — every authenticated session has keys — so this is a defensive check, not an expected path.
 - **Admin pool failure.** Independent of passthrough. If the admin pool cannot reach PostgreSQL, MultiPooler cannot serve `GetAuthCredentials` and no handshake can complete; passthrough is a no-op because no session ever reaches the authenticated state.
 
