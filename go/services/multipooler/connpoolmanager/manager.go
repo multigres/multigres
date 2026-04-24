@@ -24,6 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
@@ -468,15 +469,67 @@ func (m *Manager) NewReservedConnWithAuth(ctx context.Context, settings map[stri
 	})
 }
 
-// withReopenRetry runs op against the current user pool and, if op returns
-// ErrPoolClosed because a concurrent reopenConnections() swapped the pools
-// mid-flight, retries once against the fresh pool. Genuine closed-pool errors
-// (manager shutting down for real) are surfaced to the caller unchanged
-// because the generation will not have advanced.
+// evictUserPool removes stale from the snapshot and closes it. Used when a
+// pool's cached SCRAM keys no longer match pg_authid — typically because the
+// user rotated their PostgreSQL password — so the next getOrCreateUserPool
+// call rebuilds from the triggering session's fresh keys.
+//
+// Eviction is a no-op (returns false) if a racing caller already swapped the
+// snapshot to a different pool for this user, or dropped the entry entirely.
+// Callers should still retry against whatever the snapshot now holds: the
+// racing caller's fresh pool is the right target, and if the entry is gone
+// getOrCreateUserPool creates a new one.
+func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return false
+	}
+	current, ok := (*pools)[user]
+	if !ok || current != stale {
+		return false
+	}
+
+	newPools := make(map[string]*UserPool, len(*pools)-1)
+	for u, p := range *pools {
+		if u == user {
+			continue
+		}
+		newPools[u] = p
+	}
+	m.userPoolsSnapshot.Store(&newPools)
+
+	// Close outside the createMu critical section would be safer for latency
+	// but Close is cheap and racing creators already passed the double-check
+	// by now, so finishing synchronously keeps invariants simple.
+	stale.Close()
+	m.logger.InfoContext(m.ctx, "evicted user pool after stale credentials detected", "user", user)
+	return true
+}
+
+// withReopenRetry runs op against the current user pool with two single-shot
+// retry paths for transient, self-healable failures:
+//
+//  1. ErrPoolClosed after a generation bump: reopenConnections() swapped the
+//     pools mid-flight (PostgreSQL auto-restart recovery). Retry against the
+//     fresh pool. A closed-pool error with no generation bump means the
+//     manager is genuinely shutting down — surface it unchanged.
+//
+//  2. Class-28 SQLSTATE from PostgreSQL: the cached user pool's ClientConfig
+//     carries stale SCRAM keys (password rotated in pg_authid). Evict the
+//     pool and recreate from the triggering session's keys, which are
+//     known-current — they were derived moments ago during the session's
+//     SCRAM handshake at MultiGateway against whatever verifier pg_authid
+//     holds right now. If the retry also auth-fails (retrier itself used the
+//     old password at the gateway), we surface the clean 28xxx error and the
+//     client reconnects to re-derive keys against the new verifier.
 //
 // clientKey and serverKey forward the SCRAM passthrough material to
 // getOrCreateUserPool so that a first-time pool creation triggered during
-// this call (including after a reopen swap) gets the session's keys.
+// this call (including after an eviction or reopen swap) gets the session's
+// keys.
 func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
 	var zero T
 	startGen := m.generation.Load()
@@ -485,17 +538,36 @@ func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte
 		return zero, err
 	}
 	result, err := op(pool)
-	if err == nil || !errors.Is(err, connpool.ErrPoolClosed) {
-		return result, err
+	if err == nil {
+		return result, nil
 	}
-	if m.generation.Load() == startGen {
-		return zero, err
+
+	// Manager-restart race: reopenConnections swapped pools mid-flight.
+	if errors.Is(err, connpool.ErrPoolClosed) {
+		if m.generation.Load() == startGen {
+			return zero, err
+		}
+		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
+		if err2 != nil {
+			return zero, err2
+		}
+		return op(pool2)
 	}
-	pool, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
-	if err2 != nil {
-		return zero, err2
+
+	// Stale-key self-heal. evictUserPool is best-effort; even if it returns
+	// false (racing eviction), getOrCreateUserPool returns whatever is in the
+	// snapshot now, which is either a freshly-created pool with fresh keys
+	// or absent (and we create one).
+	if mterrors.IsAuthenticationError(err) {
+		m.evictUserPool(user, pool)
+		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
+		if err2 != nil {
+			return zero, err2
+		}
+		return op(pool2)
 	}
-	return op(pool)
+
+	return zero, err
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.

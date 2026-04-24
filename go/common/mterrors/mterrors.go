@@ -480,3 +480,19 @@ func IsConnectionError(err error) bool {
 
 	return false
 }
+
+// IsAuthenticationError reports whether err surfaced from PostgreSQL's
+// authentication phase — either an invalid password (28P01) or any other
+// class-28 "Invalid Authorization Specification" code. Callers use this to
+// distinguish a stale-credentials failure (where retrying against a fresh
+// verifier might help) from a genuine configuration or connectivity problem.
+func IsAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) {
+		return diag.IsClass("28")
+	}
+	return false
+}
