@@ -789,23 +789,25 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// Get pgbackrest port from pgctld config (pgbackrest is now managed by pgctld)
-	pgctldConfig, err := p.getCellServiceConfig(cell, constants.ServicePgctld)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
-	}
-	pgbackrestPort := ports.DefaultPgbackRestPort
-	if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
-		pgbackrestPort = port
-	}
+	// Add pgbackrest TLS certificate paths and port (only when backup is configured)
+	if p.pgBackRestCertPaths != nil {
+		if pgctldConfig, err := p.getCellServiceConfig(cell, constants.ServicePgctld); err == nil {
+			pgbackrestPort := ports.DefaultPgbackRestPort
+			if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
+				pgbackrestPort = port
+			}
 
-	// Add pgbackrest TLS certificate paths and port
-	args = append(args,
-		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
-		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
-		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
-		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
-	)
+			// Add pgbackrest TLS certificate paths and port
+			args = append(args,
+				"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
+				"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
+				"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
+				"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
+			)
+		} else {
+			return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
+		}
+	}
 
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
@@ -1541,9 +1543,11 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	fmt.Println("")
 
-	// Generate pgBackRest certificates before starting services
-	if err := p.generatePgBackRestCertsOnce(ctx); err != nil {
-		return nil, err
+	// Generate pgBackRest certificates before starting services (skip when backup is disabled)
+	if p.config.Backup.Type != "none" {
+		if err := p.generatePgBackRestCertsOnce(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	// Provision all services in parallel across all cells.
@@ -1651,6 +1655,10 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 // buildBackupLocation creates a BackupLocation proto from config
 func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocation, error) {
 	switch p.config.Backup.Type {
+	case "none":
+		// Backup disabled - no backup location configured
+		return nil, nil
+
 	case "":
 		// No backup type configured - use default filesystem backup location
 		defaultPath := filepath.Join(p.config.RootWorkingDir, "data", "backups")
