@@ -137,7 +137,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	)
 
 	// Sort by priority and apply filtering logic
-	filteredProblems := re.filterAndPrioritize(problems)
+	filteredProblems := re.filterAndPrioritize(ctx, problems)
 
 	// Check if there's a primary problem in this shard
 	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
@@ -172,7 +172,7 @@ func (re *Engine) hasPrimaryProblem(problems []types.Problem) bool {
 // - Sorts by priority (highest first)
 // - If there's a shard-wide problem, return only the highest priority shard-wide problem
 // - Otherwise, return all problems sorted by priority
-func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem {
+func (re *Engine) filterAndPrioritize(ctx context.Context, problems []types.Problem) []types.Problem {
 	if len(problems) == 0 {
 		return problems
 	}
@@ -193,7 +193,7 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 	// If we have shard-wide problems, return only the highest priority one
 	// (since problems are now sorted by priority, the first one is highest)
 	if len(shardWideProblems) > 0 {
-		re.logger.DebugContext(re.shutdownCtx, "shard-wide problem detected, focusing on single recovery",
+		re.logger.DebugContext(ctx, "shard-wide problem detected, focusing on single recovery",
 			"problem_code", shardWideProblems[0].Code,
 			"priority", shardWideProblems[0].Priority,
 			"total_shard_wide", len(shardWideProblems),
