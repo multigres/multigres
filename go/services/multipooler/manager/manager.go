@@ -717,9 +717,8 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		}
 
 		// Set initial primary observation from the highest known rule.
-		// TODO: This publishes PrimaryID as ourselves without first verifying that
-		// the highest known rule actually has us as the primary. Address in a
-		// follow-up PR (check rule.PrimaryId before publishing).
+		// commonconsensus.PrimaryTerm returns 0 unless the rule names us as the
+		// primary, so publishing serviceID here is safe.
 		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
 			if primaryTerm := commonconsensus.PrimaryTerm(cs); primaryTerm > 0 {
 				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{

@@ -204,7 +204,6 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		}
 
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Get its PrimaryTerm (not consensus term) from its current rule.
 			primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 
 			if primaryTerm > maxPrimaryTerm {
