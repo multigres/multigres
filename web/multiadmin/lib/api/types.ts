@@ -223,3 +223,63 @@ export interface StandbyReplicationStatus {
   lag?: string; // Duration as string (e.g., "5s")
   last_xact_replay_timestamp?: string;
 }
+
+// Gateway diagnostics types — match proto/multigatewaymanagerdata.proto.
+//
+// Durations come over the wire as JSON strings ending in "s" (e.g. "0.012s")
+// per protojson defaults; trend slices are oldest-to-newest.
+
+export interface QueryStatSnapshot {
+  fingerprint: string;
+  normalized_sql: string;
+  calls: string; // uint64 → string in protojson
+  errors: string;
+  total_duration?: string;
+  average_duration?: string;
+  min_duration?: string;
+  max_duration?: string;
+  p50_duration?: string;
+  p99_duration?: string;
+  total_rows: string;
+  last_seen?: string;
+  sample_interval?: string;
+  call_rate_trends?: number[];
+  total_time_ms_trends?: number[];
+  p50_ms_trends?: number[];
+  p99_ms_trends?: number[];
+  rows_rate_trends?: number[];
+}
+
+export interface QueryRegistrySnapshot {
+  queries?: QueryStatSnapshot[];
+  tracked_fingerprints: number;
+}
+
+export interface ConsolidatorPreparedStatement {
+  name: string;
+  query: string;
+  refs: number;
+}
+
+export interface ConsolidatorStats {
+  unique_statements: number;
+  total_references: number;
+  connection_count: number;
+  prepared_statements?: ConsolidatorPreparedStatement[];
+}
+
+export interface GetGatewayQueriesRequest {
+  gatewayId: ID;
+}
+
+export interface GetGatewayQueriesResponse {
+  snapshot: QueryRegistrySnapshot;
+}
+
+export interface GetGatewayConsolidatorRequest {
+  gatewayId: ID;
+}
+
+export interface GetGatewayConsolidatorResponse {
+  stats: ConsolidatorStats;
+}

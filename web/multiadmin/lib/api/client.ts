@@ -18,6 +18,8 @@ import type {
   GetBackupsRequest,
   GetBackupsResponse,
   GetPoolerStatusResponse,
+  GetGatewayQueriesResponse,
+  GetGatewayConsolidatorResponse,
   ID,
 } from "./types";
 
@@ -213,6 +215,22 @@ export class MultiAdminClient {
   async getPoolerStatus(poolerId: ID): Promise<GetPoolerStatusResponse> {
     return this.fetch<GetPoolerStatusResponse>(
       `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`,
+    );
+  }
+
+  // Gateway diagnostics
+
+  async getGatewayQueries(gatewayId: ID): Promise<GetGatewayQueriesResponse> {
+    return this.fetch<GetGatewayQueriesResponse>(
+      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/queries`,
+    );
+  }
+
+  async getGatewayConsolidator(
+    gatewayId: ID,
+  ): Promise<GetGatewayConsolidatorResponse> {
+    return this.fetch<GetGatewayConsolidatorResponse>(
+      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/consolidator`,
     );
   }
 }
