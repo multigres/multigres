@@ -519,7 +519,6 @@ func githubBlobURLPrefix() string {
 	return fmt.Sprintf("%s/%s/blob/%s/", serverURL, repo, sha)
 }
 
-
 // WriteMarkdownSummary generates a unified markdown report covering one or more
 // test suites. It writes the report to pb.OutputDir/compatibility-report.md and
 // appends it to GITHUB_STEP_SUMMARY when running in CI.
