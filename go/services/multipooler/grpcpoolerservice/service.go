@@ -193,11 +193,18 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	// This queries pg_authid, which requires superuser access.
 	scramHash, err := conn.Conn.GetRolPassword(ctx, req.Username)
 	if err != nil {
-		// Check if it's a "user not found" error
-		if errors.Is(err, admin.ErrUserNotFound) {
+		// Distinct gRPC codes let the gateway produce native-PG error messages
+		// with the correct SQLSTATE for each rejection class.
+		switch {
+		case errors.Is(err, admin.ErrUserNotFound):
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
+		case errors.Is(err, admin.ErrLoginDisabled):
+			return nil, status.Errorf(codes.PermissionDenied, "user %q is not permitted to log in", req.Username)
+		case errors.Is(err, admin.ErrPasswordExpired):
+			return nil, status.Errorf(codes.Unauthenticated, "password expired for user %q", req.Username)
+		default:
+			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{

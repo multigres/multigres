@@ -72,6 +72,33 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		assert.ErrorIs(t, err, scram.ErrUserNotFound)
 	})
 
+	t.Run("login disabled", func(t *testing.T) {
+		// Pooler flags rolcanlogin=false via PermissionDenied — gateway must
+		// surface scram.ErrLoginDisabled so startup.go emits the 28000 FATAL.
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(status.Error(codes.PermissionDenied, "user is not permitted to log in")),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		_, err := provider.GetPasswordHash(context.Background(), "nologin_user", "testdb")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, scram.ErrLoginDisabled)
+	})
+
+	t.Run("password expired", func(t *testing.T) {
+		// Pooler flags rolvaliduntil elapsed via Unauthenticated — gateway must
+		// map to scram.ErrPasswordExpired so the client sees the opaque
+		// "password authentication failed" error (28P01).
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(status.Error(codes.Unauthenticated, "password expired")),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		_, err := provider.GetPasswordHash(context.Background(), "expired_user", "testdb")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, scram.ErrPasswordExpired)
+	})
+
 	t.Run("user exists but no password", func(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			response: &multipoolerpb.GetAuthCredentialsResponse{

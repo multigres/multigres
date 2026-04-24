@@ -28,6 +28,17 @@ var (
 
 	// ErrAuthenticationFailed indicates the password proof was invalid.
 	ErrAuthenticationFailed = errors.New("authentication failed")
+
+	// ErrLoginDisabled indicates the role has rolcanlogin=false in pg_authid.
+	// Caller should emit PG's "role \"X\" is not permitted to log in" with
+	// SQLSTATE 28000, matching native PostgreSQL.
+	ErrLoginDisabled = errors.New("role not permitted to log in")
+
+	// ErrPasswordExpired indicates the role's rolvaliduntil is in the past.
+	// Caller should emit the opaque "password authentication failed" message
+	// with SQLSTATE 28P01, matching native PostgreSQL's handling of expired
+	// passwords.
+	ErrPasswordExpired = errors.New("password expired")
 )
 
 // PasswordHashProvider is an interface for retrieving password hashes.
@@ -170,8 +181,12 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 	hash, err := a.provider.GetPasswordHash(ctx, a.username, a.database)
 	if err != nil {
 		a.state = stateFailed
-		if errors.Is(err, ErrUserNotFound) {
-			return "", ErrUserNotFound
+		// Forward sentinel errors unwrapped so the caller can match on them
+		// without peeling wrapping layers.
+		if errors.Is(err, ErrUserNotFound) ||
+			errors.Is(err, ErrLoginDisabled) ||
+			errors.Is(err, ErrPasswordExpired) {
+			return "", err
 		}
 		return "", fmt.Errorf("auth: failed to get password hash: %w", err)
 	}

@@ -51,18 +51,26 @@ func NewPoolerHashProvider(client PoolerSystemClient) *PoolerHashProvider {
 }
 
 // GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user from multipooler.
-// Returns scram.ErrUserNotFound if the user does not exist or has no password.
+// Returns scram.ErrUserNotFound if the user does not exist or has no password,
+// scram.ErrLoginDisabled for NOLOGIN roles, or scram.ErrPasswordExpired for
+// roles whose rolvaliduntil has elapsed. Callers (ScramAuthenticator and the
+// gateway startup flow) use these sentinels to emit the matching native-PG
+// error with the correct SQLSTATE.
 func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
 	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
 	})
 	if err != nil {
-		// User not found is returned as NotFound by the multipooler.
-		// PoolerGateway.GetAuthCredentials converts gRPC errors via
-		// mterrors.FromGRPC, so check the mterrors code.
-		if mterrors.Code(err) == mtrpcpb.Code(codes.NotFound) {
+		// PoolerGateway.GetAuthCredentials converts gRPC status errors via
+		// mterrors.FromGRPC, so the native gRPC code surfaces through mterrors.Code.
+		switch mterrors.Code(err) {
+		case mtrpcpb.Code(codes.NotFound):
 			return nil, scram.ErrUserNotFound
+		case mtrpcpb.Code(codes.PermissionDenied):
+			return nil, scram.ErrLoginDisabled
+		case mtrpcpb.Code(codes.Unauthenticated):
+			return nil, scram.ErrPasswordExpired
 		}
 		return nil, fmt.Errorf("failed to get auth credentials: %w", err)
 	}
