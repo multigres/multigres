@@ -23,6 +23,8 @@ ADDLICENSE_VER = v1.2.0
 export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
+SQLLOGICTEST_VER = v0.29.1
+export SQLLOGICTEST_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
