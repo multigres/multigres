@@ -47,6 +47,6 @@ func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	currentTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus().GetConsensusStatus())
-	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == currentTerm
+	primaryTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus().GetConsensusStatus())
+	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == primaryTerm
 }
