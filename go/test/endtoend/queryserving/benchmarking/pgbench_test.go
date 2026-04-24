@@ -15,28 +15,26 @@
 package benchmarking
 
 import (
-	"os"
 	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestPgBench runs pgbench benchmarks against direct PostgreSQL, multigateway,
 // and optionally pgbouncer, then generates a comparison report.
 //
-// The test is skipped by default. Set RUN_PGBENCH=1 to run.
+// The test is skipped by default. Set RUN_BENCHMARKS=1 to run.
 //
 // Environment variables:
-//   - RUN_PGBENCH=1: enable benchmark tests
+//   - RUN_BENCHMARKS=1: enable benchmark tests
 //   - PGBENCH_DURATION: seconds per scenario (default: 30)
 //   - PGBENCH_CLIENTS: comma-separated client counts (default: "1,10,50")
 func TestPgBench(t *testing.T) {
-	if os.Getenv("RUN_PGBENCH") != "1" {
-		t.Skip("skipping pgbench tests (set RUN_PGBENCH=1 to run)")
-	}
+	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunBenchmarks)
 
 	if _, err := exec.LookPath("pgbench"); err != nil {
 		t.Skipf("pgbench binary not found: %v", err)
@@ -48,7 +46,7 @@ func TestPgBench(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Minute)
 
 	primary := setup.GetPrimary(t)
-	pgTarget := BenchmarkTarget{
+	pgTarget := suiteutil.Target{
 		Name: "postgres",
 		Host: "localhost",
 		Port: primary.Pgctld.PgPort,
@@ -56,7 +54,7 @@ func TestPgBench(t *testing.T) {
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
 	}
-	mgwTarget := BenchmarkTarget{
+	mgwTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "localhost",
 		Port: setup.MultigatewayPgPort,
@@ -65,14 +63,14 @@ func TestPgBench(t *testing.T) {
 		DB:   "postgres",
 	}
 
-	targets := []BenchmarkTarget{pgTarget, mgwTarget}
+	targets := []suiteutil.Target{pgTarget, mgwTarget}
 
 	// Optional pgbouncer target
 	pgb, err := NewPgBouncerInstance(t, "localhost", primary.Pgctld.PgPort,
 		shardsetup.DefaultTestUser, shardsetup.TestPostgresPassword)
 	if err == nil && pgb != nil {
 		t.Cleanup(func() { pgb.Stop(t) })
-		targets = append(targets, BenchmarkTarget{
+		targets = append(targets, suiteutil.Target{
 			Name: "pgbouncer",
 			Host: "localhost",
 			Port: pgb.Port(),
