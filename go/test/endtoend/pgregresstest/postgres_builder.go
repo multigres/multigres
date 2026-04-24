@@ -504,6 +504,22 @@ type SuiteResult struct {
 	ExpectedTests int          // total tests from schedule file (0 = unknown)
 }
 
+// githubBlobURLPrefix returns an absolute URL prefix of the form
+// "https://github.com/<owner>/<repo>/blob/<sha>/" when running inside a
+// GitHub Actions job, or an empty string otherwise. Repo-relative paths
+// concatenated onto this prefix resolve to the blob view of that file at
+// the exact commit the job is executing against.
+func githubBlobURLPrefix() string {
+	serverURL := os.Getenv("GITHUB_SERVER_URL")
+	repo := os.Getenv("GITHUB_REPOSITORY")
+	sha := os.Getenv("GITHUB_SHA")
+	if serverURL == "" || repo == "" || sha == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/blob/%s/", serverURL, repo, sha)
+}
+
+
 // WriteMarkdownSummary generates a unified markdown report covering one or more
 // test suites. It writes the report to pb.OutputDir/compatibility-report.md and
 // appends it to GITHUB_STEP_SUMMARY when running in CI.
@@ -532,6 +548,13 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`\n", PostgresVersion)
 	fmt.Fprintf(&sb, "**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339))
+
+	// Build an absolute URL prefix for patch links when running in CI.
+	// Without this, markdown like [patch](go/test/.../foo.patch) is resolved
+	// relative to the step-summary page (/actions/runs/<id>/) and produces a
+	// 404 URL like .../actions/runs/go/test/.../foo.patch. Falls back to a
+	// relative link when the GitHub Actions env vars aren't set (local runs).
+	patchURLPrefix := githubBlobURLPrefix()
 
 	for _, s := range suites {
 		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
@@ -563,7 +586,7 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			patchCell := "-"
 			if test.PatchApplied {
 				if test.PatchPath != "" {
-					patchCell = fmt.Sprintf("📎 [patch](%s)", test.PatchPath)
+					patchCell = fmt.Sprintf("📎 [patch](%s%s)", patchURLPrefix, test.PatchPath)
 				} else {
 					patchCell = "📎 applied"
 				}
