@@ -22,37 +22,36 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
+// Re-export pgbuilder constants so existing callers and scripts that reference
+// pgregresstest.PostgresVersion / PostgresGitRepo keep working unchanged.
 const (
-	// PostgresGitRepo is the official PostgreSQL git repository
-	PostgresGitRepo = "https://github.com/postgres/postgres"
-
-	// PostgresVersion is the git tag to checkout
-	PostgresVersion = "REL_17_6"
-
-	// PostgresCacheDir is the default cache directory for PostgreSQL source and builds
-	PostgresCacheDir = "/tmp/multigres_pg_cache"
+	PostgresGitRepo  = pgbuilder.PostgresGitRepo
+	PostgresVersion  = pgbuilder.PostgresVersion
+	PostgresCacheDir = pgbuilder.PostgresCacheDir
 )
 
-// PostgresBuilder manages PostgreSQL source checkout, build, and test execution
+// PostgresBuilder wraps pgbuilder.Builder with regression/isolation-suite
+// specific helpers (run tests, parse TAP output, render reports).
+//
+// The source/build/install/cleanup logic lives in pgbuilder and is also used
+// by the sqllogictest differential harness.
 type PostgresBuilder struct {
-	SourceDir  string // Shared source cache: /tmp/multigres_pg_cache/source/postgres
-	BuildDir   string // Per-test build: /tmp/multigres_pg_cache/builds/<timestamp>/build
-	InstallDir string // Per-test install: /tmp/multigres_pg_cache/builds/<timestamp>/install
-	OutputDir  string // Persistent test results: /tmp/multigres_pg_cache/results/<timestamp>
+	*pgbuilder.Builder
 }
 
-// TestResults contains the results from running PostgreSQL regression tests
+// TestResults contains the results from running PostgreSQL regression tests.
 type TestResults struct {
 	TotalTests     int
 	PassedTests    int
@@ -64,156 +63,41 @@ type TestResults struct {
 	Tests          []IndividualTestResult // Per-test results in order
 }
 
-// IndividualTestResult represents a single test's result
+// IndividualTestResult represents a single test's result.
 type IndividualTestResult struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"` // "pass", "fail", "skip"
 	Duration string `json:"duration"`
+	// PatchApplied is true when a per-test patch (testdata/pg17/patches/<name>.patch)
+	// was applied to the upstream expected output before diffing. This signals
+	// that multigres's output intentionally differs from stock PostgreSQL for
+	// this test (typically error-message wording) and the difference is
+	// documented in the patch file.
+	PatchApplied bool `json:"patch_applied,omitempty"`
+	// PatchPath is the repo-relative path to the patch file (when applied),
+	// so status reports can link back to it.
+	PatchPath string `json:"patch_path,omitempty"`
+	// FailReason is a short description populated when Status == "fail" and
+	// the failure comes from the patch-verification step (e.g. "patch did not
+	// apply" or "actual output does not match patched expected").
+	FailReason string `json:"fail_reason,omitempty"`
 }
 
-// TestFailure represents a single test failure
+// TestFailure represents a single test failure.
 type TestFailure struct {
 	TestName string
 	Error    string
 }
 
-// NewPostgresBuilder creates a new PostgresBuilder with unique build directories
+// NewPostgresBuilder creates a new PostgresBuilder with unique build directories.
 func NewPostgresBuilder(t *testing.T) *PostgresBuilder {
 	t.Helper()
-
-	// Get cache directory from environment or use default
-	cacheDir := os.Getenv("MULTIGRES_PG_CACHE_DIR")
-	if cacheDir == "" {
-		cacheDir = PostgresCacheDir
-	}
-
-	// Create unique build directory using timestamp
-	timestamp := time.Now().Format("20060102-150405")
-	buildRoot := filepath.Join(cacheDir, "builds", timestamp)
-
-	return &PostgresBuilder{
-		SourceDir:  filepath.Join(cacheDir, "source", "postgres"),
-		BuildDir:   filepath.Join(buildRoot, "build"),
-		InstallDir: filepath.Join(buildRoot, "install"),
-		OutputDir:  filepath.Join(cacheDir, "results", timestamp), // Persistent results directory
-	}
+	return &PostgresBuilder{Builder: pgbuilder.New(t)}
 }
 
-// CheckBuildDependencies verifies that required build tools are available
+// CheckBuildDependencies verifies that required build tools are available.
 func CheckBuildDependencies(t *testing.T) error {
-	t.Helper()
-
-	required := []string{"make", "gcc"}
-	var missing []string
-
-	for _, tool := range required {
-		if _, err := exec.LookPath(tool); err != nil {
-			missing = append(missing, tool)
-		}
-	}
-
-	if len(missing) > 0 {
-		return fmt.Errorf("missing build dependencies: %v. Install with: apt-get install build-essential", missing)
-	}
-
-	return nil
-}
-
-// EnsureSource ensures PostgreSQL source is available, cloning if necessary
-func (pb *PostgresBuilder) EnsureSource(t *testing.T, ctx context.Context) error {
-	t.Helper()
-
-	// Check if cached source exists and is correct version
-	if _, err := os.Stat(pb.SourceDir); err == nil {
-		t.Logf("Found cached PostgreSQL source at %s, verifying version...", pb.SourceDir)
-
-		// Verify it's the correct version
-		cmd := executil.Command(ctx, "git", "-C", pb.SourceDir, "describe", "--tags", "--exact-match")
-		output, err := cmd.Output()
-		if err == nil && strings.TrimSpace(string(output)) == PostgresVersion {
-			t.Logf("Using cached PostgreSQL source (version %s)", PostgresVersion)
-			return nil
-		}
-
-		t.Logf("Cached source version mismatch or invalid, re-cloning...")
-		if err := os.RemoveAll(pb.SourceDir); err != nil {
-			return fmt.Errorf("failed to remove old cache: %w", err)
-		}
-	}
-
-	// Create parent directory
-	if err := os.MkdirAll(filepath.Dir(pb.SourceDir), 0o755); err != nil {
-		return fmt.Errorf("failed to create cache directory: %w", err)
-	}
-
-	// Clone PostgreSQL repository
-	t.Logf("Cloning PostgreSQL %s from %s...", PostgresVersion, PostgresGitRepo)
-	cmd := executil.Command(ctx, "git", "clone",
-		"--depth=1",
-		"--branch", PostgresVersion,
-		PostgresGitRepo,
-		pb.SourceDir)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to clone PostgreSQL: %w (stderr: %s)", err, stderr.String())
-	}
-
-	t.Logf("Successfully cloned PostgreSQL %s", PostgresVersion)
-	return nil
-}
-
-// Build builds PostgreSQL using traditional ./configure and make
-func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
-	t.Helper()
-
-	// Create build directory
-	if err := os.MkdirAll(pb.BuildDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create build directory: %w", err)
-	}
-
-	// Step 1: Run ./configure
-	t.Logf("Configuring PostgreSQL with ./configure...")
-	configureCmd := executil.Command(ctx, filepath.Join(pb.SourceDir, "configure"),
-		"--prefix="+pb.InstallDir,
-		"--enable-cassert=no",
-		"--enable-tap-tests=no",
-		"--without-icu", // Disable ICU support to avoid dependency
-	)
-	configureCmd.Dir = pb.BuildDir
-	configureCmd.Stdout = os.Stdout
-	configureCmd.Stderr = os.Stderr
-
-	if err := configureCmd.Run(); err != nil {
-		return fmt.Errorf("configure failed: %w", err)
-	}
-
-	// Step 2: Run make
-	t.Logf("Building PostgreSQL with make...")
-	makeCmd := executil.Command(ctx, "make", "-j", "4") // Use 4 parallel jobs
-	makeCmd.Dir = pb.BuildDir
-	makeCmd.Stdout = os.Stdout
-	makeCmd.Stderr = os.Stderr
-
-	if err := makeCmd.Run(); err != nil {
-		return fmt.Errorf("make failed: %w", err)
-	}
-
-	// Step 3: Run make install
-	t.Logf("Installing PostgreSQL to %s...", pb.InstallDir)
-	installCmd := executil.Command(ctx, "make", "install")
-	installCmd.Dir = pb.BuildDir
-	installCmd.Stdout = os.Stdout
-	installCmd.Stderr = os.Stderr
-
-	if err := installCmd.Run(); err != nil {
-		return fmt.Errorf("make install failed: %w", err)
-	}
-
-	t.Logf("PostgreSQL build completed successfully")
-	return nil
+	return pgbuilder.CheckBuildDependencies(t)
 }
 
 // testSuiteConfig holds configuration for running a PostgreSQL test suite
@@ -230,7 +114,6 @@ type testSuiteConfig struct {
 func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *executil.Cmd, cfg testSuiteConfig, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
-	// Create output directory for test results
 	if err := os.MkdirAll(cfg.outputDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create %s output directory: %w", cfg.suiteName, err)
 	}
@@ -241,7 +124,6 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	// grandchildren (e.g. psql) holding pipes open would cause a hang.
 	cmd.SetWaitDelay(10 * time.Second)
 
-	// Set environment variables for connection
 	cmd.AddEnv(
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
@@ -267,8 +149,6 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 
 	t.Logf("%s test execution completed in %v (err=%v)", cfg.suiteName, duration, err)
 
-	// Prefer regression.out (has partial results on kill), fall back to stdout
-	// (pg_regress deletes the file when all tests pass).
 	outData, readErr := os.ReadFile(srcOut)
 	if readErr != nil {
 		outData = stdoutBuf.Bytes()
@@ -283,7 +163,6 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	results.Duration = duration
 	results.TimedOut = ctx.Err() == context.DeadlineExceeded
 
-	// Copy artifacts to output directory
 	srcDiffs := filepath.Join(cfg.srcOutDir, "regression.diffs")
 	dstDiffs := filepath.Join(cfg.outputDir, "regression.diffs")
 	dstOut := filepath.Join(cfg.outputDir, "regression.out")
@@ -355,6 +234,17 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
 	makeArgs := []string{"-C", regressDir}
 
+	// --use-existing: skip pg_regress's automatic DROP + CREATE of the
+	// "regression" database. Multigateway rejects DROP DATABASE (see the
+	// unsafe-statement list in go/services/multigateway/planner/unsafe_stmt.go),
+	// so we can't let pg_regress manage the database. Instead we run against
+	// the existing "postgres" database for the whole suite.
+	//
+	// --dbname=postgres: point pg_regress at that existing database. pg_regress
+	// will create/drop the expected schema objects per test; cross-test state
+	// leakage is still possible but has not surfaced in practice.
+	makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
+
 	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
 		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
 		t.Logf("Running selective regression tests: %s", testsEnv)
@@ -411,7 +301,6 @@ func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error)
 		return nil, errors.New("no TAP-formatted test output found in pg_regress output")
 	}
 
-	// Parse summary line
 	summaryPassPattern := regexp.MustCompile(`All (\d+) tests? passed`)
 	summaryFailPattern := regexp.MustCompile(`(\d+) of (\d+) tests? failed`)
 
@@ -428,12 +317,166 @@ func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error)
 		results.PassedTests = total - failed
 	}
 
-	// If we didn't find a summary but found individual results, calculate total
 	if results.TotalTests == 0 && (results.PassedTests > 0 || results.FailedTests > 0) {
 		results.TotalTests = results.PassedTests + results.FailedTests + results.SkippedTests
 	}
 
 	return results, nil
+}
+
+// PatchesDir returns the absolute path to the per-test patch directory for
+// the PostgreSQL major version this builder is pinned to. Patches live under
+// testdata/pg<major>/patches/ next to this file.
+func PatchesDir() string {
+	_, file, _, _ := runtime.Caller(0)
+	pkgDir := filepath.Dir(file)
+	return filepath.Join(pkgDir, "testdata", pgMajorDir(), "patches")
+}
+
+// pgMajorDir returns the directory name under testdata/ that holds patches for
+// the PostgreSQL version this test targets. Pinned to pg17 today; add a case
+// when PostgresVersion advances.
+func pgMajorDir() string {
+	// "REL_17_6" → "pg17"
+	if strings.HasPrefix(PostgresVersion, "REL_17") {
+		return "pg17"
+	}
+	// Unknown version: fall back to pg17 and let the test fail if patches
+	// are missing.
+	return "pg17"
+}
+
+// findRepoRoot walks up from this source file until it finds a directory
+// containing go.mod. Returns empty string if not found — callers degrade to
+// absolute paths in that case.
+func findRepoRoot() string {
+	_, file, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(file)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// findExpectedFile locates the expected-output file pg_regress would use for
+// the given test name. PostgreSQL ships variant files (name_1.out, name_2.out,
+// …) for platform-dependent output. We try the canonical name first, then
+// numbered variants in order. Returns the empty string if none exist.
+func findExpectedFile(regressDir, name string) string {
+	canonical := filepath.Join(regressDir, "expected", name+".out")
+	if fileExists(canonical) {
+		return canonical
+	}
+	for i := 1; i < 10; i++ {
+		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
+		if fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// VerifyWithPatches re-evaluates each test's pass/fail status using the
+// patch-based pipeline (see patch_verify.go). After pg_regress runs, this
+// ignores pg_regress's own pass/fail verdict (which is a strict text diff)
+// and replaces it with: does the actual output match the (patched) expected
+// output? Results are updated in-place, including aggregate counters.
+//
+// In generate mode, any residual diffs are absorbed by (re)writing patches.
+//
+// Expected output lives in the source tree (prep_buildtree does not symlink
+// .out files into the build tree). Actual output is written by pg_regress
+// into the build tree's results/ directory.
+func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir string) error {
+	t.Helper()
+	mode := GetPatchMode()
+	patchDir := PatchesDir()
+	repoRoot := findRepoRoot()
+	sourceRegressDir := filepath.Join(pb.SourceDir, "src", "test", "regress")
+
+	// Ensure patch dir exists in generate mode so writes don't fail.
+	if mode == PatchModeGenerate {
+		if err := os.MkdirAll(patchDir, 0o755); err != nil {
+			return fmt.Errorf("mkdir patches: %w", err)
+		}
+	}
+
+	t.Logf("Patch-based verification: mode=%s patches=%s", mode, patchDir)
+	t.Logf("  expected source: %s", sourceRegressDir)
+	t.Logf("  actual source:   %s", buildRegressDir)
+
+	// Recompute aggregates from the per-test results after verification.
+	// We intentionally discard pg_regress's TAP-derived aggregates because
+	// patch-based verification is authoritative.
+	var passed, failed int
+	failures := results.FailureDetails[:0]
+
+	for i := range results.Tests {
+		test := &results.Tests[i]
+		if test.Status == "skip" {
+			// Leave skipped tests alone.
+			continue
+		}
+
+		expPath := findExpectedFile(sourceRegressDir, test.Name)
+		actPath := filepath.Join(buildRegressDir, "results", test.Name+".out")
+		if expPath == "" || !fileExists(actPath) {
+			// Infrastructure problem (test didn't run, expected missing).
+			// Preserve TAP verdict, count accordingly.
+			test.FailReason = "expected or actual output missing; kept TAP verdict"
+			if test.Status == "pass" {
+				passed++
+			} else {
+				failed++
+				failures = append(failures, TestFailure{
+					TestName: test.Name,
+					Error:    test.FailReason,
+				})
+			}
+			continue
+		}
+
+		outcome, err := VerifyTest(ctx, VerifyInput{
+			Name:         test.Name,
+			ExpectedPath: expPath,
+			ActualPath:   actPath,
+			PatchDir:     patchDir,
+			RepoRoot:     repoRoot,
+		}, mode)
+		if err != nil {
+			return fmt.Errorf("verify %s: %w", test.Name, err)
+		}
+
+		test.Status = outcome.Status
+		test.PatchApplied = outcome.PatchApplied
+		test.PatchPath = outcome.PatchPath
+		test.FailReason = outcome.Reason
+
+		if outcome.Status == "pass" {
+			passed++
+		} else {
+			failed++
+			failures = append(failures, TestFailure{
+				TestName: test.Name,
+				Error:    outcome.Reason,
+			})
+		}
+	}
+
+	results.PassedTests = passed
+	results.FailedTests = failed
+	// Preserve SkippedTests + any pre-existing total if it exceeds ran.
+	if results.TotalTests < passed+failed+results.SkippedTests {
+		results.TotalTests = passed + failed + results.SkippedTests
+	}
+	results.FailureDetails = failures
+	return nil
 }
 
 // CountScheduleTests parses a PostgreSQL schedule file and returns the number
@@ -495,17 +538,14 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 	var sb strings.Builder
 
-	// Header
 	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
 
-	// Per-suite badges
 	for _, s := range suites {
 		passed := s.Results.PassedTests
 		ran := s.Results.TotalTests
 		color := badgeColor(passed, ran)
 
-		// Build badge value: "71/177 passed" or "71/177 passed (of 230)" if expected > ran
-		label := strings.TrimSuffix(s.Name, " Tests") // "Regression Tests" → "Regression"
+		label := strings.TrimSuffix(s.Name, " Tests")
 		value := fmt.Sprintf("%d%%2F%d_passed", passed, ran)
 		if s.ExpectedTests > 0 && s.ExpectedTests > ran {
 			value = fmt.Sprintf("%d%%2F%d_passed_(of_%d)", passed, ran, s.ExpectedTests)
@@ -513,7 +553,7 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 		if s.Results.TimedOut {
 			value += "_(timed_out)"
 			if color == "brightgreen" {
-				color = "yellow" // downgrade: all ran tests passed but suite was incomplete
+				color = "yellow"
 			}
 		}
 
@@ -524,7 +564,6 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`\n", PostgresVersion)
 	fmt.Fprintf(&sb, "**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
-	// Per-suite sections
 	for _, s := range suites {
 		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
 
@@ -537,8 +576,8 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			}
 		}
 
-		sb.WriteString("| # | Test | Status | Duration |\n")
-		sb.WriteString("|---|------|--------|----------|\n")
+		sb.WriteString("| # | Test | Status | Patch | Duration |\n")
+		sb.WriteString("|---|------|--------|-------|----------|\n")
 
 		for i, test := range s.Results.Tests {
 			status := "✅ ok"
@@ -552,14 +591,21 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			if duration == "" {
 				duration = "-"
 			}
-			fmt.Fprintf(&sb, "| %d | %s | %s | %s |\n", i+1, test.Name, status, duration)
+			patchCell := "-"
+			if test.PatchApplied {
+				if test.PatchPath != "" {
+					patchCell = fmt.Sprintf("📎 [patch](%s)", test.PatchPath)
+				} else {
+					patchCell = "📎 applied"
+				}
+			}
+			fmt.Fprintf(&sb, "| %d | %s | %s | %s | %s |\n", i+1, test.Name, status, patchCell, duration)
 		}
 		sb.WriteString("\n")
 	}
 
 	summary := sb.String()
 
-	// Write to file
 	summaryPath := filepath.Join(pb.OutputDir, "compatibility-report.md")
 	if err := os.WriteFile(summaryPath, []byte(summary), 0o644); err != nil {
 		return summary, fmt.Errorf("failed to write markdown summary: %w", err)
@@ -567,7 +613,6 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 	t.Logf("Markdown summary written to: %s", summaryPath)
 
-	// Write to GitHub Actions job summary if available
 	if summaryFile := os.Getenv("GITHUB_STEP_SUMMARY"); summaryFile != "" {
 		f, err := os.OpenFile(summaryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -652,13 +697,10 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 	isolationSourceDir := filepath.Join(pb.SourceDir, "src", "test", "isolation")
 	outputIsoDir := filepath.Join(isolationBuildDir, "output_iso")
 
-	// Ensure the output_iso directory exists. make installcheck creates it, but
-	// pg_isolation_regress (used for selective tests) may not.
 	if err := os.MkdirAll(outputIsoDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create output_iso directory: %w", err)
 	}
 
-	// Build the isolation test binary if it doesn't exist.
 	pgIsoRegress := filepath.Join(isolationBuildDir, "pg_isolation_regress")
 	if _, err := os.Stat(pgIsoRegress); os.IsNotExist(err) {
 		t.Logf("Building pg_isolation_regress...")
@@ -684,7 +726,8 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		cmd = executil.Command(ctx, pgIsoRegress, args...).WithProcessGroup()
 		t.Logf("Running selective isolation tests: %s", testsEnv)
 	} else {
-		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck").WithProcessGroup()
+		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck",
+			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
 		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
 	}
 
@@ -693,15 +736,4 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		outputDir: filepath.Join(pb.OutputDir, "isolation"),
 		srcOutDir: outputIsoDir,
 	}, multigatewayPort, password)
-}
-
-// Cleanup removes build artifacts but preserves source cache
-func (pb *PostgresBuilder) Cleanup() {
-	// Remove the build root directory (contains both build and install directories)
-	if pb.BuildDir != "" {
-		buildRoot := filepath.Dir(pb.BuildDir) // Go up from build/ to builds/<timestamp>/
-		_ = os.RemoveAll(buildRoot)            // Best-effort cleanup
-	}
-
-	// Keep source cache for next run
 }

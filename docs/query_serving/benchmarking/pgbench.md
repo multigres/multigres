@@ -66,9 +66,6 @@ run takes ~20 minutes.
 
 ### Known limitations
 
-- **Extended protocol + multiple clients through multigateway** fails with `cursor
-already exists` errors. This is a known limitation of transaction-mode connection
-  pooling with the extended query protocol and is tracked for improvement.
 - **50 clients** can exceed `max_connections` on small test clusters. The test
   gracefully skips failed scenarios.
 
