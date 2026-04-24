@@ -74,12 +74,17 @@ type QueryStats struct {
 }
 
 // CachedSize implements theine's cacheval interface so theine can bound
-// the registry by bytes, not entries. We charge a fixed overhead that
-// covers the struct + atomics + histogram buckets, plus the per-instance
-// strings; trend rings are accounted separately at sampler init time
-// because we don't know the configured capacity here.
+// the registry by bytes, not entries. The fixed overhead covers the struct
+// + atomics + histogram buckets; the variable part covers the per-instance
+// strings and the trend ring buffers (5 rings × cap × 8 bytes/float64),
+// charged eagerly at admit time so theine's admission policy isn't fooled
+// into over-admitting once the sampler warms up.
 func (s *QueryStats) CachedSize(_ bool) int64 {
-	return 384 + int64(len(s.fingerprint)) + int64(len(s.normalizedSQL))
+	base := int64(384) + int64(len(s.fingerprint)) + int64(len(s.normalizedSQL))
+	if s.trends.initialized {
+		base += int64(5) * int64(len(s.trends.callRate.buf)) * 8
+	}
+	return base
 }
 
 // Snapshot is a point-in-time copy of a QueryStats, safe to hand out to
@@ -261,6 +266,11 @@ func (r *Registry) admit(fingerprint, normalizedSQL string) *QueryStats {
 		fingerprint:   fingerprint,
 		normalizedSQL: truncated,
 	}
+	if r.trendCapacity > 0 {
+		// Allocate up-front so CachedSize reflects the real footprint and
+		// theine's admission policy can use accurate sizes.
+		stats.trends = newTrendBuffers(r.trendCapacity)
+	}
 	if !r.store.Set(theine.StringKey(fingerprint), stats, 0, 0) {
 		return nil
 	}
@@ -368,20 +378,22 @@ func (r *Registry) sampleAll() {
 		return
 	}
 	r.store.Range(0, func(_ theine.StringKey, v *QueryStats) bool {
-		v.takeSample(intervalSec, r.trendCapacity)
+		v.takeSample(intervalSec)
 		return true
 	})
 }
 
 // takeSample reads the current counters/histogram, computes deltas vs. the
-// previous sample, and pushes one new value into each trend ring. Lazy-
-// initialises the rings on first call.
-func (s *QueryStats) takeSample(intervalSec float64, capacity int) {
+// previous sample, and pushes one new value into each trend ring. The rings
+// are pre-allocated by admit() when the registry has sampling enabled, so a
+// nil-or-uninitialised state means the entry pre-dates the sampler config
+// and trend pushes are skipped.
+func (s *QueryStats) takeSample(intervalSec float64) {
 	s.trendMu.Lock()
 	defer s.trendMu.Unlock()
 
 	if !s.trends.initialized {
-		s.trends = newTrendBuffers(capacity)
+		return
 	}
 
 	callsNow := s.calls.Load()
