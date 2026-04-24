@@ -270,6 +270,8 @@ export interface ConsolidatorStats {
 
 export interface GetGatewayQueriesRequest {
   gatewayId: ID;
+  limit?: number;
+  minCalls?: number;
 }
 
 export interface GetGatewayQueriesResponse {

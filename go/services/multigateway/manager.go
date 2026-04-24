@@ -50,11 +50,18 @@ func (s *ManagerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multigatewaymanagerpb.RegisterMultiGatewayManagerServer(grpcServer, s)
 }
 
-// GetQueryRegistry returns the per-fingerprint registry snapshot.
-func (s *ManagerServer) GetQueryRegistry(_ context.Context, _ *multigatewaymanagerpb.GetQueryRegistryRequest) (*multigatewaymanagerpb.GetQueryRegistryResponse, error) {
-	snapshots := s.registry.Top(0, queryregistry.SortByCalls)
+// GetQueryRegistry returns the per-fingerprint registry snapshot. limit and
+// min_calls bound the response so a saturated registry doesn't ship megabytes
+// of trend data per poll; tracked_fingerprints in the response always reflects
+// the full registry size, independent of any filtering applied.
+func (s *ManagerServer) GetQueryRegistry(_ context.Context, req *multigatewaymanagerpb.GetQueryRegistryRequest) (*multigatewaymanagerpb.GetQueryRegistryResponse, error) {
+	snapshots := s.registry.Top(int(req.GetLimit()), queryregistry.SortByCalls)
 	out := make([]*multigatewaymanagerdatapb.QueryStatSnapshot, 0, len(snapshots))
+	minCalls := req.GetMinCalls()
 	for i := range snapshots {
+		if snapshots[i].Calls < minCalls {
+			continue
+		}
 		out = append(out, snapshotToProto(&snapshots[i]))
 	}
 	return &multigatewaymanagerpb.GetQueryRegistryResponse{
