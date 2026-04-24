@@ -1531,7 +1531,9 @@ type PoolerPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The highest shard rule this pooler has committed to local WAL.
 	Rule *ShardRule `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
-	// The latest WAL position.
+	// The current real-time WAL head at the time of reading. Note that this is likely
+	// beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
+	// For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
 	Lsn           string `protobuf:"bytes,2,opt,name=lsn,proto3" json:"lsn,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1753,8 +1755,11 @@ type ConsensusStatus struct {
 	// ahead of current_position when the pooler has forward knowledge of an
 	// upcoming rule that has not yet been replicated or written.
 	HighestKnownRule *HighestKnownRule `protobuf:"bytes,3,opt,name=highest_known_rule,json=highestKnownRule,proto3" json:"highest_known_rule,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// id identifies the pooler that produced this status. Makes ConsensusStatus
+	// self-describing when passed around without a surrounding envelope.
+	Id            *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConsensusStatus) Reset() {
@@ -1804,6 +1809,13 @@ func (x *ConsensusStatus) GetCurrentPosition() *PoolerPosition {
 func (x *ConsensusStatus) GetHighestKnownRule() *HighestKnownRule {
 	if x != nil {
 		return x.HighestKnownRule
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetId() *ID {
+	if x != nil {
+		return x.Id
 	}
 	return nil
 }
@@ -2038,11 +2050,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x0eTermRevocation\x12,\n" +
 	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
 	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +
-	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\xf8\x01\n" +
+	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\x9d\x02\n" +
 	"\x0fConsensusStatus\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
 	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12O\n" +
-	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule\"p\n" +
+	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule\x12#\n" +
+	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"p\n" +
 	"\x10LeadershipStatus\x12!\n" +
 	"\fprimary_term\x18\x01 \x01(\x03R\vprimaryTerm\x129\n" +
 	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"d\n" +
@@ -2153,13 +2166,14 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	23, // 28: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
 	21, // 29: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
 	22, // 30: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	4,  // 31: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	25, // 32: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	16, // 31: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	4,  // 32: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	25, // 33: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
