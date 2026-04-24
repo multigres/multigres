@@ -59,11 +59,16 @@ func TestManagerHealthStream_SnapshotOnSetPrimaryConnInfo(t *testing.T) {
 		},
 	}))
 
-	// Drain the initial snapshot that the server sends immediately on connection.
+	// The first server message is a start response confirming the timing values.
+	startResp, err := stream.Recv()
+	require.NoError(t, err, "expected start response on stream open")
+	require.NotNil(t, startResp.GetStart(), "first message should be a start response")
+
+	// The second message is the initial health snapshot.
 	initial, err := stream.Recv()
-	require.NoError(t, err, "expected initial snapshot on stream open")
+	require.NoError(t, err, "expected initial snapshot after start response")
 	require.Equal(t, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL,
-		initial.GetSnapshot().GetTrigger(), "first message should be an initial snapshot")
+		initial.GetSnapshot().GetTrigger(), "second message should be an initial snapshot")
 
 	// Call SetPrimaryConnInfo on the standby. This configures primary_conninfo
 	// (without starting replication) and calls broadcastHealth() at the end,
