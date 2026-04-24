@@ -80,17 +80,14 @@ service MultiPoolerConsensus {
   // wired up to handlers in subsequent PRs.
 
   // Recruit asks a pooler to revoke all terms below the one specified and
-  // record the coordinator's exclusive claim on that term. Replaces the
-  // "accept term" half of BeginTerm (without triggering a postgres action).
+  // record the coordinator's exclusive claim on that term.
   rpc Recruit(consensusdata.RecruitRequest) returns (consensusdata.RecruitResponse);
 
   // Propose sends a complete shard-state proposal to a pooler. The designated
   // leader promotes its postgres; all other cohort members point replication at
-  // the new primary. Replaces the Promote + SetPrimaryConnInfo pair.
+  // the new primary.
   rpc Propose(consensusdata.ProposeRequest) returns (consensusdata.ProposeResponse);
 
-  // Inform broadcasts the committed shard rule after a successful Propose
-  // round. Poolers update their highest_known_rule and repair replication
-  // settings if they are behind.
+  // Inform broadcasts a decided, durable rule.
   rpc Inform(consensusdata.InformRequest) returns (consensusdata.InformResponse);
 }

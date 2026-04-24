@@ -730,25 +730,19 @@ func (x *ProposalLeader) GetPostgresPort() int32 {
 	return 0
 }
 
-// CoordinatorProposal is the coordinator's complete, self-describing proposal
-// for what the shard state should look like at a given term. Sent to every
-// cohort member via Propose: the designated leader promotes itself; all other
-// members point their replication at the new primary.
-//
-// The proposal is not persisted by the pooler (persistence is deferred until
-// the rule is committed and an Inform is received). The coordinator retries
-// Propose on failure and is responsible for detecting whether the promotion
-// already succeeded before retrying.
+// CoordinatorProposal is a coordinator-assisted rule proposal. It either reflects
+// a rule that's not yet in WAL that the coordinator wants to write, or it could
+// reflect a rule discovered in WAL that hasn't been propagated to the point of
+// becoming a decision.
 type CoordinatorProposal struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Which term this proposal is for. The pooler rejects the proposal if its
-	// persisted term_revocation does not match.
+	// The authority under which this proposal is made. Coordinators must revoke
+	// previous agents before making a proposal.
 	TermRevocation *clustermetadata.TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
-	// The node that should become primary.
+	// The node that should become primary to facilitate this proposal.
 	ProposalLeader *ProposalLeader `protobuf:"bytes,2,opt,name=proposal_leader,json=proposalLeader,proto3" json:"proposal_leader,omitempty"`
-	// The full proposed shard state, including cohort membership, durability
-	// policy, and rule number. The designated leader writes this to rule_history;
-	// replicas use it to configure synchronous standby names.
+	// The full proposed rule. This can either be an entirely new rule or an
+	// existing rule that hasn't yet finished propagating to durability.
 	ProposedRule  *clustermetadata.ShardRule `protobuf:"bytes,3,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -807,7 +801,7 @@ func (x *CoordinatorProposal) GetProposedRule() *clustermetadata.ShardRule {
 
 // RecruitRequest asks a pooler to revoke all terms below the one in the
 // enclosed term_revocation and record the coordinator's exclusive right to
-// act at that term. This is the "accept term" step of the appointment protocol.
+// propose at this term.
 type RecruitRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The revocation to accept. The pooler persists this to disk and responds

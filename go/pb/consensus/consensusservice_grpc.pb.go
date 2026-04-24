@@ -82,16 +82,13 @@ type MultiPoolerConsensusClient interface {
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
 	// Recruit asks a pooler to revoke all terms below the one specified and
-	// record the coordinator's exclusive claim on that term. Replaces the
-	// "accept term" half of BeginTerm (without triggering a postgres action).
+	// record the coordinator's exclusive claim on that term.
 	Recruit(ctx context.Context, in *consensusdata.RecruitRequest, opts ...grpc.CallOption) (*consensusdata.RecruitResponse, error)
 	// Propose sends a complete shard-state proposal to a pooler. The designated
 	// leader promotes its postgres; all other cohort members point replication at
-	// the new primary. Replaces the Promote + SetPrimaryConnInfo pair.
+	// the new primary.
 	Propose(ctx context.Context, in *consensusdata.ProposeRequest, opts ...grpc.CallOption) (*consensusdata.ProposeResponse, error)
-	// Inform broadcasts the committed shard rule after a successful Propose
-	// round. Poolers update their highest_known_rule and repair replication
-	// settings if they are behind.
+	// Inform broadcasts a decided, durable rule.
 	Inform(ctx context.Context, in *consensusdata.InformRequest, opts ...grpc.CallOption) (*consensusdata.InformResponse, error)
 }
 
@@ -247,16 +244,13 @@ type MultiPoolerConsensusServer interface {
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
 	// Recruit asks a pooler to revoke all terms below the one specified and
-	// record the coordinator's exclusive claim on that term. Replaces the
-	// "accept term" half of BeginTerm (without triggering a postgres action).
+	// record the coordinator's exclusive claim on that term.
 	Recruit(context.Context, *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error)
 	// Propose sends a complete shard-state proposal to a pooler. The designated
 	// leader promotes its postgres; all other cohort members point replication at
-	// the new primary. Replaces the Promote + SetPrimaryConnInfo pair.
+	// the new primary.
 	Propose(context.Context, *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error)
-	// Inform broadcasts the committed shard rule after a successful Propose
-	// round. Poolers update their highest_known_rule and repair replication
-	// settings if they are behind.
+	// Inform broadcasts a decided, durable rule.
 	Inform(context.Context, *consensusdata.InformRequest) (*consensusdata.InformResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
