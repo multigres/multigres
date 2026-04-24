@@ -35,6 +35,17 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+const (
+	// bufferWindow matches the --buffer-window flag used by newBufferTestCluster.
+	bufferWindow = 10 * time.Second
+
+	// clientQueryTimeout is the per-query deadline for test workers. It must
+	// comfortably exceed bufferWindow so that a request buffered during failover
+	// survives the full drain before the client side gives up. A 20 s margin
+	// above the buffer window keeps the test robust on loaded CI machines.
+	clientQueryTimeout = bufferWindow + 20*time.Second
+)
+
 // TestBufferPlannedFailover verifies that multigateway's failover buffering
 // absorbs a planned failover with zero application-visible errors.
 //
@@ -413,7 +424,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 
 // execTransaction runs a single INSERT inside a BEGIN/COMMIT transaction.
 func execTransaction(db *sql.DB, id int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), clientQueryTimeout)
 	defer cancel()
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -430,7 +441,7 @@ func execTransaction(db *sql.DB, id int64) error {
 // execPrepared runs a single INSERT using a prepared statement.
 // database/sql automatically uses the extended query protocol with $1 params.
 func execPrepared(db *sql.DB, id int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), clientQueryTimeout)
 	defer cancel()
 
 	stmt, err := db.PrepareContext(ctx, "INSERT INTO buf_prep_test (id, val) VALUES ($1, $2)")
