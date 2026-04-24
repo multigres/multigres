@@ -169,7 +169,11 @@ func TestCheckSufficientRecruitment_InvalidLeader(t *testing.T) {
 	assert.Contains(t, err.Error(), "not among eligible leaders")
 }
 
-func TestCheckSufficientRecruitment_NonRecruitedCohortMember(t *testing.T) {
+// TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK verifies that not all
+// proposed cohort members need to be recruited, as long as the recruited subset
+// satisfies the durability policy. Here outsider was not recruited, but a and b
+// (2 nodes) cover AT_LEAST_2, so the proposal is accepted.
+func TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK(t *testing.T) {
 	a := makeID("z1", "pooler-a")
 	b := makeID("z1", "pooler-b")
 	c := makeID("z1", "pooler-c")
@@ -183,7 +187,6 @@ func TestCheckSufficientRecruitment_NonRecruitedCohortMember(t *testing.T) {
 		makeStatus(c, rule, testRevocation),
 	}
 
-	// Proposed rule includes a node that was not recruited.
 	proposedRule := makeRule(4, []*clustermetadatapb.ID{a, b, outsider})
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
@@ -195,8 +198,74 @@ func TestCheckSufficientRecruitment_NonRecruitedCohortMember(t *testing.T) {
 
 	_, err := CheckSufficientRecruitment(statuses, buildProposal)
 
+	require.NoError(t, err)
+}
+
+// TestCheckSufficientRecruitment_DeadPrimaryRemainsInCohort verifies that a failover
+// can succeed when the dead primary is kept in the new cohort (so it can rejoin as a
+// standby later) but cannot be recruited. B and C are live and cover AT_LEAST_2.
+func TestCheckSufficientRecruitment_DeadPrimaryRemainsInCohort(t *testing.T) {
+	a := makeID("z1", "pooler-a") // dead primary — not recruited
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	// Only B and C are reachable; A is dead.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule keeps A in the cohort (it will rejoin as standby) but promotes B.
+	proposedRule := makeRule(4, cohort)
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: b},
+			ProposedRule:   proposedRule,
+		}, nil
+	}
+
+	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+
+	require.NoError(t, err)
+}
+
+// TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort verifies
+// that the proposal fails when too few proposed-cohort members were recruited to
+// satisfy the durability policy. Here the proposed cohort is [a, d, e] with
+// AT_LEAST_2, but only a was recruited from it — the new leader could not achieve
+// durable writes immediately after promotion.
+func TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	d := makeID("z1", "pooler-d") // proposed new member, not recruited
+	e := makeID("z1", "pooler-e") // proposed new member, not recruited
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule replaces b and c with d and e, but d and e were not recruited.
+	proposedRule := makeRule(4, []*clustermetadatapb.ID{a, d, e})
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   proposedRule,
+		}, nil
+	}
+
+	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "was not recruited")
+	assert.Contains(t, err.Error(), "insufficient recruitment from proposed cohort")
 }
 
 func TestCheckSufficientRecruitment_BuildProposalError(t *testing.T) {

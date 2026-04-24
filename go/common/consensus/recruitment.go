@@ -173,28 +173,22 @@ func validateProposal(
 		return fmt.Errorf("proposed leader %s is not among eligible leaders", leaderKey)
 	}
 
-	// All proposed cohort members must have been recruited.
-	recruitedKeys := make(map[string]struct{}, len(statuses))
-	for _, cs := range statuses {
-		if id := cs.GetId(); id != nil {
-			recruitedKeys[topoclient.ClusterIDString(id)] = struct{}{}
-		}
-	}
-	for _, member := range proposal.GetProposedRule().GetCohortMembers() {
-		key := topoclient.ClusterIDString(member)
-		if _, ok := recruitedKeys[key]; !ok {
-			return fmt.Errorf("proposed cohort member %s was not recruited", key)
-		}
-	}
-
-	// The proposed durability policy must be achievable with the proposed cohort.
 	if r := proposal.GetProposedRule(); r != nil && r.GetDurabilityPolicy() != nil {
 		p, err := NewPolicyFromProto(r.GetDurabilityPolicy())
 		if err != nil {
 			return fmt.Errorf("invalid durability policy in proposal: %w", err)
 		}
+		// The full proposed cohort must be large enough to ever satisfy the policy.
 		if err := p.CheckAchievable(r.GetCohortMembers()); err != nil {
 			return fmt.Errorf("proposed durability policy not achievable with proposed cohort: %w", err)
+		}
+		// Not all cohort members need to be recruited — for example, the dead
+		// primary may remain in the cohort so it can rejoin as a standby. But we
+		// must have recruited enough of the proposed cohort to satisfy the policy,
+		// otherwise the new leader cannot make durable writes immediately.
+		recruitedInProposedCohort := cohortIntersect(r.GetCohortMembers(), statuses)
+		if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
+			return fmt.Errorf("insufficient recruitment from proposed cohort to achieve durability: %w", err)
 		}
 	}
 
