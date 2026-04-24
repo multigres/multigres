@@ -174,3 +174,81 @@ message TimelineInfo {
   // Current timeline ID (from pg_control_checkpoint())
   int64 timeline_id = 1;
 }
+
+// ProposalLeader identifies the node the coordinator intends to promote and
+// carries the connection information replicas need to stream WAL from it.
+message ProposalLeader {
+  // Which pooler should become (or remain) primary.
+  clustermetadata.ID id = 1;
+
+  // Hostname replicas use to connect to the new primary's postgres.
+  string host = 2;
+
+  // Port of the new primary's postgres instance.
+  int32 postgres_port = 3;
+}
+
+// CoordinatorProposal is the coordinator's complete, self-describing proposal
+// for what the shard state should look like at a given term. Sent to every
+// cohort member via Propose: the designated leader promotes itself; all other
+// members point their replication at the new primary.
+//
+// The proposal is not persisted by the pooler (persistence is deferred until
+// the rule is committed and an Inform is received). The coordinator retries
+// Propose on failure and is responsible for detecting whether the promotion
+// already succeeded before retrying.
+message CoordinatorProposal {
+  // Which term this proposal is for. The pooler rejects the proposal if its
+  // persisted term_revocation does not match.
+  clustermetadata.TermRevocation term_revocation = 1;
+
+  // The node that should become primary.
+  ProposalLeader proposal_leader = 2;
+
+  // The full proposed shard state, including cohort membership, durability
+  // policy, and rule number. The designated leader writes this to rule_history;
+  // replicas use it to configure synchronous standby names.
+  clustermetadata.ShardRule proposed_rule = 3;
+}
+
+// RecruitRequest asks a pooler to revoke all terms below the one in the
+// enclosed term_revocation and record the coordinator's exclusive right to
+// act at that term. This is the "accept term" step of the appointment protocol.
+message RecruitRequest {
+  // The revocation to accept. The pooler persists this to disk and responds
+  // with its current ConsensusStatus (which includes the updated revocation).
+  clustermetadata.TermRevocation term_revocation = 1;
+}
+
+// RecruitResponse carries the pooler's authoritative state after processing
+// a RecruitRequest. The coordinator uses current_position to select the best
+// promotion candidate.
+message RecruitResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
+}
+
+// ProposeRequest carries the coordinator's complete proposal for a new shard
+// state. Every cohort member receives this: the designated leader promotes
+// itself; all others configure replication toward the new primary.
+message ProposeRequest {
+  CoordinatorProposal proposal = 1;
+}
+
+// ProposeResponse carries the pooler's state after applying a ProposeRequest.
+message ProposeResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
+}
+
+// InformRequest broadcasts the committed shard rule to a pooler so it can
+// update its highest_known_rule and fix replication settings if needed.
+// Sent by the coordinator after a successful Propose round.
+message InformRequest {
+  // The rule that was successfully committed (written to rule_history by the
+  // new primary and replicated). Poolers that are behind use this to reconnect.
+  clustermetadata.ShardRule committed_rule = 1;
+}
+
+// InformResponse carries the pooler's state after processing an InformRequest.
+message InformResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
+}
