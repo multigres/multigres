@@ -27,7 +27,9 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multigatewaymanagerpb "github.com/multigres/multigres/go/pb/multigatewaymanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -49,6 +51,12 @@ type MultiAdminServer struct {
 
 	// rpcClient is the client for communicating with multipooler nodes
 	rpcClient rpcclient.MultiPoolerClient
+
+	// gatewayDialer opens a one-shot gRPC connection to a multigateway by
+	// host:port for ad-hoc admin RPCs (registry / consolidator snapshots).
+	// Defaults to dialing with the configured transport credentials; tests
+	// can swap it for a fake.
+	gatewayDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
 }
 
 // NewMultiAdminServer creates a new MultiAdminServer instance.
@@ -59,6 +67,9 @@ func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger, transportCred
 		logger:           logger,
 		backupJobTracker: NewBackupJobTracker(),
 		rpcClient:        rpcclient.NewMultiPoolerClient(100, transportCreds),
+		gatewayDialer: func(_ context.Context, target string) (*grpc.ClientConn, error) {
+			return grpccommon.NewClient(target, grpccommon.WithDialOptions(transportCreds))
+		},
 	}
 }
 
@@ -415,4 +426,86 @@ func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 	}
 
 	return &multiadminpb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+// GetGatewayQueries proxies a per-fingerprint query registry snapshot from the
+// target multigateway's MultiGatewayManager.GetQueryRegistry RPC.
+func (s *MultiAdminServer) GetGatewayQueries(ctx context.Context, req *multiadminpb.GetGatewayQueriesRequest) (*multiadminpb.GetGatewayQueriesResponse, error) {
+	if err := validateGatewayID(req.GatewayId); err != nil {
+		return nil, err
+	}
+
+	conn, err := s.dialGatewayByID(ctx, req.GatewayId)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetQueryRegistry(ctx, &multigatewaymanagerpb.GetQueryRegistryRequest{})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get query registry from gateway", "gateway_id", req.GatewayId, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to get query registry from gateway: %v", err)
+	}
+	return &multiadminpb.GetGatewayQueriesResponse{Snapshot: resp.Snapshot}, nil
+}
+
+// GetGatewayConsolidator proxies a prepared-statement consolidator snapshot
+// from the target multigateway's MultiGatewayManager.GetConsolidatorStats RPC.
+func (s *MultiAdminServer) GetGatewayConsolidator(ctx context.Context, req *multiadminpb.GetGatewayConsolidatorRequest) (*multiadminpb.GetGatewayConsolidatorResponse, error) {
+	if err := validateGatewayID(req.GatewayId); err != nil {
+		return nil, err
+	}
+
+	conn, err := s.dialGatewayByID(ctx, req.GatewayId)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetConsolidatorStats(ctx, &multigatewaymanagerpb.GetConsolidatorStatsRequest{})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get consolidator stats from gateway", "gateway_id", req.GatewayId, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to get consolidator stats from gateway: %v", err)
+	}
+	return &multiadminpb.GetGatewayConsolidatorResponse{Stats: resp.Stats}, nil
+}
+
+// validateGatewayID returns a gRPC error if the ID is missing required fields.
+func validateGatewayID(id *clustermetadatapb.ID) error {
+	if id == nil {
+		return status.Error(codes.InvalidArgument, "gateway_id cannot be empty")
+	}
+	if id.Cell == "" || id.Name == "" {
+		return status.Error(codes.InvalidArgument, "gateway_id must have both cell and name")
+	}
+	return nil
+}
+
+// dialGatewayByID resolves a gateway in topology and returns an open gRPC
+// connection to it. The caller is responsible for closing the connection.
+func (s *MultiAdminServer) dialGatewayByID(ctx context.Context, id *clustermetadatapb.ID) (*grpc.ClientConn, error) {
+	gatewayID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIGATEWAY,
+		Cell:      id.Cell,
+		Name:      id.Name,
+	}
+	info, err := s.ts.GetMultiGateway(ctx, gatewayID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get gateway from topology", "gateway_id", id, "error", err)
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "gateway '%s/%s' not found", id.Cell, id.Name)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to retrieve gateway: %v", err)
+	}
+	port, ok := info.MultiGateway.PortMap["grpc"]
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "gateway '%s/%s' has no grpc port registered", id.Cell, id.Name)
+	}
+	target := fmt.Sprintf("%s:%d", info.MultiGateway.Hostname, port)
+	conn, err := s.gatewayDialer(ctx, target)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to dial gateway", "gateway_id", id, "target", target, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to dial gateway: %v", err)
+	}
+	return conn, nil
 }

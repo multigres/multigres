@@ -1,0 +1,134 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Data types for management / introspection RPCs on the multigateway —
+// snapshots of the per-fingerprint query registry and the prepared-statement
+// consolidator. Consumed by multiadmin to render the per-gateway debug pages.
+
+syntax = "proto3";
+
+package multigatewaymanagerdata;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multigatewaymanagerdata";
+
+// QueryStatSnapshot is a single row in the per-fingerprint query registry,
+// extended with rolling trend samples for sparkline rendering.
+message QueryStatSnapshot {
+  // fingerprint is the xxh3-64 hex of the normalized SQL, or one of the
+  // synthetic bucket labels ("__utility__", "__other__").
+  string fingerprint = 1;
+
+  // normalized_sql is the parameterized SQL for this fingerprint, truncated
+  // to the registry's MaxSQLLength.
+  string normalized_sql = 2;
+
+  // calls is the cumulative number of executions tracked since the registry
+  // admitted this fingerprint.
+  uint64 calls = 3;
+
+  // errors is the cumulative number of failed executions.
+  uint64 errors = 4;
+
+  // total_duration is the cumulative wall-clock time spent executing this
+  // fingerprint's queries.
+  google.protobuf.Duration total_duration = 5;
+
+  // average_duration is total_duration / calls.
+  google.protobuf.Duration average_duration = 6;
+
+  // min_duration is the smallest observed execution duration.
+  google.protobuf.Duration min_duration = 7;
+
+  // max_duration is the largest observed execution duration.
+  google.protobuf.Duration max_duration = 8;
+
+  // p50_duration is the median execution duration computed from the
+  // per-fingerprint histogram.
+  google.protobuf.Duration p50_duration = 9;
+
+  // p99_duration is the 99th-percentile execution duration computed from the
+  // per-fingerprint histogram.
+  google.protobuf.Duration p99_duration = 10;
+
+  // total_rows is the cumulative row count returned across all executions.
+  uint64 total_rows = 11;
+
+  // last_seen is the timestamp of the most recent execution.
+  google.protobuf.Timestamp last_seen = 12;
+
+  // sample_interval is the cadence at which the trend slices below were
+  // captured. Empty when trend sampling is disabled.
+  google.protobuf.Duration sample_interval = 13;
+
+  // call_rate_trend holds calls/s samples, oldest first.
+  repeated double call_rate_trends = 14;
+
+  // total_time_ms_trend holds duration-ms-per-second-of-wall-clock samples.
+  repeated double total_time_ms_trends = 15;
+
+  // p50_ms_trend holds p50 latency (ms) samples over time.
+  repeated double p50_ms_trends = 16;
+
+  // p99_ms_trend holds p99 latency (ms) samples over time.
+  repeated double p99_ms_trends = 17;
+
+  // rows_rate_trend holds rows-per-second samples over time.
+  repeated double rows_rate_trends = 18;
+}
+
+// QueryRegistrySnapshot is the full registry response, suitable for rendering
+// a per-gateway "Top Queries" page.
+message QueryRegistrySnapshot {
+  // queries is the set of tracked query fingerprints with their stats and trends.
+  repeated QueryStatSnapshot queries = 1;
+
+  // tracked_fingerprints is the total count currently held in the registry,
+  // independent of any limit applied to the queries field.
+  uint32 tracked_fingerprints = 2;
+}
+
+// ConsolidatorPreparedStatement is one entry in the per-prepared-statement
+// consolidator stats list.
+message ConsolidatorPreparedStatement {
+  // name is the prepared-statement name as declared by the client.
+  string name = 1;
+
+  // query is the original SQL of the prepared statement.
+  string query = 2;
+
+  // refs is the number of distinct connections currently sharing this entry.
+  uint32 refs = 3;
+}
+
+// ConsolidatorStats is a snapshot of the prepared-statement consolidator,
+// suitable for rendering a per-gateway diagnostic page.
+message ConsolidatorStats {
+  // unique_statements is the number of distinct prepared statements held.
+  uint32 unique_statements = 1;
+
+  // total_references is the sum of refs across all unique statements — i.e.
+  // the number of (connection, prepared-statement) pairs being shared.
+  uint32 total_references = 2;
+
+  // connection_count is the number of distinct client connections currently
+  // sharing one or more prepared statements.
+  uint32 connection_count = 3;
+
+  // prepared_statements is one entry per unique prepared-statement, ordered
+  // by ref count (most-shared first).
+  repeated ConsolidatorPreparedStatement prepared_statements = 4;
+}

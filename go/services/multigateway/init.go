@@ -523,10 +523,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
 	}
-	// Register the gRPC service via OnRun because grpcServer.Server is only
+	// Register gRPC services via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
+	managerServer := NewManagerServer(mg.queryRegistry, mg.pgHandler)
 	mg.senv.OnRun(func() {
 		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
 
 	// Start the PostgreSQL listener in a goroutine

@@ -47,6 +47,8 @@ const (
 	MultiAdminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiAdminService/ExpireBackups"
 	MultiAdminService_GetPoolerStatus_FullMethodName            = "/multiadmin.MultiAdminService/GetPoolerStatus"
 	MultiAdminService_SetPostgresRestartsEnabled_FullMethodName = "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled"
+	MultiAdminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiAdminService/GetGatewayQueries"
+	MultiAdminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiAdminService/GetGatewayConsolidator"
 )
 
 // MultiAdminServiceClient is the client API for MultiAdminService service.
@@ -85,6 +87,14 @@ type MultiAdminServiceClient interface {
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error)
+	// GetGatewayQueries retrieves the per-fingerprint query registry of a
+	// specific multigateway. This proxies the request to the target gateway's
+	// MultiGatewayManager.GetQueryRegistry RPC.
+	GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error)
+	// GetGatewayConsolidator retrieves the prepared-statement consolidator
+	// snapshot of a specific multigateway. This proxies the request to the
+	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error)
 }
 
 type multiAdminServiceClient struct {
@@ -235,6 +245,26 @@ func (c *multiAdminServiceClient) SetPostgresRestartsEnabled(ctx context.Context
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetGatewayQueriesResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetGatewayQueries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetGatewayConsolidatorResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetGatewayConsolidator_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiAdminServiceServer is the server API for MultiAdminService service.
 // All implementations must embed UnimplementedMultiAdminServiceServer
 // for forward compatibility.
@@ -271,6 +301,14 @@ type MultiAdminServiceServer interface {
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error)
+	// GetGatewayQueries retrieves the per-fingerprint query registry of a
+	// specific multigateway. This proxies the request to the target gateway's
+	// MultiGatewayManager.GetQueryRegistry RPC.
+	GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error)
+	// GetGatewayConsolidator retrieves the prepared-statement consolidator
+	// snapshot of a specific multigateway. This proxies the request to the
+	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
 
@@ -322,6 +360,12 @@ func (UnimplementedMultiAdminServiceServer) GetPoolerStatus(context.Context, *Ge
 }
 func (UnimplementedMultiAdminServiceServer) SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGatewayQueries not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGatewayConsolidator not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
 func (UnimplementedMultiAdminServiceServer) testEmbeddedByValue()                           {}
@@ -596,6 +640,42 @@ func _MultiAdminService_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_GetGatewayQueries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGatewayQueriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetGatewayQueries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetGatewayQueries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetGatewayQueries(ctx, req.(*GetGatewayQueriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetGatewayConsolidator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGatewayConsolidatorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetGatewayConsolidator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetGatewayConsolidator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetGatewayConsolidator(ctx, req.(*GetGatewayConsolidatorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -658,6 +738,14 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetPostgresRestartsEnabled",
 			Handler:    _MultiAdminService_SetPostgresRestartsEnabled_Handler,
+		},
+		{
+			MethodName: "GetGatewayQueries",
+			Handler:    _MultiAdminService_GetGatewayQueries_Handler,
+		},
+		{
+			MethodName: "GetGatewayConsolidator",
+			Handler:    _MultiAdminService_GetGatewayConsolidator_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
