@@ -50,6 +50,8 @@ const (
 	PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP PostgresAction = 2
 	// No backup exists yet; running initdb and creating the first pgBackRest backup.
 	PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP PostgresAction = 3
+	// A pg_rewind operation is running to re-sync this server with the primary.
+	PostgresAction_POSTGRES_ACTION_REWIND PostgresAction = 4
 )
 
 // Enum value maps for PostgresAction.
@@ -59,12 +61,14 @@ var (
 		1: "POSTGRES_ACTION_STARTING",
 		2: "POSTGRES_ACTION_RESTORING_FROM_BACKUP",
 		3: "POSTGRES_ACTION_CREATING_FIRST_BACKUP",
+		4: "POSTGRES_ACTION_REWIND",
 	}
 	PostgresAction_value = map[string]int32{
 		"POSTGRES_ACTION_UNSPECIFIED":           0,
 		"POSTGRES_ACTION_STARTING":              1,
 		"POSTGRES_ACTION_RESTORING_FROM_BACKUP": 2,
 		"POSTGRES_ACTION_CREATING_FIRST_BACKUP": 3,
+		"POSTGRES_ACTION_REWIND":                4,
 	}
 )
 
@@ -3655,12 +3659,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"=\n" +
 	"!SetPostgresRestartsEnabledRequest\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\"$\n" +
-	"\"SetPostgresRestartsEnabledResponse*\xa5\x01\n" +
+	"\"SetPostgresRestartsEnabledResponse*\xc1\x01\n" +
 	"\x0ePostgresAction\x12\x1f\n" +
 	"\x1bPOSTGRES_ACTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_ACTION_STARTING\x10\x01\x12)\n" +
 	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02\x12)\n" +
-	"%POSTGRES_ACTION_CREATING_FIRST_BACKUP\x10\x03*\xac\x01\n" +
+	"%POSTGRES_ACTION_CREATING_FIRST_BACKUP\x10\x03\x12\x1a\n" +
+	"\x16POSTGRES_ACTION_REWIND\x10\x04*\xac\x01\n" +
 	"\x0fSnapshotTrigger\x12 \n" +
 	"\x1cSNAPSHOT_TRIGGER_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SNAPSHOT_TRIGGER_INITIAL\x10\x01\x12\x1e\n" +

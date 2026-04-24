@@ -1289,6 +1289,10 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 	defer pm.actionLock.Release(ctx)
 
+	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
+		pm.logger.ErrorContext(ctx, "RewindToSource: failed to set action", "error", err)
+	}
+
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")

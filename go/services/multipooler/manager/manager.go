@@ -1282,6 +1282,16 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Force a checkpoint on the new timeline. pg_rewind requires a checkpoint
+	// on the target's timeline to identify the divergence point; without this,
+	// rewinding a previously-promoted replica may fail.
+	pm.logger.InfoContext(ctx, "Forcing checkpoint after promotion")
+	if err := pm.exec(ctx, "CHECKPOINT"); err != nil {
+		// Log but don't fail — the promotion succeeded and missing this checkpoint
+		// is recoverable; it only affects future pg_rewind feasibility.
+		pm.logger.WarnContext(ctx, "Failed to force checkpoint after promotion", "error", err)
+	}
+
 	return nil
 }
 

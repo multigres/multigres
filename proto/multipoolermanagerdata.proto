@@ -249,6 +249,8 @@ enum PostgresAction {
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
   // No backup exists yet; running initdb and creating the first pgBackRest backup.
   POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
+  // A pg_rewind operation is running to re-sync this server with the primary.
+  POSTGRES_ACTION_REWIND = 4;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
