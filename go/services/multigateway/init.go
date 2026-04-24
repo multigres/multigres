@@ -418,10 +418,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Construct the per-query-shape metrics registry. Shared across primary
 	// and replica handlers so a query hitting either listener aggregates to
 	// the same stats bucket.
-	mg.queryRegistry = queryregistry.New(queryregistry.Config{
-		MaxMemoryBytes: mg.queryMetricsMemory.Get(),
-		MaxSQLLength:   mg.queryMetricsSQLMaxBytes.Get(),
-	})
+	// Start from DefaultConfig so SampleInterval / TrendWindowSamples are
+	// populated; only the operator-tunable size knobs come from flags.
+	registryCfg := queryregistry.DefaultConfig()
+	registryCfg.MaxMemoryBytes = mg.queryMetricsMemory.Get()
+	registryCfg.MaxSQLLength = mg.queryMetricsSQLMaxBytes.Get()
+	mg.queryRegistry = queryregistry.New(registryCfg)
 	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
 		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
 	}

@@ -35,6 +35,17 @@ func TestDisabledRegistry(t *testing.T) {
 	assert.Zero(t, r.Len())
 }
 
+// TestNewWithDefaultConfigEnablesSampler guards against a regression where
+// callers passed Config{...} literals and silently dropped the sampler
+// defaults — leaving every trend slice empty in production.
+func TestNewWithDefaultConfigEnablesSampler(t *testing.T) {
+	r := New(DefaultConfig())
+	defer r.Close()
+
+	require.Greater(t, r.sampleInterval, time.Duration(0), "sampler interval should be non-zero")
+	require.Greater(t, r.trendCapacity, 0, "trend capacity should be non-zero")
+}
+
 func TestNilRegistry(t *testing.T) {
 	var r *Registry
 	// Nil-safe methods: all no-ops, no panic.
