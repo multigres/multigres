@@ -106,6 +106,47 @@ func TestSampleAllRingBufferWraps(t *testing.T) {
 	assert.Len(t, snaps[0].CallRateTrend, 3)
 }
 
+// TestPercentileTrendIsWindowed guards the rule that p50/p99 trend samples
+// reflect the latency distribution of the *last interval*, not the
+// cumulative distribution since admission. Pushing cumulative percentiles
+// would flatten the sparkline under sustained load and hide recent spikes.
+func TestPercentileTrendIsWindowed(t *testing.T) {
+	r := NewForTest(Config{
+		MaxMemoryBytes:     1 << 20,
+		MaxSQLLength:       1024,
+		SampleInterval:     1 * time.Second,
+		TrendWindowSamples: 4,
+	})
+	defer r.Close()
+
+	fp := "abc"
+	sql := "SELECT 1"
+
+	// Interval 1 — many fast calls. Trend p99 should land in the fast bucket.
+	for range 200 {
+		r.Record(fp, sql, 800*time.Microsecond, 0, false)
+	}
+	r.sampleAll()
+
+	// Interval 2 — only slow calls land in this window.
+	for range 5 {
+		r.Record(fp, sql, 90*time.Millisecond, 0, false)
+	}
+	r.sampleAll()
+
+	snaps := r.Top(0, SortByCalls)
+	require.Len(t, snaps, 1)
+	require.Len(t, snaps[0].P99MsTrend, 2)
+
+	// Interval 1 → fast bucket only (≤1ms).
+	assert.LessOrEqual(t, snaps[0].P99MsTrend[0], 1.0,
+		"p99 trend for first interval should reflect only the fast bucket")
+	// Interval 2 → slow bucket only (50–100ms range).
+	assert.GreaterOrEqual(t, snaps[0].P99MsTrend[1], 50.0,
+		"p99 trend for second interval should reflect the recent slow burst, not be diluted by the cumulative history")
+	assert.LessOrEqual(t, snaps[0].P99MsTrend[1], 100.0)
+}
+
 func TestDisabledSamplerLeavesTrendsEmpty(t *testing.T) {
 	r := NewForTest(Config{MaxMemoryBytes: 1 << 20, MaxSQLLength: 1024})
 	defer r.Close()

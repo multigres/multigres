@@ -64,13 +64,16 @@ type QueryStats struct {
 	durationBuckets [numHistBuckets]atomic.Uint64
 
 	// Trend bookkeeping — guarded by trendMu. Last-* fields hold the
-	// counter values at the previous sample so the sampler can compute
-	// per-interval deltas.
+	// counter / histogram values at the previous sample so the sampler can
+	// compute per-interval deltas. Without this delta-of-histograms the
+	// trend percentile would be cumulative-since-admission and would
+	// flat-line under sustained load.
 	trendMu                   sync.Mutex
 	trends                    trendBuffers
 	lastSampleCalls           uint64
 	lastSampleTotalDurationNs int64
 	lastSampleTotalRows       uint64
+	lastSampleBuckets         [numHistBuckets]uint64
 }
 
 // CachedSize implements theine's cacheval interface so theine can bound
@@ -412,12 +415,18 @@ func (s *QueryStats) takeSample(intervalSec float64) {
 	s.trends.totalTime.push(float64(durDeltaNs) / 1e6 / intervalSec)
 	s.trends.rowsRate.push(float64(rowsDelta) / intervalSec)
 
-	var counts [numHistBuckets]uint64
+	// Percentile sparkline tracks per-interval distribution: snapshot the
+	// histogram, push the percentile of (current - previous), then save
+	// the snapshot for the next sample. Without this delta, the sparkline
+	// would show cumulative-since-admission percentiles and flatten out.
+	var counts, delta [numHistBuckets]uint64
 	for i := range s.durationBuckets {
 		counts[i] = s.durationBuckets[i].Load()
+		delta[i] = counts[i] - s.lastSampleBuckets[i]
 	}
-	s.trends.p50Ms.push(float64(percentileNs(counts, 0.50)) / 1e6)
-	s.trends.p99Ms.push(float64(percentileNs(counts, 0.99)) / 1e6)
+	s.lastSampleBuckets = counts
+	s.trends.p50Ms.push(float64(percentileNs(delta, 0.50)) / 1e6)
+	s.trends.p99Ms.push(float64(percentileNs(delta, 0.99)) / 1e6)
 }
 
 func (s *QueryStats) snapshot(sampleIntervalSec float64) Snapshot {
