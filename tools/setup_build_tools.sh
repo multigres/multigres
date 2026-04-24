@@ -30,6 +30,7 @@ PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
 PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
+SQLLOGICTEST_VERSION="${SQLLOGICTEST_VER:-v0.29.1}"
 
 get_platform() {
   case $(uname) in
@@ -89,6 +90,9 @@ install_dep() {
     ;;
   "pgbackrest")
     install_pgbackrest "$version" "$dist"
+    ;;
+  "sqllogictest")
+    install_sqllogictest "$version" "$dist"
     ;;
   *)
     echo "ERROR: unknown dependency $name"
@@ -412,6 +416,59 @@ install_pgbackrest_macos() {
   exit 1
 }
 
+# Download and install the sqllogictest-rs CLI binary from upstream releases,
+# SHA-pinned via tool_checksums.sh. The resulting binary is symlinked into
+# $MTROOT/bin/sqllogictest so end-to-end tests can invoke it hermetically.
+install_sqllogictest() {
+  local version="$1"
+  local dist="$2"
+
+  # Rust target triple used by upstream release assets.
+  case $(uname) in
+  Linux)
+    local platform="unknown-linux-musl"
+    ;;
+  Darwin)
+    local platform="apple-darwin"
+    ;;
+  *)
+    echo "ERROR: unsupported platform for sqllogictest"
+    exit 1
+    ;;
+  esac
+
+  case $(uname -m) in
+  aarch64) local arch="aarch64" ;;
+  arm64) local arch="aarch64" ;;
+  x86_64) local arch="x86_64" ;;
+  *)
+    echo "ERROR: unsupported architecture for sqllogictest"
+    exit 1
+    ;;
+  esac
+
+  local ext="tar.gz"
+  local filename="sqllogictest-bin-${version}-${arch}-${platform}.${ext}"
+  local url="https://github.com/risinglightdb/sqllogictest-rs/releases/download/${version}/${filename}"
+
+  local sha256
+  sha256=$(get_sha256 "sqllogictest" "$version" "$platform" "$arch" "$ext")
+
+  cd "$dist"
+  echo "Downloading ${url}..."
+  safe_download "${url}" "${filename}" "${sha256}"
+
+  echo "Extracting sqllogictest..."
+  tar xzf "$filename"
+  rm "$filename"
+
+  # The archive lays down a single executable named "sqllogictest". Symlink it
+  # into $MTROOT/bin so it's discoverable alongside the other pinned tools.
+  mkdir -p "$MTROOT/bin"
+  ln -snf "$dist/sqllogictest" "$MTROOT/bin/sqllogictest"
+  cd - >/dev/null
+}
+
 install_go_plugins() {
   # Reinstall protoc-gen-go and protoc-gen-go-grpc
   GOBIN=$MTROOT/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
@@ -439,6 +496,9 @@ install_all() {
 
   # Install pgBackRest
   install_dep "pgbackrest" "$PGBACKREST_VERSION" "$MTROOT/dist/pgbackrest"
+
+  # Install sqllogictest-rs CLI (used by the differential SLT harness).
+  install_dep "sqllogictest" "$SQLLOGICTEST_VERSION" "$MTROOT/dist/sqllogictest-$SQLLOGICTEST_VERSION"
 
   # Install Go dependencies
   install_go_plugins
