@@ -54,6 +54,14 @@ type Listener struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// certAuthMode controls client-certificate authentication for connections
+	// accepted by this listener. See docs/query_serving/client_cert_auth_design.md.
+	certAuthMode CertAuthMode
+
+	// certIdentitySource selects which cert field (CN or DN) is compared
+	// against the requested DB user under verify-full cert auth.
+	certIdentitySource CertIdentitySource
+
 	// logger for logging.
 	logger *slog.Logger
 
@@ -127,6 +135,17 @@ type ListenerConfig struct {
 	// When nil, SSLRequest is declined with 'N' (plaintext only).
 	TLSConfig *tls.Config
 
+	// ClientCertAuthMode controls PostgreSQL-compatible client certificate
+	// authentication. When CertAuthModeVerifyFull, TLSConfig MUST be set and
+	// MUST require a verified peer cert (ClientAuth=RequireAndVerifyClientCert).
+	// The empty string is treated as CertAuthModeNone.
+	ClientCertAuthMode CertAuthMode
+
+	// ClientCertIdentitySource selects which cert field is compared to the
+	// requested DB user under verify-full cert auth. The empty string is
+	// treated as CertIdentityCN (matching PostgreSQL's default).
+	ClientCertIdentitySource CertIdentitySource
+
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
 }
@@ -142,6 +161,28 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("hash provider is required (or TrustAuthProvider for testing)")
 	}
 
+	// verify-full cert auth requires a TLS config with client-cert verification
+	// enabled at the handshake layer, so the auth code can assume a verified
+	// peer cert is present.
+	if config.ClientCertAuthMode == CertAuthModeVerifyFull {
+		if config.TLSConfig == nil {
+			return nil, errors.New("client cert auth mode verify-full requires TLSConfig")
+		}
+		if config.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert {
+			return nil, errors.New("client cert auth mode verify-full requires TLSConfig.ClientAuth = RequireAndVerifyClientCert")
+		}
+	}
+
+	// Default identity source is CN (matches PostgreSQL's clientcertname default).
+	identitySource := config.ClientCertIdentitySource
+	if identitySource == "" {
+		identitySource = CertIdentityCN
+	}
+	authMode := config.ClientCertAuthMode
+	if authMode == "" {
+		authMode = CertAuthModeNone
+	}
+
 	netListener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
@@ -155,16 +196,18 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
-		listener:          netListener,
-		handler:           config.Handler,
-		hashProvider:      config.HashProvider,
-		trustAuthProvider: config.TrustAuthProvider,
-		tlsConfig:         config.TLSConfig,
-		logger:            logger,
-		gatewayID:         config.GatewayID,
-		conns:             make(map[uint32]*Conn),
-		ctx:               ctx,
-		cancel:            cancel,
+		listener:           netListener,
+		handler:            config.Handler,
+		hashProvider:       config.HashProvider,
+		trustAuthProvider:  config.TrustAuthProvider,
+		tlsConfig:          config.TLSConfig,
+		certAuthMode:       authMode,
+		certIdentitySource: identitySource,
+		logger:             logger,
+		gatewayID:          config.GatewayID,
+		conns:              make(map[uint32]*Conn),
+		ctx:                ctx,
+		cancel:             cancel,
 	}
 
 	// Initialize buffer pools.
@@ -214,6 +257,8 @@ func (l *Listener) Serve() error {
 		conn.hashProvider = l.hashProvider
 		conn.trustAuthProvider = l.trustAuthProvider
 		conn.tlsConfig = l.tlsConfig
+		conn.certAuthMode = l.certAuthMode
+		conn.certIdentitySource = l.certIdentitySource
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

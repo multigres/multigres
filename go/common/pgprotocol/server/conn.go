@@ -81,6 +81,16 @@ type Conn struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// certAuthMode controls client-certificate authentication behavior.
+	// When CertAuthModeVerifyFull and the connection is TLS with a verified
+	// peer certificate, cert auth is used instead of SCRAM.
+	certAuthMode CertAuthMode
+
+	// certIdentitySource selects which field of the peer certificate
+	// (CN or RFC 2253 DN) is compared to the requested DB user under
+	// verify-full cert auth.
+	certIdentitySource CertIdentitySource
+
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool
@@ -206,6 +216,18 @@ func (c *Conn) IsInTransaction() bool {
 // RemoteAddr returns the remote network address.
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.conn.RemoteAddr()
+}
+
+// TLSConnectionState returns the TLS handshake state for this connection if
+// the underlying transport is TLS. Returns (nil, false) on plaintext
+// connections or before the TLS handshake has completed.
+func (c *Conn) TLSConnectionState() (*tls.ConnectionState, bool) {
+	tlsConn, ok := c.conn.(*tls.Conn)
+	if !ok {
+		return nil, false
+	}
+	state := tlsConn.ConnectionState()
+	return &state, true
 }
 
 // LocalAddr returns the local network address.
