@@ -330,7 +330,7 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.NotNil(t, status.Status.ConsensusTerm, "Replica should have consensus term")
+	require.NotNil(t, status.Status.TermRevocation, "Replica should have consensus term")
 	consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get consensus status from demoted replica")
 	require.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),

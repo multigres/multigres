@@ -152,15 +152,15 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify primary term is set to 1 (bootstrap term)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get status from primary")
-		require.NotNil(t, status.Status.ConsensusTerm, "Primary should have consensus term")
-		assert.Equal(t, int64(1), status.Status.ConsensusTerm.TermNumber, "Primary should be on term 1 after bootstrap")
+		require.NotNil(t, status.Status.TermRevocation, "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.Status.TermRevocation.RevokedBelowTerm, "Primary should be on term 1 after bootstrap")
 		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
 		consensusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get consensus status from primary")
 		primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
 		assert.Equal(t, int64(1), primaryTerm, "Primary term should be set to 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.Status.ConsensusTerm.TermNumber, primaryTerm)
+			status.Status.TermRevocation.RevokedBelowTerm, primaryTerm)
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -186,7 +186,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
-				require.NotNil(t, status.Status.ConsensusTerm, "Standby %s should have consensus term", name)
+				require.NotNil(t, status.Status.TermRevocation, "Standby %s should have consensus term", name)
 				consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 				require.NoError(t, err, "Standby %s: should be able to get consensus status", name)
 				primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
@@ -221,8 +221,8 @@ func TestBootstrapInitialization(t *testing.T) {
 					return false, "not yet initialized"
 				}
 				termNum := int64(0)
-				if s.ConsensusTerm != nil {
-					termNum = s.ConsensusTerm.TermNumber
+				if s.TermRevocation != nil {
+					termNum = s.TermRevocation.RevokedBelowTerm
 				}
 				if termNum != 1 {
 					return false, fmt.Sprintf("consensus term is %d, expected 1", termNum)
@@ -369,7 +369,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				if !s.PostgresReady {
 					return false, "postgres not running"
 				}
-				if s.ConsensusTerm == nil || s.ConsensusTerm.TermNumber == 0 {
+				if s.TermRevocation == nil || s.TermRevocation.RevokedBelowTerm == 0 {
 					return false, "consensus term not yet assigned"
 				}
 				return true, ""

@@ -213,8 +213,8 @@ message Status {
   // Current WAL position (empty if db not connected)
   string wal_position = 8;
 
-  // Current consensus term information
-  ConsensusTerm consensus_term = 9;
+  // Current term revocation state
+  clustermetadata.TermRevocation term_revocation = 9;
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;
@@ -556,22 +556,6 @@ message UpdateSynchronousStandbyListRequest {
 }
 
 message UpdateSynchronousStandbyListResponse {
-}
-
-// ConsensusTerm represents the consensus term information for the pooler
-// This is persisted to disk at $PGDATA/consensus/consensus_term.json
-message ConsensusTerm {
-  // Term number for this consensus term
-  int64 term_number = 1;
-
-  // ID of the coordinator (multiorch) that this node accepted the term from
-  clustermetadata.ID accepted_term_from_coordinator_id = 2;
-
-  // Timestamp of the last acceptance
-  google.protobuf.Timestamp last_acceptance_time = 3;
-
-  // ID of the leader of the current term
-  clustermetadata.ID leader_id = 4;
 }
 
 // Backup operations

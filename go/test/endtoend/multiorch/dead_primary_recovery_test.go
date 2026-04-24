@@ -169,7 +169,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		consensusResp, err := newPrimaryClient.Consensus.Status(utils.WithTimeout(t, 5*time.Second), &consensusdatapb.StatusRequest{})
 		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get consensus status from new primary")
-		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
+		newPrimaryTerm := status.Status.TermRevocation.RevokedBelowTerm
 		newPrimaryTermActual := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
@@ -207,7 +207,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
-	oldPrimaryTerm := statusResp.Status.ConsensusTerm.TermNumber
+	oldPrimaryTerm := statusResp.Status.TermRevocation.RevokedBelowTerm
 	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
 
 	// Call BeginTerm with a higher term to trigger emergency demotion
@@ -244,7 +244,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	newPrimaryClient.Close()
 	require.NoError(t, err, "should be able to get status from new primary")
-	newPrimaryTerm := newStatusResp.Status.ConsensusTerm.TermNumber
+	newPrimaryTerm := newStatusResp.Status.TermRevocation.RevokedBelowTerm
 	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 	// Verify new primary's term is higher than the old primary's original term
@@ -302,7 +302,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-			require.NotNil(t, status.Status.ConsensusTerm, "Replica %s should have consensus term", name)
+			require.NotNil(t, status.Status.TermRevocation, "Replica %s should have consensus term", name)
 			consensusResp, err := client.Consensus.Status(utils.WithTimeout(t, 5*time.Second), &consensusdatapb.StatusRequest{})
 			require.NoError(t, err, "Replica %s: should be able to get consensus status", name)
 			assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
@@ -579,8 +579,8 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 					return false, "replication not configured"
 				}
 				termNum := int64(0)
-				if s.ConsensusTerm != nil {
-					termNum = s.ConsensusTerm.TermNumber
+				if s.TermRevocation != nil {
+					termNum = s.TermRevocation.RevokedBelowTerm
 				}
 				if termNum != expectedTerm {
 					return false, fmt.Sprintf("wrong term %d, expected %d", termNum, expectedTerm)

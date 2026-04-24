@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -25,7 +26,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ConsensusState manages the in-memory and on-disk consensus state for this node.
@@ -35,17 +35,17 @@ type ConsensusState struct {
 	poolerDir string
 	serviceID *clustermetadatapb.ID
 
-	mu   sync.Mutex
-	term *multipoolermanagerdatapb.ConsensusTerm // cached term from disk
+	mu         sync.Mutex
+	revocation *clustermetadatapb.TermRevocation // cached revocation from disk
 }
 
 // NewConsensusState creates a new ConsensusState manager.
 // It does not load state from disk - call Load() to initialize.
 func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *ConsensusState {
 	return &ConsensusState{
-		poolerDir: poolerDir,
-		serviceID: serviceID,
-		term:      nil,
+		poolerDir:  poolerDir,
+		serviceID:  serviceID,
+		revocation: nil,
 	}
 }
 
@@ -53,16 +53,16 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // If the file doesn't exist, initializes with default values (term 0, no accepted coordinator).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusState) Load() (int64, error) {
-	term, err := cs.getConsensusTerm()
+	revocation, err := cs.getRevocation()
 	if err != nil {
 		return 0, fmt.Errorf("failed to load consensus term: %w", err)
 	}
 
 	cs.mu.Lock()
-	cs.term = term
+	cs.revocation = revocation
 	cs.mu.Unlock()
 
-	return term.TermNumber, nil
+	return revocation.RevokedBelowTerm, nil
 }
 
 // GetCurrentTermNumber returns the current term.
@@ -83,27 +83,27 @@ func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if cs.term == nil {
+	if cs.revocation == nil {
 		return 0, nil
 	}
-	return cs.term.GetTermNumber(), nil
+	return cs.revocation.GetRevokedBelowTerm(), nil
 }
 
-// GetInconsistentTerm returns a copy of the current consensus term for monitoring.
+// GetInconsistentRevocation returns a copy of the current term revocation for monitoring.
 // It doesn't require the action lock to be held, so the value returned may
-// be outdated by the time it's used. Use GetTerm() as part of any action
+// be outdated by the time it's used. Use GetRevocation() as part of any action
 // workflow to protect against race conditions.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetInconsistentTerm() (*multipoolermanagerdatapb.ConsensusTerm, error) {
+func (cs *ConsensusState) GetInconsistentRevocation() (*clustermetadatapb.TermRevocation, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if cs.term == nil {
+	if cs.revocation == nil {
 		return nil, nil
 	}
 
 	// Return a copy to prevent external modifications
-	return cloneTerm(cs.term), nil
+	return cloneRevocation(cs.revocation), nil
 }
 
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
@@ -115,27 +115,27 @@ func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error)
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if cs.term == nil || cs.term.AcceptedTermFromCoordinatorId == nil {
+	if cs.revocation == nil || cs.revocation.AcceptedCoordinatorId == nil {
 		return "", nil
 	}
-	return cs.term.AcceptedTermFromCoordinatorId.GetName(), nil
+	return cs.revocation.AcceptedCoordinatorId.GetName(), nil
 }
 
-// GetTerm returns a copy of the current consensus term.
+// GetRevocation returns a copy of the current term revocation.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetTerm(ctx context.Context) (*multipoolermanagerdatapb.ConsensusTerm, error) {
+func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb.TermRevocation, error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if cs.term == nil {
+	if cs.revocation == nil {
 		return nil, nil
 	}
 
 	// Return a copy to prevent external modifications
-	return cloneTerm(cs.term), nil
+	return cloneRevocation(cs.revocation), nil
 }
 
 // AcceptCandidateAndSave atomically records acceptance of the term from a coordinator.
@@ -149,7 +149,7 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if cs.term == nil {
+	if cs.revocation == nil {
 		return errors.New("consensus term not initialized")
 	}
 
@@ -158,28 +158,25 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	}
 
 	// If already accepted from this coordinator, idempotent success
-	if cs.term.AcceptedTermFromCoordinatorId != nil && proto.Equal(cs.term.AcceptedTermFromCoordinatorId, candidateID) {
+	if cs.revocation.AcceptedCoordinatorId != nil && proto.Equal(cs.revocation.AcceptedCoordinatorId, candidateID) {
 		return nil
 	}
 
 	// Check if already accepted from someone else in this term
-	if cs.term.AcceptedTermFromCoordinatorId != nil {
+	if cs.revocation.AcceptedCoordinatorId != nil {
 		return fmt.Errorf("already accepted term from %s in term %d",
-			cs.term.AcceptedTermFromCoordinatorId.GetName(), cs.term.TermNumber)
+			cs.revocation.AcceptedCoordinatorId.GetName(), cs.revocation.RevokedBelowTerm)
 	}
 
 	// Prepare acceptance
-	newTerm := cloneTerm(cs.term)
-
+	newRevocation := cloneRevocation(cs.revocation)
 	// Update acceptance - use proto.Clone to ensure deep copy
-	newTerm.AcceptedTermFromCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
-
+	newRevocation.AcceptedCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
 	// Update last acceptance time
-	now := time.Now()
-	newTerm.LastAcceptanceTime = timestamppb.New(now)
+	newRevocation.CoordinatorInitiatedAt = timestamppb.New(time.Now())
 
 	// Save and update under lock
-	return cs.saveAndUpdateLocked(newTerm)
+	return cs.saveAndUpdateLocked(newRevocation)
 }
 
 // UpdateTermAndAcceptCandidate atomically updates the term and accepts a candidate in one file write.
@@ -199,49 +196,48 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	}
 
 	currentTerm := int64(0)
-	if cs.term != nil {
-		currentTerm = cs.term.GetTermNumber()
+	if cs.revocation != nil {
+		currentTerm = cs.revocation.GetRevokedBelowTerm()
 	}
 
 	if newTerm < currentTerm {
 		return fmt.Errorf("cannot update to older term: current=%d, new=%d", currentTerm, newTerm)
 	}
 
-	var newTermProto *multipoolermanagerdatapb.ConsensusTerm
+	var newRevocation *clustermetadatapb.TermRevocation
 
 	if newTerm > currentTerm {
-		// Higher term: create new term with the candidate already set
-		newTermProto = &multipoolermanagerdatapb.ConsensusTerm{
-			TermNumber:                    newTerm,
-			AcceptedTermFromCoordinatorId: proto.Clone(candidateID).(*clustermetadatapb.ID),
-			LastAcceptanceTime:            timestamppb.New(time.Now()),
-			LeaderId:                      nil,
+		// Higher term: create new revocation with the candidate already set
+		newRevocation = &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       newTerm,
+			AcceptedCoordinatorId:  proto.Clone(candidateID).(*clustermetadatapb.ID),
+			CoordinatorInitiatedAt: timestamppb.New(time.Now()),
 		}
 	} else {
 		// Same term: just update acceptance (idempotent check first)
-		if cs.term == nil {
+		if cs.revocation == nil {
 			return errors.New("consensus term not initialized")
 		}
 
 		// If already accepted from this coordinator, idempotent success
-		if cs.term.AcceptedTermFromCoordinatorId != nil && proto.Equal(cs.term.AcceptedTermFromCoordinatorId, candidateID) {
+		if cs.revocation.AcceptedCoordinatorId != nil && proto.Equal(cs.revocation.AcceptedCoordinatorId, candidateID) {
 			return nil
 		}
 
 		// Check if already accepted from someone else in this term
-		if cs.term.AcceptedTermFromCoordinatorId != nil {
+		if cs.revocation.AcceptedCoordinatorId != nil {
 			return fmt.Errorf("already accepted term from %s in term %d",
-				cs.term.AcceptedTermFromCoordinatorId.GetName(), cs.term.TermNumber)
+				cs.revocation.AcceptedCoordinatorId.GetName(), cs.revocation.RevokedBelowTerm)
 		}
 
 		// Prepare acceptance
-		newTermProto = cloneTerm(cs.term)
-		newTermProto.AcceptedTermFromCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
-		newTermProto.LastAcceptanceTime = timestamppb.New(time.Now())
+		newRevocation = cloneRevocation(cs.revocation)
+		newRevocation.AcceptedCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
+		newRevocation.CoordinatorInitiatedAt = timestamppb.New(time.Now())
 	}
 
 	// Single file write
-	return cs.saveAndUpdateLocked(newTermProto)
+	return cs.saveAndUpdateLocked(newRevocation)
 }
 
 // UpdateTermAndSave atomically updates the term number, resetting accepted coordinator.
@@ -256,8 +252,8 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 	defer cs.mu.Unlock()
 
 	currentTerm := int64(0)
-	if cs.term != nil {
-		currentTerm = cs.term.GetTermNumber()
+	if cs.revocation != nil {
+		currentTerm = cs.revocation.GetRevokedBelowTerm()
 	}
 
 	if newTerm < currentTerm {
@@ -269,38 +265,56 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 		return nil
 	}
 
-	// Only if newTerm > currentTerm: create new term with reset acceptance
-	term := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:                    newTerm,
-		AcceptedTermFromCoordinatorId: nil,
-		LastAcceptanceTime:            nil,
-		LeaderId:                      nil,
+	// Only if newTerm > currentTerm: create new revocation with reset acceptance
+	newRevocation := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       newTerm,
+		AcceptedCoordinatorId:  nil,
+		CoordinatorInitiatedAt: nil,
 	}
 
 	// Save and update under lock
-	return cs.saveAndUpdateLocked(term)
+	return cs.saveAndUpdateLocked(newRevocation)
 }
 
-// saveAndUpdateLocked saves the term to disk and updates memory.
+// saveAndUpdateLocked saves the revocation to disk and updates memory.
 // MUST be called with cs.mu held.
 // This is the key method that ensures memory never diverges from disk.
 // If the save fails, memory remains unchanged and the error is returned.
-func (cs *ConsensusState) saveAndUpdateLocked(newTerm *multipoolermanagerdatapb.ConsensusTerm) error {
+func (cs *ConsensusState) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
-	if err := cs.setConsensusTerm(newTerm); err != nil {
+	if err := cs.setRevocation(newRevocation); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
 
 	// Save succeeded - NOW update memory
-	cs.term = cloneTerm(newTerm)
+	cs.revocation = cloneRevocation(newRevocation)
 	return nil
 }
 
-// cloneTerm creates a deep copy of a ConsensusTerm
-func cloneTerm(term *multipoolermanagerdatapb.ConsensusTerm) *multipoolermanagerdatapb.ConsensusTerm {
-	if term == nil {
+// DeleteTermFile removes the consensus term file from disk and resets the
+// in-memory state to uninitialized (term 0, no accepted coordinator).
+// Called after a pgBackRest restore so the node re-joins consensus from
+// scratch; the cluster's current term will be propagated by multiorch on
+// first contact via BeginTerm.
+// If the file does not exist this is a no-op. Returns an error only if
+// the file exists but cannot be removed.
+func (cs *ConsensusState) DeleteTermFile() error {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if err := os.Remove(cs.consensusTermPath()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete consensus term file after restore: %w", err)
+	}
+
+	cs.revocation = &clustermetadatapb.TermRevocation{}
+	return nil
+}
+
+// cloneRevocation creates a deep copy of a TermRevocation.
+func cloneRevocation(revocation *clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
+	if revocation == nil {
 		return nil
 	}
-	return proto.Clone(term).(*multipoolermanagerdatapb.ConsensusTerm)
+	return proto.Clone(revocation).(*clustermetadatapb.TermRevocation)
 }

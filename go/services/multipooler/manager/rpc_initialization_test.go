@@ -33,7 +33,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -758,7 +757,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			cs := NewConsensusState("", nil)
 			cs.mu.Lock()
-			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+			cs.revocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
 			cs.mu.Unlock()
 			pm.consensusState = cs
 

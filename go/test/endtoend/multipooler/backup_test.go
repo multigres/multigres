@@ -202,8 +202,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusCtx := utils.WithShortDeadline(t)
 					statusResp, err := standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after term update")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil")
-					assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm.TermNumber, "Term should be updated to higher value")
+					require.NotNil(t, statusResp.Status.TermRevocation, "ConsensusTerm should not be nil")
+					assert.Equal(t, higherTerm, statusResp.Status.TermRevocation.RevokedBelowTerm, "Term should be updated to higher value")
 					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
 					standbyInst := setup.GetStandbys()
 					require.NotEmpty(t, standbyInst, "expected at least one standby")
@@ -230,8 +230,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						if err != nil {
 							return false
 						}
-						if statusResp.Status.ConsensusTerm != nil {
-							restoredTerm = statusResp.Status.ConsensusTerm.TermNumber
+						if statusResp.Status.TermRevocation != nil {
+							restoredTerm = statusResp.Status.TermRevocation.RevokedBelowTerm
 						}
 						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
@@ -242,7 +242,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
+					require.NotNil(t, statusResp.Status.TermRevocation, "ConsensusTerm should not be nil after restore")
 					consensusStatusCtx := utils.WithShortDeadline(t)
 					consensusResp, err := standbyConsensusClient.Status(consensusStatusCtx, &consensusdatapb.StatusRequest{})
 					require.NoError(t, err, "Should be able to get consensus status after restore")

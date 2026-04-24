@@ -317,9 +317,9 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.PostgresActionDuration = durationpb.New(duration)
 	}
 
-	// Get consensus term (use inconsistent read for monitoring)
-	if term, err := pm.consensusState.GetInconsistentTerm(); err == nil {
-		poolerStatus.ConsensusTerm = term
+	// Get term revocation (use inconsistent read for monitoring)
+	if revocation, err := pm.consensusState.GetInconsistentRevocation(); err == nil {
+		poolerStatus.TermRevocation = revocation
 	}
 
 	// Get WAL position (ignore errors, just return empty string)
@@ -429,12 +429,12 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	// before this primary can accept ACKs from it.
 	// This is for safe replica joining of the cluster.
 	// It will ensure multiorch can discover the new cohort during a failure.
-	term, err := pm.consensusState.GetTerm(ctx)
+	revocation, err := pm.consensusState.GetRevocation(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus term")
 	}
 	update := newRuleUpdate(
-		term.GetTermNumber(),
+		revocation.GetRevokedBelowTerm(),
 		pm.serviceID,
 		"replication_config",
 		"ConfigureSynchronousReplication called",
