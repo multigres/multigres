@@ -76,6 +76,11 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 // SCRAM passthrough keys. Returns nil for sessions that did not authenticate via
 // SCRAM (e.g. trust in tests), so this field stays absent on the wire instead of
 // carrying empty slices.
+//
+// Keys are copied rather than referenced: Conn.Close zeroizes the accessor's
+// backing slice in place, and gRPC may marshal lazily (stream init) or re-
+// marshal on transient retry. A detached copy guarantees the proto carries
+// live bytes for the full lifetime of the RPC.
 func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	clientKey := conn.ScramClientKey()
 	serverKey := conn.ScramServerKey()
@@ -83,8 +88,8 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 		return nil
 	}
 	return &querypb.UserAuth{
-		ClientKey: clientKey,
-		ServerKey: serverKey,
+		ClientKey: append([]byte(nil), clientKey...),
+		ServerKey: append([]byte(nil), serverKey...),
 	}
 }
 

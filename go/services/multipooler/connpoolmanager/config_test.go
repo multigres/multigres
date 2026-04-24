@@ -264,23 +264,3 @@ func TestConfig_PgUser_EnvVar(t *testing.T) {
 
 	assert.Equal(t, "supabase_admin", config.PgUser())
 }
-
-func TestConfig_ScramPassthrough_DefaultsTrue(t *testing.T) {
-	viper.Reset()
-	defer func() { viper.Reset() }()
-
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
-
-	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	config.RegisterFlags(fs)
-
-	// Default is true: the secure path where per-user pools authenticate to
-	// PostgreSQL with SCRAM keys forwarded by MultiGateway. Legacy deployments
-	// can opt out via --multipooler-scram-passthrough=false.
-	assert.True(t, config.ScramPassthrough())
-
-	flag := fs.Lookup("multipooler-scram-passthrough")
-	require.NotNil(t, flag, "--multipooler-scram-passthrough flag must be registered")
-	assert.Equal(t, "true", flag.DefValue)
-}

@@ -775,39 +775,14 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 
 // --- SCRAM passthrough ---
 
-// TestBuildUserClientConfig_FlagOff_KeysIgnored verifies that when the
-// passthrough flag is disabled, keys passed in are dropped and the resulting
-// config falls back to the existing empty-password path.
-func TestBuildUserClientConfig_FlagOff_KeysIgnored(t *testing.T) {
-	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "false")
-
+// TestBuildUserClientConfig_KeysApplied verifies that when both keys are
+// supplied, the resulting client.Config carries them through to the dial.
+func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
 	defer manager.Close()
-	require.False(t, config.ScramPassthrough(), "flag must be false for this scenario")
-
-	cfg := manager.buildUserClientConfig("alice", bytes32(1), bytes32(2))
-
-	assert.Empty(t, cfg.Password)
-	assert.Nil(t, cfg.ScramClientKey)
-	assert.Nil(t, cfg.ScramServerKey)
-	assert.Equal(t, "alice", cfg.User)
-}
-
-// TestBuildUserClientConfig_FlagOn_KeysApplied verifies that when the flag
-// is enabled AND both keys are supplied, the resulting client.Config carries
-// them through to the dial.
-func TestBuildUserClientConfig_FlagOn_KeysApplied(t *testing.T) {
-	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "true")
-
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
-	manager := config.NewManager(slog.Default())
-	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
-	defer manager.Close()
-	require.True(t, config.ScramPassthrough(), "flag must be true for this scenario")
 
 	ck, sk := bytes32(1), bytes32(2)
 	cfg := manager.buildUserClientConfig("alice", ck, sk)
@@ -815,14 +790,15 @@ func TestBuildUserClientConfig_FlagOn_KeysApplied(t *testing.T) {
 	assert.Equal(t, ck, cfg.ScramClientKey)
 	assert.Equal(t, sk, cfg.ScramServerKey)
 	assert.Empty(t, cfg.Password)
+	assert.Equal(t, "alice", cfg.User)
 }
 
-// TestBuildUserClientConfig_FlagOn_NilKeys_FallsBack ensures that an
+// TestBuildUserClientConfig_NilKeys_FallsBack ensures that an
 // authenticated-but-keyless session (not expected in practice, but possible
 // during rollout) does not crash and falls back to the empty-password path.
-func TestBuildUserClientConfig_FlagOn_NilKeys_FallsBack(t *testing.T) {
-	t.Setenv("MULTIPOOLER_SCRAM_PASSTHROUGH", "true")
-
+// An empty-password dial only succeeds against the pg_hba admin-user trust
+// exception; any other user will fail authentication at PostgreSQL.
+func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 	manager := config.NewManager(slog.Default())

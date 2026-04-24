@@ -208,13 +208,14 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 }
 
 // buildUserClientConfig creates a client.Config for a per-user pool dial.
-// When SCRAM passthrough is enabled and the session carried ClientKey /
-// ServerKey (forwarded via ExecuteOptions.UserAuth), the returned config
-// authenticates to PostgreSQL using those keys. Otherwise the config uses
-// the existing empty-password trust path, matching today's behavior.
+// When the session carried ClientKey / ServerKey (forwarded via
+// ExecuteOptions.UserAuth), the returned config authenticates to PostgreSQL
+// using those keys. Absent keys fall back to the empty-password path, which
+// only succeeds against a pg_hba.conf that still trusts the local socket for
+// the dialing user — the template's narrow admin-user trust exception.
 func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte) *client.Config {
 	cfg := m.buildClientConfig(user, "")
-	if m.config.ScramPassthrough() && len(clientKey) > 0 && len(serverKey) > 0 {
+	if len(clientKey) > 0 && len(serverKey) > 0 {
 		cfg.ScramClientKey = clientKey
 		cfg.ScramServerKey = serverKey
 	}
