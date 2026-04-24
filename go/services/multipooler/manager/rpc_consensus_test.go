@@ -68,10 +68,14 @@ func expectObservePositionAsCurrentPrimary(m *mock.QueryService, appName string,
 	m.AddQueryPatternOnce("FROM multigres.current_rule", mock.MakeQueryResult(cols, row))
 }
 
-// expectObservePositionAsStalePrimary sets up a persistent mock so subsequent
-// calls to pm.primaryTermLocked return 0 for the original pooler:
-// observePosition reports primaryAppName (a different pooler) as the rule
-// primary. Useful for asserting state after DemoteStalePrimary has completed.
+// expectObservePositionAsStalePrimary installs a persistent mock that
+// simulates the rule-state convergence that replication will eventually
+// produce after DemoteStalePrimary completes. DemoteStalePrimary itself
+// does NOT rewrite the rule: pg_rewind overwrites multigres.current_rule
+// only when the timelines diverge; otherwise the rule converges via
+// streaming replication from the source primary. Tests use this helper
+// to assert the post-convergence primary_term without actually running
+// replication.
 func expectObservePositionAsStalePrimary(m *mock.QueryService, primaryAppName string, coordinatorTerm int64) {
 	cols, row := observePositionRow(primaryAppName, coordinatorTerm)
 	m.AddQueryPattern("FROM multigres.current_rule", mock.MakeQueryResult(cols, row))
@@ -1022,8 +1026,10 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// observePosition reports this pooler as the current primary, so
 				// the "already demoted" check does not short-circuit.
 				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
-				// After demotion, the rule names the source pooler as primary; this
-				// persistent mock lets the post-demotion assertion see primary_term=0.
+				// Simulates the post-replication rule state (source pooler as
+				// primary). DemoteStalePrimary doesn't rewrite the rule — this
+				// mock stands in for the streaming convergence that would make
+				// primary_term read back as 0 after DemoteStalePrimary returns.
 				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
 
 				// waitForDatabaseConnection after restart - health check
@@ -1057,7 +1063,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// observePosition reports this pooler as the current primary, so
 				// DemoteStalePrimary proceeds to term validation (which fails).
 				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 15)
-				// Demotion didn't happen, so the rule still names this pooler as
+				// Demotion short-circuited on term validation, so no replication
+				// was ever wired; the rule genuinely still names this pooler as
 				// primary for the post-error assertion.
 				expectObservePositionAsStalePrimary(m, "zone1_stale-primary", 15)
 			},
@@ -1084,8 +1091,10 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// observePosition reports this pooler as the current primary, so
 				// the "already demoted" check does not short-circuit.
 				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
-				// After demotion, the rule names the source pooler as primary; this
-				// persistent mock lets the post-demotion assertion see primary_term=0.
+				// Simulates the post-replication rule state (source pooler as
+				// primary). DemoteStalePrimary doesn't rewrite the rule — this
+				// mock stands in for the streaming convergence that would make
+				// primary_term read back as 0 after DemoteStalePrimary returns.
 				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
 
 				// waitForDatabaseConnection after restart - health check
@@ -1122,8 +1131,10 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// observePosition reports this pooler as the current primary, so
 				// the "already demoted" check does not short-circuit.
 				expectObservePositionAsCurrentPrimary(m, "zone1_stale-primary", 5)
-				// After demotion, the rule names the source pooler as primary; this
-				// persistent mock lets the post-demotion assertion see primary_term=0.
+				// Simulates the post-replication rule state (source pooler as
+				// primary). DemoteStalePrimary doesn't rewrite the rule — this
+				// mock stands in for the streaming convergence that would make
+				// primary_term read back as 0 after DemoteStalePrimary returns.
 				expectObservePositionAsStalePrimary(m, "zone1_correct-primary", 10)
 
 				// waitForDatabaseConnection after restart - health check

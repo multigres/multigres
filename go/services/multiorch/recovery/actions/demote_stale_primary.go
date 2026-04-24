@@ -30,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -197,20 +196,15 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 			return true // continue
 		}
 
-		// Check if this pooler is a PRIMARY
-		poolerType := pooler.GetStatus().GetPoolerType()
-		if poolerType == clustermetadatapb.PoolerType_UNKNOWN && pooler.MultiPooler != nil {
-			poolerType = pooler.MultiPooler.Type
+		if !commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()) {
+			return true // continue
 		}
 
-		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Get its PrimaryTerm (not consensus term) from its current rule.
-			primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+		primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 
-			if primaryTerm > maxPrimaryTerm {
-				maxPrimaryTerm = primaryTerm
-				correctPrimary = pooler
-			}
+		if primaryTerm > maxPrimaryTerm {
+			maxPrimaryTerm = primaryTerm
+			correctPrimary = pooler
 		}
 
 		return true // continue

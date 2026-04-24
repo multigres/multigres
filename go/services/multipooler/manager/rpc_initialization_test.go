@@ -30,7 +30,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -54,10 +53,9 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	}
 	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
-	// Replace the rule store's backing query service with a mock — the real
-	// one requires a running postgres, and tests that exercise rule reads
-	// (via observePosition) crash on nil otherwise.
-	pm.rules = newRuleStore(pm.logger, mock.NewQueryService())
+	// Swap in a fake rule store so tests that exercise observePosition /
+	// cachedPosition don't crash on the real store's nil query service.
+	pm.rules = &fakeRuleStore{}
 	return pm
 }
 

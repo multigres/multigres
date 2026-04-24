@@ -98,6 +98,8 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 
 	// Resigned poolers are excluded: they may still carry a stale primary rule
 	// that needs pg_rewind, which the stale-primary analyzer owns.
+	// TODO: once poolers self-rewind after emergency demotion, this exclusion
+	// becomes unnecessary — the resigned pooler can rejoin as a standby directly.
 	var standbys []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range recruitedPoolers {
 		if pooler.MultiPooler.Id.Name == candidate.MultiPooler.Id.Name {
