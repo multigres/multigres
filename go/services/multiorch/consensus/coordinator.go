@@ -128,14 +128,14 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
 	// - Discovery: identify the most progressed node based on WAL position
 	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, durabilityPolicy, proposedTerm)
+	candidate, standbys, claim, err := c.BeginTerm(ctx, shardID, cohort, durabilityPolicy, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
 
 	c.logger.InfoContext(ctx, "Recruitment succeeded",
 		"shard", shardID,
-		"term", term,
+		"term", claim.GetTerm(),
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
@@ -167,7 +167,7 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 	recruited = append(recruited, standbys...)
 
 	// Propagation and Establishment
-	if err := c.EstablishLeadership(ctx, candidate, standbys, term, policy, reason, cohort, recruited); err != nil {
+	if err := c.EstablishLeadership(ctx, candidate, standbys, claim, policy, reason, cohort, recruited); err != nil {
 		return mterrors.Wrap(err, "EstablishLeadership failed")
 	}
 

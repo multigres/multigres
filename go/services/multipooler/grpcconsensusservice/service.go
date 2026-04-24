@@ -71,7 +71,7 @@ func (s *consensusService) EmergencyDemote(ctx context.Context, req *multipooler
 	if req.DrainTimeout != nil {
 		drainTimeout = req.DrainTimeout.AsDuration()
 	}
-	resp, err := s.manager.EmergencyDemote(ctx, req.ConsensusTerm, drainTimeout, req.Force)
+	resp, err := s.manager.EmergencyDemote(ctx, req.Claim, drainTimeout, req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -80,7 +80,7 @@ func (s *consensusService) EmergencyDemote(ctx context.Context, req *multipooler
 
 // DemoteStalePrimary demotes a stale primary that came back after failover
 func (s *consensusService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
+	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.Claim, req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -90,12 +90,11 @@ func (s *consensusService) DemoteStalePrimary(ctx context.Context, req *multipoo
 // Promote promotes a replica to leader
 func (s *consensusService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	resp, err := s.manager.Promote(ctx,
-		req.ConsensusTerm,
+		req.Claim,
 		req.ExpectedLsn,
 		req.SyncReplicationConfig,
 		req.Force,
 		req.Reason,
-		req.CoordinatorId,
 		req.CohortMembers,
 		req.AcceptedMembers)
 	if err != nil {
@@ -110,9 +109,8 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 		req.Operation,
 		req.StandbyIds,
 		req.ReloadConfig,
-		req.ConsensusTerm,
-		req.Force,
-		req.CoordinatorId)
+		req.Claim,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -125,7 +123,7 @@ func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoo
 		req.Primary,
 		req.StopReplicationBefore,
 		req.StartReplicationAfter,
-		req.CurrentTerm,
+		req.Claim,
 		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)

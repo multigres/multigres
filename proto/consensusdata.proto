@@ -72,6 +72,38 @@ enum BeginTermAction {
   BEGIN_TERM_ACTION_REVOKE = 2;
 }
 
+// CoordinatorClaim is a coordinator's assertion that it is acting at a specific
+// consensus term as part of a specific recruitment attempt. Every RPC that
+// carries a consensus term MUST carry this bundle, never just the term
+// number on its own.
+//
+// The pooler validates the triple atomically on every such RPC:
+//   - any field nil/zero                                      -> INVALID_ARGUMENT
+//   - claim.term <  stored.term                               -> REJECT (stale)
+//   - claim.term == stored.term, stored.coord != claim.coord  -> REJECT (concurrent coordinator)
+//   - claim.term == stored.term, stored.coord == claim.coord,
+//       stored.initiated_at != claim.initiated_at             -> REJECT (coordinator lost memory,
+//                                                                        likely a restart; forces term bump)
+//   - claim.term == stored.term, full match                   -> idempotent accept
+//   - claim.term >  stored.term                               -> accept, store the full triple
+//
+// The coordinator picks coordinator_initiated_at once per recruitment
+// attempt at the top of Coordinator.BeginTerm and reuses it on every
+// subsequent RPC in that attempt. Losing it in memory (e.g., a coordinator
+// crash-and-restart) means the coordinator cannot continue at the same
+// term and must bump term before issuing any further term-carrying RPC.
+message CoordinatorClaim {
+  // Consensus term the coordinator is claiming.
+  int64 term = 1;
+
+  // Coordinator (multiorch instance) issuing this claim.
+  clustermetadata.ID coordinator_id = 2;
+
+  // Coordinator wall-clock timestamp at the start of the recruitment
+  // attempt. Identical across every request in one attempt.
+  google.protobuf.Timestamp coordinator_initiated_at = 3;
+}
+
 // BeginTerm is sent by coordinators during leader appointments
 message BeginTermRequest {
   // Term of the candidate
@@ -89,6 +121,12 @@ message BeginTermRequest {
   // Action type for this BeginTerm operation
   // Indicates what scenario triggered this term change
   BeginTermAction action = 5;
+
+  // Coordinator wall-clock timestamp at the start of the recruitment
+  // attempt. See CoordinatorClaim for semantics. Required; a missing
+  // or zero timestamp is rejected with INVALID_ARGUMENT. The pooler
+  // persists this into ConsensusTerm.coordinator_initiated_at.
+  google.protobuf.Timestamp coordinator_initiated_at = 6;
 }
 
 message BeginTermResponse {

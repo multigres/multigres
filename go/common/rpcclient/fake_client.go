@@ -81,7 +81,8 @@ type FakeClient struct {
 	CallLog []string
 
 	// Request tracking for verification in tests
-	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
+	PromoteRequests   map[string]*multipoolermanagerdatapb.PromoteRequest
+	BeginTermRequests map[string][]*consensusdatapb.BeginTermRequest
 
 	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
 	// is created. Tests use this to capture the stream and inject snapshots.
@@ -110,6 +111,7 @@ func NewFakeClient() *FakeClient {
 		Errors:                              make(map[string]error),
 		CallLog:                             make([]string, 0),
 		PromoteRequests:                     make(map[string]*multipoolermanagerdatapb.PromoteRequest),
+		BeginTermRequests:                   make(map[string][]*consensusdatapb.BeginTermRequest),
 	}
 }
 
@@ -193,9 +195,11 @@ func (f *FakeClient) BeginTerm(ctx context.Context, pooler *clustermetadatapb.Mu
 		return nil, err
 	}
 
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.BeginTermResponses[poolerID]; ok {
+	f.mu.Lock()
+	f.BeginTermRequests[poolerID] = append(f.BeginTermRequests[poolerID], request)
+	resp, ok := f.BeginTermResponses[poolerID]
+	f.mu.Unlock()
+	if ok {
 		return resp, nil
 	}
 	return &consensusdatapb.BeginTermResponse{}, nil

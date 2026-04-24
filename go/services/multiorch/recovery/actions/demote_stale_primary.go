@@ -143,6 +143,21 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 		}
 	}()
 
+	// Build the CoordinatorClaim from the correct primary's current term
+	// identity. The stale primary then gets admitted under the real
+	// (coordinator_id, coordinator_initiated_at) pair, so its term bump
+	// records who actually holds leadership instead of relying on Force.
+	claim, err := claimFromPrimaryStatus(ctx, a.rpcClient, correctPrimary.MultiPooler)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get consensus status from correct primary")
+	}
+	// Fall back to the cached term if the primary's status is missing
+	// TermRevocation (should not happen in normal operation, but keep the
+	// action robust during transitional states).
+	if claim.GetTerm() == 0 {
+		claim.Term = correctPrimaryTerm
+	}
+
 	// Call DemoteStalePrimary RPC - this will:
 	// 1. Stop postgres
 	// 2. Run pg_rewind to sync with correct primary
@@ -150,9 +165,9 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 	// 4. Clear sync replication config
 	// 5. Update topology to REPLICA
 	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
-		Source:        correctPrimary.MultiPooler,
-		ConsensusTerm: correctPrimaryTerm,
-		Force:         false,
+		Source: correctPrimary.MultiPooler,
+		Claim:  claim,
+		Force:  false,
 	})
 	if err != nil {
 		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")

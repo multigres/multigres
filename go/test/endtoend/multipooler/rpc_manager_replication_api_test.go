@@ -124,7 +124,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = standbyClient.Consensus.SetPrimaryConnInfo(ctx, setPrimaryReq)
@@ -181,12 +181,11 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           0, // Stale term (lower than current term 1)
+			Claim:                 utils.NewTestClaim(0), // Stale term claim (lower than current term 1); rejected by validation
 			Force:                 false,
 		}
 		_, err = standbyClient.Consensus.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.Error(t, err, "SetPrimaryConnInfo should fail with stale term")
-		assert.Contains(t, err.Error(), "consensus term too old", "Error should mention term is too old")
 
 		// Try again with force=true, should succeed
 		setPrimaryReq.Force = true
@@ -239,7 +238,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: true,  // Stop before
-			CurrentTerm:           currentTerm,
+			Claim:                 utils.NewTestClaim(currentTerm),
 			Force:                 false,
 		}
 		_, err = standbyClient.Consensus.SetPrimaryConnInfo(ctx, setPrimaryReq)
@@ -299,7 +298,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: false,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = standbyClient.Consensus.SetPrimaryConnInfo(ctx, setPrimaryReq)

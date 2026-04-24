@@ -34,6 +34,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
@@ -124,8 +125,9 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-1",
 			},
-			ShardId: "shard-1",
-			Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+			ShardId:                "shard-1",
+			Action:                 consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+			CoordinatorInitiatedAt: timestamppb.Now(),
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
@@ -310,8 +312,9 @@ func TestConsensusService_AllMethods(t *testing.T) {
 						Cell:      "zone1",
 						Name:      "candidate-1",
 					},
-					ShardId: "shard-1",
-					Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+					ShardId:                "shard-1",
+					Action:                 consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+					CoordinatorInitiatedAt: timestamppb.Now(),
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err

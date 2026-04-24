@@ -92,9 +92,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Perform demotion with Force=true (testing demote functionality, not term validation)
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: primaryTerm,
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        utils.NewTestClaim(primaryTerm),
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		demoteResp, err := primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
@@ -123,7 +123,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true, // Start replication immediately
-			CurrentTerm:           0,    // Ignored when Force=true
+			Claim:                 nil,  // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -157,7 +157,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Perform promotion with Force=true (testing promote functionality, not term validation)
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm:         0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			ExpectedLsn:           currentLSN,
 			SyncReplicationConfig: nil, // Don't configure sync replication for now
 			Force:                 true,
@@ -192,9 +192,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Demote the new primary (original standby) with Force=true
 		demoteReq2 := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		demoteResp2, err := standbyConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq2)
 		require.NoError(t, err, "Demote should succeed on new primary")
@@ -223,7 +223,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Promote original primary back with Force=true
 		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm:         0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			ExpectedLsn:           currentLSN2,
 			SyncReplicationConfig: nil,
 			Force:                 true,
@@ -263,9 +263,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// First demotion with Force=true (testing demote behavior, not term validation)
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		demoteResp1, err := primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 20*time.Second), demoteReq)
 		require.NoError(t, err, "First demote should succeed")
@@ -288,7 +288,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -309,9 +309,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// First demote the primary so we can test promote idempotency
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		_, err = primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
@@ -333,7 +333,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -351,7 +351,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// First promotion with Force=true
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm:         0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			ExpectedLsn:           currentLSN,
 			SyncReplicationConfig: nil,
 			Force:                 true,
@@ -387,9 +387,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		}
 
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: staleTerm, // Less than current term
-			DrainTimeout:  nil,
-			Force:         false,
+			Claim:        utils.NewTestClaim(staleTerm), // Less than current term
+			DrainTimeout: nil,
+			Force:        false,
 		}
 		_, err = primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.Error(t, err, "EmergencyDemote with stale term should fail")
@@ -419,9 +419,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		// First demote the primary so we can test promote term validation
 		// Use Force=true since we're testing promote validation, not demote
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		_, err = primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
@@ -443,7 +443,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -462,7 +462,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Try with stale term (should fail)
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm:         staleTerm,
+			Claim:                 utils.NewTestClaim(staleTerm),
 			ExpectedLsn:           "",
 			SyncReplicationConfig: nil,
 			Force:                 false,
@@ -486,9 +486,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Demote primary first - use Force=true since we're testing LSN validation, not term
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		_, err = primaryConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err)
@@ -511,7 +511,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
-			CurrentTerm:           0, // Ignored when Force=true
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -533,7 +533,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Try with wrong LSN (should fail) - use correct term so only LSN validation triggers
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm:         currentTerm,
+			Claim:                 utils.NewTestClaim(currentTerm),
 			ExpectedLsn:           "FF/FFFFFFFF",
 			SyncReplicationConfig: nil,
 			Force:                 false,
@@ -558,9 +558,9 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		// Use Force=true since we're testing error behavior for demote on standby,
 		// not term validation. The demote should fail because PostgreSQL is in standby mode.
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			DrainTimeout:  nil,
-			Force:         true,
+			Claim:        nil, // Ignored when Force=true
+			DrainTimeout: nil,
+			Force:        true,
 		}
 		_, err = standbyConsensusClient.EmergencyDemote(context.Background(), demoteReq)
 		require.Error(t, err, "EmergencyDemote should fail on standby")

@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/tools/pgutil"
@@ -46,27 +48,42 @@ import (
 //
 // The proposedTerm parameter is the term number to use (computed as maxTerm + 1).
 //
-// Returns the candidate pooler, standbys that accepted the term, the term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy commonconsensus.DurabilityPolicy, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
+// Returns the candidate pooler, standbys that accepted the term, the claim
+// used for this recruitment attempt, and any error. The returned claim MUST be
+// reused by the caller for every subsequent term-carrying RPC in this
+// establishment attempt (SetPrimaryConnInfo, Promote, UpdateSynchronousStandbyList,
+// EmergencyDemote, DemoteStalePrimary). Each attempt gets a fresh
+// coordinator_initiated_at; a crash-and-restart of this coordinator loses the
+// claim in memory and forces a term bump on any further RPC at that term.
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy commonconsensus.DurabilityPolicy, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, *consensusdatapb.CoordinatorClaim, error) {
 	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID, "term", proposedTerm)
+
+	// Build the claim ONCE per attempt. Do NOT re-derive it on retry: its
+	// uniqueness-per-attempt is the restart-detection signal a pooler uses to
+	// reject a memory-less coordinator at the same term.
+	claim := &consensusdatapb.CoordinatorClaim{
+		Term:                   proposedTerm,
+		CoordinatorId:          c.coordinatorID,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
 
 	// Recruit Nodes - Send BeginTerm RPC to all poolers in parallel
 	// This is now FIRST to ensure we only select from nodes that accept the term
-	recruited, err := c.recruitNodes(ctx, cohort, proposedTerm, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+	recruited, err := c.recruitNodes(ctx, cohort, claim, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 	if err != nil {
-		return nil, nil, 0, mterrors.Wrap(err, "failed to recruit poolers")
+		return nil, nil, nil, mterrors.Wrap(err, "failed to recruit poolers")
 	}
 
 	c.logger.InfoContext(ctx, "Recruited poolers", "shard", shardID, "count", len(recruited))
 
 	if len(recruited) == 0 {
-		return nil, nil, 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+		return nil, nil, nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
 			"no poolers accepted the term")
 	}
 
 	candidate, err := c.selectCandidate(ctx, recruited)
 	if err != nil {
-		return nil, nil, 0, mterrors.Wrap(err, "failed to select candidate from recruited nodes")
+		return nil, nil, nil, mterrors.Wrap(err, "failed to select candidate from recruited nodes")
 	}
 
 	c.logger.InfoContext(ctx, "Selected candidate from recruited nodes",
@@ -89,10 +106,10 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 
 	recruitedIDs := poolerIDs(recruitedPoolers)
 	if err := policy.CheckSufficientRecruitment(poolerIDs(cohort), recruitedIDs); err != nil {
-		return nil, nil, 0, mterrors.Wrapf(err, "recruitment validation failed for shard %s", shardID)
+		return nil, nil, nil, mterrors.Wrapf(err, "recruitment validation failed for shard %s", shardID)
 	}
 	if err := policy.CheckAchievable(recruitedIDs); err != nil {
-		return nil, nil, 0, mterrors.Wrapf(err, "candidacy validation failed for shard %s", shardID)
+		return nil, nil, nil, mterrors.Wrapf(err, "candidacy validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys
@@ -103,7 +120,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 		}
 	}
 
-	return candidate, standbys, proposedTerm, nil
+	return candidate, standbys, claim, nil
 }
 
 // discoverMaxTerm finds the maximum consensus term from cached health state.
@@ -299,7 +316,9 @@ func poolerRequestingDemotion(pooler *multiorchdatapb.PoolerHealthState) bool {
 }
 
 // recruitNodes sends BeginTerm RPC to all poolers in parallel and returns those that accepted.
-func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, action consensusdatapb.BeginTermAction) ([]recruitmentResult, error) {
+// The claim carries the per-recruitment coordinator_initiated_at; every RPC in this recruitment
+// attempt shares the same claim so a restarted coordinator is rejected at the pooler.
+func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, claim *consensusdatapb.CoordinatorClaim, action consensusdatapb.BeginTermAction) ([]recruitmentResult, error) {
 	type result struct {
 		pooler      *multiorchdatapb.PoolerHealthState
 		accepted    bool
@@ -307,6 +326,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 		err         error
 	}
 
+	term := claim.GetTerm()
 	results := make(chan result, len(cohort))
 	var wg sync.WaitGroup
 
@@ -314,11 +334,15 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 		wg.Add(1)
 		go func(n *multiorchdatapb.PoolerHealthState) {
 			defer wg.Done()
+			// BeginTermRequest is the one RPC that was left un-restructured (it
+			// will be replaced wholesale by the consensus refactor), so we splay
+			// the claim into its flat fields here.
 			req := &consensusdatapb.BeginTermRequest{
-				Term:        term,
-				CandidateId: c.coordinatorID,
-				ShardId:     n.MultiPooler.Shard,
-				Action:      action,
+				Term:                   term,
+				CandidateId:            claim.GetCoordinatorId(),
+				ShardId:                n.MultiPooler.Shard,
+				Action:                 action,
+				CoordinatorInitiatedAt: claim.GetCoordinatorInitiatedAt(),
 			}
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 			defer cancel()
@@ -411,7 +435,7 @@ func (c *Coordinator) EstablishLeadership(
 	ctx context.Context,
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
-	term int64,
+	claim *consensusdatapb.CoordinatorClaim,
 	policy *clustermetadatapb.DurabilityPolicy,
 	reason string,
 	cohort []*multiorchdatapb.PoolerHealthState,
@@ -489,7 +513,7 @@ func (c *Coordinator) EstablishLeadership(
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 				Primary:               candidate.MultiPooler,
-				CurrentTerm:           term,
+				Claim:                 claim,
 				StopReplicationBefore: false,
 				StartReplicationAfter: true, // Start streaming immediately so sync replication can proceed
 				Force:                 false,
@@ -522,12 +546,11 @@ func (c *Coordinator) EstablishLeadership(
 	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm:         term,
+		Claim:                 claim,
 		ExpectedLsn:           expectedLSN,
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
 		Reason:                reason,
-		CoordinatorId:         c.GetCoordinatorID(),
 		CohortMembers:         cohortMembers,
 		AcceptedMembers:       acceptedMembers,
 	}
@@ -585,25 +608,31 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	}
 
 	// Check 2: Has another coordinator recently started an election?
-	// If we detect a recent term acceptance (within the last 10 seconds), back off
-	// to give the other coordinator a chance to complete their election.
+	// If we detect a recent recruitment (within recentAcceptanceWindow), back
+	// off to give that coordinator a chance to complete its election.
+	//
+	// The timestamp compared is coordinator_initiated_at -- the other
+	// coordinator's wall-clock at the start of its recruitment attempt. This
+	// is a coordinator-vs-coordinator comparison; multiorch clocks are assumed
+	// within NTP tolerance (sub-second), well inside the window. A skew larger
+	// than recentAcceptanceWindow costs only extra term churn, never safety:
+	// same-term mismatched coordinator_initiated_at values are still rejected
+	// at acceptance time by ApplyClaim.
 	for _, pooler := range eligiblePoolers {
-		// Check if this pooler recently accepted a term from another coordinator
-		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.LastAcceptanceTime != nil {
-			lastAcceptanceTime := ct.LastAcceptanceTime.AsTime()
-			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
+		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.CoordinatorInitiatedAt != nil {
+			initiatedAt := ct.CoordinatorInitiatedAt.AsTime()
+			timeSinceInitiated := now.Sub(initiatedAt)
 
-			// If the acceptance was recent (within our window), back off
-			if timeSinceAcceptance < recentAcceptanceWindow && timeSinceAcceptance >= 0 {
-				c.logger.InfoContext(ctx, "detected recent term acceptance, backing off to avoid disruption",
+			if timeSinceInitiated < recentAcceptanceWindow && timeSinceInitiated >= 0 {
+				c.logger.InfoContext(ctx, "detected recent term initiation, backing off to avoid disruption",
 					"pooler", pooler.MultiPooler.Id.Name,
 					"accepted_term", ct.TermNumber,
 					"accepted_from", ct.AcceptedTermFromCoordinatorId,
-					"time_since_acceptance", timeSinceAcceptance,
+					"time_since_initiated", timeSinceInitiated,
 					"backoff_window", recentAcceptanceWindow)
 
-				return false, fmt.Sprintf("another coordinator started election recently (%v ago), backing off to avoid disruption",
-					timeSinceAcceptance.Round(time.Millisecond))
+				return false, fmt.Sprintf("another coordinator initiated an election recently (%v ago), backing off to avoid disruption",
+					timeSinceInitiated.Round(time.Millisecond))
 			}
 		}
 	}

@@ -229,7 +229,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 				Hostname: "test-primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			CurrentTerm:           expectedTerm,
+			Claim:                 utils.NewTestClaim(expectedTerm),
 			StartReplicationAfter: true,
 		}
 		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
@@ -525,7 +525,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
-			CurrentTerm:           newTerm,
+			Claim:                 nil, // Ignored when Force=true
 			Force:                 true,
 		}
 		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
@@ -544,9 +544,9 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Promote standby to primary
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			ExpectedLsn:   standbyLSN,
-			Force:         true,
+			Claim:       nil, // Ignored when Force=true
+			ExpectedLsn: standbyLSN,
+			Force:       true,
 		}
 		_, err = standbyConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed on standby")
@@ -555,8 +555,8 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Now demote the new primary (standby) and promote original primary back
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			Force:         true,
+			Claim: nil, // Ignored when Force=true
+			Force: true,
 		}
 		_, err = standbyConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed on new primary")
@@ -576,9 +576,9 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		primaryLSN := primaryStatusResp.Status.ReplicationStatus.LastReplayLsn
 
 		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			ExpectedLsn:   primaryLSN,
-			Force:         true,
+			Claim:       nil, // Ignored when Force=true
+			ExpectedLsn: primaryLSN,
+			Force:       true,
 		}
 		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed on original primary")

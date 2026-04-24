@@ -188,7 +188,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Primary:               primary,
 						StartReplicationAfter: false, // Don't restart replication
 						StopReplicationBefore: false,
-						CurrentTerm:           higherTerm,
+						Claim:                 utils.NewTestClaim(higherTerm),
 						Force:                 false,
 					}
 					updateTermCtx := utils.WithTimeout(t, 30*time.Second)
@@ -248,9 +248,10 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Primary:               primary,
 						StartReplicationAfter: true,
 						StopReplicationBefore: false,
-						CurrentTerm:           restoredTerm, // Term is 0 after restore; Force allows multiorch to advance it
-						Force:                 true,         // Force reconfiguration after restore
+						Claim:                 nil,  // Ignored when Force=true (term is 0 after restore)
+						Force:                 true, // Force reconfiguration after restore
 					}
+					_ = restoredTerm
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 					require.NoError(t, err, "Should be able to configure replication after restore")
@@ -616,7 +617,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 					Primary:               primary,
 					StartReplicationAfter: true,
 					StopReplicationBefore: false,
-					CurrentTerm:           1,
+					Claim:                 nil, // Ignored when Force=true
 					Force:                 true,
 				}
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)

@@ -81,12 +81,16 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("failed to get current term: %w", err)
 	}
 
-	// Atomically update term and accept candidate
-	// This handles all consensus rules: term validation, duplicate check, etc.
-	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId)
-	if err != nil {
-		// Term not accepted - return rejection with consensus status so the coordinator
-		// learns this pooler's current state even from a rejection.
+	// Build a CoordinatorClaim from the request fields and admit it through the
+	// unified validation path. BeginTermRequest's public shape predates
+	// CoordinatorClaim (and will be replaced wholesale by the consensus refactor),
+	// so we construct the claim internally rather than restructuring the proto.
+	claim := &consensusdatapb.CoordinatorClaim{
+		Term:                   req.GetTerm(),
+		CoordinatorId:          req.GetCandidateId(),
+		CoordinatorInitiatedAt: req.GetCoordinatorInitiatedAt(),
+	}
+	if err := pm.consensusState.ApplyClaim(ctx, claim); err != nil {
 		pm.logger.InfoContext(ctx, "Term not accepted",
 			"request_term", req.Term,
 			"current_term", currentTerm,
@@ -121,9 +125,10 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	termEvent := eventlog.TermBegin{
-		NewTerm:      req.Term,
-		PreviousTerm: currentTerm,
-		RevokedRole:  revokedRole,
+		NewTerm:                req.Term,
+		PreviousTerm:           currentTerm,
+		RevokedRole:            revokedRole,
+		CoordinatorInitiatedAt: req.GetCoordinatorInitiatedAt().AsTime(),
 	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
 	defer func() {
@@ -154,7 +159,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return response, nil
 
 	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
-		if err := pm.executeRevoke(ctx, req.Term, response); err != nil {
+		if err := pm.executeRevoke(ctx, claim, response); err != nil {
 			// Term was already accepted and persisted above, so we must return
 			// the response with accepted=true AND the error. This tells the coordinator:
 			// 1. The term was accepted (response.Accepted = true)
@@ -174,7 +179,8 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 // executeRevoke executes the REVOKE action by demoting primary or pausing standby replication.
 // This is called after the term has been accepted.
-func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, response *consensusdatapb.BeginTermResponse) error {
+func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, claim *consensusdatapb.CoordinatorClaim, response *consensusdatapb.BeginTermResponse) error {
+	term := claim.GetTerm()
 	// CRITICAL: Must be able to reach Postgres to execute revoke
 	if _, err := pm.query(ctx, "SELECT 1"); err != nil {
 		return mterrors.Wrap(err, "postgres unhealthy, cannot execute revoke")
@@ -195,7 +201,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		// This emergency demote path will remain for BeginTerm REVOKE actions.
 		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
 		drainTimeout := 5 * time.Second
-		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout)
+		demoteResp, err := pm.emergencyDemoteLocked(ctx, claim, drainTimeout)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
@@ -281,9 +287,9 @@ func buildConsensusStatus(id *clustermetadatapb.ID, term *multipoolermanagerdata
 	status := &clustermetadatapb.ConsensusStatus{Id: id}
 	if term != nil {
 		status.TermRevocation = &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:      term.TermNumber,
-			AcceptedCoordinatorId: term.AcceptedTermFromCoordinatorId,
-			// coordinator_initiated_at: TODO once BeginTermRequest carries this timestamp
+			RevokedBelowTerm:       term.TermNumber,
+			AcceptedCoordinatorId:  term.AcceptedTermFromCoordinatorId,
+			CoordinatorInitiatedAt: term.CoordinatorInitiatedAt,
 		}
 	}
 	if pos != nil {

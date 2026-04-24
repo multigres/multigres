@@ -115,9 +115,9 @@ func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client *Mult
 	// Force promote primary back - term value doesn't matter when Force=true
 	// (Force bypasses term validation)
 	_, err = client.Consensus.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm: 0, // Ignored when Force=true
-		ExpectedLsn:   lastReplayLSN,
-		Force:         true,
+		Claim:       nil, // Ignored when Force=true
+		ExpectedLsn: lastReplayLSN,
+		Force:       true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to promote primary: %w", err)

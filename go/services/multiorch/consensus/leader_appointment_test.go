@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -829,7 +831,7 @@ func TestRecruitNodes(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
 		}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, &consensusdatapb.CoordinatorClaim{Term: 6, CoordinatorId: coordID, CoordinatorInitiatedAt: timestamppb.Now()}, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 3)
 		// Verify WAL positions are populated
@@ -859,7 +861,7 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, &consensusdatapb.CoordinatorClaim{Term: 6, CoordinatorId: coordID, CoordinatorInitiatedAt: timestamppb.Now()}, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 2)
 	})
@@ -885,10 +887,68 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, &consensusdatapb.CoordinatorClaim{Term: 6, CoordinatorId: coordID, CoordinatorInitiatedAt: timestamppb.Now()}, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 2)
 	})
+}
+
+// TestBeginTerm_StampsAllRequestsWithSameClaim verifies that BeginTerm builds a
+// single CoordinatorClaim for the whole recruitment attempt and uses identical
+// Term / CandidateId / CoordinatorInitiatedAt values across every BeginTerm RPC
+// sent in that attempt. A restarted coordinator would produce a different
+// coordinator_initiated_at on retry — that divergence is the restart-detection
+// signal a pooler uses to reject the second RPC.
+func TestBeginTerm_StampsAllRequestsWithSameClaim(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+		rpcClient:     fakeClient,
+	}
+
+	cohort := []*multiorchdatapb.PoolerHealthState{
+		createMockNode(fakeClient, "mp1", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY),
+		createMockNode(fakeClient, "mp2", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+		createMockNode(fakeClient, "mp3", 5, "0/1000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA),
+	}
+
+	quorumRule := &clustermetadatapb.DurabilityPolicy{
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		RequiredCount: 2,
+		Description:   "majority",
+	}
+
+	_, _, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	require.NotNil(t, claim.CoordinatorInitiatedAt, "BeginTerm must stamp coordinator_initiated_at")
+
+	// Collect every BeginTermRequest recorded across the cohort.
+	var allRequests []*consensusdatapb.BeginTermRequest
+	for _, reqs := range fakeClient.BeginTermRequests {
+		allRequests = append(allRequests, reqs...)
+	}
+	require.Len(t, allRequests, 3, "one BeginTerm per cohort member")
+
+	first := allRequests[0]
+	require.NotNil(t, first.CoordinatorInitiatedAt)
+	for i := 1; i < len(allRequests); i++ {
+		require.True(t, proto.Equal(first.CoordinatorInitiatedAt, allRequests[i].CoordinatorInitiatedAt),
+			"every request in one recruitment must carry the same coordinator_initiated_at")
+		require.True(t, proto.Equal(first.CandidateId, allRequests[i].CandidateId))
+		require.Equal(t, first.Term, allRequests[i].Term)
+	}
+	// The returned claim must match what was sent on the wire.
+	require.True(t, proto.Equal(claim.CoordinatorInitiatedAt, first.CoordinatorInitiatedAt))
 }
 
 func TestBeginTerm(t *testing.T) {
@@ -921,7 +981,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
@@ -983,7 +1044,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
@@ -1034,7 +1096,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6) // maxTerm (5) + 1
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
@@ -1076,7 +1139,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited), NOT mp1
@@ -1119,7 +1183,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// CRITICAL: mp2 should be selected (highest LSN among recruited)
@@ -1199,7 +1264,8 @@ func TestBeginTerm(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
+		term := claim.GetTerm()
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 
@@ -1245,7 +1311,8 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		proposedTerm := int64(6)
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		candidate, standbys, claim, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), proposedTerm)
+		term := claim.GetTerm()
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
@@ -1289,7 +1356,7 @@ func TestPropagate(t *testing.T) {
 		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
 		recruited = append(recruited, standbys...)
 
-		err := c.EstablishLeadership(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
+		err := c.EstablishLeadership(ctx, candidate, standbys, &consensusdatapb.CoordinatorClaim{Term: 6, CoordinatorId: coordID, CoordinatorInitiatedAt: timestamppb.Now()}, quorumRule, "test_election", cohort, recruited)
 		require.NoError(t, err)
 
 		// Verify the PromoteRequest contains the expected election metadata
@@ -1300,7 +1367,7 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId, "CoordinatorId should match coordinator ID")
+		prototest.RequireEqual(t, coordID, promoteReq.GetClaim().GetCoordinatorId(), "CoordinatorId should match coordinator ID")
 		allCohortIDs := []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
@@ -1308,7 +1375,7 @@ func TestPropagate(t *testing.T) {
 		}
 		prototest.RequireElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should match")
 		prototest.RequireElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should match")
-		require.Equal(t, int64(6), promoteReq.ConsensusTerm, "ConsensusTerm should match")
+		require.Equal(t, int64(6), promoteReq.GetClaim().GetTerm(), "ConsensusTerm should match")
 	})
 
 	t.Run("success - continues even if some standbys fail", func(t *testing.T) {
@@ -1346,7 +1413,7 @@ func TestPropagate(t *testing.T) {
 		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
 		recruited = append(recruited, standbys...)
 
-		err := c.EstablishLeadership(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
+		err := c.EstablishLeadership(ctx, candidate, standbys, &consensusdatapb.CoordinatorClaim{Term: 6, CoordinatorId: coordID, CoordinatorInitiatedAt: timestamppb.Now()}, quorumRule, "test_election", cohort, recruited)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
 
@@ -1358,7 +1425,7 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		require.Equal(t, coordID, promoteReq.CoordinatorId, "CoordinatorId should match coordinator ID")
+		require.Equal(t, coordID, promoteReq.GetClaim().GetCoordinatorId(), "CoordinatorId should match coordinator ID")
 		allCohortIDs := []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
@@ -1442,8 +1509,8 @@ func TestAppointLeader(t *testing.T) {
 			"AcceptedMembers should only include nodes that accepted the term")
 
 		require.Equal(t, "test_primary_lost", promoteReq.Reason)
-		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId)
-		require.Equal(t, int64(6), promoteReq.ConsensusTerm)
+		prototest.RequireEqual(t, coordID, promoteReq.GetClaim().GetCoordinatorId())
+		require.Equal(t, int64(6), promoteReq.GetClaim().GetTerm())
 
 		// Verify syncConfig includes the full cohort in the standby list,
 		// including the leader and nodes that rejected the term
@@ -1513,9 +1580,9 @@ func TestAppointInitialLeader(t *testing.T) {
 		candidateKey := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 		promoteReq, ok := fakeClient.PromoteRequests[candidateKey]
 		require.True(t, ok, "candidate should receive PromoteRequest")
-		require.Equal(t, int64(1), promoteReq.ConsensusTerm, "initial leader should use term 1")
+		require.Equal(t, int64(1), promoteReq.GetClaim().GetTerm(), "initial leader should use term 1")
 		require.Equal(t, "ShardInit", promoteReq.Reason)
-		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId)
+		prototest.RequireEqual(t, coordID, promoteReq.GetClaim().GetCoordinatorId())
 	})
 
 	t.Run("empty cohort returns error", func(t *testing.T) {

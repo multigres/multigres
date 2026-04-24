@@ -29,7 +29,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -194,19 +193,25 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
-	// Get the current consensus term from the primary
-	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
+	// Build a CoordinatorClaim from the primary's current term identity. The
+	// primary's TermRevocation carries (term, accepted_coordinator_id,
+	// coordinator_initiated_at) from the recruitment that put it in place; a
+	// healthy standby under the same primary will have accepted the same
+	// triple, so ApplyClaim is idempotent. If the standby is behind, the
+	// higher term is admitted. If the standby saw a different coordinator or
+	// a restarted coordinator at the same term, the pooler rejects -- which
+	// is the correct signal that fix_replication can't safely repair this
+	// replica until the coordinator catches up.
+	claim, err := claimFromPrimaryStatus(ctx, a.rpcClient, primary.MultiPooler)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus status from primary")
 	}
-	consensusTerm := consensusResp.CurrentTerm
 
-	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               primary.MultiPooler,
 		StopReplicationBefore: true,
 		StartReplicationAfter: true,
-		CurrentTerm:           consensusTerm,
+		Claim:                 claim,
 		Force:                 false,
 	}
 
@@ -233,14 +238,17 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}
 
-	// Add replica to the primary's synchronous standby list if it's a REPLICA type
+	// Add replica to the primary's synchronous standby list if it's a REPLICA type.
+	// Reuse the same claim read from the primary above; the primary validates
+	// the claim against its own stored state, so a same-term match is accepted
+	// idempotently.
 	if replica.MultiPooler.Type == clustermetadatapb.PoolerType_REPLICA {
 		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:    []*clustermetadatapb.ID{replica.MultiPooler.Id},
-			ReloadConfig:  true,
-			ConsensusTerm: consensusTerm,
-			Force:         false,
+			Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:   []*clustermetadatapb.ID{replica.MultiPooler.Id},
+			ReloadConfig: true,
+			Claim:        claim,
+			Force:        false,
 		}
 
 		_, err = a.rpcClient.UpdateConsensusRule(ctx, primary.MultiPooler, updateReq)

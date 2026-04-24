@@ -59,7 +59,7 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 			AcceptedTermFromCoordinatorId: acceptedFrom,
 		}
 		if lastAcceptanceTime != nil {
-			consensusTerm.LastAcceptanceTime = timestamppb.New(*lastAcceptanceTime)
+			consensusTerm.CoordinatorInitiatedAt = timestamppb.New(*lastAcceptanceTime)
 		}
 		isInitialized = true
 	}
@@ -130,7 +130,7 @@ func TestPreVote(t *testing.T) {
 		canProceed, reason := coord.preVote(ctx, cohort, mustPolicy(t, policy), proposedTerm)
 
 		require.False(t, canProceed, "should back off when recent acceptance detected")
-		require.Contains(t, reason, "another coordinator started election recently")
+		require.Contains(t, reason, "another coordinator initiated an election recently")
 	})
 
 	t.Run("fails when insufficient healthy poolers for quorum", func(t *testing.T) {

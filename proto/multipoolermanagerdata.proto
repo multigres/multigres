@@ -17,6 +17,7 @@ syntax = "proto3";
 package multipoolermanagerdata;
 
 import "clustermetadata.proto";
+import "consensusdata.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -117,8 +118,9 @@ message SetPrimaryConnInfoRequest {
   // Whether to start replication after making changes
   bool start_replication_after = 3;
 
-  // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 4;
+  // Term claim from the coordinator. See CoordinatorClaim for semantics.
+  // Required unless `force` is set.
+  consensusdata.CoordinatorClaim claim = 4;
 
   // Force the operation even if the term doesn't match
   bool force = 5;
@@ -356,9 +358,9 @@ message ManagerHealthSnapshot {
 // This is called during the Revocation stage of generalized consensus to safely
 // transition a primary to read-only mode and prevent it from making further progress.
 message EmergencyDemoteRequest {
-  // Consensus term for this demotion operation
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
+  // Term claim from the coordinator. See CoordinatorClaim for semantics.
+  // Required unless `force` is set.
+  consensusdata.CoordinatorClaim claim = 1;
 
   // Drain timeout - how long to wait for in-flight queries (default: 5s)
   google.protobuf.Duration drain_timeout = 2;
@@ -392,8 +394,9 @@ message DemoteStalePrimaryRequest {
   // Source multipooler (the correct primary) to rewind to
   clustermetadata.MultiPooler source = 1;
 
-  // Consensus term from the correct primary
-  int64 consensus_term = 2;
+  // Term claim from the coordinator. See CoordinatorClaim for semantics.
+  // Required unless `force` is set.
+  consensusdata.CoordinatorClaim claim = 2;
 
   // Force the operation even if term validation fails
   bool force = 3;
@@ -414,10 +417,10 @@ message DemoteStalePrimaryResponse {
 // This is called during the Propagate stage of generalized consensus
 // to safely transition a standby to primary and reconfigure replication.
 message PromoteRequest {
-  // Consensus term for this promotion operation
-  // Used to ensure this promotion corresponds to the correct term
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
+  // Term claim from the coordinator. See CoordinatorClaim for semantics.
+  // Promote must run at the exact recruited term, so this is validated with
+  // ApplyClaimExactTerm on the pooler. Required unless `force` is set.
+  consensusdata.CoordinatorClaim claim = 1;
 
   // Expected LSN position before promotion (optional, for validation)
   // By the Propagate stage, replication should already be stopped and the LSN frozen.
@@ -436,9 +439,6 @@ message PromoteRequest {
 
   // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
   string reason = 5;
-
-  // Coordinator ID that ran this election
-  clustermetadata.ID coordinator_id = 6;
 
   // List of poolers that were in the cohort
   repeated clustermetadata.ID cohort_members = 7;
@@ -549,14 +549,12 @@ message UpdateSynchronousStandbyListRequest {
   // Whether to reload configuration immediately
   bool reload_config = 3;
 
-  // Consensus term (used by MultiOrch for term validation)
-  int64 consensus_term = 4;
+  // Term claim from the coordinator. See CoordinatorClaim for semantics.
+  // Required unless `force` is set.
+  consensusdata.CoordinatorClaim claim = 4;
 
   // Force the operation even if the term doesn't match
   bool force = 5;
-
-  // Coordinator ID that initiated this operation (for audit trail)
-  clustermetadata.ID coordinator_id = 6;
 }
 
 message UpdateSynchronousStandbyListResponse {
@@ -571,8 +569,14 @@ message ConsensusTerm {
   // ID of the coordinator (multiorch) that this node accepted the term from
   clustermetadata.ID accepted_term_from_coordinator_id = 2;
 
-  // Timestamp of the last acceptance
-  google.protobuf.Timestamp last_acceptance_time = 3;
+  // Coordinator wall-clock timestamp at the start of the recruitment attempt
+  // this node accepted; equals CoordinatorClaim.coordinator_initiated_at (or
+  // BeginTermRequest.coordinator_initiated_at) from the request that caused
+  // this term to be stored. See CoordinatorClaim for semantics. Field number
+  // 3 is reused: pre-change disk state held a pooler-local time here, which
+  // will fail the same-term coord+timestamp match on the first post-upgrade
+  // RPC and force a term bump.
+  google.protobuf.Timestamp coordinator_initiated_at = 3;
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;

@@ -14,7 +14,10 @@
 
 package eventlog
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 type NodeJoin struct{ NodeName string }
 
@@ -83,9 +86,10 @@ func (e BackupLeaseLost) LogAttrs() []slog.Attr {
 }
 
 type TermBegin struct {
-	NewTerm      int64
-	PreviousTerm int64
-	RevokedRole  string // "primary" | "standby" | "" (empty = no revoke)
+	NewTerm                int64
+	PreviousTerm           int64
+	RevokedRole            string // "primary" | "standby" | "" (empty = no revoke)
+	CoordinatorInitiatedAt time.Time
 }
 
 func (TermBegin) EventType() string { return "term.begin" }
@@ -94,5 +98,6 @@ func (e TermBegin) LogAttrs() []slog.Attr {
 		slog.Int64("new_term", e.NewTerm),
 		slog.Int64("previous_term", e.PreviousTerm),
 		slog.String("revoked_role", e.RevokedRole),
+		slog.String("coordinator_initiated_at", e.CoordinatorInitiatedAt.Format(time.RFC3339Nano)),
 	}
 }

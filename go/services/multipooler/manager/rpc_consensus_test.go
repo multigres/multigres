@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
@@ -148,6 +149,7 @@ func TestBeginTerm(t *testing.T) {
 		initialTerm                         *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm                         int64
 		requestCandidate                    *clustermetadatapb.ID
+		requestInitiatedAt                  *timestamppb.Timestamp // if nil, fresh timestamp is used
 		action                              consensusdatapb.BeginTermAction
 		setupMocks                          func(*mock.QueryService)
 		expectedError                       bool
@@ -218,6 +220,7 @@ func TestBeginTerm(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "candidate-A",
 				},
+				CoordinatorInitiatedAt: timestamppb.New(time.Unix(9000, 0)),
 			},
 			requestTerm: 5,
 			requestCandidate: &clustermetadatapb.ID{
@@ -225,6 +228,7 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-A",
 			},
+			requestInitiatedAt: timestamppb.New(time.Unix(9000, 0)),
 			setupMocks: func(m *mock.QueryService) {
 				expectStandbyRevokeMocks(m, "0/3000000")
 			},
@@ -232,7 +236,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedTerm:                        5,
 			expectedAcceptedTermFromCoordinator: "candidate-A",
 			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/3000000", LastReplayLsn: "0/3000000"},
-			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
+			description:                         "Acceptance should succeed when already accepted same candidate in same term with matching initiated_at (idempotent)",
 		},
 		{
 			name:   "PrimaryRejectTermWhenDemotionFails",
@@ -502,11 +506,16 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Make request
+			initiatedAt := tt.requestInitiatedAt
+			if initiatedAt == nil {
+				initiatedAt = timestamppb.Now()
+			}
 			req := &consensusdatapb.BeginTermRequest{
-				Term:        tt.requestTerm,
-				CandidateId: tt.requestCandidate,
-				ShardId:     "shard-1",
-				Action:      tt.action,
+				Term:                   tt.requestTerm,
+				CandidateId:            tt.requestCandidate,
+				ShardId:                "shard-1",
+				Action:                 tt.action,
+				CoordinatorInitiatedAt: initiatedAt,
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
@@ -570,10 +579,11 @@ func TestBeginTerm(t *testing.T) {
 
 			// Make request
 			req := &consensusdatapb.BeginTermRequest{
-				Term:        tt.requestTerm,
-				CandidateId: tt.requestCandidate,
-				ShardId:     "shard-1",
-				Action:      tt.action,
+				Term:                   tt.requestTerm,
+				CandidateId:            tt.requestCandidate,
+				ShardId:                "shard-1",
+				Action:                 tt.action,
+				CoordinatorInitiatedAt: timestamppb.Now(),
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
@@ -616,162 +626,44 @@ func TestBeginTerm(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// UpdateTermAndAcceptCandidate Tests
-// ============================================================================
+// TestBeginTerm_RejectsRestartedCoordinator asserts that a second BeginTerm at
+// the same term from the same coordinator with a different coordinator_initiated_at
+// is rejected (the memory-loss signal a restarted coordinator would produce).
+func TestBeginTerm_RejectsRestartedCoordinator(t *testing.T) {
+	ctx := context.Background()
+	mockQueryService := mock.NewQueryService()
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
-// setActionLockHeld is a test helper that creates a context with action lock held
-func setActionLockHeld(ctx context.Context) context.Context {
-	lock := NewActionLock()
-	newCtx, err := lock.Acquire(ctx, "test-operation")
-	if err != nil {
-		panic(err)
+	// Seed with initial term 2 so the new term 3 is strictly higher.
+	require.NoError(t, pm.consensusState.setConsensusTerm(&multipoolermanagerdatapb.ConsensusTerm{TermNumber: 2}))
+	_, err := pm.consensusState.Load()
+	require.NoError(t, err)
+
+	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "mo1"}
+	t0 := timestamppb.New(time.Unix(1000, 0))
+	t1 := timestamppb.New(time.Unix(1001, 0))
+
+	first := &consensusdatapb.BeginTermRequest{
+		Term:                   3,
+		CandidateId:            coord,
+		ShardId:                "shard-1",
+		Action:                 consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+		CoordinatorInitiatedAt: t0,
 	}
-	return newCtx
-}
+	resp, err := pm.BeginTerm(ctx, first)
+	require.NoError(t, err)
+	require.True(t, resp.Accepted)
 
-func TestUpdateTermAndAcceptCandidate(t *testing.T) {
-	tests := []struct {
-		name           string
-		initialTerm    int64
-		initialAccept  *clustermetadatapb.ID
-		newTerm        int64
-		candidateID    *clustermetadatapb.ID
-		expectError    bool
-		expectedTerm   int64
-		expectedAccept string
-	}{
-		{
-			name:        "higher term updates and accepts atomically",
-			initialTerm: 5,
-			newTerm:     10,
-			candidateID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-a",
-			},
-			expectError:    false,
-			expectedTerm:   10,
-			expectedAccept: "candidate-a",
-		},
-		{
-			name:        "same term accepts candidate",
-			initialTerm: 5,
-			newTerm:     5,
-			candidateID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-b",
-			},
-			expectError:    false,
-			expectedTerm:   5,
-			expectedAccept: "candidate-b",
-		},
-		{
-			name:        "lower term rejected",
-			initialTerm: 10,
-			newTerm:     5,
-			candidateID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-c",
-			},
-			expectError: true,
-		},
-		{
-			name:        "nil candidate ID rejected",
-			initialTerm: 5,
-			newTerm:     10,
-			candidateID: nil,
-			expectError: true,
-		},
-		{
-			name:        "same term same candidate is idempotent",
-			initialTerm: 5,
-			initialAccept: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-b",
-			},
-			newTerm: 5,
-			candidateID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-b",
-			},
-			expectError:    false,
-			expectedTerm:   5,
-			expectedAccept: "candidate-b",
-		},
-		{
-			name:        "same term different candidate rejected",
-			initialTerm: 5,
-			initialAccept: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-a",
-			},
-			newTerm: 5,
-			candidateID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-b",
-			},
-			expectError: true,
-		},
+	second := &consensusdatapb.BeginTermRequest{
+		Term:                   3,
+		CandidateId:            coord,
+		ShardId:                "shard-1",
+		Action:                 consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+		CoordinatorInitiatedAt: t1,
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			poolerDir := t.TempDir()
-			serviceID := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "test-cell",
-				Name:      "test-pooler",
-			}
-
-			// Create the pg_data directory to simulate initialized data directory
-			pgDataDir := poolerDir + "/pg_data"
-			err := os.MkdirAll(pgDataDir, 0o755)
-			require.NoError(t, err)
-			// Create PG_VERSION file to mark it as initialized
-			err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
-			require.NoError(t, err)
-			t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-
-			cs := NewConsensusState(poolerDir, serviceID)
-			_, err = cs.Load()
-			require.NoError(t, err)
-
-			// Set initial term
-			ctx := context.Background()
-			ctx = setActionLockHeld(ctx)
-			if tt.initialTerm > 0 {
-				err = cs.UpdateTermAndSave(ctx, tt.initialTerm)
-				require.NoError(t, err)
-
-				// If we have an initial accepted candidate, set it
-				if tt.initialAccept != nil {
-					err = cs.AcceptCandidateAndSave(ctx, tt.initialAccept)
-					require.NoError(t, err)
-				}
-			}
-
-			// Call UpdateTermAndAcceptCandidate
-			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID)
-
-			if tt.expectError {
-				require.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			term, err := cs.GetTerm(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, term.TermNumber)
-			assert.Equal(t, tt.expectedAccept, term.AcceptedTermFromCoordinatorId.GetName())
-		})
-	}
+	resp, err = pm.BeginTerm(ctx, second)
+	require.NoError(t, err)
+	require.False(t, resp.Accepted, "restarted coordinator at same term must be rejected")
 }
 
 // ============================================================================
@@ -1015,7 +907,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			expectedFinalConsensusTerm: 15, // Term should remain unchanged
 			expectedPrimaryTerm:        15, // Primary term should remain unchanged
 			expectedError:              true,
-			expectedErrorContains:      "consensus term too old",
+			expectedErrorContains:      "stored term 15 is newer than claim term 10",
 			description:                "Should reject outdated term without force flag",
 		},
 		{
@@ -1170,8 +1062,15 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				PortMap:  map[string]int32{"postgres": 5433},
 			}
 
-			// Call DemoteStalePrimary
-			resp, err := pm.DemoteStalePrimary(ctx, sourcePooler, tt.requestTerm, tt.force)
+			// Call DemoteStalePrimary. We always pass a claim (even when force=true)
+			// so the handler can read claim.GetTerm() for the health observation;
+			// force=true simply bypasses admission validation.
+			claim := &consensusdatapb.CoordinatorClaim{
+				Term:                   tt.requestTerm,
+				CoordinatorId:          &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Name: "mo"},
+				CoordinatorInitiatedAt: timestamppb.Now(),
+			}
+			resp, err := pm.DemoteStalePrimary(ctx, sourcePooler, claim, tt.force)
 
 			// Verify error expectation
 			if tt.expectedError {

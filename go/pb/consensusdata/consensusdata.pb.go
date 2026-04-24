@@ -255,6 +255,90 @@ func (x *WALPosition) GetCohortMembers() []string {
 	return nil
 }
 
+// CoordinatorClaim is a coordinator's assertion that it is acting at a specific
+// consensus term as part of a specific recruitment attempt. Every RPC that
+// carries a consensus term MUST carry this bundle, never just the term
+// number on its own.
+//
+// The pooler validates the triple atomically on every such RPC:
+//   - any field nil/zero                                      -> INVALID_ARGUMENT
+//   - claim.term <  stored.term                               -> REJECT (stale)
+//   - claim.term == stored.term, stored.coord != claim.coord  -> REJECT (concurrent coordinator)
+//   - claim.term == stored.term, stored.coord == claim.coord,
+//     stored.initiated_at != claim.initiated_at             -> REJECT (coordinator lost memory,
+//     likely a restart; forces term bump)
+//   - claim.term == stored.term, full match                   -> idempotent accept
+//   - claim.term >  stored.term                               -> accept, store the full triple
+//
+// The coordinator picks coordinator_initiated_at once per recruitment
+// attempt at the top of Coordinator.BeginTerm and reuses it on every
+// subsequent RPC in that attempt. Losing it in memory (e.g., a coordinator
+// crash-and-restart) means the coordinator cannot continue at the same
+// term and must bump term before issuing any further term-carrying RPC.
+type CoordinatorClaim struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Consensus term the coordinator is claiming.
+	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	// Coordinator (multiorch instance) issuing this claim.
+	CoordinatorId *clustermetadata.ID `protobuf:"bytes,2,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	// Coordinator wall-clock timestamp at the start of the recruitment
+	// attempt. Identical across every request in one attempt.
+	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CoordinatorClaim) Reset() {
+	*x = CoordinatorClaim{}
+	mi := &file_consensusdata_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CoordinatorClaim) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CoordinatorClaim) ProtoMessage() {}
+
+func (x *CoordinatorClaim) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CoordinatorClaim.ProtoReflect.Descriptor instead.
+func (*CoordinatorClaim) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CoordinatorClaim) GetTerm() int64 {
+	if x != nil {
+		return x.Term
+	}
+	return 0
+}
+
+func (x *CoordinatorClaim) GetCoordinatorId() *clustermetadata.ID {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return nil
+}
+
+func (x *CoordinatorClaim) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CoordinatorInitiatedAt
+	}
+	return nil
+}
+
 // BeginTerm is sent by coordinators during leader appointments
 type BeginTermRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -268,14 +352,19 @@ type BeginTermRequest struct {
 	PolicyVersion int64 `protobuf:"varint,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
 	// Action type for this BeginTerm operation
 	// Indicates what scenario triggered this term change
-	Action        BeginTermAction `protobuf:"varint,5,opt,name=action,proto3,enum=consensusdata.BeginTermAction" json:"action,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Action BeginTermAction `protobuf:"varint,5,opt,name=action,proto3,enum=consensusdata.BeginTermAction" json:"action,omitempty"`
+	// Coordinator wall-clock timestamp at the start of the recruitment
+	// attempt. See CoordinatorClaim for semantics. Required; a missing
+	// or zero timestamp is rejected with INVALID_ARGUMENT. The pooler
+	// persists this into ConsensusTerm.coordinator_initiated_at.
+	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *BeginTermRequest) Reset() {
 	*x = BeginTermRequest{}
-	mi := &file_consensusdata_proto_msgTypes[1]
+	mi := &file_consensusdata_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +376,7 @@ func (x *BeginTermRequest) String() string {
 func (*BeginTermRequest) ProtoMessage() {}
 
 func (x *BeginTermRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[1]
+	mi := &file_consensusdata_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +389,7 @@ func (x *BeginTermRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginTermRequest.ProtoReflect.Descriptor instead.
 func (*BeginTermRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{1}
+	return file_consensusdata_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *BeginTermRequest) GetTerm() int64 {
@@ -338,6 +427,13 @@ func (x *BeginTermRequest) GetAction() BeginTermAction {
 	return BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED
 }
 
+func (x *BeginTermRequest) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CoordinatorInitiatedAt
+	}
+	return nil
+}
+
 type BeginTermResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Current term, for candidate to update itself
@@ -358,7 +454,7 @@ type BeginTermResponse struct {
 
 func (x *BeginTermResponse) Reset() {
 	*x = BeginTermResponse{}
-	mi := &file_consensusdata_proto_msgTypes[2]
+	mi := &file_consensusdata_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +466,7 @@ func (x *BeginTermResponse) String() string {
 func (*BeginTermResponse) ProtoMessage() {}
 
 func (x *BeginTermResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[2]
+	mi := &file_consensusdata_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +479,7 @@ func (x *BeginTermResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginTermResponse.ProtoReflect.Descriptor instead.
 func (*BeginTermResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{2}
+	return file_consensusdata_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *BeginTermResponse) GetTerm() int64 {
@@ -434,7 +530,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_consensusdata_proto_msgTypes[3]
+	mi := &file_consensusdata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +542,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[3]
+	mi := &file_consensusdata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +555,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{3}
+	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StatusRequest) GetTerm() int64 {
@@ -514,7 +610,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_consensusdata_proto_msgTypes[4]
+	mi := &file_consensusdata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +622,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[4]
+	mi := &file_consensusdata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +635,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{4}
+	return file_consensusdata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *StatusResponse) GetPoolerId() string {
@@ -630,7 +726,7 @@ type TimelineInfo struct {
 
 func (x *TimelineInfo) Reset() {
 	*x = TimelineInfo{}
-	mi := &file_consensusdata_proto_msgTypes[5]
+	mi := &file_consensusdata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -642,7 +738,7 @@ func (x *TimelineInfo) String() string {
 func (*TimelineInfo) ProtoMessage() {}
 
 func (x *TimelineInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[5]
+	mi := &file_consensusdata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -655,7 +751,7 @@ func (x *TimelineInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimelineInfo.ProtoReflect.Descriptor instead.
 func (*TimelineInfo) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{5}
+	return file_consensusdata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *TimelineInfo) GetTimelineId() int64 {
@@ -679,13 +775,18 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\vtimeline_id\x18\x05 \x01(\x03R\n" +
 	"timelineId\x12'\n" +
 	"\x0fleadership_term\x18\x06 \x01(\x03R\x0eleadershipTerm\x12%\n" +
-	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\"\xd8\x01\n" +
+	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\"\xb8\x01\n" +
+	"\x10CoordinatorClaim\x12\x12\n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x12:\n" +
+	"\x0ecoordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\x12T\n" +
+	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\xae\x02\n" +
 	"\x10BeginTermRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\x126\n" +
-	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\xec\x01\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\x12T\n" +
+	"\x18coordinator_initiated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\xec\x01\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
@@ -735,37 +836,41 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 }
 
 var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_consensusdata_proto_goTypes = []any{
 	(BeginTermAction)(0),                       // 0: consensusdata.BeginTermAction
 	(PostgresRole)(0),                          // 1: consensusdata.PostgresRole
 	(*WALPosition)(nil),                        // 2: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),                   // 3: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),                  // 4: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),                      // 5: consensusdata.StatusRequest
-	(*StatusResponse)(nil),                     // 6: consensusdata.StatusResponse
-	(*TimelineInfo)(nil),                       // 7: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),              // 8: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),                 // 9: clustermetadata.ID
-	(*clustermetadata.ConsensusStatus)(nil),    // 10: clustermetadata.ConsensusStatus
-	(*clustermetadata.AvailabilityStatus)(nil), // 11: clustermetadata.AvailabilityStatus
+	(*CoordinatorClaim)(nil),                   // 3: consensusdata.CoordinatorClaim
+	(*BeginTermRequest)(nil),                   // 4: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),                  // 5: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),                      // 6: consensusdata.StatusRequest
+	(*StatusResponse)(nil),                     // 7: consensusdata.StatusResponse
+	(*TimelineInfo)(nil),                       // 8: consensusdata.TimelineInfo
+	(*timestamppb.Timestamp)(nil),              // 9: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                 // 10: clustermetadata.ID
+	(*clustermetadata.ConsensusStatus)(nil),    // 11: clustermetadata.ConsensusStatus
+	(*clustermetadata.AvailabilityStatus)(nil), // 12: clustermetadata.AvailabilityStatus
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	8,  // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	9,  // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
-	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
-	2,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
-	10, // 4: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	2,  // 5: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	1,  // 6: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
-	7,  // 7: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	10, // 8: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	11, // 9: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	9,  // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	10, // 1: consensusdata.CoordinatorClaim.coordinator_id:type_name -> clustermetadata.ID
+	9,  // 2: consensusdata.CoordinatorClaim.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	10, // 3: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	0,  // 4: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
+	9,  // 5: consensusdata.BeginTermRequest.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	2,  // 6: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
+	11, // 7: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	2,  // 8: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	1,  // 9: consensusdata.StatusResponse.role:type_name -> consensusdata.PostgresRole
+	8,  // 10: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	11, // 11: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	12, // 12: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -779,7 +884,7 @@ func file_consensusdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

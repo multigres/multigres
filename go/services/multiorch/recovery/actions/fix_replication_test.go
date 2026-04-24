@@ -33,7 +33,25 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// newTestConsensusStatusResponse builds a StatusResponse with a populated
+// TermRevocation so claimFromPrimaryStatus can reconstruct a CoordinatorClaim
+// from the fake primary.
+func newTestConsensusStatusResponse(term int64) *consensusdatapb.StatusResponse {
+	return &consensusdatapb.StatusResponse{
+		CurrentTerm: term,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       term,
+				AcceptedCoordinatorId:  &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Name: "test-coordinator"},
+				CoordinatorInitiatedAt: timestamppb.New(time.Unix(1000, 0)),
+			},
+		},
+	}
+}
 
 func TestFixReplicationAction_Metadata(t *testing.T) {
 	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
@@ -145,9 +163,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			},
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
-			"multipooler-cell1-primary": {
-				CurrentTerm: 1,
-			},
+			"multipooler-cell1-primary": newTestConsensusStatusResponse(1),
 		},
 	}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
@@ -226,9 +242,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			},
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
-			"multipooler-cell1-primary": {
-				CurrentTerm: 1,
-			},
+			"multipooler-cell1-primary": newTestConsensusStatusResponse(1),
 		},
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
@@ -489,13 +503,10 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
 	})
+	primaryResp := newTestConsensusStatusResponse(1)
+	primaryResp.TimelineInfo = &consensusdatapb.TimelineInfo{TimelineId: 2} // Primary on timeline 2
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {
-			CurrentTerm: 1,
-			TimelineInfo: &consensusdatapb.TimelineInfo{
-				TimelineId: 2, // Primary on timeline 2
-			},
-		},
+		"multipooler-cell1-primary": primaryResp,
 		"multipooler-cell1-replica1": {
 			CurrentTerm: 1,
 			TimelineInfo: &consensusdatapb.TimelineInfo{

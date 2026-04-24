@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -88,7 +89,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *clustermetadatapb.MultiPooler, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *clustermetadatapb.MultiPooler, stopReplicationBefore, startReplicationAfter bool, claim *consensusdatapb.CoordinatorClaim, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -100,9 +101,11 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Validate and update consensus term following consensus rules
-	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
-		return err
+	// Admit the coordinator's term claim. Also persists the claim on success.
+	if !force {
+		if err = pm.consensusState.ApplyClaim(ctx, claim); err != nil {
+			return mterrors.Wrap(err, "consensus term claim failed")
+		}
 	}
 
 	// Extract host and port from the MultiPooler (nil means clear the config)
@@ -477,7 +480,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
 // removing, or replacing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, claim *consensusdatapb.CoordinatorClaim, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -502,11 +505,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// === Validation ===
-	// TODO: We need to validate consensus term here.
-	// We should check if the request is a valid term.
-	// If it's a newer term and probably we need to demote
-	// ourself. But details yet to be implemented
+	// Admit the coordinator's term claim.
+	if !force {
+		if err = pm.consensusState.ApplyClaim(ctx, claim); err != nil {
+			return mterrors.Wrap(err, "consensus term claim failed")
+		}
+	}
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -582,7 +586,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// before this primary can accept ACKs from it.
 	// This is for safe replica joining of the cluster.
 	// It will ensure multiorch can discover the new cohort during a failure.
-	coordID := coordinatorID
+	coordID := claim.GetCoordinatorId()
 	if coordID == nil {
 		coordID = pm.serviceID
 	}
@@ -591,7 +595,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		updatedStandbyIDs[i] = p.id
 	}
 	standbyUpdate := newRuleUpdate(
-		consensusTerm,
+		claim.GetTerm(),
 		coordID,
 		"replication_config",
 		"UpdateSynchronousStandbyList: "+operationName,
@@ -623,7 +627,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"old_value", currentValue,
 		"new_value", newValue,
 		"reload_config", reloadConfig,
-		"consensus_term", consensusTerm,
+		"consensus_term", claim.GetTerm(),
 		"force", force)
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
@@ -807,7 +811,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 // - By orchestrator when fixing a broken shard.
 // - When performing a Planned demotion.
 // - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
+func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, claim *consensusdatapb.CoordinatorClaim, drainTimeout time.Duration, force bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -819,12 +823,14 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Validate the term but DON'T update yet. We only update the term AFTER
-	// successful demotion to avoid a race where a failed demote (e.g., postgres
+	// Preflight the term claim but DON'T persist yet. We only commit the new term
+	// AFTER successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
 	// terms and skip demotion.
-	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
-		return nil, err
+	if !force {
+		if err := pm.consensusState.CheckClaim(ctx, claim); err != nil {
+			return nil, mterrors.Wrap(err, "consensus term claim preflight failed")
+		}
 	}
 
 	nodeName := pm.serviceID.GetName()
@@ -838,19 +844,20 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}()
 
 	// Perform the actual demotion
-	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout)
+	resp, err := pm.emergencyDemoteLocked(ctx, claim, drainTimeout)
 	if err != nil {
 		return nil, err
 	}
 
-	// Only update term AFTER successful demotion
-	// This ensures the stale primary keeps its lower term until it's actually demoted,
-	// allowing subsequent detection to continue flagging it as stale.
-	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		// Log but don't fail - demotion succeeded, term update is secondary
-		pm.logger.WarnContext(ctx, "Failed to update term after demotion",
-			"error", err,
-			"consensus_term", consensusTerm)
+	// Only persist the term AFTER successful demotion so the stale primary keeps
+	// its lower term until it's actually demoted, allowing subsequent detection
+	// to keep flagging it as stale.
+	if !force {
+		if err := pm.consensusState.ApplyClaim(ctx, claim); err != nil {
+			pm.logger.WarnContext(ctx, "Demotion succeeded but term claim commit failed",
+				"error", err,
+				"consensus_term", claim.GetTerm())
+		}
 	}
 
 	return resp, nil
@@ -865,7 +872,8 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 // MultiOrch will try to contact all nodes in the cohort.
 // In the case that the dead primary received the RPC, it should just
 // shut down itself.
-func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, claim *consensusdatapb.CoordinatorClaim, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+	consensusTerm := claim.GetTerm()
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
@@ -984,7 +992,7 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 func (pm *MultiPoolerManager) DemoteStalePrimary(
 	ctx context.Context,
 	source *clustermetadatapb.MultiPooler,
-	consensusTerm int64,
+	claim *consensusdatapb.CoordinatorClaim,
 	force bool,
 ) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
 	if err := pm.checkReady(); err != nil {
@@ -999,6 +1007,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "source hostname is required")
 	}
 
+	consensusTerm := claim.GetTerm()
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary RPC called",
 		"source", source.Id.Name,
 		"consensus_term", consensusTerm)
@@ -1034,9 +1043,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		}, nil
 	}
 
-	// Validate the term
-	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
-		return nil, err
+	// Preflight the term claim but don't persist yet; we apply only after a
+	// successful demotion so a failed demote doesn't advance the term.
+	if !force {
+		if err := pm.consensusState.CheckClaim(ctx, claim); err != nil {
+			return nil, mterrors.Wrap(err, "consensus term claim preflight failed")
+		}
 	}
 
 	if err := pm.stopPostgresIfRunning(ctx); err != nil {
@@ -1097,9 +1109,11 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		PrimaryTerm: consensusTerm,
 	})
 
-	// Update consensus term to match the correct primary's term after successful demotion
-	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		return nil, mterrors.Wrap(err, "failed to update consensus term")
+	// Commit the term claim now that demotion has succeeded.
+	if !force {
+		if err := pm.consensusState.ApplyClaim(ctx, claim); err != nil {
+			return nil, mterrors.Wrap(err, "failed to commit consensus term claim")
+		}
 	}
 
 	// Get final LSN
@@ -1129,7 +1143,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 // transition a standby to primary and reconfigure replication.
 // This operation is fully idempotent - it checks what steps are already complete
 // and only executes the missing steps.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, coordinatorID *clustermetadatapb.ID, cohortMemberIDs, acceptedMemberIDs []*clustermetadatapb.ID) (*multipoolermanagerdatapb.PromoteResponse, error) {
+func (pm *MultiPoolerManager) Promote(ctx context.Context, claim *consensusdatapb.CoordinatorClaim, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, cohortMemberIDs, acceptedMemberIDs []*clustermetadatapb.ID) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -1144,9 +1158,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// Validation & Readiness
 
 	// Validate term - strict equality, no automatic updates
-	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
-		return nil, err
+	if !force {
+		if err := pm.consensusState.ApplyClaimExactTerm(ctx, claim); err != nil {
+			return nil, mterrors.Wrap(err, "promote requires exact-term claim match")
+		}
 	}
+	consensusTerm := claim.GetTerm()
 
 	// Check current promotion state to determine what needs to be done
 	state, err := pm.checkPromotionState(ctx, syncReplicationConfig)
@@ -1245,7 +1262,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if reason == "" {
 		reason = "unknown"
 	}
-	promoteCoordID := coordinatorID
+	promoteCoordID := claim.GetCoordinatorId()
 	if promoteCoordID == nil {
 		promoteCoordID = pm.serviceID
 	}
