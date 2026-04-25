@@ -90,9 +90,10 @@ make tools
 # Required before integration tests.
 make build
 
-# Run (skipped without RUN_SQLLOGICTEST=1).
+# Run (skipped without RUN_EXTENDED_QUERY_SERVING_TESTS=1; matches the
+# "Run Extended Query Serving Tests" PR label).
 scripts/portpool.sh start
-RUN_SQLLOGICTEST=1 \
+RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
   MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
   go test -v -timeout 3h \
     -run TestPostgreSQLSqlLogicTest \
@@ -104,7 +105,7 @@ The full corpus is a multi-hour run. During iteration, scope via
 runs in seconds:
 
 ```bash
-SLT_CORPUS_GLOB='test/select?.test' RUN_SQLLOGICTEST=1 \
+SLT_CORPUS_GLOB='test/select?.test' RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
   MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
   go test -v -run TestPostgreSQLSqlLogicTest \
     ./go/test/endtoend/queryserving/sqllogictest/...
@@ -114,21 +115,21 @@ To point at a local checkout (internal fork, working copy, etc.),
 override `SLT_CORPUS_DIR`:
 
 ```bash
-SLT_CORPUS_DIR=/path/to/my/slt-checkout RUN_SQLLOGICTEST=1 \
+SLT_CORPUS_DIR=/path/to/my/slt-checkout RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
   go test -v -run TestPostgreSQLSqlLogicTest \
     ./go/test/endtoend/queryserving/sqllogictest/...
 ```
 
 ## Environment variables
 
-| Var                      | Default                    | Purpose                                               |
-| ------------------------ | -------------------------- | ----------------------------------------------------- |
-| `RUN_SQLLOGICTEST`       | unset (test skips)         | Set to `1` to actually run the suite.                 |
-| `SLT_CORPUS_DIR`         | cloned upstream            | Override to point at a local corpus checkout.         |
-| `SLT_CORPUS_GLOB`        | `test/**/*.test`           | Scope which corpus files run. Supports `**`.          |
-| `SLT_CACHE_DIR`          | `/tmp/multigres_slt_cache` | Override cache root for the upstream clone.           |
-| `SLT_PER_FILE_TIMEOUT`   | `5m`                       | Per-file (per-target, per-protocol) wall-time budget. |
-| `MULTIGRES_PG_CACHE_DIR` | `/tmp/multigres_pg_cache`  | Shared with pgregresstest — PG source + build cache.  |
+| Var                                | Default                    | Purpose                                               |
+| ---------------------------------- | -------------------------- | ----------------------------------------------------- |
+| `RUN_EXTENDED_QUERY_SERVING_TESTS` | unset (test skips)         | Set to `1` to enable. Also enables pgregresstest.     |
+| `SLT_CORPUS_DIR`                   | cloned upstream            | Override to point at a local corpus checkout.         |
+| `SLT_CORPUS_GLOB`                  | `test/**/*.test`           | Scope which corpus files run. Supports `**`.          |
+| `SLT_CACHE_DIR`                    | `/tmp/multigres_slt_cache` | Override cache root for the upstream clone.           |
+| `SLT_PER_FILE_TIMEOUT`             | `5m`                       | Per-file (per-target, per-protocol) wall-time budget. |
+| `MULTIGRES_PG_CACHE_DIR`           | `/tmp/multigres_pg_cache`  | Shared with pgregresstest — PG source + build cache.  |
 
 ## Outputs
 
@@ -153,8 +154,8 @@ Written under `builder.OutputDir` (i.e.
 
 `.github/workflows/test-sqllogictest.yml` runs the suite on:
 
-- **PRs labeled `Run SqlLogicTest Tests`** — opt-in per-PR. Mirrors
-  `pgregresstest`'s `Run PgRegress Tests` gating.
+- **PRs labeled `Run Extended Query Serving Tests`** — opt-in per-PR. The
+  same label also triggers `pgregresstest`.
 - **Nightly cron** (`30 3 * * *` UTC) — baseline tracking.
 - **Weekly summary cron** (`30 9 * * 1` UTC) — Slack digest.
 - **`workflow_dispatch`** — manual kick.

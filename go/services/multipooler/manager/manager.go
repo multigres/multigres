@@ -25,10 +25,12 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
@@ -376,7 +378,7 @@ func (pm *MultiPoolerManager) Open() {
 
 	// Start health heartbeat goroutine and transition to SERVING.
 	// SetState notifies all components (query service, heartbeat, health streamer).
-	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
+	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
 	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		pm.logger.ErrorContext(pm.ctx, "Failed to transition to SERVING on open", "error", err)
 	}
@@ -714,12 +716,16 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			close(pm.readyChan)
 		}
 
-		// Set initial primary observation from loaded consensus state.
-		if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
-			pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-				PrimaryID:   pm.serviceID,
-				PrimaryTerm: term.GetPrimaryTerm(),
-			})
+		// Set initial primary observation from the highest known rule.
+		// commonconsensus.PrimaryTerm returns 0 unless the rule names us as the
+		// primary, so publishing serviceID here is safe.
+		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
+			if primaryTerm := commonconsensus.PrimaryTerm(cs); primaryTerm > 0 {
+				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+					PrimaryID:   pm.serviceID,
+					PrimaryTerm: primaryTerm,
+				})
+			}
 		}
 	}
 }
@@ -789,11 +795,16 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		// Generate pgbackrest client config now that we have backup location
 		pgPort := int(pm.multipooler.PortMap["postgres"])
 		socketDir := filepath.Join(pm.multipooler.PoolerDir, "pg_sockets")
+		pg1User := constants.DefaultPostgresUser
+		if pm.connPoolMgr != nil {
+			pg1User = pm.connPoolMgr.PgUser()
+		}
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.multipooler.PoolerDir,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
 			Pg1Path:       postgresDataDir(),
+			Pg1User:       pg1User,
 		}, backupConfig)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
@@ -1446,11 +1457,15 @@ func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
 
 // postgresState represents the state of PostgreSQL for monitoring
 type postgresState struct {
-	pgctldAvailable  bool
-	dirInitialized   bool
-	postgresRunning  bool
-	backupsAvailable bool
-	isPrimary        bool
+	pgctldAvailable          bool
+	dirInitialized           bool
+	postgresRunning          bool
+	backupsAvailable         bool
+	isPrimary                bool
+	bootstrapSentinelPresent bool
+	// primaryTerm is the coordinator term at which this pooler is the primary
+	// per the highest known rule. 0 if we are not the primary for that rule.
+	primaryTerm int64
 }
 
 // remedialAction represents actions the postgres monitor can take
@@ -1486,17 +1501,26 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	}
 
 	// Discover current state
-	currentState := pm.discoverPostgresState(ctx)
+	currentState, err := pm.discoverPostgresState(ctx)
+	if err != nil {
+		// Log and skip this tick; the next iteration will retry. A persistent
+		// failure keeps the error loud rather than silently triggering the wrong
+		// remediation. pgctld unavailability gets its dedicated reason code so
+		// the monitor's log-dedup path behaves as before.
+		if !currentState.pgctldAvailable {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err)
+			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+		} else {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err)
+		}
+		return
+	}
 
 	// Determine what remediation is needed
 	action := pm.determineRemedialAction(currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
-		if !currentState.pgctldAvailable {
-			// Log every time (not just on reason change) - pgctld being unavailable is critical
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
-			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
-		} else if currentState.postgresRunning {
+		if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		}
 		return
@@ -1518,31 +1542,45 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
-	currentState = pm.discoverPostgresState(lockCtx)
+	currentState, err = pm.discoverPostgresState(lockCtx)
+	if err != nil {
+		if !currentState.pgctldAvailable {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err)
+			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+		} else {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err)
+		}
+		return
+	}
 
 	// Re-determine action based on current state
 	action = pm.determineRemedialAction(currentState)
 
 	// Take remedial action with lock held
-	pm.takeRemedialAction(lockCtx, action)
+	pm.takeRemedialAction(lockCtx, action, currentState)
 }
 
-// discoverPostgresState discovers the current state of PostgreSQL
-func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgresState {
+// discoverPostgresState discovers the current state of PostgreSQL. Returns an
+// error only when a probe fails in a way that leaves the state genuinely
+// ambiguous (e.g. a sentinel stat failing for reasons other than NotExist);
+// callers must refuse to take remedial action in that case. pgctld being
+// unavailable is not such a case — it is represented as pgctldAvailable=false.
+func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgresState, error) {
 	state := postgresState{}
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
-		return state // All fields remain false
+		return state, nil // All fields remain false
 	}
 	state.pgctldAvailable = true
 
-	// Get status from pgctld
+	// Get status from pgctld. On failure return both the state (with
+	// pgctldAvailable=false) and the error so the caller can log the
+	// underlying cause while still reading the unavailability flag.
 	statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
 	if err != nil {
-		// pgctld call failed, treat as unavailable
 		state.pgctldAvailable = false
-		return state
+		return state, fmt.Errorf("pgctld status: %w", err)
 	}
 
 	// Check if directory is initialized
@@ -1556,6 +1594,11 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
 		}
+		// Lock-free first pass from the monitor: use the inconsistent read,
+		// which falls back to the cached rule when postgres is unreachable.
+		if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
+			state.primaryTerm = commonconsensus.PrimaryTerm(cs)
+		}
 	}
 
 	// Check if backups are available (only if directory not initialized)
@@ -1563,7 +1606,34 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		state.backupsAvailable = pm.hasCompleteBackups(ctx)
 	}
 
-	return state
+	sentinelPresent, err := pm.hasBootstrapSentinel()
+	if err != nil {
+		// We can't tell whether a stale sentinel needs handling. Surface as an
+		// error so the monitor skips this tick; the operator should investigate.
+		return state, fmt.Errorf("check bootstrap sentinel: %w", err)
+	}
+	state.bootstrapSentinelPresent = sentinelPresent
+
+	return state, nil
+}
+
+// primaryTermLocked returns the coordinator term of the pooler's current
+// committed rule if this pooler is the primary per that rule. Uses a
+// consistent consensus status read and therefore requires the action lock.
+// Returns (0, nil) when the rule does not name this pooler as primary.
+// Returns (0, err) only when the consensus status cannot be read at all —
+// callers that need to distinguish "confirmed not primary" from "unknown"
+// must inspect the error.
+//
+// Callers that cannot hold the action lock should read
+// getInconsistentConsensusStatus themselves and pass the result to
+// consensus.PrimaryTerm.
+func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
+	cs, err := pm.getConsensusStatus(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read consensus status: %w", err)
+	}
+	return commonconsensus.PrimaryTerm(cs), nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
@@ -1595,15 +1665,21 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		// signal needs to be (re-)published. This handles the case where the signal was
 		// lost after a process restart following EmergencyDemote.
 		if !currentState.isPrimary {
-			term, _ := pm.consensusState.GetInconsistentTerm()
 			pm.mu.Lock()
 			resigned := pm.resignedPrimaryAtTerm
 			pm.mu.Unlock()
-			if term.GetPrimaryTerm() != 0 && resigned == 0 {
+			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
 			}
 		}
 		return remedialActionNone // Pooler type already matches
+	}
+
+	// A sentinel from a prior first-backup attempt means bootstrap crashed
+	// mid-flight. Any on-disk pg_data is stale — force the create-first-backup
+	// path so createFirstBackupAndInitializeLocked can clean up and retry.
+	if currentState.bootstrapSentinelPresent {
+		return remedialActionCreateFirstBackup
 	}
 
 	// Postgres not running: Try to start or restore
@@ -1621,7 +1697,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 
 // takeRemedialAction executes the specified remedial action.
 // Caller must hold the action lock.
-func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction) {
+func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
 	// Assert that the action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
@@ -1656,11 +1732,10 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// Signal voluntary resignation so the coordinator can trigger an immediate
 		// election. Use the primary_term (the term at which we were elected) since
 		// the coordinator uses this to decide whether the signal is still active.
-		// TODO: Once ConsensusStatus is populated in StatusResponse, use the
-		// consensus term from there for a more precise resignation signal.
-		if term, err := pm.consensusState.GetInconsistentTerm(); err == nil && term.GetPrimaryTerm() != 0 {
-			if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+		if state.primaryTerm != 0 {
+			if err := pm.setResignedPrimaryAtTerm(ctx, state.primaryTerm); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+				return
 			}
 		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {

@@ -74,14 +74,14 @@ run takes ~20 minutes.
 ### Quick run (minimal)
 
 ```bash
-RUN_PGBENCH=1 PGBENCH_DURATION=5 PGBENCH_CLIENTS=1,2 \
+RUN_BENCHMARKS=1 PGBENCH_DURATION=5 PGBENCH_CLIENTS=1,2 \
   go test -v -run TestPgBench ./go/test/endtoend/queryserving/benchmarking/... -timeout 30m
 ```
 
 ### Full run
 
 ```bash
-RUN_PGBENCH=1 PGBENCH_DURATION=30 PGBENCH_CLIENTS=1,10,50 \
+RUN_BENCHMARKS=1 PGBENCH_DURATION=30 PGBENCH_CLIENTS=1,10,50 \
   go test -v -run TestPgBench ./go/test/endtoend/queryserving/benchmarking/... -timeout 60m
 ```
 
@@ -95,16 +95,16 @@ make build
 /mt-dev integration queryserving/benchmarking TestPgBench
 ```
 
-Note: `RUN_PGBENCH=1` must be set in the environment for the test to run. Without it,
+Note: `RUN_BENCHMARKS=1` must be set in the environment for the test to run. Without it,
 the test is skipped.
 
 ### Environment variables
 
-| Variable           | Default   | Description                          |
-| ------------------ | --------- | ------------------------------------ |
-| `RUN_PGBENCH`      | (unset)   | Set to `1` to enable benchmark tests |
-| `PGBENCH_DURATION` | `30`      | Seconds per scenario                 |
-| `PGBENCH_CLIENTS`  | `1,10,50` | Comma-separated client counts        |
+| Variable           | Default   | Description                                                                  |
+| ------------------ | --------- | ---------------------------------------------------------------------------- |
+| `RUN_BENCHMARKS`   | (unset)   | Set to `1` to enable benchmark tests. Matches the "Run Benchmarks" PR label. |
+| `PGBENCH_DURATION` | `30`      | Seconds per scenario                                                         |
+| `PGBENCH_CLIENTS`  | `1,10,50` | Comma-separated client counts                                                |
 
 ## How metrics are computed
 
@@ -163,7 +163,7 @@ The **Overhead vs postgres** row is `(1 - multigateway_tps / postgres_tps) * 100
 The benchmark runs weekly via `.github/workflows/test-pgbench.yml`:
 
 - **Schedule:** Monday 6:00 AM UTC
-- **Triggers:** Weekly cron, `workflow_dispatch`, PR label `Run PgBench Tests`
+- **Triggers:** Weekly cron, `workflow_dispatch`, PR label `Run Benchmarks`
 - **Baseline:** Results are cached via `actions/cache`; each run is compared against the
   previous baseline
 - **Regression detection:** `.github/scripts/detect-pgbench-regressions.sh` flags

@@ -176,10 +176,6 @@ message PrimaryStatus {
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
   SynchronousReplicationConfiguration sync_replication_config = 4;
-
-  // The term for which this pooler was promoted to primary.
-  // Non-zero for current primaries. See ConsensusTerm.primary_term for full lifecycle details.
-  int64 primary_term = 5;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -278,9 +274,19 @@ message ManagerHealthStreamClientMessage {
 }
 
 // ManagerHealthStreamStartRequest is sent as the first message inside
-// ManagerHealthStreamClientMessage. There are no fields in this message; its
-// presence is the signal to start the stream.
+// ManagerHealthStreamClientMessage to open the stream and negotiate timing.
 message ManagerHealthStreamStartRequest {
+  // snapshot_interval is how often the server should proactively push
+  // a snapshot when no state-change broadcast has occurred.
+  // Zero means use the server default (currently 5s).
+  google.protobuf.Duration snapshot_interval = 1;
+
+  // staleness_timeout is the window after which the client will treat
+  // the stream as stale and reconnect. The server echoes the actual value it
+  // will use in ManagerHealthStreamStartResponse and in every subsequent
+  // ManagerHealthSnapshot.timeout_seconds.
+  // Zero means use the server default (currently 90s).
+  google.protobuf.Duration staleness_timeout = 2;
 }
 
 // ManagerHealthStreamPollRequest triggers an immediate health snapshot.
@@ -288,12 +294,28 @@ message ManagerHealthStreamStartRequest {
 message ManagerHealthStreamPollRequest {
 }
 
-// ManagerHealthStreamResponse is sent by the pooler on connection, on every
-// state change, on poll request, and periodically as a heartbeat snapshot.
-// Every message is a full health snapshot — there are no incremental updates.
+// ManagerHealthStreamStartResponse is the first message the server sends after
+// receiving a valid start message. It reports the actual values the server will
+// use, which may differ from the requested values if they were clamped or adjusted.
+message ManagerHealthStreamStartResponse {
+  // snapshot_interval is the per-stream proactive snapshot interval.
+  google.protobuf.Duration snapshot_interval = 1;
+
+  // staleness_timeout is the staleness window that will be echoed in
+  // every subsequent ManagerHealthSnapshot.timeout_seconds.
+  google.protobuf.Duration staleness_timeout = 2;
+}
+
+// ManagerHealthStreamResponse is sent by the pooler to the orchestrator.
+// The first message is always a ManagerHealthStreamStartResponse confirming
+// the negotiated timing; subsequent messages are health snapshots.
 message ManagerHealthStreamResponse {
-  // The full health state of the pooler.
-  ManagerHealthSnapshot snapshot = 1;
+  oneof message {
+    // Sent once immediately after the start message is received.
+    ManagerHealthStreamStartResponse start = 1;
+    // Full health snapshot, sent on connection, state change, poll, or heartbeat.
+    ManagerHealthSnapshot snapshot = 2;
+  }
 }
 
 // SnapshotTrigger describes why a ManagerHealthSnapshot was sent.
@@ -550,13 +572,6 @@ message ConsensusTerm {
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;
-
-  // The term for which this pooler was promoted to primary.
-  // Set during promotion (Promote).
-  // Preserved when consensus term increases (new elections).
-  // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
-  // 0 if never primary.
-  int64 primary_term = 5;
 }
 
 // Backup operations

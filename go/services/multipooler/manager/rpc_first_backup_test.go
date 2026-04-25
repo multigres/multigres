@@ -303,7 +303,8 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 }
 
 // TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure verifies that
-// when InitDataDir succeeds but a later step fails, the data directory is removed.
+// when InitDataDir succeeds but a later step fails, the data directory is removed
+// and the bootstrap sentinel is cleared (because cleanup returned to a clean state).
 func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) {
 	ctx := t.Context()
 
@@ -347,6 +348,87 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 
 	// The data directory should have been cleaned up by the defer.
 	assert.NoDirExists(t, dataDir, "data directory should be removed after failure")
+	// The sentinel should also be cleared since data-dir cleanup succeeded.
+	assert.NoFileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile),
+		"sentinel should be removed after successful defer cleanup")
+}
+
+// TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir verifies the
+// recovery path after an incomplete prior attempt. The test sets up the on-disk
+// state that such an attempt would leave behind — a sentinel file alongside a
+// populated data directory — and asserts the next call cleans up the data
+// directory before proceeding. The sentinel itself remains until bootstrap
+// completes successfully.
+func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	// Database with no durability policy: the function will fail at loadDurabilityPolicy,
+	// which runs AFTER the stale-sentinel cleanup but BEFORE any write. That lets us
+	// observe that the stale data directory was removed without needing to run initdb.
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name: dbName,
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	// Pre-existing sentinel from a prior crashed attempt.
+	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
+	require.NoError(t, os.WriteFile(sentinelPath, []byte("stale\n"), 0o644))
+
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   NewActionLock(),
+		pgctldClient: &stubPgctldClient{},
+		multipooler: &clustermetadatapb.MultiPooler{
+			Database:   dbName,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+			PoolerDir:  poolerDir,
+		},
+		config: &Config{},
+	}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	_, _, err = pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+	// The error must come from loadDurabilityPolicy (after the sentinel cleanup),
+	// NOT from hasDataDirectory (which would indicate cleanup did not run).
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "no durability_policy configured")
+	// Stale data directory must be gone.
+	assert.NoDirExists(t, dataDir, "stale data directory should be removed when sentinel detected")
+	// Sentinel stays because bootstrap has not completed successfully.
+	assert.FileExists(t, sentinelPath, "sentinel should remain until bootstrap completes")
+}
+
+// TestBootstrapSentinelPlacement guards the load-bearing invariant that the
+// sentinel lives in pooler_dir and never under PGDATA — pgBackRest backs up
+// PGDATA only, so placement here keeps the sentinel out of backups.
+func TestBootstrapSentinelPlacement(t *testing.T) {
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+	}
+
+	require.NoError(t, pm.writeBootstrapSentinel())
+	assert.FileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile))
+	assert.NoFileExists(t, filepath.Join(dataDir, constants.BootstrapSentinelFile),
+		"sentinel must NOT live under PGDATA — it would be backed up")
 }
 
 // TestWithBackupLease_ReturnsNodeExistsWhenHeld verifies that WithBackupLease returns

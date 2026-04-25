@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -48,7 +49,7 @@ func TestPgParity(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Minute)
 
 	primary := setup.GetPrimary(t)
-	pgTarget := Target{
+	pgTarget := suiteutil.Target{
 		Name: "postgres",
 		Host: "localhost",
 		Port: primary.Pgctld.PgPort,
@@ -56,7 +57,7 @@ func TestPgParity(t *testing.T) {
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
 	}
-	mgwTarget := Target{
+	mgwTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "localhost",
 		Port: setup.MultigatewayPgPort,
@@ -111,12 +112,12 @@ func TestPgParity(t *testing.T) {
 //
 // Schema resets always go through pgReset (direct postgres) so cleanup cannot
 // be affected by a multigateway bug we're trying to detect.
-func runTarget(ctx context.Context, parent *testing.T, tf *TestFile, target, pgReset Target, pgPassed map[int]bool) map[int]bool {
+func runTarget(ctx context.Context, parent *testing.T, tf *TestFile, target, pgReset suiteutil.Target, pgPassed map[int]bool) map[int]bool {
 	parent.Helper()
 	passed := make(map[int]bool)
 
 	parent.Run(target.Name, func(t *testing.T) {
-		if err := resetSchema(ctx, pgReset); err != nil {
+		if err := suiteutil.ResetPublicSchema(ctx, pgReset); err != nil {
 			t.Fatalf("reset schema before %s: %v", target.Name, err)
 		}
 		result, err := RunFile(ctx, tf, target)

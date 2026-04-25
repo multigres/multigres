@@ -453,15 +453,26 @@ func (p *ProcessInstance) IsRunning() bool {
 }
 
 // StopPostgres stops PostgreSQL via pgctld gRPC (best effort, no error handling).
+// Uses "fast" mode, which takes a checkpoint before stopping.
 // Use this to stop postgres before removing data directories for auto-restore tests.
 func (p *ProcessInstance) StopPostgres(t *testing.T) {
 	t.Helper()
-	p.stopPostgreSQL()
+	p.stopPostgreSQL("fast")
+}
+
+// StopPostgresImmediate stops PostgreSQL via pgctld gRPC with "immediate" mode,
+// which sends SIGQUIT and skips the pre-shutdown checkpoint. Use this when the
+// data directory is about to be wiped anyway, to avoid long graceful-shutdown
+// windows that can leave the postgres listen port in TIME_WAIT and block the
+// next postgres from binding it on restart.
+func (p *ProcessInstance) StopPostgresImmediate(t *testing.T) {
+	t.Helper()
+	p.stopPostgreSQL("immediate")
 }
 
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling).
-// Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) stopPostgreSQL() {
+// mode is passed through to pg_ctl stop -m (smart | fast | immediate).
+func (p *ProcessInstance) stopPostgreSQL(mode string) {
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("passthrough:///localhost:%d", p.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -474,11 +485,11 @@ func (p *ProcessInstance) stopPostgreSQL() {
 	client := pgctldservice.NewPgCtldClient(conn)
 
 	// pg_ctl stop -m fast takes a checkpoint before stopping, which can
-	// take several seconds under load.
+	// take several seconds under load. Immediate mode skips the checkpoint.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, _ = client.Stop(ctx, &pgctldservice.StopRequest{Mode: "fast"})
+	_, _ = client.Stop(ctx, &pgctldservice.StopRequest{Mode: mode})
 }
 
 // TerminateGracefully gracefully terminates a process by first sending SIGTERM,
@@ -493,7 +504,7 @@ func (p *ProcessInstance) TerminateGracefully(logf func(string, ...any), timeout
 	// For pgctld, stop PostgreSQL first via gRPC. pg_ctl stop -m fast
 	// releases SysV shared memory segments that would otherwise leak.
 	if p.Binary == "pgctld" {
-		p.stopPostgreSQL()
+		p.stopPostgreSQL("fast")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

@@ -682,12 +682,21 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 		}
 
+		resignedPoolerID := &clustermetadatapb.ID{Name: "mp1-resigned"}
 		resignedPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id: &clustermetadatapb.ID{Name: "mp1-resigned"},
+				Id: resignedPoolerID,
 			},
 			ConsensusStatus: &consensusdatapb.StatusResponse{
-				PrimaryTerm: 4,
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: resignedPoolerID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+							PrimaryId:  resignedPoolerID,
+						},
+					},
+				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 						PrimaryTerm: 4,
@@ -735,12 +744,21 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 		}
 
+		onlyNodeID := &clustermetadatapb.ID{Name: "only-node"}
 		resignedPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id: &clustermetadatapb.ID{Name: "only-node"},
+				Id: onlyNodeID,
 			},
 			ConsensusStatus: &consensusdatapb.StatusResponse{
-				PrimaryTerm: 3,
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: onlyNodeID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+							PrimaryId:  onlyNodeID,
+						},
+					},
+				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 						PrimaryTerm: 3,
@@ -770,12 +788,21 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 		}
 
+		staleSignalID := &clustermetadatapb.ID{Name: "mp1-stale-signal"}
 		nodeWithStaleSignal := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id: &clustermetadatapb.ID{Name: "mp1-stale-signal"},
+				Id: staleSignalID,
 			},
 			ConsensusStatus: &consensusdatapb.StatusResponse{
-				PrimaryTerm: 5, // current term is 5
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: staleSignalID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+							PrimaryId:  staleSignalID,
+						},
+					},
+				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 						PrimaryTerm: 3, // signal from an old term — stale
@@ -1252,6 +1279,68 @@ func TestBeginTerm(t *testing.T) {
 		require.Equal(t, int64(0), term)
 		require.Contains(t, err.Error(), "recruitment validation failed",
 			"should fail recruitment validation when only 1 node recruited but need 2")
+	})
+
+	t.Run("excludes resigned pooler from standbys so stale-primary recovery can handle it", func(t *testing.T) {
+		// A pooler that emergency-demoted (REQUESTING_DEMOTION signal with a
+		// matching primary term) must not land in the standbys list returned by
+		// BeginTerm. If it did, the standby-config step would call
+		// SetPrimaryConnInfo on it directly, bypassing the stale-primary flow
+		// that runs pg_rewind. Instead we leave it alone so a later analysis
+		// pass observes its lingering stale rule and routes it through
+		// DemoteStalePrimary.
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		mp1 := createMockNode(fakeClient, "mp1", 5, "0/5000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp2 := createMockNode(fakeClient, "mp2", 5, "0/3000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+		mp3 := createMockNode(fakeClient, "mp3", 5, "0/2000000", true, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA)
+
+		// mp1 was the previous primary at term 4 and has emergency-demoted.
+		// Its cached health still shows rule=(primary=mp1, term=4) and the
+		// leadership status carries REQUESTING_DEMOTION at that same term —
+		// the shape types.PrimaryNeedsReplacement looks for.
+		mp1.ConsensusStatus = &consensusdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: mp1.MultiPooler.Id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+						PrimaryId:  mp1.MultiPooler.Id,
+					},
+				},
+			},
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+					PrimaryTerm: 4,
+					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+			},
+		}
+
+		cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2, mp3}
+
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 2,
+		}
+
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, mustPolicy(t, quorumRule), int64(6))
+		require.NoError(t, err)
+		require.NotNil(t, candidate)
+		require.NotEqual(t, "mp1", candidate.MultiPooler.Id.Name,
+			"resigned pooler must not be elected as candidate")
+		require.Equal(t, int64(6), term)
+
+		require.Len(t, standbys, 1, "resigned pooler must be excluded from standbys list")
+		for _, s := range standbys {
+			require.NotEqual(t, "mp1", s.MultiPooler.Id.Name,
+				"resigned pooler must not appear in standbys so stale-primary recovery owns it")
+		}
 	})
 }
 

@@ -29,7 +29,7 @@ jobs:
     name: Run PostgreSQL compatibility tests
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run PgRegress Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,8 +68,7 @@ jobs:
 
       - name: Run PostgreSQL compatibility tests
         env:
-          RUN_PGREGRESS: "1"
-          RUN_PGISOLATION: "1"
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
@@ -117,6 +116,20 @@ jobs:
           name: postgres-compatibility-results
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
+
+      # On failure, surface the per-process logs from the shardsetup tempdir
+      # (multipooler.log, pgctld.log, multigateway.log, multiorch.log). The
+      # failing job uploads nothing useful for cluster-bootstrap / reinit
+      # issues without these — go test swallows structured logs and the
+      # CI stdout only shows the outer test error.
+      - name: Upload cluster logs on failure
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ failure() }}
+        with:
+          name: pgregress-cluster-logs
+          path: /tmp/shardsetup_test_*/**/*.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Notify Slack on regression
         if: >-

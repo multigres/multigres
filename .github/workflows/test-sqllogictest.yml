@@ -29,7 +29,7 @@ jobs:
     name: Run sqllogictest differential suite
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run SqlLogicTest Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -77,7 +77,7 @@ jobs:
 
       - name: Run SQLLogicTest suite
         env:
-          RUN_SQLLOGICTEST: "1"
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
         run: |
           go test -json -v -run TestPostgreSQLSqlLogicTest \

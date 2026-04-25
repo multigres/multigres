@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc"
@@ -64,6 +65,7 @@ type SetupConfig struct {
 	CellName                            string
 	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
 	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	DeferMultipoolerStart               bool     // Start pgctld only; test starts multipooler itself
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
 	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
@@ -123,6 +125,15 @@ func WithDurabilityPolicy(policy string) SetupOption {
 // Processes (pgctld, multipooler) are started but postgres is not initialized.
 func WithoutInitialization() SetupOption {
 	return func(c *SetupConfig) {
+		c.SkipInitialization = true
+	}
+}
+
+// WithDeferredMultipoolerStart skips initialization and leaves the multipooler
+// unstarted; the test is responsible for starting it.
+func WithDeferredMultipoolerStart() SetupOption {
+	return func(c *SetupConfig) {
+		c.DeferMultipoolerStart = true
 		c.SkipInitialization = true
 	}
 }
@@ -488,7 +499,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
 	// Use setup.ctx for process lifetime, passed ctx only for tracing
-	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances)
+	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -1069,13 +1080,16 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance) {
+func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startMultipoolerInstances")
 	defer span.End()
 
-	span.SetAttributes(attribute.Int("instance.count", len(instances)))
+	span.SetAttributes(
+		attribute.Int("instance.count", len(instances)),
+		attribute.Bool("defer_multipooler_start", deferMultipoolerStart),
+	)
 
 	for _, inst := range instances {
 		pgctld := inst.Pgctld
@@ -1098,6 +1112,12 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			t.Fatalf("failed to start pgctld for %s: %v", inst.Name, err)
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
+
+		if deferMultipoolerStart {
+			t.Logf("Multipooler %s not started (DeferMultipoolerStart); test will start it", inst.Name)
+			instSpan.End()
+			continue
+		}
 
 		// Start multipooler
 		if err := multipooler.Start(instCtx, t); err != nil {
@@ -1372,14 +1392,22 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
 	// StopPostgres must be called BEFORE killing pgctld, otherwise
 	// the postgres process survives and holds the port.
+	//
+	// Use immediate shutdown (SIGQUIT, no checkpoint): the data dir is
+	// about to be wiped, so clean-shutdown state is irrelevant. Fast mode's
+	// pre-shutdown checkpoint can take >10s on the primary (especially under
+	// replication load), triggering a graceful-period SIGKILL that leaves
+	// postgres's listen port in TIME_WAIT on Linux for ~60s. The subsequent
+	// postgres restart then cannot bind its port and retries until
+	// WaitForManagerReady times out.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
 			inst.Multipooler.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
-			inst.Pgctld.StopPostgres(t)
-			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
+			inst.Pgctld.StopPostgresImmediate(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s (immediate)", name)
 			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
@@ -1415,6 +1443,20 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
 	}
+
+	// 3c. Clear stale topology state. Without this, a pooler that was elected
+	// PRIMARY in the previous suite reads its stale role from etcd on restart,
+	// finds an empty data directory (wiped in step 3), and hangs in recovery —
+	// never reaching PostgresReady. The restart loop below then times out on
+	// WaitForManagerReady for that pooler.
+	//
+	// We wipe:
+	//   - databases/<db>/<tablegroup>/*   (shard records + ShardInitClaim)
+	//   - <cell>/poolers|gateways|orchs/* (per-process registration state)
+	// We keep:
+	//   - databases/<db>/Database         (preserves BackupLocation + DurabilityPolicy)
+	//   - cells/<cell>/Cell               (cell config multipoolers need to reconnect)
+	s.wipeTopologyForReinit(t, "postgres", constants.DefaultTableGroup)
 
 	t.Logf("ReinitializeCluster: restarting cluster...")
 
@@ -1453,6 +1495,49 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
+// wipeTopologyForReinit removes the etcd keys that would otherwise carry
+// stale shard-election and per-process registration state across a
+// ReinitializeCluster call. See the call site in ReinitializeCluster for
+// the full rationale.
+//
+// It connects to etcd directly (rather than via TopoServer) because the
+// public topoclient API only exposes per-record delete helpers and this
+// needs a recursive prefix delete.
+func (s *ShardSetup) wipeTopologyForReinit(t *testing.T, database, tableGroup string) {
+	t.Helper()
+
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{s.EtcdClientAddr},
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ReinitializeCluster: failed to open etcd client for topology wipe: %v", err)
+	}
+	defer func() {
+		if cerr := cli.Close(); cerr != nil {
+			t.Logf("ReinitializeCluster: warning: closing etcd client: %v", cerr)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// topoclient test root is "/multigres". Global topo is under /multigres/global,
+	// and each cell is under /multigres/<cell>/.
+	prefixes := []string{
+		path.Join("/multigres/global", topoclient.DatabasesPath, database, tableGroup) + "/",
+		path.Join("/multigres", s.CellName, topoclient.PoolersPath) + "/",
+		path.Join("/multigres", s.CellName, topoclient.GatewaysPath) + "/",
+		path.Join("/multigres", s.CellName, topoclient.OrchsPath) + "/",
+	}
+	for _, p := range prefixes {
+		if _, err := cli.Delete(ctx, p, clientv3.WithPrefix()); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to wipe topology prefix %s: %v", p, err)
+		}
+	}
+	t.Logf("ReinitializeCluster: wiped stale topology state (shard records + pooler/gateway/orch registrations)")
 }
 
 // SetupTest provides test isolation by validating clean state and automatically

@@ -336,7 +336,9 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 // BeginTerm, so it is suitable for observability (StatusResponse, health monitors) but not
 // for decisions that require a consistent view.
 //
-// Returns (nil, err) if postgres is unreachable; callers should log and continue.
+// Falls back to the ruleStore's cached position when postgres is unreachable, so
+// that callers can still derive the last-known primary term (e.g. for stale-
+// primary detection) after postgres has crashed.
 func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
 	term, err := pm.consensusState.GetInconsistentTerm()
 	if err != nil {
@@ -345,7 +347,11 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 
 	pos, err := pm.rules.observePosition(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read current rule position: %w", err)
+		// Postgres is unreachable — fall back to the last observed position
+		// cached in memory. May be stale, but preserves visibility into the
+		// most recent rule across postgres restarts and crashes.
+		pm.logger.DebugContext(ctx, "observePosition failed; falling back to cached rule position", "error", err)
+		pos = pm.rules.cachedPosition()
 	}
 	return buildConsensusStatus(pm.serviceID, term, pos), nil
 }
@@ -385,7 +391,7 @@ func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(ctx context.Context, term
 }
 
 // clearResignedPrimaryAtTerm clears the leadership demotion request. Called by
-// coordinator-driven promotion (SetPrimaryTerm) when this node is explicitly
+// coordinator-driven promotion (Promote) when this node is explicitly
 // re-appointed as primary at a new term.
 // Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm(ctx context.Context) error {
@@ -408,10 +414,6 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	localCurrentTerm := int64(0)
 	if term != nil {
 		localCurrentTerm = term.GetTermNumber()
-	}
-	localPrimaryTerm := int64(0)
-	if term != nil {
-		localPrimaryTerm = term.GetPrimaryTerm()
 	}
 
 	// Check if database is healthy by attempting a simple query
@@ -473,7 +475,6 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		Cell:               pm.serviceID.GetCell(),
 		Role:               role,
 		TimelineInfo:       timelineInfo,
-		PrimaryTerm:        localPrimaryTerm,
 		ConsensusStatus:    consensusStatus,
 		AvailabilityStatus: pm.buildAvailabilityStatus(),
 	}, nil

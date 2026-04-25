@@ -30,3 +30,14 @@ func IsPrimary(cs *clustermetadatapb.ConsensusStatus) bool {
 	}
 	return self.Cell == primary.Cell && self.Name == primary.Name
 }
+
+// PrimaryTerm returns the coordinator term of the pooler's current committed
+// rule if the pooler holds the primary role (per IsPrimary). Returns 0 when
+// the pooler is not the primary, when the consensus status is nil/empty, or
+// when the rule has no coordinator term.
+func PrimaryTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
+	if !IsPrimary(cs) {
+		return 0
+	}
+	return cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm()
+}

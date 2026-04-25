@@ -20,6 +20,7 @@ package types
 // should move to go/common/consensus or a similar shared package.
 
 import (
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -46,5 +47,6 @@ func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == p.ConsensusStatus.GetPrimaryTerm()
+	primaryTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus().GetConsensusStatus())
+	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == primaryTerm
 }

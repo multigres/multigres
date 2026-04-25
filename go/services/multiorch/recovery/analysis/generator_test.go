@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -31,6 +32,25 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
+
+// primaryConsensusStatus builds a consensusdata.StatusResponse that names id as
+// the primary in its current rule with the given coordinator term. This is the
+// minimal fixture required for commonconsensus.IsPrimary to return true for a
+// given pooler.
+func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *consensusdatapb.StatusResponse {
+	return &consensusdatapb.StatusResponse{
+		CurrentTerm: term,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+					PrimaryId:  id,
+				},
+			},
+		},
+	}
+}
 
 func TestAnalysisGenerator_GenerateShardAnalyses_EmptyStore(t *testing.T) {
 	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()), nil)
@@ -61,6 +81,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
+		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
@@ -118,6 +139,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
+		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
@@ -218,6 +240,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
+		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: true,
@@ -1425,11 +1448,22 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		MultiPooler:      shardConfig(newPrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
-		ConsensusStatus:  &consensusdatapb.StatusResponse{CurrentTerm: 11},
+		ConsensusStatus: &consensusdatapb.StatusResponse{
+			CurrentTerm: 11,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: newPrimaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+						PrimaryId:  newPrimaryID,
+					},
+				},
+			},
+		},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: true,
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11, PrimaryTerm: 6},
+			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11},
 		},
 	})
 
@@ -1438,11 +1472,22 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		MultiPooler:      shardConfig(stalePrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
-		ConsensusStatus:  &consensusdatapb.StatusResponse{CurrentTerm: 10},
+		ConsensusStatus: &consensusdatapb.StatusResponse{
+			CurrentTerm: 10,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: stalePrimaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+						PrimaryId:  stalePrimaryID,
+					},
+				},
+			},
+		},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: false,
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10, PrimaryTerm: 5},
+			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
 		},
 	})
 
@@ -1494,7 +1539,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// primary-2 has higher PrimaryTerm, so it's the most advanced
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(6), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 
 	t.Run("multiple other primaries detected", func(t *testing.T) {
@@ -1523,7 +1568,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// This verifies we're comparing on PrimaryTerm, not ConsensusTerm.
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-3", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(6), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 
 	t.Run("this primary is most advanced", func(t *testing.T) {
@@ -1543,7 +1588,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// This primary has highest PrimaryTerm (7), so it's the most advanced
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(7), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(7), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 
 	t.Run("tie in primary_term returns nil", func(t *testing.T) {
@@ -1600,7 +1645,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// primary-2 has non-zero PrimaryTerm (5), so it's the most advanced
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 
 	t.Run("no other primaries detected", func(t *testing.T) {
@@ -1618,7 +1663,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// Single primary is still the most advanced
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 
 	t.Run("unreachable primary not detected", func(t *testing.T) {
@@ -1637,7 +1682,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// Only this primary is reachable, so it's the most advanced
 		require.NotNil(t, sa.HighestTermReachablePrimary)
 		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), sa.HighestTermReachablePrimary.PrimaryTerm)
+		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
 	})
 }
 
@@ -1670,13 +1715,14 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 
 	for _, p := range primaries {
 		poolerID := "multipooler-cell1-" + p.id
+		id := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      p.id,
+		}
 		poolerState := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "cell1",
-					Name:      p.id,
-				},
+				Id:         id,
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -1687,13 +1733,19 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 			IsUpToDate:       true,
 			ConsensusStatus: &consensusdatapb.StatusResponse{
 				CurrentTerm: p.consensusTerm,
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: id,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.primaryTerm},
+							PrimaryId:  id,
+						},
+					},
+				},
 			},
 			Status: &multipoolermanagerdatapb.Status{
-				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-				ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{
-					TermNumber:  p.consensusTerm,
-					PrimaryTerm: p.primaryTerm,
-				},
+				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+				ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: p.consensusTerm},
 			},
 		}
 		ps.Set(poolerID, poolerState)
