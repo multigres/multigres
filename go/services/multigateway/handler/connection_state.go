@@ -262,6 +262,17 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeout(d time.Duration) 
 	m.statementTimeout.SetLocal(d)
 }
 
+// SetLocalStatementTimeoutToDefault sets the transaction-local override to
+// the server default (from SET LOCAL statement_timeout TO DEFAULT). This
+// masks any session-level override for the duration of the transaction
+// without destroying it; the session value is restored on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocalToDefault()
+}
+
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
 // variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
 // observes the session-level (or default) value.

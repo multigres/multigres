@@ -230,6 +230,25 @@ func TestGatewayManagedVariable(t *testing.T) {
 		require.Equal(t, time.Duration(0), v.GetEffective())
 		require.True(t, v.IsLocalSet())
 	})
+
+	t.Run("SetLocalToDefault masks session without destroying it", func(t *testing.T) {
+		// PG semantics: SET LOCAL var TO DEFAULT installs a transaction-scoped
+		// override equal to the default, masking the session value during the
+		// transaction. The session value must be preserved for restoration on
+		// COMMIT/ROLLBACK (when ResetLocal fires).
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.SetLocalToDefault()
+		require.Equal(t, 30*time.Second, v.GetEffective(),
+			"during txn: SHOW returns default value, masking session")
+		require.True(t, v.IsLocalSet())
+		require.True(t, v.IsSet(), "session value must be preserved, not destroyed")
+
+		// Simulate transaction-end ResetLocal: session value should be restored.
+		v.ResetLocal()
+		require.Equal(t, 5*time.Second, v.GetEffective(),
+			"after txn end: session value is restored")
+	})
 }
 
 func TestConnectionState_StatementTimeout(t *testing.T) {
@@ -322,5 +341,23 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
 		s.ResetStatementTimeout()
 		require.Equal(t, 40*time.Millisecond, s.GetStatementTimeout())
+	})
+
+	t.Run("SetLocalStatementTimeoutToDefault masks session", func(t *testing.T) {
+		// Repro the reviewer-flagged bug: SET LOCAL var TO DEFAULT must NOT
+		// destroy the session value. ShowStatementTimeout reflects the default
+		// during the transaction; after ResetAllLocalGUCs (transaction end),
+		// the original session value is restored.
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+
+		s.SetLocalStatementTimeoutToDefault()
+		require.Equal(t, 30*time.Second, s.GetStatementTimeout(),
+			"during txn: effective value is the default")
+
+		s.ResetAllLocalGUCs()
+		require.Equal(t, 5*time.Second, s.GetStatementTimeout(),
+			"after txn end: session value is restored, not lost")
 	})
 }

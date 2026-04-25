@@ -60,6 +60,16 @@ func (g *GatewayManagedVariable[T]) SetLocal(v T) {
 	g.isLocalSet = true
 }
 
+// SetLocalToDefault is the LOCAL form of SET ... TO DEFAULT: a transaction-
+// scoped override whose value is the server default. It masks any session-level
+// override for the duration of the transaction without destroying it. Matches
+// PostgreSQL's behavior for `SET LOCAL var TO DEFAULT` — after the transaction
+// ends and ResetLocal fires, the session-level value (if any) is restored.
+func (g *GatewayManagedVariable[T]) SetLocalToDefault() {
+	g.localValue = g.defaultValue
+	g.isLocalSet = true
+}
+
 // ResetLocal clears any transaction-local override. Called at COMMIT/ROLLBACK
 // to revert the value to the session-level (or default) value.
 func (g *GatewayManagedVariable[T]) ResetLocal() {

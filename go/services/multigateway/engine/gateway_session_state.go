@@ -57,12 +57,18 @@ func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal 
 	}
 }
 
-// NewGatewaySessionStateReset creates a primitive that RESETs `a gateway-managed variable`.
-func NewGatewaySessionStateReset(sql string, variable string) *GatewaySessionState {
+// NewGatewaySessionStateReset creates a primitive that RESETs a
+// gateway-managed variable. When isLocal is true, the primitive performs
+// the SET LOCAL ... TO DEFAULT semantic (transaction-scoped override to
+// the server default that masks any session value). When isLocal is false,
+// it performs the session-level RESET (or SET ... TO DEFAULT) which clears
+// the session override entirely.
+func NewGatewaySessionStateReset(sql string, variable string, isLocal bool) *GatewaySessionState {
 	return &GatewaySessionState{
 		sql:      sql,
 		variable: variable,
 		isReset:  true,
+		isLocal:  isLocal,
 	}
 }
 
@@ -99,10 +105,17 @@ func (g *GatewaySessionState) StreamExecute(
 	switch g.variable {
 	case "statement_timeout":
 		switch {
+		case g.isReset && g.isLocal:
+			// SET LOCAL var TO DEFAULT: install a transaction-scoped override
+			// equal to the server default so SHOW returns default during the
+			// transaction, but the session-level value (if any) is preserved
+			// and will be restored when ResetAllLocalGUCs fires at txn end.
+			state.SetLocalStatementTimeoutToDefault()
 		case g.isReset:
-			// RESET clears the session-level override. The transaction-local
-			// override (if any) stays in effect — this matches PostgreSQL,
-			// where RESET inside a transaction doesn't undo a prior SET LOCAL.
+			// RESET (or SET ... TO DEFAULT, non-LOCAL): clear the session-level
+			// override. The transaction-local override (if any) stays in effect
+			// — this matches PostgreSQL, where RESET inside a transaction
+			// doesn't undo a prior SET LOCAL.
 			state.ResetStatementTimeout()
 		case g.isLocal:
 			state.SetLocalStatementTimeout(g.statementTimeout)

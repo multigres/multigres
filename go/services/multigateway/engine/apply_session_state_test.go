@@ -397,3 +397,55 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Empty(t, results[0].Notices, "inside-txn SET LOCAL emits no warning")
 }
+
+func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
+	// SET LOCAL var TO DEFAULT must mask the session value with the default for
+	// the duration of the transaction without destroying the session value.
+	// Pre-fix behavior: this primitive called ResetStatementTimeout(),
+	// destroying the session value.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	// Mirrors what the planner emits for `SET LOCAL statement_timeout TO DEFAULT`.
+	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"inside txn: effective value is default, masking session")
+	state.ResetAllLocalGUCs()
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout(),
+		"after txn end: session value is restored, not lost")
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].Notices, "inside-txn LOCAL TO DEFAULT emits no warning")
+}
+
+func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
+	// Plain RESET (non-LOCAL) should still clear the session-level override.
+	// Regression check: thread isLocal through without breaking the existing
+	// session-RESET behavior.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	prim := NewGatewaySessionStateReset("RESET statement_timeout", "statement_timeout", false /*isLocal*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"RESET clears the session override and reverts to default")
+	require.Len(t, results, 1)
+	assert.Equal(t, "RESET", results[0].CommandTag)
+}

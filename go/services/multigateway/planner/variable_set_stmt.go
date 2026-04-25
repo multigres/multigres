@@ -142,12 +142,18 @@ func (p *Planner) planGatewayManagedVariable(
 
 	case ast.VAR_RESET, ast.VAR_SET_DEFAULT:
 		// RESET and SET ... TO DEFAULT revert to the flag default.
+		// SET LOCAL var TO DEFAULT (IsLocal && VAR_SET_DEFAULT) is distinct: it
+		// installs a transaction-scoped override equal to the default, masking
+		// (not destroying) the session value. The primitive branches on isLocal.
+		// RESET itself has no LOCAL form in the grammar, so stmt.IsLocal is
+		// always false for VAR_RESET.
 		// Note: VAR_RESET_ALL is not listed here because RESET ALL has stmt.Name=""
 		// which never passes isGatewayManagedVariable. RESET ALL is handled by
 		// ApplySessionState (after routing to PostgreSQL) which resets both
 		// PostgreSQL session settings and gateway-managed variables.
-		p.logger.Debug("planning RESET gateway-managed variable", "variable", name)
-		return engine.NewGatewaySessionStateReset(sql, name), nil
+		p.logger.Debug("planning RESET gateway-managed variable",
+			"variable", name, "is_local", stmt.IsLocal)
+		return engine.NewGatewaySessionStateReset(sql, name, stmt.IsLocal), nil
 
 	default:
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError,
