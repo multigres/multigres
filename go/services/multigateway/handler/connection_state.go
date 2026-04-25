@@ -244,9 +244,10 @@ func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.statementTimeout.Set(d)
 }
 
-// ResetStatementTimeout clears the session-level statement timeout,
-// reverting to the default (from startup params or flag). Does not touch
-// any active transaction-local override.
+// ResetStatementTimeout clears both the session-level override and any
+// active transaction-local override, reverting to the default (from startup
+// params or flag). Matches PostgreSQL: RESET inside a transaction with a
+// prior SET LOCAL supersedes the LOCAL — effective value becomes the default.
 func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

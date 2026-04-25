@@ -122,10 +122,11 @@ func (g *GatewaySessionState) StreamExecute(
 			// and will be restored when ResetAllLocalGUCs fires at txn end.
 			state.SetLocalStatementTimeoutToDefault()
 		case g.isReset:
-			// RESET (or SET ... TO DEFAULT, non-LOCAL): clear the session-level
-			// override. The transaction-local override (if any) stays in effect
-			// — this matches PostgreSQL, where RESET inside a transaction
-			// doesn't undo a prior SET LOCAL.
+			// RESET (or SET ... TO DEFAULT, non-LOCAL): clear both the
+			// session-level override and any active transaction-local override.
+			// Matches PostgreSQL: RESET inside a transaction with a prior
+			// SET LOCAL supersedes the LOCAL — effective value becomes the
+			// default (verified against PG 17).
 			state.ResetStatementTimeout()
 		case g.isLocal:
 			state.SetLocalStatementTimeout(g.statementTimeout)
