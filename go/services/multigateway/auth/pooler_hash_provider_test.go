@@ -72,11 +72,16 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		assert.ErrorIs(t, err, scram.ErrUserNotFound)
 	})
 
-	t.Run("login disabled", func(t *testing.T) {
-		// Pooler flags rolcanlogin=false via PermissionDenied — gateway must
-		// surface scram.ErrLoginDisabled so startup.go emits the 28000 FATAL.
+	t.Run("login disabled (via PgDiagnostic 28000)", func(t *testing.T) {
+		// The pooler surfaces rolcanlogin=false as a PgDiagnostic with
+		// SQLSTATE 28000 attached to the gRPC status. The gateway must key
+		// on the SQLSTATE — not the gRPC code — so transport-level
+		// PermissionDenied errors don't get misclassified as app-level
+		// "role not permitted to log in" rejections.
+		diag := mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec,
+			"role \"nologin_user\" is not permitted to log in", "")
 		client := &mockPoolerSystemClient{
-			err: mterrors.FromGRPC(status.Error(codes.PermissionDenied, "user is not permitted to log in")),
+			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
 		provider := NewPoolerHashProvider(client)
 
@@ -85,18 +90,52 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		assert.ErrorIs(t, err, scram.ErrLoginDisabled)
 	})
 
-	t.Run("password expired", func(t *testing.T) {
-		// Pooler flags rolvaliduntil elapsed via Unauthenticated — gateway must
-		// map to scram.ErrPasswordExpired so the client sees the opaque
-		// "password authentication failed" error (28P01).
+	t.Run("password expired (via PgDiagnostic 28P01)", func(t *testing.T) {
+		// SQLSTATE 28P01 signals expired password. Client sees the same
+		// opaque "password authentication failed" message PG emits for a
+		// wrong password.
+		diag := mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed,
+			"password authentication failed for user \"expired_user\"", "")
 		client := &mockPoolerSystemClient{
-			err: mterrors.FromGRPC(status.Error(codes.Unauthenticated, "password expired")),
+			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
 		provider := NewPoolerHashProvider(client)
 
 		_, err := provider.GetPasswordHash(context.Background(), "expired_user", "testdb")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, scram.ErrPasswordExpired)
+	})
+
+	t.Run("transport-level PermissionDenied does NOT misclassify as login-disabled", func(t *testing.T) {
+		// Regression guard for the code-vs-PgDiagnostic distinction: a bare
+		// PermissionDenied (such as a gRPC authz middleware rejection) carries
+		// no PgDiagnostic and must not be translated to scram.ErrLoginDisabled.
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(status.Error(codes.PermissionDenied, "authz: caller not in role")),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		_, err := provider.GetPasswordHash(context.Background(), "alice", "testdb")
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, scram.ErrLoginDisabled)
+		assert.NotErrorIs(t, err, scram.ErrPasswordExpired)
+		assert.NotErrorIs(t, err, scram.ErrUserNotFound)
+	})
+
+	t.Run("transport-level Unauthenticated does NOT misclassify as password-expired", func(t *testing.T) {
+		// Regression guard: an mTLS / interceptor Unauthenticated with no
+		// PgDiagnostic must remain generic so it doesn't surface to end users
+		// as "password authentication failed".
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(status.Error(codes.Unauthenticated, "mTLS: bad client cert")),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		_, err := provider.GetPasswordHash(context.Background(), "alice", "testdb")
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, scram.ErrLoginDisabled)
+		assert.NotErrorIs(t, err, scram.ErrPasswordExpired)
+		assert.NotErrorIs(t, err, scram.ErrUserNotFound)
 	})
 
 	t.Run("user exists but no password", func(t *testing.T) {

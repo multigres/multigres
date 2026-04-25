@@ -17,6 +17,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -56,21 +57,37 @@ func NewPoolerHashProvider(client PoolerSystemClient) *PoolerHashProvider {
 // roles whose rolvaliduntil has elapsed. Callers (ScramAuthenticator and the
 // gateway startup flow) use these sentinels to emit the matching native-PG
 // error with the correct SQLSTATE.
+//
+// Login-disabled and password-expired rejections are carried from the pooler
+// as a PgDiagnostic attached to the gRPC status; we match on SQLSTATE rather
+// than gRPC code because codes.PermissionDenied / codes.Unauthenticated are
+// also used by gRPC auth interceptors for mTLS / authz failures, so keying
+// on code alone would misclassify those transport errors as user auth errors.
 func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
 	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
 	})
 	if err != nil {
-		// PoolerGateway.GetAuthCredentials converts gRPC status errors via
-		// mterrors.FromGRPC, so the native gRPC code surfaces through mterrors.Code.
-		switch mterrors.Code(err) {
-		case mtrpcpb.Code(codes.NotFound):
+		// App-level auth rejections travel as PgDiagnostic (via RPCError
+		// details). Transport-level failures — mTLS handshake errors, authz
+		// middleware rejections — don't carry a PgDiagnostic and fall through
+		// to the generic wrap below. This keeps the two layers distinct even
+		// when the underlying gRPC code happens to collide.
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			switch diag.Code {
+			case mterrors.PgSSInvalidAuthSpec:
+				return nil, scram.ErrLoginDisabled
+			case mterrors.PgSSAuthFailed:
+				return nil, scram.ErrPasswordExpired
+			}
+		}
+		// User-not-found keeps the gRPC-code mapping: it's returned as a
+		// plain codes.NotFound (no PgDiagnostic) and NotFound isn't used by
+		// typical auth middleware, so the collision risk is negligible.
+		if mterrors.Code(err) == mtrpcpb.Code(codes.NotFound) {
 			return nil, scram.ErrUserNotFound
-		case mtrpcpb.Code(codes.PermissionDenied):
-			return nil, scram.ErrLoginDisabled
-		case mtrpcpb.Code(codes.Unauthenticated):
-			return nil, scram.ErrPasswordExpired
 		}
 		return nil, fmt.Errorf("failed to get auth credentials: %w", err)
 	}

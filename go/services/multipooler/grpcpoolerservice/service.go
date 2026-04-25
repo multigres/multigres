@@ -193,15 +193,30 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	// This queries pg_authid, which requires superuser access.
 	scramHash, err := conn.Conn.GetRolPassword(ctx, req.Username)
 	if err != nil {
-		// Distinct gRPC codes let the gateway produce native-PG error messages
-		// with the correct SQLSTATE for each rejection class.
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 		case errors.Is(err, admin.ErrLoginDisabled):
-			return nil, status.Errorf(codes.PermissionDenied, "user %q is not permitted to log in", req.Username)
+			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
+			// distinguishing signal at the gateway, not the gRPC code.
+			// gRPC auth interceptors use codes.PermissionDenied /
+			// codes.Unauthenticated for transport failures; keying on code
+			// alone would misclassify an mTLS or authz error as an app-level
+			// "role not permitted to log in" rejection to the end user.
+			return nil, mterrors.ToGRPC(mterrors.NewPgError(
+				"FATAL", mterrors.PgSSInvalidAuthSpec,
+				fmt.Sprintf("role %q is not permitted to log in", req.Username),
+				"",
+			))
 		case errors.Is(err, admin.ErrPasswordExpired):
-			return nil, status.Errorf(codes.Unauthenticated, "password expired for user %q", req.Username)
+			// SQLSTATE 28P01 matches PG's opaque "password authentication
+			// failed" error for expired passwords. PgDiagnostic detail
+			// survives the gRPC round trip and the gateway matches on it.
+			return nil, mterrors.ToGRPC(mterrors.NewPgError(
+				"FATAL", mterrors.PgSSAuthFailed,
+				fmt.Sprintf("password authentication failed for user %q", req.Username),
+				"",
+			))
 		default:
 			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
