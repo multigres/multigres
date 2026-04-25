@@ -18,12 +18,14 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -336,4 +338,62 @@ func TestExtractConstValue(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
+	// PostgreSQL: SET LOCAL outside a transaction block emits
+	//   WARNING: 25P01 — SET LOCAL can only be used in transaction blocks
+	// and the value is discarded immediately because the implicit autocommit
+	// transaction commits right after the statement.
+	//
+	// Multigateway must mirror this: skip the gateway-state mutation and
+	// surface the WARNING as a NoticeResponse. Without this guard, isLocalSet
+	// would persist for the lifetime of the connection because no
+	// COMMIT/ROLLBACK ever fires to clear it.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	ctx := context.Background()
+
+	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true /*isLocal*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	// State must NOT have absorbed the LOCAL value.
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"SET LOCAL outside txn must not update gateway state")
+
+	// Should receive a synthetic CommandComplete with a NoticeResponse attached.
+	require.Len(t, results, 1)
+	assert.Equal(t, "SET", results[0].CommandTag)
+	require.Len(t, results[0].Notices, 1, "should attach a single NoticeResponse")
+	notice := results[0].Notices[0]
+	assert.Equal(t, "WARNING", notice.Severity)
+	assert.Equal(t, "25P01", notice.Code)
+	assert.Equal(t, "SET LOCAL can only be used in transaction blocks", notice.Message)
+	assert.Equal(t, byte('N'), notice.MessageType, "must be NoticeResponse, not ErrorResponse")
+}
+
+func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
+	// Sanity check: inside a transaction, SET LOCAL still flows to gateway state.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	ctx := context.Background()
+
+	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 100*time.Millisecond, state.GetStatementTimeout())
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].Notices, "inside-txn SET LOCAL emits no warning")
 }

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -69,7 +70,7 @@ func NewGatewaySessionStateReset(sql string, variable string) *GatewaySessionSta
 func (g *GatewaySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
-	_ *server.Conn,
+	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -78,6 +79,23 @@ func (g *GatewaySessionState) StreamExecute(
 	if g.isReset {
 		commandTag = "RESET"
 	}
+
+	// SET LOCAL outside a transaction block is a no-op in PostgreSQL — it emits
+	// a WARNING with SQLSTATE 25P01 (no_active_sql_transaction) and the value is
+	// discarded immediately by the implicit-autocommit boundary. We mirror that
+	// here: skip the state mutation and surface the WARNING as a NoticeResponse.
+	// Without this guard, isLocalSet would persist for the lifetime of the
+	// connection because no COMMIT/ROLLBACK ever fires to clear it.
+	if g.isLocal && !conn.IsInTransaction() {
+		warning := mterrors.NewPgError("WARNING", "25P01",
+			"SET LOCAL can only be used in transaction blocks", "")
+		warning.MessageType = 'N'
+		return callback(ctx, &sqltypes.Result{
+			CommandTag: commandTag,
+			Notices:    []*mterrors.PgDiagnostic{warning},
+		})
+	}
+
 	switch g.variable {
 	case "statement_timeout":
 		switch {
