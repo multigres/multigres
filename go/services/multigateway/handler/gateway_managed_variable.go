@@ -39,18 +39,28 @@ func NewGatewayManagedVariable[T comparable](defaultValue T) GatewayManagedVaria
 	return GatewayManagedVariable[T]{defaultValue: defaultValue}
 }
 
-// Set stores a session-level override.
+// Set stores a session-level override and clears any active transaction-local
+// override. Matches PostgreSQL: a non-LOCAL SET issued inside a transaction
+// that has a prior SET LOCAL supersedes the LOCAL — effective value
+// immediately becomes the new session value.
 func (g *GatewayManagedVariable[T]) Set(v T) {
 	g.currentValue = v
 	g.isSet = true
+	var zero T
+	g.localValue = zero
+	g.isLocalSet = false
 }
 
-// Reset clears the session override, reverting to the default.
-// Does not touch any active transaction-local override.
+// Reset clears both the session override and any active transaction-local
+// override, reverting to the default. Matches PostgreSQL: RESET issued inside
+// a transaction that has a prior SET LOCAL supersedes the LOCAL — effective
+// value immediately becomes the default.
 func (g *GatewayManagedVariable[T]) Reset() {
 	var zero T
 	g.currentValue = zero
 	g.isSet = false
+	g.localValue = zero
+	g.isLocalSet = false
 }
 
 // SetLocal stores a transaction-local override. Cleared by ResetLocal at

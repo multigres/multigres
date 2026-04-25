@@ -36,12 +36,22 @@ import (
 type GatewaySessionState struct {
 	sql      string // Original SQL for debugging
 	variable string // Variable name (e.g., "statement_timeout")
-	isReset  bool   // true for RESET, false for SET
-	isLocal  bool   // true for SET LOCAL (transaction-scoped); ignored for RESET
+	isReset  bool   // true for RESET, SET ... TO DEFAULT, or SET LOCAL ... TO DEFAULT
+	isLocal  bool   // true if the source statement included LOCAL
 
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
 	statementTimeout time.Duration
+
+	// The (isReset, isLocal) flags map to the four user-visible variants:
+	//
+	//   isReset isLocal  user statement                       primitive action
+	//   ------- -------  -----------------------------------  --------------------------------
+	//   false   false    SET var = value                      session-level override
+	//   false   true     SET LOCAL var = value                transaction-local override
+	//   true    false    RESET var | SET var TO DEFAULT       clear session (and any local)
+	//   true    true     SET LOCAL var TO DEFAULT             transaction-local revert to
+	//                                                         default; session preserved
 }
 
 // NewStatementTimeoutSet creates a primitive that SETs `statement_timeout`.
