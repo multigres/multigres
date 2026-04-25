@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -116,8 +117,10 @@ func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 //
 // Runs BEFORE statement-type dispatch but AFTER normalization — by the time
 // we see stmt, non-set_config literals have become ParamRefs. The
-// normalizer is configured to skip inside set_config's args so those
-// remain A_Const here.
+// normalizer skips inside set_config's args when is_local is literal false
+// (so the validator can extract the name/value), but allows recursion when
+// is_local is literal true (those calls are accepted but not tracked, and
+// parameterizing them keeps the plan cache stable for hot patterns).
 func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 	if stmt == nil {
 		return &expressionCheckResult{}, nil
@@ -181,10 +184,20 @@ func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 // This does NOT recurse into WithClause CTEs or set-operation subqueries:
 // a CTE's target list isn't "top-level" for the outer statement. Only the
 // outermost SelectStmt in simple form qualifies.
+//
+// SELECT ... INTO TEMP is also excluded: that shape dispatches to the
+// reserved temp-table route, which would silently drop the tracked
+// set_config and leave the gateway's session-state tracker stale relative
+// to the backend. Rejecting at the walker yields the same "only supported
+// as a top-level SELECT target list entry" error users already see for
+// other unsupported positions.
 func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 	allowed := make(map[*ast.FuncCall]struct{})
 	ss, ok := stmt.(*ast.SelectStmt)
 	if !ok || ss.Op != ast.SETOP_NONE {
+		return allowed
+	}
+	if ss.IntoClause != nil {
 		return allowed
 	}
 	if ss.TargetList == nil {
@@ -211,16 +224,54 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 // call has the expected literal arguments, and returns its (name, value)
 // when is_local=false. Returns (nil, nil) when is_local=true — allowed but
 // not tracked.
+//
+// is_local is inspected first so that is_local=true calls bypass the
+// strict literal check on name/value: those calls are not tracked, and
+// the normalizer is allowed to parameterize their args (see
+// isPlannerLiteralFunc / normalizer.go) so the plan-cache fingerprint
+// stays stable across a hot path like PostgREST's per-request
+// set_config('request.jwt.claims', '<dynamic JSON>', true).
 func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
-	name, value, isLocal, ok := parseSetConfigArgs(fc)
-	if !ok {
+	if fc.Args == nil || fc.Args.Len() != 3 {
 		return nil, mterrors.NewFeatureNotSupported(
-			"set_config with non-literal arguments is not supported through the connection pooler")
+			"set_config requires three arguments: (name text, value text, is_local bool)")
+	}
+
+	isLocal, ok := constBoolArg(fc.Args.Items[2])
+	if !ok {
+		return nil, setConfigArgError(fc.Args.Items[2], "is_local")
 	}
 	if isLocal {
+		// is_local=true: PG executes it as a transaction-scoped call and
+		// the pooler does not track it. Name/value need not be literals
+		// here — they may have been normalized to ParamRef.
 		return nil, nil
 	}
+
+	name, ok := constStringArg(fc.Args.Items[0])
+	if !ok {
+		return nil, setConfigArgError(fc.Args.Items[0], "name")
+	}
+	value, ok := constStringArg(fc.Args.Items[1])
+	if !ok {
+		return nil, setConfigArgError(fc.Args.Items[1], "value")
+	}
 	return &setConfigCall{Name: name, Value: value}, nil
+}
+
+// setConfigArgError builds the user-facing rejection for a set_config
+// argument that wasn't a recognizable literal. ParamRef gets a distinct
+// message because the fix is to inline the value, not to rewrite the
+// expression — extended-protocol clients that Parse "SELECT
+// set_config($1,$2,$3)" then Bind hit this path and need to be told the
+// difference.
+func setConfigArgError(arg ast.Node, which string) error {
+	if _, isParam := unwrapTypeCast(arg).(*ast.ParamRef); isParam {
+		return mterrors.NewFeatureNotSupported(
+			"set_config " + which + " argument must be a literal, not a bound parameter; inline the value into the query text")
+	}
+	return mterrors.NewFeatureNotSupported(
+		"set_config " + which + " argument must be a literal constant")
 }
 
 // resolveFuncName returns the lowercased built-in name targeted by funcname,
@@ -258,56 +309,63 @@ func lowerStringNode(n ast.Node) string {
 	return strings.ToLower(s.SVal)
 }
 
-// parseSetConfigArgs validates that fc matches the signature
-//
-//	set_config(name text, new_value text, is_local bool)
-//
-// with all three arguments as literal constants, and extracts them. Any
-// deviation (wrong arity, non-literal arg, wrong literal type) yields
-// ok=false; callers then reject or fall through as appropriate.
-func parseSetConfigArgs(fc *ast.FuncCall) (name, value string, isLocal, ok bool) {
-	if fc.Args == nil || fc.Args.Len() != 3 {
-		return "", "", false, false
+// unwrapTypeCast strips any number of TypeCast wrappers from n. PostgreSQL
+// parses `'256MB'::text` as TypeCast{Arg: A_Const{String{"256MB"}}}, and
+// users routinely write set_config args that way. Stripping the cast lets
+// us look through to the literal underneath. Multiple layers (e.g.
+// `'t'::text::bool`) are uncommon but handled by looping.
+func unwrapTypeCast(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok {
+			return n
+		}
+		n = tc.Arg
 	}
-	name, ok = constStringArg(fc.Args.Items[0])
-	if !ok {
-		return "", "", false, false
-	}
-	value, ok = constStringArg(fc.Args.Items[1])
-	if !ok {
-		return "", "", false, false
-	}
-	isLocal, ok = constBoolArg(fc.Args.Items[2])
-	if !ok {
-		return "", "", false, false
-	}
-	return name, value, isLocal, true
 }
 
-// constStringArg returns the underlying string value if n is a string-valued
-// A_Const literal. PostgreSQL parses `'foo'` as A_Const{Val: String{"foo"}}.
+// constStringArg returns the underlying string value if n is a string- or
+// numeric-valued A_Const literal (after stripping any TypeCast). PG parses
+// `'foo'` as A_Const{Val: String{"foo"}} and `100` as A_Const{Val:
+// Integer{100}}; both are accepted because PG would implicitly cast the
+// numeric to text when calling set_config(text, text, bool).
 func constStringArg(n ast.Node) (string, bool) {
-	c, ok := n.(*ast.A_Const)
+	c, ok := unwrapTypeCast(n).(*ast.A_Const)
 	if !ok || c.Isnull {
 		return "", false
 	}
-	s, ok := c.Val.(*ast.String)
-	if !ok {
-		return "", false
+	switch v := c.Val.(type) {
+	case *ast.String:
+		return v.SVal, true
+	case *ast.Integer:
+		return strconv.Itoa(v.IVal), true
+	case *ast.Float:
+		return v.FVal, true
 	}
-	return s.SVal, true
+	return "", false
 }
 
 // constBoolArg returns the underlying boolean value if n is a boolean-valued
-// A_Const literal. PostgreSQL parses `true`/`false` as A_Const{Val: Boolean}.
+// A_Const literal (after stripping any TypeCast). PG parses `true`/`false`
+// as A_Const{Val: Boolean}, and `'t'::bool` as TypeCast{A_Const{String}};
+// both forms are accepted. The accepted string spellings mirror PG's
+// boolin() — t/true/y/yes/on/1 and f/false/n/no/off/0, case-insensitive —
+// so users who write set_config(..., 'true') get the natural behavior.
 func constBoolArg(n ast.Node) (bool, bool) {
-	c, ok := n.(*ast.A_Const)
+	c, ok := unwrapTypeCast(n).(*ast.A_Const)
 	if !ok || c.Isnull {
 		return false, false
 	}
-	b, ok := c.Val.(*ast.Boolean)
-	if !ok {
-		return false, false
+	switch v := c.Val.(type) {
+	case *ast.Boolean:
+		return v.BoolVal, true
+	case *ast.String:
+		switch strings.ToLower(strings.TrimSpace(v.SVal)) {
+		case "t", "true", "y", "yes", "on", "1":
+			return true, true
+		case "f", "false", "n", "no", "off", "0":
+			return false, true
+		}
 	}
-	return b.BoolVal, true
+	return false, false
 }

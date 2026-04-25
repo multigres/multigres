@@ -147,6 +147,46 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			sql:       "SELECT set_config('work_mem', '256MB', true)",
 			wantCalls: nil,
 		},
+		{
+			name:      "TypeCast on value is unwrapped",
+			sql:       "SELECT set_config('work_mem', '256MB'::text, false)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "TypeCast on name is unwrapped",
+			sql:       "SELECT set_config('work_mem'::text, '256MB', false)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "TypeCast on is_local is unwrapped",
+			sql:       "SELECT set_config('work_mem', '256MB', false::bool)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "string-cast bool 't' is treated as true",
+			sql:       "SELECT set_config('work_mem', '256MB', 't'::bool)",
+			wantCalls: nil,
+		},
+		{
+			name:      "string-cast bool 'true' is treated as true",
+			sql:       "SELECT set_config('work_mem', '256MB', 'true'::bool)",
+			wantCalls: nil,
+		},
+		{
+			name:      "string-cast bool 'f' is treated as false and tracked",
+			sql:       "SELECT set_config('work_mem', '256MB', 'f'::bool)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "integer literal in value position is rendered to text",
+			sql:       "SELECT set_config('statement_timeout', 100, false)",
+			wantCalls: []setConfigCall{{Name: "statement_timeout", Value: "100"}},
+		},
+		{
+			name:      "is_local=true accepts parameterized name and value",
+			sql:       "SELECT set_config($1, $2, true)",
+			wantCalls: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -201,19 +241,39 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
+			name:    "set_config in SELECT INTO TEMP target list",
+			sql:     "SELECT set_config('work_mem','256MB',false), * INTO TEMP foo FROM t",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
 			name:    "non-literal name arg",
 			sql:     "SELECT set_config(name, '256MB', false) FROM gucs",
-			wantMsg: "non-literal arguments",
+			wantMsg: "set_config name argument must be a literal constant",
 		},
 		{
 			name:    "non-literal value arg",
 			sql:     "SELECT set_config('work_mem', v, false) FROM gucs",
-			wantMsg: "non-literal arguments",
+			wantMsg: "set_config value argument must be a literal constant",
 		},
 		{
 			name:    "non-literal is_local",
 			sql:     "SELECT set_config('work_mem', '256MB', islocal) FROM gucs",
-			wantMsg: "non-literal arguments",
+			wantMsg: "set_config is_local argument must be a literal constant",
+		},
+		{
+			name:    "bound-parameter name arg gets parameter-specific message",
+			sql:     "SELECT set_config($1, '256MB', false)",
+			wantMsg: "must be a literal, not a bound parameter",
+		},
+		{
+			name:    "bound-parameter value arg gets parameter-specific message",
+			sql:     "SELECT set_config('work_mem', $1, false)",
+			wantMsg: "must be a literal, not a bound parameter",
+		},
+		{
+			name:    "bound-parameter is_local arg gets parameter-specific message",
+			sql:     "SELECT set_config('work_mem', '256MB', $1)",
+			wantMsg: "must be a literal, not a bound parameter",
 		},
 	}
 
@@ -364,7 +424,7 @@ func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
 		{
 			"non-literal set_config rejected",
 			"SELECT set_config('x', v, false) FROM gucs",
-			"non-literal arguments",
+			"set_config value argument must be a literal constant",
 		},
 	}
 	for _, tt := range tests {

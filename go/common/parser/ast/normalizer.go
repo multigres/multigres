@@ -90,7 +90,7 @@ func Normalize(stmt Stmt) *NormalizeResult {
 		case *VariableSetStmt, *VariableShowStmt, *DefElem:
 			return false
 		case *FuncCall:
-			if isPlannerLiteralFunc(n.Funcname) {
+			if isPlannerLiteralFunc(n.Funcname) && !setConfigIsLocalLiteralTrue(n) {
 				return false
 			}
 		}
@@ -149,6 +149,33 @@ func funcNamePartEquals(n Node, want string) bool {
 		return false
 	}
 	return strings.EqualFold(s.SVal, want)
+}
+
+// setConfigIsLocalLiteralTrue reports whether fc is a 3-arg call whose
+// third argument is the literal boolean true. The normalizer uses this
+// to allow parameterizing set_config args when is_local=true: those calls
+// aren't tracked or rewritten by the planner, so their literals carry no
+// planning-relevant meaning, and preserving them would churn the plan
+// cache for hot patterns like PostgREST's per-request
+// set_config('request.jwt.claims', '<dynamic JSON>', true).
+//
+// Anything other than a clean literal-true (false, missing, ParamRef,
+// non-literal expression, TypeCast over a literal) returns false — the
+// safe direction, since the planner-side validator can then still see
+// the original literals and reject or accept on its own terms.
+func setConfigIsLocalLiteralTrue(fc *FuncCall) bool {
+	if fc == nil || fc.Args == nil || fc.Args.Len() != 3 {
+		return false
+	}
+	c, ok := fc.Args.Items[2].(*A_Const)
+	if !ok || c.Isnull {
+		return false
+	}
+	b, ok := c.Val.(*Boolean)
+	if !ok {
+		return false
+	}
+	return b.BoolVal
 }
 
 // ReconstructSQL takes a normalized AST and bind values, and produces the
