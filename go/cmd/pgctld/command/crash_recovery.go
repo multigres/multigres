@@ -21,14 +21,27 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
-// postgresAlreadyRunningPattern matches postgres error when it's already running
-// Pattern: FATAL: lock file "<filename>" already exists
+// postgresAlreadyRunningPattern matches the postgres error reported when the
+// postmaster.pid lock file is held. After a postmaster crash (kill -9 of a single
+// PID, OOM, segfault), orphaned worker processes (writer, checkpointer,
+// walreceiver, bgwriter) keep the SHM segment attached for ~1-5s while they
+// detect parent death via PostmasterIsAlive() and exit. The same error is
+// reported during that window even though postgres is not actually running.
 var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already exists`)
+
+// Bounds the retry window used to wait out the orphan-cleanup race after a
+// postmaster crash. Suggested by MUL-394: ~5s covers the worst-case worker
+// PostmasterIsAlive() detection latency observed in practice.
+const (
+	crashRecoveryMaxAttempts = 10
+	crashRecoveryRetryDelay  = 500 * time.Millisecond
+)
 
 // isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
 // Returns true if state is "shut down" or "shut down in recovery", false otherwise.
@@ -66,39 +79,69 @@ func extractClusterState(output string) string {
 // runCrashRecovery performs crash recovery in single-user mode.
 // This runs postgres --single to complete crash recovery, then exits cleanly.
 func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
+	return runCrashRecoveryAttempts(ctx, logger, runSingleUserPostgres, crashRecoveryRetryDelay)
+}
+
+// runCrashRecoveryAttempts retries `postgres --single` while the lock file is held.
+// During the orphan-cleanup window after a postmaster crash, the lock will eventually
+// release; if it does not within the retry window, postgres is genuinely running and
+// we preserve the historical no-op behavior. Extracted for unit-test injection.
+func runCrashRecoveryAttempts(
+	ctx context.Context,
+	logger *slog.Logger,
+	run func(context.Context) ([]byte, error),
+	retryDelay time.Duration,
+) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
 
-	// Run postgres in single-user mode to perform crash recovery
-	// postgres --single starts in single-user mode, performs recovery, and exits on EOF
-	// Using /dev/null for stdin is simpler than pipe management
+	var lastOutput string
+	for attempt := 1; attempt <= crashRecoveryMaxAttempts; attempt++ {
+		output, err := run(ctx)
+		if err == nil {
+			return nil
+		}
+
+		outputStr := string(output)
+		lastOutput = outputStr
+
+		if !postgresAlreadyRunningPattern.MatchString(outputStr) {
+			logger.WarnContext(ctx, "Single-user crash recovery failed",
+				"error", err,
+				"output", outputStr)
+			return fmt.Errorf("crash recovery failed: %w", err)
+		}
+
+		if attempt < crashRecoveryMaxAttempts {
+			logger.InfoContext(ctx, "Single-user crash recovery: lock file held, retrying",
+				"attempt", attempt,
+				"max_attempts", crashRecoveryMaxAttempts,
+				"output", outputStr)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
+	}
+
+	logger.InfoContext(ctx, "Single-user crash recovery not needed, postgres is already running",
+		"attempts", crashRecoveryMaxAttempts,
+		"output", lastOutput)
+	return nil
+}
+
+// runSingleUserPostgres runs `postgres --single` once and returns its combined
+// output and exit error. /dev/null on stdin causes single-user mode to perform
+// recovery and exit on EOF.
+func runSingleUserPostgres(ctx context.Context) ([]byte, error) {
 	cmd := executil.Command(ctx, "postgres", "--single", "-D", pgctld.PostgresDataDir(), "template1")
 
-	// Open /dev/null for stdin
 	devNull, err := os.Open("/dev/null")
 	if err != nil {
-		return fmt.Errorf("failed to open /dev/null: %w", err)
+		return nil, fmt.Errorf("failed to open /dev/null: %w", err)
 	}
 	defer devNull.Close()
 
 	cmd.SetStdin(devNull)
-
-	// Run the command and wait for completion
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		outputStr := string(output)
-
-		if postgresAlreadyRunningPattern.MatchString(outputStr) {
-			logger.InfoContext(ctx, "Single-user crash recovery not needed, postgres is already running",
-				"error", err,
-				"output", outputStr)
-			return nil
-		}
-
-		logger.WarnContext(ctx, "Single-user crash recovery failed",
-			"error", err,
-			"output", outputStr)
-		return fmt.Errorf("crash recovery failed: %w", err)
-	}
-
-	return nil
+	return cmd.CombinedOutput()
 }
