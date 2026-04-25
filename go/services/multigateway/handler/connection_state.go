@@ -245,11 +245,30 @@ func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 }
 
 // ResetStatementTimeout clears the session-level statement timeout,
-// reverting to the default (from startup params or flag).
+// reverting to the default (from startup params or flag). Does not touch
+// any active transaction-local override.
 func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout.Reset()
+}
+
+// SetLocalStatementTimeout stores a transaction-local statement timeout
+// override (from SET LOCAL statement_timeout). Cleared on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocal(d)
+}
+
+// ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
+// variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
+// observes the session-level (or default) value.
+func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.ResetLocal()
 }
 
 // GetStatementTimeout returns the effective statement timeout:

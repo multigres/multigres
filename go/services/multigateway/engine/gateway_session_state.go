@@ -36,6 +36,7 @@ type GatewaySessionState struct {
 	sql      string // Original SQL for debugging
 	variable string // Variable name (e.g., "statement_timeout")
 	isReset  bool   // true for RESET, false for SET
+	isLocal  bool   // true for SET LOCAL (transaction-scoped); ignored for RESET
 
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
@@ -44,11 +45,14 @@ type GatewaySessionState struct {
 
 // NewStatementTimeoutSet creates a primitive that SETs `statement_timeout`.
 // The value is pre-parsed and stored in the appropriate typed field.
-func NewStatementTimeoutSet(sql string, statementTimeout time.Duration) *GatewaySessionState {
+// When isLocal is true, the value is treated as a transaction-local override
+// (SET LOCAL), cleared on COMMIT/ROLLBACK.
+func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal bool) *GatewaySessionState {
 	return &GatewaySessionState{
 		sql:              sql,
 		variable:         "statement_timeout",
 		statementTimeout: statementTimeout,
+		isLocal:          isLocal,
 	}
 }
 
@@ -76,9 +80,15 @@ func (g *GatewaySessionState) StreamExecute(
 	}
 	switch g.variable {
 	case "statement_timeout":
-		if g.isReset {
+		switch {
+		case g.isReset:
+			// RESET clears the session-level override. The transaction-local
+			// override (if any) stays in effect — this matches PostgreSQL,
+			// where RESET inside a transaction doesn't undo a prior SET LOCAL.
 			state.ResetStatementTimeout()
-		} else {
+		case g.isLocal:
+			state.SetLocalStatementTimeout(g.statementTimeout)
+		default:
 			state.SetStatementTimeout(g.statementTimeout)
 		}
 	default:

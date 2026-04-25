@@ -14,13 +14,24 @@
 
 package handler
 
-// GatewayManagedVariable holds a session-overridable variable with a server default.
-// The default is set once at connection init (from startup params or the server flag)
-// and the current value can be overridden per-session via SET / cleared via RESET.
+// GatewayManagedVariable holds a variable with three priority layers matching
+// PostgreSQL's GUC semantics:
+//
+//  1. defaultValue — the server default, set once at connection init from startup
+//     params or the server flag.
+//  2. currentValue — a session-level override set via SET var, cleared via RESET.
+//     Persists across transactions.
+//  3. localValue   — a transaction-scoped override set via SET LOCAL var, cleared
+//     when the surrounding transaction COMMITs or ROLLBACKs.
+//
+// GetEffective resolves with priority local > session > default, matching
+// PostgreSQL's behavior.
 type GatewayManagedVariable[T comparable] struct {
 	defaultValue T
 	currentValue T
 	isSet        bool
+	localValue   T
+	isLocalSet   bool
 }
 
 // NewGatewayManagedVariable creates a variable with the given default value.
@@ -35,21 +46,46 @@ func (g *GatewayManagedVariable[T]) Set(v T) {
 }
 
 // Reset clears the session override, reverting to the default.
+// Does not touch any active transaction-local override.
 func (g *GatewayManagedVariable[T]) Reset() {
 	var zero T
 	g.currentValue = zero
 	g.isSet = false
 }
 
-// GetEffective returns the session override if set, otherwise the default.
+// SetLocal stores a transaction-local override. Cleared by ResetLocal at
+// transaction end (COMMIT or ROLLBACK).
+func (g *GatewayManagedVariable[T]) SetLocal(v T) {
+	g.localValue = v
+	g.isLocalSet = true
+}
+
+// ResetLocal clears any transaction-local override. Called at COMMIT/ROLLBACK
+// to revert the value to the session-level (or default) value.
+func (g *GatewayManagedVariable[T]) ResetLocal() {
+	var zero T
+	g.localValue = zero
+	g.isLocalSet = false
+}
+
+// GetEffective returns the active value with priority:
+// transaction-local > session > default.
 func (g *GatewayManagedVariable[T]) GetEffective() T {
+	if g.isLocalSet {
+		return g.localValue
+	}
 	if g.isSet {
 		return g.currentValue
 	}
 	return g.defaultValue
 }
 
-// IsSet returns whether a session override is active.
+// IsSet returns whether a session-level override is active.
 func (g *GatewayManagedVariable[T]) IsSet() bool {
 	return g.isSet
+}
+
+// IsLocalSet returns whether a transaction-local override is active.
+func (g *GatewayManagedVariable[T]) IsLocalSet() bool {
+	return g.isLocalSet
 }

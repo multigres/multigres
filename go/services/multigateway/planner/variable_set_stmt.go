@@ -35,16 +35,12 @@ func (p *Planner) planVariableSetStmt(
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
-	// Just pass through to PostgreSQL
-	if stmt.IsLocal {
-		p.logger.Debug("SET LOCAL detected, passing through",
-			"variable", stmt.Name)
-		return p.planDefault(sql, stmt, conn)
-	}
-
-	// Gateway-managed variables are handled locally without routing to PostgreSQL.
-	// This check happens before the Kind filter because VAR_SET_DEFAULT also needs
-	// to be intercepted for gateway-managed variables (it should behave like RESET).
+	// Gateway-managed variables are handled locally without routing to PostgreSQL,
+	// regardless of whether SET or SET LOCAL is used. This check must come before
+	// the IsLocal pass-through so SET LOCAL on a gateway-managed variable updates
+	// the gateway state instead of the (uninvolved) backend, keeping subsequent
+	// SHOW consistent with PostgreSQL semantics. The check also runs before the
+	// Kind filter because VAR_SET_DEFAULT needs to be intercepted (treated as RESET).
 	if isGatewayManagedVariable(stmt.Name) {
 		value := ""
 		if stmt.Kind == ast.VAR_SET_VALUE {
@@ -57,6 +53,14 @@ func (p *Planner) planVariableSetStmt(
 		plan := engine.NewPlan(sql, primitive)
 		p.logger.Debug("created gateway-managed plan", "plan", plan.String())
 		return plan, nil
+	}
+
+	// Non-gateway-managed SET LOCAL passes through to PostgreSQL unchanged —
+	// the backend is authoritative for those variables.
+	if stmt.IsLocal {
+		p.logger.Debug("SET LOCAL detected, passing through",
+			"variable", stmt.Name)
+		return p.planDefault(sql, stmt, conn)
 	}
 
 	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
@@ -130,8 +134,8 @@ func (p *Planner) planGatewayManagedVariable(
 				return nil, err
 			}
 			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
-				"value", value, "parsed", d)
-			return engine.NewStatementTimeoutSet(sql, d), nil
+				"value", value, "parsed", d, "is_local", stmt.IsLocal)
+			return engine.NewStatementTimeoutSet(sql, d, stmt.IsLocal), nil
 		default:
 			return nil, mterrors.NewUnrecognizedParameter(name)
 		}

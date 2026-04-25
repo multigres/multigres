@@ -176,6 +176,60 @@ func TestGatewayManagedVariable(t *testing.T) {
 		v.Set(10 * time.Second)
 		require.Equal(t, 10*time.Second, v.GetEffective())
 	})
+
+	t.Run("set local overrides session and default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.SetLocal(100 * time.Millisecond)
+		require.Equal(t, 100*time.Millisecond, v.GetEffective())
+		require.True(t, v.IsLocalSet())
+		require.True(t, v.IsSet())
+	})
+
+	t.Run("set local without session set still wins over default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.SetLocal(100 * time.Millisecond)
+		require.Equal(t, 100*time.Millisecond, v.GetEffective())
+		require.True(t, v.IsLocalSet())
+		require.False(t, v.IsSet())
+	})
+
+	t.Run("reset local reverts to session", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.SetLocal(100 * time.Millisecond)
+		v.ResetLocal()
+		require.Equal(t, 5*time.Second, v.GetEffective())
+		require.False(t, v.IsLocalSet())
+		require.True(t, v.IsSet())
+	})
+
+	t.Run("reset local with no session reverts to default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.SetLocal(100 * time.Millisecond)
+		v.ResetLocal()
+		require.Equal(t, 30*time.Second, v.GetEffective())
+		require.False(t, v.IsLocalSet())
+	})
+
+	t.Run("session reset does not clear local override", func(t *testing.T) {
+		// PostgreSQL semantics: RESET inside a transaction clears the
+		// session-level value but the SET LOCAL override stays in effect.
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.SetLocal(100 * time.Millisecond)
+		v.Reset()
+		require.Equal(t, 100*time.Millisecond, v.GetEffective())
+		require.True(t, v.IsLocalSet())
+		require.False(t, v.IsSet())
+	})
+
+	t.Run("local zero is honored as override", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.SetLocal(0)
+		require.Equal(t, time.Duration(0), v.GetEffective())
+		require.True(t, v.IsLocalSet())
+	})
 }
 
 func TestConnectionState_StatementTimeout(t *testing.T) {
@@ -230,5 +284,43 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 		// Non-even values stay in ms
 		s.SetStatementTimeout(1500 * time.Millisecond)
 		require.Equal(t, "1500ms", s.ShowStatementTimeout())
+	})
+
+	t.Run("set local overrides session and shows local value", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+		s.SetLocalStatementTimeout(40 * time.Millisecond)
+		require.Equal(t, 40*time.Millisecond, s.GetStatementTimeout())
+		require.Equal(t, "40ms", s.ShowStatementTimeout())
+	})
+
+	t.Run("ResetAllLocalGUCs clears local but keeps session", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+		s.SetLocalStatementTimeout(40 * time.Millisecond)
+
+		s.ResetAllLocalGUCs()
+		require.Equal(t, 5*time.Second, s.GetStatementTimeout())
+	})
+
+	t.Run("ResetAllLocalGUCs reverts to default when no session set", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetLocalStatementTimeout(40 * time.Millisecond)
+
+		s.ResetAllLocalGUCs()
+		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
+	})
+
+	t.Run("session reset preserves local override", func(t *testing.T) {
+		// Mirrors PG: RESET inside a transaction does not undo SET LOCAL.
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+		s.SetLocalStatementTimeout(40 * time.Millisecond)
+		s.ResetStatementTimeout()
+		require.Equal(t, 40*time.Millisecond, s.GetStatementTimeout())
 	})
 }
