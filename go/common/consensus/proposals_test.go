@@ -777,7 +777,7 @@ func TestBuildSafeProposal_InvalidLSN(t *testing.T) {
 		assert.Contains(t, err.Error(), "all recruited nodes reported an invalid or missing WAL position")
 	})
 
-	t.Run("all accepted nodes have unparseable LSN", func(t *testing.T) {
+	t.Run("all accepted nodes have unparsable LSN", func(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatusWithLSN(a, rule, testRevocation, "not-an-lsn"),
 			makeStatusWithLSN(b, rule, testRevocation, "not-an-lsn"),

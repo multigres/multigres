@@ -75,11 +75,11 @@ func TestComparePosition(t *testing.T) {
 		// same rule: the node with no LSN cannot prove its position.
 		{"same rule valid LSN beats empty LSN", pos(3, "0/100"), pos(3, ""), 1},
 		{"same rule empty LSN loses to valid LSN", pos(3, ""), pos(3, "0/100"), -1},
-		{"same rule valid LSN beats unparseable LSN", pos(3, "0/100"), pos(3, "not-an-lsn"), 1},
+		{"same rule valid LSN beats unparsable LSN", pos(3, "0/100"), pos(3, "not-an-lsn"), 1},
 
 		// Both positions invalid at the same rule — neither is ahead.
 		{"same rule both empty LSN", pos(3, ""), pos(3, ""), 0},
-		{"same rule both unparseable LSN", pos(3, "bad"), pos(3, "also-bad"), 0},
+		{"same rule both unparsable LSN", pos(3, "bad"), pos(3, "also-bad"), 0},
 
 		// Nil positions are treated as the minimum.
 		{"both nil", nil, nil, 0},

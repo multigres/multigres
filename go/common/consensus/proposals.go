@@ -114,7 +114,7 @@ func BuildSafeProposal(
 	// Step 3: Build the eligible leader set — nodes at bestRule's rule number
 	// with the highest LSN. Rule number is the primary criterion; LSN breaks
 	// ties within the same rule (a node at the same rule but a lower LSN has
-	// less WAL and is strictly worse). Nodes with unparseable or empty LSNs
+	// less WAL and is strictly worse). Nodes with unparsable or empty LSNs
 	// are excluded — we can't verify their position.
 	var bestLSN pgutil.LSN
 	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
