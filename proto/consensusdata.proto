@@ -110,13 +110,6 @@ message BeginTermResponse {
   clustermetadata.ConsensusStatus consensus_status = 5;
 }
 
-// PostgresRole identifies the role of the PostgreSQL instance on a pooler node.
-enum PostgresRole {
-  POSTGRES_ROLE_UNSPECIFIED = 0;
-  POSTGRES_ROLE_PRIMARY = 1;
-  POSTGRES_ROLE_REPLICA = 2;
-}
-
 // Status returns the current status of a node
 message StatusRequest {
   // Optional term to include in response
@@ -127,45 +120,19 @@ message StatusRequest {
 }
 
 message StatusResponse {
-  // Pooler ID
-  string pooler_id = 1;
-
-  // Current term from local file
-  int64 current_term = 2;
-
-  // Current WAL position
-  WALPosition wal_position = 4;
-
-  // Whether Postgres is healthy and reachable
-  bool is_healthy = 5;
-
-  // Whether this pooler is eligible to be a leader
-  bool is_eligible = 6;
-
-  // Cell identifier
-  string cell = 7;
-
-  // Current role of the PostgreSQL instance on this node.
-  PostgresRole role = 9;
-
-  // Timeline information for divergence detection
-  TimelineInfo timeline_info = 10;
+  // Identity of the responding node. Always set, even when postgres is
+  // unavailable and consensus_status cannot be constructed.
+  clustermetadata.ID id = 4;
 
   // The pooler's current consensus status: its term revocation, committed
   // rule position, and highest known rule. Authoritative view of where this
-  // pooler stands in the distributed system.
+  // pooler stands in the distributed system. Nil when postgres is unavailable.
   clustermetadata.ConsensusStatus consensus_status = 11;
 
   // Best-effort operational fitness signals for this node. These signals are
   // in-memory and may be absent after a process restart. Coordinators treat
   // absence as "unknown," not "unfit."
   clustermetadata.AvailabilityStatus availability_status = 12;
-}
-
-// Timeline information from PostgreSQL
-message TimelineInfo {
-  // Current timeline ID (from pg_control_checkpoint())
-  int64 timeline_id = 1;
 }
 
 // ProposalLeader identifies the node the coordinator intends to promote and

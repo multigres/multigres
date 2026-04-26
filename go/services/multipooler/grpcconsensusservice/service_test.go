@@ -219,12 +219,8 @@ func TestConsensusService_Status(t *testing.T) {
 		// Should succeed
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Equal(t, "test-service", resp.PoolerId)
-		assert.Equal(t, "zone1", resp.Cell)
-		// Without database, should not be healthy
-		assert.False(t, resp.IsHealthy)
-		// But should still be eligible
-		assert.True(t, resp.IsEligible)
+		assert.Equal(t, "test-service", resp.GetId().GetName())
+		assert.Equal(t, "zone1", resp.GetId().GetCell())
 	})
 }
 
