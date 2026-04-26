@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"sort"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -26,10 +28,10 @@ import (
 )
 
 // RecruitmentResult holds the interpreted outcome of a successful recruitment
-// round. It is passed to the buildProposal callback in CheckSufficientRecruitment.
+// round. It is passed to the buildProposal callback in BuildSafeProposal.
 type RecruitmentResult struct {
-	// TermRevocation is the revocation the recruited nodes accepted, taken
-	// from the first status (all recruited nodes accept the same one).
+	// TermRevocation is the revocation the coordinator requested, which all
+	// nodes in this result have accepted.
 	TermRevocation *clustermetadatapb.TermRevocation
 
 	// BestRule is the highest committed ShardRule across all recruited nodes,
@@ -42,12 +44,16 @@ type RecruitmentResult struct {
 	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 }
 
-// CheckSufficientRecruitment validates that the recruited nodes allow a safe
+// BuildSafeProposal validates that the recruited nodes allow a safe
 // leadership transition, calls buildProposal to obtain a proposal, then
 // validates the proposal against the recruitment constraints.
 //
-// statuses are the ConsensusStatus values returned from Recruit() RPCs. All
-// statuses are assumed to have accepted the same TermRevocation.
+// revocation is the TermRevocation the coordinator sent in its RecruitRequest.
+// statuses are all ConsensusStatus values returned from Recruit() RPCs,
+// including from nodes that did not apply the revocation. A node counts as
+// recruited only if its status carries a TermRevocation that exactly matches
+// revocation (same term and same coordinator). Nodes at a higher term or
+// pledged to a different coordinator are filtered out.
 //
 // # Quorum validation
 //
@@ -64,15 +70,16 @@ type RecruitmentResult struct {
 // # Post-callback proposal validation
 //
 //  1. proposal_leader must be among EligibleLeaders.
-//  2. All proposed_rule cohort members must have been recruited.
-//  3. The proposed durability policy must be achievable with the proposed cohort.
-func CheckSufficientRecruitment(
+//  2. The proposed durability policy must be achievable with the proposed cohort.
+//  3. Enough proposed cohort members must have been recruited to satisfy the policy.
+func BuildSafeProposal(
+	revocation *clustermetadatapb.TermRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	statuses = deduplicateStatuses(statuses)
+	statuses = deduplicateStatuses(filterByRevocation(revocation, statuses))
 	if len(statuses) == 0 {
-		return nil, errors.New("no recruitment statuses provided")
+		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
 
 	// Step 1: Find the best committed rule (highest RuleNumber) across all
@@ -128,7 +135,7 @@ func CheckSufficientRecruitment(
 	}
 
 	result := RecruitmentResult{
-		TermRevocation:  statuses[0].GetTermRevocation(),
+		TermRevocation:  revocation,
 		BestRule:        bestRule,
 		EligibleLeaders: eligibleLeaders,
 	}
@@ -234,6 +241,19 @@ func cohortIntersect(cohort []*clustermetadatapb.ID, statuses []*clustermetadata
 		}
 		if _, inCohort := cohortKeys[topoclient.ClusterIDString(id)]; inCohort {
 			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// filterByRevocation returns only the statuses whose TermRevocation exactly
+// matches revocation. Nodes at a higher term or pledged to a different
+// coordinator are excluded because they did not accept this recruitment.
+func filterByRevocation(revocation *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ConsensusStatus {
+	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(statuses))
+	for _, cs := range statuses {
+		if proto.Equal(cs.GetTermRevocation(), revocation) {
+			result = append(result, cs)
 		}
 	}
 	return result

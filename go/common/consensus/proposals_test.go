@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -96,7 +98,7 @@ func TestCheckSufficientRecruitment_NormalPromotion(t *testing.T) {
 	}
 
 	// Propose same cohort, pick a as leader.
-	proposal, err := CheckSufficientRecruitment(statuses, simpleProposal(rule))
+	proposal, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.NoError(t, err)
 	require.NotNil(t, proposal)
@@ -104,10 +106,157 @@ func TestCheckSufficientRecruitment_NormalPromotion(t *testing.T) {
 }
 
 func TestCheckSufficientRecruitment_Empty(t *testing.T) {
-	_, err := CheckSufficientRecruitment(nil, simpleProposal(nil))
+	_, err := BuildSafeProposal(testRevocation, nil, simpleProposal(nil))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no recruitment statuses provided")
+	assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+}
+
+func TestCheckSufficientRecruitment_AllNodesRejected(t *testing.T) {
+	// All nodes return a status with a different (old) revocation, meaning none
+	// accepted the coordinator's recruitment request.
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	oldRevocation := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, oldRevocation),
+		makeStatus(b, rule, oldRevocation),
+		makeStatus(c, rule, oldRevocation),
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+}
+
+// TestBuildSafeProposal_RevocationFiltering groups tests that verify only
+// statuses whose TermRevocation exactly matches the requested revocation are
+// counted toward quorum. Each sub-test differs one field at a time.
+func TestBuildSafeProposal_RevocationFiltering(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	coordID := makeID("z1", "multiorch-1")
+	requestedRevocation := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:      5,
+		AcceptedCoordinatorId: coordID,
+		CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 1000},
+	}
+
+	t.Run("partial acceptance - quorum met", func(t *testing.T) {
+		// A and B accepted; C returned its old (lower-term) revocation. AT_LEAST_2
+		// is satisfied by the two accepting nodes.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, requestedRevocation),
+			makeStatus(b, rule, requestedRevocation),
+			makeStatus(c, rule, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("partial acceptance - quorum not met", func(t *testing.T) {
+		// Only A accepted; B and C returned their old revocation. AT_LEAST_2
+		// requires 2 of 3, so quorum fails.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, requestedRevocation),
+			makeStatus(b, rule, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}),
+			makeStatus(c, rule, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "insufficient recruitment")
+	})
+
+	t.Run("lower term revocation does not count", func(t *testing.T) {
+		// All three nodes are revoked, but at term 3 < 5. They haven't accepted
+		// the current coordinator's term and must not count toward quorum.
+		lowerRevocation := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:      3,
+			AcceptedCoordinatorId: coordID,
+		}
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, lowerRevocation),
+			makeStatus(b, rule, lowerRevocation),
+			makeStatus(c, rule, lowerRevocation),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+	})
+
+	t.Run("higher term revocation does not count", func(t *testing.T) {
+		// All three nodes are revoked at a higher term — they pledged to a later
+		// coordinator and must not be counted toward this recruitment's quorum.
+		higherRevocation := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:      9,
+			AcceptedCoordinatorId: coordID,
+		}
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, higherRevocation),
+			makeStatus(b, rule, higherRevocation),
+			makeStatus(c, rule, higherRevocation),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+	})
+
+	t.Run("same term but different coordinator ID does not count", func(t *testing.T) {
+		// Same term, but nodes pledged to a rival coordinator — must be excluded.
+		rivalRevocation := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:      5,
+			AcceptedCoordinatorId: makeID("z1", "multiorch-2"),
+			CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 1000},
+		}
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, rivalRevocation),
+			makeStatus(b, rule, rivalRevocation),
+			makeStatus(c, rule, rivalRevocation),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+	})
+
+	t.Run("same term and coordinator but different initiated_at does not count", func(t *testing.T) {
+		// Same term and coordinator but a different timestamp — a node that accepted
+		// an earlier attempt by this coordinator at the same term must not be counted
+		// as having accepted the current recruitment.
+		staleRevocation := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:      5,
+			AcceptedCoordinatorId: coordID,
+			CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 999},
+		}
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, rule, staleRevocation),
+			makeStatus(b, rule, staleRevocation),
+			makeStatus(c, rule, staleRevocation),
+		}
+
+		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no nodes accepted the requested term revocation")
+	})
 }
 
 func TestCheckSufficientRecruitment_NoCommittedRule(t *testing.T) {
@@ -116,7 +265,7 @@ func TestCheckSufficientRecruitment_NoCommittedRule(t *testing.T) {
 		{Id: a, TermRevocation: testRevocation}, // no current_position
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, simpleProposal(nil))
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(nil))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no committed rule found")
@@ -134,7 +283,7 @@ func TestCheckSufficientRecruitment_InsufficientQuorum(t *testing.T) {
 		makeStatus(a, rule, testRevocation),
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, simpleProposal(rule))
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient recruitment")
@@ -163,7 +312,7 @@ func TestCheckSufficientRecruitment_InvalidLeader(t *testing.T) {
 		}, nil
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not among eligible leaders")
@@ -196,7 +345,7 @@ func TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK(t *testing.T) {
 		}, nil
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.NoError(t, err)
 }
@@ -227,7 +376,7 @@ func TestCheckSufficientRecruitment_DeadPrimaryRemainsInCohort(t *testing.T) {
 		}, nil
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.NoError(t, err)
 }
@@ -262,7 +411,7 @@ func TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort(t *t
 		}, nil
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient recruitment from proposed cohort")
@@ -285,7 +434,7 @@ func TestCheckSufficientRecruitment_BuildProposalError(t *testing.T) {
 		return nil, errors.New("no suitable candidate")
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no suitable candidate")
@@ -318,7 +467,7 @@ func TestCheckSufficientRecruitment_BestRuleSelected(t *testing.T) {
 		}, nil
 	}
 
-	proposal, err := CheckSufficientRecruitment(statuses, buildProposal)
+	proposal, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.NoError(t, err)
 	require.NotNil(t, proposal)
@@ -343,7 +492,7 @@ func TestCheckSufficientRecruitment_BuildProposalNil(t *testing.T) {
 		makeStatus(c, rule, testRevocation),
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return nil, nil
 	})
 
@@ -378,7 +527,7 @@ func TestCheckSufficientRecruitment_ProposedPolicyNotAchievable(t *testing.T) {
 		}, nil
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, buildProposal)
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not achievable")
@@ -399,7 +548,7 @@ func TestCheckSufficientRecruitment_DuplicateStatusIgnoredForQuorum(t *testing.T
 		makeStatus(a, rule, testRevocation), // duplicate
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, simpleProposal(rule))
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient recruitment")
@@ -431,7 +580,7 @@ func TestCheckSufficientRecruitment_DuplicateBestPositionKept(t *testing.T) {
 	}
 
 	var gotResult RecruitmentResult
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
@@ -469,7 +618,7 @@ func TestCheckSufficientRecruitment_EligibleLeadersOrderDeterministic(t *testing
 
 	collect := func(statuses []*clustermetadatapb.ConsensusStatus) []string {
 		var names []string
-		_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 			for _, cs := range r.EligibleLeaders {
 				names = append(names, cs.GetId().GetName())
 			}
@@ -503,7 +652,7 @@ func TestCheckSufficientRecruitment_ExtraNodeOutsideCohortIgnored(t *testing.T) 
 		makeStatus(extra, rule, testRevocation),
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, simpleProposal(rule))
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient recruitment",
@@ -526,7 +675,7 @@ func TestCheckSufficientRecruitment_LSNTiebreaker(t *testing.T) {
 	}
 
 	var gotResult RecruitmentResult
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
@@ -555,7 +704,7 @@ func TestCheckSufficientRecruitment_LSNTiedAtMax(t *testing.T) {
 	}
 
 	var gotResult RecruitmentResult
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
@@ -590,7 +739,7 @@ func TestCheckSufficientRecruitment_NodeWithHigherRuleButLowerLSNNotEligible(t *
 	}
 
 	var gotResult RecruitmentResult
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
@@ -618,7 +767,7 @@ func TestCheckSufficientRecruitment_NoEligibleLeaderDueToMissingLSN(t *testing.T
 		makeStatusWithLSN(c, rule, testRevocation, ""),
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, simpleProposal(rule))
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no eligible leaders found")
@@ -663,7 +812,7 @@ func TestCheckSufficientRecruitment_CohortExpansionNewMembersOnly(t *testing.T) 
 		makeStatusWithLSN(e, newRule, testRevocation, "0/4000000"),
 	}
 
-	_, err := CheckSufficientRecruitment(statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
 			ProposalLeader: &consensusdatapb.ProposalLeader{Id: d},
@@ -718,25 +867,36 @@ func TestCheckSufficientRecruitment_CohortReplacementSplitBrain(t *testing.T) {
 	oldRule := makeRule(3, []*clustermetadatapb.ID{a, b, c})
 	newRule := makeRule(4, []*clustermetadatapb.ID{d, e, f})
 
-	// Coordinator 1: B and C at old rule.
-	statusesCoord1 := []*clustermetadatapb.ConsensusStatus{
-		makeStatusWithLSN(b, oldRule, testRevocation, "0/3000000"),
-		makeStatusWithLSN(c, oldRule, testRevocation, "0/3000000"),
+	// Each coordinator has its own TermRevocation (different accepted_coordinator_id).
+	// B and C accepted coordinator 1; D and E accepted coordinator 2.
+	revocationCoord1 := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:      6,
+		AcceptedCoordinatorId: makeID("z1", "multiorch-1"),
 	}
-	// Coordinator 2: D and E at new rule.
-	statusesCoord2 := []*clustermetadatapb.ConsensusStatus{
-		makeStatusWithLSN(d, newRule, testRevocation, "0/4000000"),
-		makeStatusWithLSN(e, newRule, testRevocation, "0/4000000"),
+	revocationCoord2 := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:      6,
+		AcceptedCoordinatorId: makeID("z1", "multiorch-2"),
 	}
 
-	proposal1, err1 := CheckSufficientRecruitment(statusesCoord1, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	// All four responding nodes' statuses are in the same pool. The revocation
+	// embedded in each status records which coordinator that node pledged to.
+	allStatuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithLSN(b, oldRule, revocationCoord1, "0/3000000"),
+		makeStatusWithLSN(c, oldRule, revocationCoord1, "0/3000000"),
+		makeStatusWithLSN(d, newRule, revocationCoord2, "0/4000000"),
+		makeStatusWithLSN(e, newRule, revocationCoord2, "0/4000000"),
+	}
+
+	// Each coordinator passes the full pool but its own revocation. The filtering
+	// step ensures each coordinator only counts nodes that pledged to it.
+	proposal1, err1 := BuildSafeProposal(revocationCoord1, allStatuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
 			ProposalLeader: &consensusdatapb.ProposalLeader{Id: b},
 			ProposedRule:   makeRule(5, []*clustermetadatapb.ID{b, c}),
 		}, nil
 	})
-	proposal2, err2 := CheckSufficientRecruitment(statusesCoord2, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+	proposal2, err2 := BuildSafeProposal(revocationCoord2, allStatuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
 			ProposalLeader: &consensusdatapb.ProposalLeader{Id: d},
