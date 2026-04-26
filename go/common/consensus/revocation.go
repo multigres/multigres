@@ -88,7 +88,7 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			// Same coordinator, same term: verify the recruitment round matches.
 			if !proto.Equal(stored.GetCoordinatorInitiatedAt(), revocation.GetCoordinatorInitiatedAt()) {
 				return fmt.Errorf(
-					"cannot accept revocation: coordinator %s re-used term %d with a different coordinator_initiated_at",
+					"cannot accept revocation: coordinator %s reused term %d with a different coordinator_initiated_at",
 					storedCoord, storedTerm,
 				)
 			}
