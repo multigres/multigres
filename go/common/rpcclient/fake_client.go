@@ -56,6 +56,7 @@ type FakeClient struct {
 
 	// Consensus service responses - keyed by pooler ID
 	BeginTermResponses       map[string]*consensusdatapb.BeginTermResponse
+	RecruitResponses         map[string]*consensusdatapb.RecruitResponse
 	ConsensusStatusResponses map[string]*consensusdatapb.StatusResponse
 	EmergencyDemoteResponses map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse
 	PromoteResponses         map[string]*multipoolermanagerdatapb.PromoteResponse
@@ -92,6 +93,7 @@ type FakeClient struct {
 func NewFakeClient() *FakeClient {
 	return &FakeClient{
 		BeginTermResponses:                  make(map[string]*consensusdatapb.BeginTermResponse),
+		RecruitResponses:                    make(map[string]*consensusdatapb.RecruitResponse),
 		ConsensusStatusResponses:            make(map[string]*consensusdatapb.StatusResponse),
 		EmergencyDemoteResponses:            make(map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse),
 		PromoteResponses:                    make(map[string]*multipoolermanagerdatapb.PromoteResponse),
@@ -199,6 +201,22 @@ func (f *FakeClient) BeginTerm(ctx context.Context, pooler *clustermetadatapb.Mu
 		return resp, nil
 	}
 	return &consensusdatapb.BeginTermResponse{}, nil
+}
+
+func (f *FakeClient) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("Recruit", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.RecruitResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &consensusdatapb.RecruitResponse{}, nil
 }
 
 func (f *FakeClient) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {

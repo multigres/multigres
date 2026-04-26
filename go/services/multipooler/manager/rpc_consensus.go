@@ -21,6 +21,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -402,6 +403,154 @@ func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm(ctx context.Context) er
 	pm.resignedPrimaryAtTerm = 0
 	pm.mu.Unlock()
 	return nil
+}
+
+// Recruit handles a coordinator's request to stop replication participation and
+// record a TermRevocation, returning the node's stable position afterward.
+//
+// Order of operations:
+//  1. Sanity-check the current rule position against the revocation term.
+//  2. Stop replication participation (primary: full demote + restart as standby;
+//     standby: clear primary_conninfo + drain replay).
+//  3. Read the stable position and re-check against the revocation term to catch
+//     the rare race where a WAL rule entry arrived after the sanity check.
+//     On failure: primary re-promotes; standby restores primary_conninfo.
+//  4. Persist the TermRevocation only if the position is consistent.
+//  5. Return ConsensusStatus with the stable post-revoke position.
+func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "Recruit")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	revocation := req.GetTermRevocation()
+	if revocation == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "term_revocation is required")
+	}
+	revokedBelowTerm := revocation.GetRevokedBelowTerm()
+	coordinatorID := revocation.GetAcceptedCoordinatorId()
+
+	pm.logger.InfoContext(ctx, "Recruit received",
+		"revoked_below_term", revokedBelowTerm,
+		"coordinator_id", coordinatorID.GetName())
+
+	// Step 1: Sanity check — reject immediately if the node's committed WAL
+	// rule or stored revocation already conflicts with this request.
+	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
+	preStatus, _ := pm.getConsensusStatus(ctx)
+	if err := consensus.ValidateRevocation(preStatus, revocation); err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
+	}
+
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to determine role for recruit")
+	}
+
+	termEvent := eventlog.TermBegin{NewTerm: revokedBelowTerm}
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
+
+	// Step 2: Stop replication participation.
+	var savedConnInfo string // non-empty if standby; used for recovery on race failure
+	if isPrimary {
+		pm.logger.InfoContext(ctx, "Recruiting primary: demoting and restarting as standby",
+			"revoked_below_term", revokedBelowTerm)
+		if _, err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout); err != nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+			return nil, mterrors.Wrap(err, "failed to demote primary during recruit")
+		}
+	} else {
+		// Save primary_conninfo so we can restore it if the position check fails.
+		if savedConnInfo, err = pm.readPrimaryConnInfo(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
+		}
+		pm.logger.InfoContext(ctx, "Recruiting standby: pausing replication",
+			"revoked_below_term", revokedBelowTerm)
+		if _, err := pm.pauseReplication(ctx,
+			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+			true /* wait */); err != nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause replication during recruit")
+		}
+		if _, err := pm.waitForReplayStabilize(ctx); err != nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+			return nil, mterrors.Wrap(err, "failed waiting for replay to stabilize during recruit")
+		}
+	}
+
+	// Step 3: Re-check with the stable (post-stop) status.
+	// This catches the rare race where a WAL rule entry arrived between the
+	// sanity check and actually stopping replication.
+	stableStatus, err := pm.getConsensusStatus(ctx)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
+	}
+	if err := consensus.ValidateRevocation(stableStatus, revocation); err != nil {
+		raceErr := mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"revocation failed after stopping replication: %s", err.Error())
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
+		// Attempt to restore the node to its prior replication role.
+		if isPrimary {
+			pm.repromoteAfterRecruitFailure(ctx)
+		} else if savedConnInfo != "" {
+			if restoreErr := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); restoreErr != nil {
+				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit race", "error", restoreErr)
+			}
+		}
+		return nil, raceErr
+	}
+
+	// Step 4: Position is consistent — persist the TermRevocation.
+	if err := pm.consensusState.UpdateTermAndAcceptCandidate(ctx, revokedBelowTerm, coordinatorID); err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+		return nil, mterrors.Wrap(err, "failed to persist term revocation")
+	}
+
+	eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
+	pm.logger.InfoContext(ctx, "Recruit complete", "revoked_below_term", revokedBelowTerm)
+
+	// Step 5: Return ConsensusStatus with the stable post-revoke position.
+	// Uses the cached position warmed by the getConsensusStatus call in step 3.
+	cs, err := pm.getCachedConsensusStatus()
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to build consensus status")
+	}
+	return &consensusdatapb.RecruitResponse{ConsensusStatus: cs}, nil
+}
+
+// recruitDrainTimeout is the drain window when recruiting a primary.
+const recruitDrainTimeout = 5 * time.Second
+
+// repromoteAfterRecruitFailure re-promotes postgres to primary after a recruit race condition
+// caused the revocation to fail post-demote. Logs errors but does not return them since
+// this is already an error path and the original error is returned to the caller.
+func (pm *MultiPoolerManager) repromoteAfterRecruitFailure(ctx context.Context) {
+	pm.logger.WarnContext(ctx, "Recruit race: re-promoting primary after position check failure")
+	state := &promotionState{isPrimaryInPostgres: false}
+	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to re-promote after recruit race", "error", err)
+		return
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := pm.exec(execCtx, "CHECKPOINT"); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to checkpoint after recruit re-promote", "error", err)
+	}
+	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to clear resigned status after recruit re-promote", "error", err)
+	}
+}
+
+// setPrimaryConnInfoAndReload sets primary_conninfo and reloads postgres config so the
+// WAL receiver reconnects. Used to restore a standby's replication after a recruit failure.
+func (pm *MultiPoolerManager) setPrimaryConnInfoAndReload(ctx context.Context, connInfo string) error {
+	if err := pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
+		return err
+	}
+	return pm.reloadPostgresConfig(ctx)
 }
 
 // ConsensusStatus returns the current status of this node for consensus

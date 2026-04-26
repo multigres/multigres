@@ -187,6 +187,10 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 // If newTerm > currentTerm, updates term and resets acceptance, then sets the candidate.
 // If newTerm == currentTerm, just accepts the candidate (same as AcceptCandidateAndSave).
 // Returns error if newTerm < currentTerm.
+//
+// TODO(PR #904): Once the on-disk format migrates from ConsensusTerm to TermRevocation,
+// this method should delegate to consensus.ValidateRevocation and then persist the
+// TermRevocation directly, eliminating the duplicated coordinator/term logic here.
 func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
