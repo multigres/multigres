@@ -146,8 +146,8 @@ func TestBuildSafeProposal_RevocationFiltering(t *testing.T) {
 
 	coordID := makeID("z1", "multiorch-1")
 	requestedRevocation := &clustermetadatapb.TermRevocation{
-		RevokedBelowTerm:      5,
-		AcceptedCoordinatorId: coordID,
+		RevokedBelowTerm:       5,
+		AcceptedCoordinatorId:  coordID,
 		CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 1000},
 	}
 
@@ -221,8 +221,8 @@ func TestBuildSafeProposal_RevocationFiltering(t *testing.T) {
 	t.Run("same term but different coordinator ID does not count", func(t *testing.T) {
 		// Same term, but nodes pledged to a rival coordinator — must be excluded.
 		rivalRevocation := &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:      5,
-			AcceptedCoordinatorId: makeID("z1", "multiorch-2"),
+			RevokedBelowTerm:       5,
+			AcceptedCoordinatorId:  makeID("z1", "multiorch-2"),
 			CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 1000},
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
@@ -242,8 +242,8 @@ func TestBuildSafeProposal_RevocationFiltering(t *testing.T) {
 		// an earlier attempt by this coordinator at the same term must not be counted
 		// as having accepted the current recruitment.
 		staleRevocation := &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:      5,
-			AcceptedCoordinatorId: coordID,
+			RevokedBelowTerm:       5,
+			AcceptedCoordinatorId:  coordID,
 			CoordinatorInitiatedAt: &timestamppb.Timestamp{Seconds: 999},
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
@@ -268,7 +268,9 @@ func TestCheckSufficientRecruitment_NoCommittedRule(t *testing.T) {
 	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(nil))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no committed rule found")
+	// A node with no current_position has no parseable LSN, so it is filtered
+	// out by filterByValidPosition before the committed-rule check fires.
+	assert.Contains(t, err.Error(), "all recruited nodes reported an invalid or missing WAL position")
 }
 
 func TestCheckSufficientRecruitment_InsufficientQuorum(t *testing.T) {
@@ -753,24 +755,91 @@ func TestCheckSufficientRecruitment_NodeWithHigherRuleButLowerLSNNotEligible(t *
 	assert.Equal(t, "pooler-a", gotResult.EligibleLeaders[0].GetId().GetName())
 }
 
-func TestCheckSufficientRecruitment_NoEligibleLeaderDueToMissingLSN(t *testing.T) {
-	// All nodes at bestRule have empty LSNs — none can be verified as eligible.
+func TestBuildSafeProposal_InvalidLSN(t *testing.T) {
 	a := makeID("z1", "pooler-a")
 	b := makeID("z1", "pooler-b")
 	c := makeID("z1", "pooler-c")
 	cohort := []*clustermetadatapb.ID{a, b, c}
 	rule := makeRule(3, cohort)
 
-	statuses := []*clustermetadatapb.ConsensusStatus{
-		makeStatusWithLSN(a, rule, testRevocation, ""), // no LSN
-		makeStatusWithLSN(b, rule, testRevocation, ""),
-		makeStatusWithLSN(c, rule, testRevocation, ""),
-	}
+	t.Run("all accepted nodes have missing LSN", func(t *testing.T) {
+		// All nodes accepted the revocation but reported no WAL position.
+		// None can be trusted for quorum or leadership.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(a, rule, testRevocation, ""),
+			makeStatusWithLSN(b, rule, testRevocation, ""),
+			makeStatusWithLSN(c, rule, testRevocation, ""),
+		}
 
-	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
+		_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no eligible leaders found")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "all recruited nodes reported an invalid or missing WAL position")
+	})
+
+	t.Run("all accepted nodes have unparseable LSN", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(a, rule, testRevocation, "not-an-lsn"),
+			makeStatusWithLSN(b, rule, testRevocation, "not-an-lsn"),
+			makeStatusWithLSN(c, rule, testRevocation, "not-an-lsn"),
+		}
+
+		_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "all recruited nodes reported an invalid or missing WAL position")
+	})
+
+	t.Run("node with invalid LSN excluded from quorum", func(t *testing.T) {
+		// C accepted the revocation but has an invalid LSN — it cannot be trusted
+		// for WAL discovery and must not count toward quorum. Only A and B have
+		// valid positions; AT_LEAST_2 is still satisfied.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(a, rule, testRevocation, "0/3000000"),
+			makeStatusWithLSN(b, rule, testRevocation, "0/2000000"),
+			makeStatusWithLSN(c, rule, testRevocation, ""),
+		}
+
+		_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
+
+		require.NoError(t, err, "two valid nodes satisfy AT_LEAST_2 without the invalid one")
+	})
+
+	t.Run("invalid LSN causes quorum failure", func(t *testing.T) {
+		// Only A has a valid LSN; B and C accepted but reported invalid positions.
+		// After filtering, only A counts — not enough for AT_LEAST_2.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(a, rule, testRevocation, "0/3000000"),
+			makeStatusWithLSN(b, rule, testRevocation, ""),
+			makeStatusWithLSN(c, rule, testRevocation, "not-an-lsn"),
+		}
+
+		_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "insufficient recruitment")
+	})
+
+	t.Run("node with invalid LSN cannot be proposed as leader", func(t *testing.T) {
+		// A and B have valid positions and satisfy quorum. C accepted but has no
+		// LSN. The callback tries to propose C as leader — this must be rejected.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(a, rule, testRevocation, "0/3000000"),
+			makeStatusWithLSN(b, rule, testRevocation, "0/2000000"),
+			makeStatusWithLSN(c, rule, testRevocation, ""),
+		}
+
+		_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			return &consensusdatapb.CoordinatorProposal{
+				TermRevocation: r.TermRevocation,
+				ProposalLeader: &consensusdatapb.ProposalLeader{Id: c},
+				ProposedRule:   rule,
+			}, nil
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not among eligible leaders")
+	})
 }
 
 func TestCheckSufficientRecruitment_CohortExpansionNewMembersOnly(t *testing.T) {

@@ -81,6 +81,10 @@ func BuildSafeProposal(
 	if len(statuses) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
+	statuses = filterByValidPosition(statuses)
+	if len(statuses) == 0 {
+		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
+	}
 
 	// Step 1: Find the best committed rule (highest RuleNumber) across all
 	// recruited nodes from their WAL-backed current_position.rule.
@@ -118,8 +122,8 @@ func BuildSafeProposal(
 		if CompareRuleNumbers(cs.GetCurrentPosition().GetRule().GetRuleNumber(), bestRule.GetRuleNumber()) != 0 {
 			continue
 		}
-		lsn, ok := parseLSN(cs.GetCurrentPosition().GetLsn())
-		if !ok {
+		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
+		if err != nil {
 			continue
 		}
 		if lsn > bestLSN {
@@ -202,45 +206,15 @@ func validateProposal(
 	return nil
 }
 
-// sameCohort reports whether a and b represent the same set of pooler IDs.
-func sameCohort(a, b []*clustermetadatapb.ID) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	aKeys := poolerKeysOf(a)
-	for _, id := range b {
-		if _, ok := aKeys[topoclient.ClusterIDString(id)]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-// parseLSN parses a PostgreSQL LSN string, returning (0, false) for empty or
-// unparseable values.
-func parseLSN(s string) (pgutil.LSN, bool) {
-	if s == "" {
-		return 0, false
-	}
-	lsn, err := pgutil.ParseLSN(s)
-	if err != nil {
-		return 0, false
-	}
-	return lsn, true
-}
-
-// cohortIntersect returns the IDs of recruited nodes (from statuses) that are
-// members of cohort. statuses is assumed to be already deduplicated by ID.
-func cohortIntersect(cohort []*clustermetadatapb.ID, statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ID {
-	cohortKeys := poolerKeysOf(cohort)
-	result := make([]*clustermetadatapb.ID, 0, len(cohort))
+// filterByValidPosition returns only the statuses whose current_position
+// carries a parseable LSN. A node that cannot report a valid WAL position
+// cannot contribute to quorum or leader discovery: we have no way to verify
+// its timeline is consistent with the rest of the cohort.
+func filterByValidPosition(statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ConsensusStatus {
+	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(statuses))
 	for _, cs := range statuses {
-		id := cs.GetId()
-		if id == nil {
-			continue
-		}
-		if _, inCohort := cohortKeys[topoclient.ClusterIDString(id)]; inCohort {
-			result = append(result, id)
+		if _, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn()); err == nil {
+			result = append(result, cs)
 		}
 	}
 	return result
@@ -281,29 +255,4 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 		return topoclient.ClusterIDString(result[i].GetId()) < topoclient.ClusterIDString(result[j].GetId())
 	})
 	return result
-}
-
-// comparePosition returns negative, zero, or positive based on whether a is
-// behind, equal to, or ahead of b. Rule number takes precedence; LSN breaks
-// ties within the same rule. A missing LSN is treated as less than any valid LSN.
-func comparePosition(a, b *clustermetadatapb.PoolerPosition) int {
-	if cmp := CompareRuleNumbers(a.GetRule().GetRuleNumber(), b.GetRule().GetRuleNumber()); cmp != 0 {
-		return cmp
-	}
-	lsnA, okA := parseLSN(a.GetLsn())
-	lsnB, okB := parseLSN(b.GetLsn())
-	switch {
-	case !okA && !okB:
-		return 0
-	case !okA:
-		return -1
-	case !okB:
-		return 1
-	case lsnA < lsnB:
-		return -1
-	case lsnA > lsnB:
-		return 1
-	default:
-		return 0
-	}
 }
