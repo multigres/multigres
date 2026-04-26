@@ -32,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
@@ -659,15 +660,6 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.SyncReplicationConfig = syncConfig
 
-	// Include primary term from consensus state.
-	term, err := pm.consensusState.GetInconsistentTerm()
-	if err != nil {
-		return nil, err
-	}
-	if term != nil {
-		status.PrimaryTerm = term.GetPrimaryTerm()
-	}
-
 	return status, nil
 }
 
@@ -925,8 +917,8 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// election without waiting for a heartbeat timeout. Use this node's own
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
-	if term, err := pm.consensusState.GetTerm(ctx); err == nil && term.GetPrimaryTerm() != 0 {
-		if err := pm.setResignedPrimaryAtTerm(ctx, term.GetPrimaryTerm()); err != nil {
+	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
+		if err := pm.setResignedPrimaryAtTerm(ctx, primaryTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 	}
@@ -1010,18 +1002,13 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check if already demoted by reading primary_term from disk.
-	// Invariant: primary_term > 0 if and only if postgres is (or was) in primary state.
-	// We set primary_term before promotion and clear it after demotion.
-	// If primary_term is 0, this node was already demoted (either by a previous call
-	// or by another multiorch instance). Return early to avoid redundant work.
-	// TODO (@rafael): This information should come from pooler state, instead of checking this
-	// invariant.
-	term, err := pm.consensusState.GetTerm(ctx)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to get current term")
-	}
-	if term.GetPrimaryTerm() == 0 {
+	// Check if already demoted by consulting the current rule. Only short-circuit
+	// when we can positively confirm this node is no longer the primary (err ==
+	// nil AND term == 0). On any error — e.g. postgres is down after a crash —
+	// we fall through and run the idempotent demotion flow, because we cannot
+	// tell the difference between "already demoted" and "primary with unreachable
+	// postgres" from local state alone.
+	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm == 0 {
 		pm.logger.InfoContext(ctx, "Pooler already demoted, skipping DemoteStalePrimary")
 		// Return success with rewind_performed=false since node is already in correct state
 		finalLSN := ""
@@ -1083,12 +1070,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
 	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
 		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
-	}
-
-	// Clear primary_term since this node is no longer primary for any term.
-	// Note: consensusState can't be nil here because validateTerm passed.
-	if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
-		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
 	// Report the new primary (source) so the gateway can use this observation.
@@ -1211,19 +1192,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
 		return nil, err
-	}
-
-	// ORDERING: Set primary_term BEFORE writing to history table.
-	// This ordering is intentional to avoid an inconsistent state:
-	// - If we set primary_term then history write fails: promotion fails, but primary_term is set.
-	//   This only means this primary doesn't have any committed transactions yet. On retry,
-	//   setting primary_term is idempotent and history write will succeed. This is safe.
-	// - On the contrary, if we write history then primary_term fails: history transaction is COMMITTED AND REPLICATED,
-	//   but the node doesn't know it's primary for this term. This creates inconsistent state with
-	//   a committed transaction that can't be easily rolled back.
-	// Therefore, we persist primary_term first, then commit the transaction.
-	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
 	// Clear any outstanding resignation signal now that the coordinator has

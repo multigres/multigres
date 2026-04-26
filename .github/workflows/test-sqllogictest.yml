@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: pgbench Performance Benchmarks
+name: SQLLogicTest Differential Suite
 
-on:
+on: # yamllint disable-line rule:truthy
   schedule:
-    - cron: "0 6 * * 1" # Weekly: Monday 6:00 AM UTC
+    - cron: "30 3 * * *" # Nightly at 3:30 AM UTC (offset from pgregress at 3:00)
+    - cron: "30 9 * * 1" # Weekly summary: Monday 9:30 AM UTC
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -24,12 +25,13 @@ on:
 permissions: {}
 
 jobs:
-  benchmark:
-    name: Run pgbench benchmarks
+  test-sqllogictest:
+    name: Run sqllogictest differential suite
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run Benchmarks')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -43,22 +45,29 @@ jobs:
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
 
-      - name: Install pgbouncer
-        run: sudo apt-get update && sudo apt-get install -y pgbouncer
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev
 
-      - name: Stop system pgbouncer
-        run: sudo systemctl stop pgbouncer || true
+      - name: Install tools (downloads sqllogictest-bin via pinned SHA)
+        run: make tools
 
       - name: Build
         run: make build
 
+      # Only nightly cron runs save to the baseline (see "Save current
+      # results as new baseline" below), so restore only from the
+      # nightly-scoped key prefix. PR-labeled runs, weekly summary runs,
+      # and workflow_dispatch runs all read the latest nightly result
+      # without being able to pollute it.
       - name: Restore baseline results
         id: baseline
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          path: /tmp/pgbench-baseline/results.json
-          key: pgbench-baseline-dummy
-          restore-keys: pgbench-baseline-
+          path: /tmp/sqllogictest-baseline/results.json
+          key: sqllogictest-baseline-nightly-dummy
+          restore-keys: sqllogictest-baseline-nightly-
 
       - name: Start port pool server
         run: |
@@ -66,28 +75,24 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
-      - name: Run pgbench benchmarks
+      - name: Run SQLLogicTest suite
         env:
-          RUN_BENCHMARKS: "1"
-          PGBENCH_DURATION: "30"
-          PGBENCH_CLIENTS: "1,10,50"
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
-        run: >-
-          go test -json -v -run TestPgBench
-          ./go/test/endtoend/queryserving/benchmarking/...
-          -timeout 60m
-          | tee pgbench-test-results.jsonl
-          | go tool tparse -follow
+        run: |
+          go test -json -v -run TestPostgreSQLSqlLogicTest \
+            ./go/test/endtoend/queryserving/sqllogictest/... \
+            -timeout 170m | tee sqllogictest-results.jsonl | go tool tparse -follow
 
       - name: Stop port pool server
-        if: ${{ always() }}
+        if: always()
         run: kill "$PORT_POOL_PID" || true
 
       - name: Find results.json
         id: results
         if: ${{ !cancelled() }}
         run: |
-          results_file=$(find /tmp/multigres_pgbench_results -name results.json -type f 2>/dev/null | sort | tail -1)
+          results_file=$(find /tmp/multigres_pg_cache/results -name results.json -type f 2>/dev/null | head -1)
           if [[ -n "$results_file" ]]; then
             echo "path=$results_file" >> "$GITHUB_OUTPUT"
             echo "Found results at: $results_file"
@@ -95,17 +100,17 @@ jobs:
             echo "No results.json found"
           fi
 
-      - name: Detect TPS regressions
+      - name: Detect regressions
         id: regressions
         if: ${{ !cancelled() && steps.results.outputs.path != '' }}
         env:
           RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
           exit_code=0
-          .github/scripts/detect-pgbench-regressions.sh \
-            /tmp/pgbench-baseline/results.json \
+          .github/scripts/detect-regressions.sh \
+            /tmp/sqllogictest-baseline/results.json \
             "$RESULTS_PATH" \
-            /tmp/pgbench-regressions \
+            /tmp/sqllogictest-regressions \
             || exit_code=$?
 
           if [[ "$exit_code" -eq 0 ]]; then
@@ -117,37 +122,37 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload benchmark results
+      - name: Upload sqllogictest results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: ${{ !cancelled() }}
         with:
-          name: pgbench-benchmark-results
-          path: /tmp/multigres_pgbench_results/**/*
+          name: sqllogictest-results
+          path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
-      - name: Notify Slack on TPS regression
+      - name: Notify Slack on regression
         if: >-
           !cancelled() &&
           steps.regressions.outputs.found == 'true' &&
           github.event_name == 'schedule'
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGBENCH_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
-          regressions=$(cat /tmp/pgbench-regressions/regressions.json)
+          regressions=$(cat /tmp/sqllogictest-regressions/regressions.json)
           count=$(echo "$regressions" | jq 'length')
-          details=$(echo "$regressions" | jq -r '.[] | "- \(.scenario): \(.baseline_tps | round) -> \(.current_tps | round) TPS (-\(.drop_pct)%)"' | head -20)
+          test_list=$(echo "$regressions" | jq -r '.[] | "- [\(.suite)] \(.test)"' | head -20)
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           payload=$(jq -n \
             --arg count "$count" \
-            --arg details "$details" \
+            --arg tests "$test_list" \
             --arg url "$run_url" \
             '{
               blocks: [
-                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " pgbench TPS regression(s) detected")}},
-                {type: "section", text: {type: "mrkdwn", text: ("Scenarios with >15% TPS drop vs. baseline:\n```\n" + $details + "\n```")}},
+                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " sqllogictest regression(s) detected")}},
+                {type: "section", text: {type: "mrkdwn", text: ("Files that were passing but now fail:\n```\n" + $tests + "\n```")}},
                 {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
               ]
             }')
@@ -159,10 +164,10 @@ jobs:
       - name: Notify Slack weekly summary
         if: >-
           !cancelled() &&
-          github.event_name != 'pull_request' &&
+          (github.event.schedule == '30 9 * * 1' || github.event_name == 'workflow_dispatch') &&
           steps.results.outputs.path != ''
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGBENCH_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
           RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
@@ -170,52 +175,35 @@ jobs:
           results_file="$RESULTS_PATH"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Compute average multigateway overhead vs postgres
+          # results.json is an array of suites (one per protocol). Report
+          # per-suite counts so simple and extended tracking stay distinct.
           payload=$(jq -n \
             --slurpfile results "$results_file" \
             --arg url "$run_url" \
             '
-            # Build per-scenario comparison for sustained (non-churn) scenarios
-            ($results[0].results | map(select(.connection_churn == false))) as $sustained |
+            ($results[0] | map({
+              name: .name,
+              total: .total_files,
+              pg: .postgres_passed,
+              mg: .multigateway_passed,
+              mg_rate: (if .total_files > 0 then (.multigateway_passed * 100 / .total_files | floor) else 0 end),
+              divergences: .passed_pg_only
+            })) as $suites |
 
-            # Group by scenario name (strip target)
-            ($sustained | map(select(.target == "postgres")) |
-              [.[] | {key: .scenario, value: .tps}] | from_entries) as $pg_tps |
+            [{type: "header", text: {type: "plain_text",
+              text: "Weekly sqllogictest report"}}] +
 
-            ($sustained | map(select(.target == "multigateway")) |
-              [.[] | {key: .scenario, value: .tps}] | from_entries) as $mgw_tps |
-
-            # Compute per-scenario overhead
-            ([
-              $mgw_tps | to_entries[] |
-              $pg_tps[.key] as $pg |
-              select($pg != null and $pg > 0) |
-              {
-                scenario: .key,
-                pg_tps: ($pg | round),
-                mgw_tps: (.value | round),
-                overhead: ((1 - .value / $pg) * 100 * 10 | round / 10)
-              }
-            ]) as $comparisons |
-
-            # Average overhead
-            (if ($comparisons | length) > 0 then
-              ([$comparisons[].overhead] | add / length * 10 | round / 10)
-            else 0 end) as $avg_overhead |
-
-            # Build table text
-            ($comparisons | map(
-              "| \(.scenario) | \(.pg_tps) | \(.mgw_tps) | \(.overhead)% |"
-            ) | join("\n")) as $table_rows |
-
-            {blocks: [
-              {type: "header", text: {type: "plain_text",
-                text: ("Weekly pgbench: multigateway overhead " + ($avg_overhead | tostring) + "% avg")}},
+            ($suites | map(
               {type: "section", text: {type: "mrkdwn",
-                text: ("*Sustained Load Results*\n| Scenario | PG TPS | MGW TPS | Overhead |\n|---|---|---|---|\n" + $table_rows)}},
-              {type: "section", text: {type: "mrkdwn",
-                text: ("<" + $url + "|View CI run>")}}
-            ]}
+                text: ("*" + .name + "*: " + (.mg | tostring) + "/" + (.total | tostring) +
+                       " multigateway passed (" + (.mg_rate | tostring) + "%)\n" +
+                       "postgres: " + (.pg | tostring) + "/" + (.total | tostring) +
+                       " • proxy divergences: " + (.divergences | tostring))}}
+            )) +
+
+            [{type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}] |
+
+            {blocks: .}
             ')
 
           curl -sf -X POST -H 'Content-type: application/json' \
@@ -228,7 +216,7 @@ jobs:
           steps.results.outputs.path == '' &&
           github.event_name == 'schedule'
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGBENCH_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
@@ -238,8 +226,8 @@ jobs:
             --arg url "$run_url" \
             '{
               blocks: [
-                {type: "header", text: {type: "plain_text", text: "pgbench benchmarks failed to produce results"}},
-                {type: "section", text: {type: "mrkdwn", text: "The weekly pgbench run did not produce a `results.json`. The test infrastructure likely failed (e.g. cluster bootstrap timeout, build failure)."}},
+                {type: "header", text: {type: "plain_text", text: "sqllogictest suite failed to produce results"}},
+                {type: "section", text: {type: "mrkdwn", text: "The nightly sqllogictest run did not produce a `results.json`. The test infrastructure likely failed (e.g. cluster bootstrap timeout, build failure)."}},
                 {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
               ]
             }')
@@ -253,12 +241,22 @@ jobs:
         env:
           RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
-          mkdir -p /tmp/pgbench-baseline
-          cp "$RESULTS_PATH" /tmp/pgbench-baseline/results.json
+          mkdir -p /tmp/sqllogictest-baseline
+          cp "$RESULTS_PATH" /tmp/sqllogictest-baseline/results.json
 
+      # Only the nightly cron run (`30 3 * * *`) updates the baseline. PR-
+      # labeled runs and workflow_dispatch can read the baseline but never
+      # overwrite it, so a bad PR can't poison the next run's regression
+      # diff. The weekly summary cron is deliberately skipped too — it
+      # runs against the same multigres tree a couple of days later and
+      # shouldn't be treated as a fresher baseline than Monday's.
       - name: Save current results as new baseline
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: ${{ !cancelled() && steps.results.outputs.path != '' && github.event.schedule == '30 3 * * *' }}
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          path: /tmp/pgbench-baseline/results.json
-          key: pgbench-baseline-${{ github.run_id }}
+          path: /tmp/sqllogictest-baseline/results.json
+          key: sqllogictest-baseline-nightly-${{ github.run_id }}
+
+      # Note: the Go test writes the pass/fail summary (including shields.io
+      # badge) directly to GITHUB_STEP_SUMMARY via report.go.
+      # Full per-file output is in the uploaded artifact.

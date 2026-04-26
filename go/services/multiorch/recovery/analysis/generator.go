@@ -19,6 +19,7 @@ import (
 	"slices"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -220,7 +221,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		PoolerID:         pooler.MultiPooler.Id,
 		ShardKey:         shardKey,
 		PoolerType:       poolerType,
-		IsPrimary:        poolerType == clustermetadatapb.PoolerType_PRIMARY,
+		IsPrimary:        commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()),
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
 		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
@@ -235,11 +236,6 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	if pooler.ConsensusStatus != nil {
 		analysis.ConsensusTerm = pooler.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 		analysis.ConsensusStatus = pooler.ConsensusStatus.ConsensusStatus
-	}
-
-	// Store primary term (term when this pooler was promoted to primary)
-	if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil {
-		analysis.PrimaryTerm = ct.PrimaryTerm
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -272,10 +268,7 @@ func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthSt
 		if pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
-		var term int64
-		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil {
-			term = ct.PrimaryTerm
-		}
+		term := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 		if best == nil || term > bestTerm {
 			best = pooler
 			bestTerm = term
@@ -484,7 +477,7 @@ func findHighestTermPooler(primaries []*PoolerAnalysis) *PoolerAnalysis {
 	mostAdvanced := slices.MaxFunc(primaries, comparePrimaryTimeline)
 
 	// Defensive: should not happen in initialized shards, but guard against invalid state
-	if mostAdvanced.PrimaryTerm == 0 {
+	if commonconsensus.PrimaryTerm(mostAdvanced.ConsensusStatus) == 0 {
 		return nil
 	}
 

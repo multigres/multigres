@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -40,16 +41,6 @@ type ScenarioConfig struct {
 	Duration  int    // -T flag (seconds)
 	Protocol  string // "simple" or "extended" (-M flag)
 	ConnChurn bool   // -C flag (new connection per transaction)
-}
-
-// BenchmarkTarget identifies what pgbench connects to.
-type BenchmarkTarget struct {
-	Name string // "postgres", "multigateway", "pgbouncer"
-	Host string
-	Port int
-	User string
-	Pass string
-	DB   string
 }
 
 // ScenarioResult holds computed metrics from a pgbench run.
@@ -109,7 +100,7 @@ func NewPgBenchRunner(t *testing.T) *PgBenchRunner {
 }
 
 // Initialize runs pgbench -i to create the benchmark tables.
-func (r *PgBenchRunner) Initialize(ctx context.Context, t *testing.T, target BenchmarkTarget, scaleFactor int) error {
+func (r *PgBenchRunner) Initialize(ctx context.Context, t *testing.T, target suiteutil.Target, scaleFactor int) error {
 	t.Helper()
 
 	args := []string{
@@ -141,7 +132,7 @@ func (r *PgBenchRunner) Initialize(ctx context.Context, t *testing.T, target Ben
 //	client_id  transaction_no  time_epoch_us  latency_us  schedule_lag_us
 //
 // We compute TPS, average latency, p50, and p99 directly from this data.
-func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target BenchmarkTarget, scenario ScenarioConfig) (*ScenarioResult, error) {
+func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target suiteutil.Target, scenario ScenarioConfig) (*ScenarioResult, error) {
 	t.Helper()
 
 	// Create a unique log file prefix for this run inside the output directory.

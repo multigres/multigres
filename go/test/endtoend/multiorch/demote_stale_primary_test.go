@@ -23,11 +23,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/utils"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestDemoteStalePrimary_SIGKILL tests multiorch's ability to detect a stale primary
@@ -329,7 +331,9 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
 	require.NotNil(t, status.Status.ConsensusTerm, "Replica should have consensus term")
-	require.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+	consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
+	require.NoError(t, err, "Should be able to get consensus status from demoted replica")
+	require.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
 		"Demoted stale primary %s should have primary_term=0 (cleared during DemoteStalePrimary)", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }

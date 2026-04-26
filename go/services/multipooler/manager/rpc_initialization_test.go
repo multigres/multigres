@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -34,13 +36,27 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
-func NewTestMultiPoolerManager(t *testing.T, multiPooler *clustermetadatapb.MultiPooler, config *Config) *MultiPoolerManager {
+// NewTestMultiPoolerManager builds a MultiPoolerManager for tests with a
+// minimal MultiPooler (MVP table_group/shard, a temp PoolerDir, and a valid
+// service ID). Tests override pm.multipooler fields, pm.pgctldClient, etc.
+// as needed.
+func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	t.Helper()
-	logger := slog.Default()
-	pm, err := NewMultiPoolerManager(logger, multiPooler, config)
+	mp := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "test-cell",
+			Name:      "test-pooler",
+		},
+		TableGroup: "default",
+		Shard:      "0-inf",
+		PoolerDir:  t.TempDir(),
+	}
+	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
-
+	// Swap in a fake rule store so tests that exercise observePosition /
+	// cachedPosition don't crash on the real store's nil query service.
+	pm.rules = &fakeRuleStore{}
 	return pm
 }
 
@@ -178,6 +194,59 @@ func TestHelperMethods(t *testing.T) {
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
 	})
+
+	// Load-bearing for the crashed-bootstrap recovery path: the retry calls
+	// removeDataDirectory when the sentinel is present, and a prior crash may
+	// have already removed the directory. Idempotence lets us treat that nil
+	// return as "already clean" instead of a distinguishable special case.
+	t.Run("removeDataDirectory is idempotent on an already-deleted dir", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			logger:      slog.Default(),
+		}
+
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+		// dataDir was never created — removeDataDirectory should still return nil.
+
+		require.NoError(t, pm.removeDataDirectory())
+		// Calling again is also a no-op.
+		require.NoError(t, pm.removeDataDirectory())
+	})
+
+	// Covers the "real removal failure" branch in the sentinel-recovery path:
+	// on a non-nil error, the caller must surface it rather than silently
+	// proceed — otherwise a permission regression would go unnoticed.
+	t.Run("removeDataDirectory surfaces a permission-denied error", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("filesystem permissions do not apply to root")
+		}
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			logger:      slog.Default(),
+		}
+
+		// Put pg_data under a read-only parent so unlinking pg_data requires
+		// write permission on readonlyParent, which we have denied.
+		readonlyParent := filepath.Join(poolerDir, "readonly")
+		dataDir := filepath.Join(readonlyParent, "pg_data")
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+		require.NoError(t, os.Chmod(readonlyParent, 0o500))
+		t.Cleanup(func() {
+			// Restore perms so t.TempDir's cleanup can remove everything.
+			_ = os.Chmod(readonlyParent, 0o755)
+		})
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+		err := pm.removeDataDirectory()
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, fs.ErrPermission), "expected permission error, got: %v", err)
+	})
 }
 
 // MonitorPostgres Tests
@@ -188,7 +257,8 @@ func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
 		pgctldClient: nil, // pgctld unavailable
 	}
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.False(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
@@ -214,7 +284,8 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
 	}
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
@@ -226,46 +297,66 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	ctx := t.Context()
 
-	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{
 			Status: pgctldpb.ServerStatus_STOPPED,
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
 	// backupsAvailable should NOT be checked when dirInitialized is true
+	assert.False(t, state.bootstrapSentinelPresent)
 }
 
 func TestDiscoverPostgresState_Running(t *testing.T) {
 	ctx := t.Context()
 
-	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{
 			Status: pgctldpb.ServerStatus_RUNNING,
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
 
-	state := pm.discoverPostgresState(ctx)
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
 	assert.True(t, state.postgresRunning)
+	assert.False(t, state.bootstrapSentinelPresent)
+}
+
+func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
+	ctx := t.Context()
+
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_STOPPED,
+		},
+	}
+
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
+
+	// Plant sentinel to simulate a crashed prior first-backup attempt.
+	sentinelPath := filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
+	require.NoError(t, os.WriteFile(sentinelPath, []byte("prior attempt\n"), 0o644))
+
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
+
+	assert.True(t, state.bootstrapSentinelPresent)
 }
 
 func TestDiscoverPostgresState_StatusError(t *testing.T) {
@@ -281,9 +372,11 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 		logger:       slog.Default(),
 	}
 
-	state := pm.discoverPostgresState(ctx)
-
-	// When Status() fails, treat as pgctld unavailable
+	state, err := pm.discoverPostgresState(ctx)
+	// Status() failure returns both the error (wrapping the cause) and a state
+	// with pgctldAvailable=false so the caller can distinguish this from other
+	// discover failures.
+	require.Error(t, err)
 	assert.False(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
@@ -406,6 +499,20 @@ func TestDetermineRemedialAction(t *testing.T) {
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
 		},
+		{
+			// Sentinel from a prior crashed first-backup attempt must override
+			// the dirInitialized=true signal, so cleanup+retry runs instead of
+			// a doomed start on a stub data directory.
+			name: "bootstrap_sentinel_present_forces_first_backup_path",
+			state: postgresState{
+				pgctldAvailable:          true,
+				postgresRunning:          false,
+				dirInitialized:           true,
+				bootstrapSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionCreateFirstBackup,
+		},
 	}
 
 	for _, tt := range tests {
@@ -415,14 +522,9 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				},
 			}
-			cs := NewConsensusState("", nil)
-			if tt.primaryTerm != 0 {
-				cs.mu.Lock()
-				cs.term = &multipoolermanagerdatapb.ConsensusTerm{PrimaryTerm: tt.primaryTerm}
-				cs.mu.Unlock()
-			}
-			pm.consensusState = cs
+			pm.consensusState = NewConsensusState("", nil)
 			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
+			tt.state.primaryTerm = tt.primaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
 			require.Equal(t, tt.expectedAction, got)
@@ -444,7 +546,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log error and take no action
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -467,7 +569,7 @@ func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log info and take no action (no type mismatch)
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -490,7 +592,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should attempt to start postgres
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
@@ -516,7 +618,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should handle error gracefully
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
@@ -536,7 +638,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// With no backups and uninitialized dir, action is None - doesn't do anything
-	pm.takeRemedialAction(lockCtx, remedialActionNone)
+	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// takeRemedialAction with None action doesn't modify last logged reason
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -564,17 +666,17 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Call multiple times with same action - reason should stay the same (log deduplication)
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
 	// Change action type - reason should change
-	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup)
+	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
 	assert.Equal(t, "restoring_from_backup", pm.pgMonitorLastLoggedReason)
 }
 
@@ -654,7 +756,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			cs := NewConsensusState("", nil)
 			cs.mu.Lock()
-			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1, PrimaryTerm: tc.primaryTerm}
+			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
 			cs.mu.Unlock()
 			pm.consensusState = cs
 
@@ -666,7 +768,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action)
+			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
@@ -796,13 +898,10 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateStarting,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateStarting
 
 	// Call iteration when not ready - should return early without calling pgctld
 	pm.monitorPostgresIteration(ctx)
@@ -831,16 +930,11 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-		multipooler: &clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_PRIMARY,
-		},
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
+	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
 
 	// Call iteration - should discover running state and not call Start
 	pm.monitorPostgresIteration(ctx)
@@ -861,13 +955,10 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
 
 	// Call iteration - should discover stopped state and attempt to start
 	pm.monitorPostgresIteration(ctx)
@@ -891,13 +982,10 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := NewTestMultiPoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = mockPgctld
+	pm.state = ManagerStateReady
 
 	// Call iteration multiple times to simulate retry behavior
 	for range 5 {

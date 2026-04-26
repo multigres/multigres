@@ -15,28 +15,17 @@
 package benchmarking
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
 
 // WriteJSONReport writes the benchmark results as JSON.
 func WriteJSONReport(t *testing.T, outputDir string, report *BenchmarkReport) (string, error) {
 	t.Helper()
-
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal report: %w", err)
-	}
-
-	path := filepath.Join(outputDir, "results.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return "", fmt.Errorf("failed to write results.json: %w", err)
-	}
-	return path, nil
+	return suiteutil.WriteJSON(outputDir, "results.json", report)
 }
 
 // WriteMarkdownReport generates a markdown comparison report.
@@ -135,22 +124,7 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 		sb.WriteString("\n")
 	}
 
-	content := sb.String()
-	path := filepath.Join(outputDir, "benchmark-report.md")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write benchmark-report.md: %w", err)
-	}
-
-	// Write to GITHUB_STEP_SUMMARY if running in CI.
-	if summaryPath := os.Getenv("GITHUB_STEP_SUMMARY"); summaryPath != "" {
-		f, err := os.OpenFile(summaryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err == nil {
-			_, _ = f.WriteString(content)
-			f.Close()
-		}
-	}
-
-	return path, nil
+	return suiteutil.WriteMarkdown(outputDir, "benchmark-report.md", sb.String())
 }
 
 // uniqueTargets returns deduplicated target names in the order they first appear.

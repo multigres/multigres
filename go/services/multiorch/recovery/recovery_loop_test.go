@@ -40,6 +40,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -719,7 +720,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		})
 		t.Cleanup(analysis.ResetAnalyzers)
 
-		// Set up store state: dead primary, replica with replication stopped
+		// Set up store state: dead primary, replica with replication stopped.
+		// Even though IsLastCheckValid is false, ConsensusStatus carries the
+		// last-known state from before the primary went unreachable, and
+		// analysis.IsPrimary is rule-based.
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -730,6 +734,17 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			IsLastCheckValid: false,
 			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: primaryID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+							PrimaryId:  primaryID,
+						},
+					},
+				},
+			},
 		}
 		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
@@ -1050,6 +1065,17 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		IsUpToDate:         true,
 		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
+		ConsensusStatus: &consensusdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: primaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						PrimaryId:  primaryID,
+					},
+				},
+			},
+		},
 	}
 	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 

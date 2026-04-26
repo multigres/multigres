@@ -16,15 +16,18 @@ package recovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -39,19 +42,6 @@ const (
 
 	// streamReconnectMaxBackoff caps the exponential backoff between retries.
 	streamReconnectMaxBackoff = 30 * time.Second
-
-	// streamStalenessTimeout is the default maximum time to wait for a health
-	// snapshot before treating the stream as stale and reconnecting.
-	//
-	// This is an application-level watchdog that catches the "server goroutine
-	// stuck but TCP alive" failure mode that gRPC keepalive does not cover.
-	// gRPC keepalive (10s ping / 10s timeout) handles dead TCP connections;
-	// this constant handles a live connection whose send loop has deadlocked.
-	//
-	// The server guarantees a snapshot at least every managerHealthPollingInterval
-	// (5s), so messages normally arrive far more frequently than this. The value
-	// is seeded from the server's recommended timeout in each snapshot.
-	streamStalenessTimeout = 90 * time.Second
 )
 
 // streamEntry holds the lifecycle handles for one active stream goroutine.
@@ -64,21 +54,31 @@ type streamEntry struct {
 	stream rpcclient.ManagerHealthStream
 }
 
-// HealthStream maintains one HealthStream stream per pooler. It replaces the
-// polling loop: instead of periodically calling the Status RPC, each pooler
+// HealthStream maintains one ManagerHealthStream stream per pooler. It replaces
+// the polling loop: instead of periodically calling the Status RPC, each pooler
 // pushes health snapshots to multiorch via a long-lived gRPC stream.
 //
 // When a snapshot arrives the HealthStream writes the same health fields into
 // the pooler store that the old pollPooler function wrote on success. On stream
 // disconnect the pooler is marked unreachable and reconnection is attempted
 // with exponential backoff (1s → 2s → … → 30s cap).
+//
+// The orchestrator sends its preferred snapshot_interval and staleness_timeout
+// in the start message. The server echoes back the actual values it will use in
+// a ManagerHealthStreamStartResponse, which the client uses to arm its staleness
+// watchdog.
 type HealthStream struct {
 	logger    *slog.Logger
 	rpcClient rpcclient.MultiPoolerClient
 	store     *store.PoolerStore
 
-	// stalenessTimeout overrides streamStalenessTimeout if positive.
-	// Set via WithStalenessTimeout; used in tests.
+	// snapshotInterval is requested from the server as the proactive snapshot
+	// tick rate. Zero means use the server default (currently 5s).
+	snapshotInterval time.Duration
+
+	// stalenessTimeout is sent to the server and used to arm the staleness
+	// watchdog (seeded from the start response). Zero means server default
+	// (timeouts.DefaultHealthStreamStalenessTimeout).
 	stalenessTimeout time.Duration
 
 	// Active stream goroutines, keyed by pooler ID string.
@@ -94,7 +94,16 @@ type HealthStream struct {
 // Option is a functional option for NewHealthStream.
 type Option func(*HealthStream)
 
-// WithStalenessTimeout overrides the default staleness timeout. Intended for tests.
+// WithSnapshotInterval sets the proactive snapshot interval sent to the server
+// in the start message.
+func WithSnapshotInterval(d time.Duration) Option {
+	return func(hs *HealthStream) {
+		hs.snapshotInterval = d
+	}
+}
+
+// WithStalenessTimeout sets the staleness timeout sent to the server and used
+// to arm the client-side staleness watchdog. Intended for tests.
 func WithStalenessTimeout(d time.Duration) Option {
 	return func(hs *HealthStream) {
 		hs.stalenessTimeout = d
@@ -216,45 +225,59 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID string, entry *s
 	}
 }
 
-// streamOnce opens one HealthStream stream and reads until the stream fails or
+// streamOnce opens one ManagerHealthStream and reads until the stream fails or
 // the context is cancelled. Returns (connected, err): connected is true if the
 // stream was established before any error occurred.
 func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState, entry *streamEntry) (connected bool, _ error) {
-	// Staleness watchdog: cancel the stream if no snapshot arrives within the
+	// Build the start request, sending the orchestrator's preferred timing.
+	// Zero values are omitted so the server uses its own defaults.
+	startReq := &multipoolermanagerdatapb.ManagerHealthStreamStartRequest{}
+	if hs.snapshotInterval > 0 {
+		startReq.SnapshotInterval = durationpb.New(hs.snapshotInterval)
+	}
+	if hs.stalenessTimeout > 0 {
+		startReq.StalenessTimeout = durationpb.New(hs.stalenessTimeout)
+	}
+
+	// Seed the staleness watchdog before any message is received. This is the
+	// value we sent; the server will confirm (or adjust) it in the start response,
+	// at which point we reset the watchdog to the echoed value.
+	initialStaleness := timeouts.DefaultHealthStreamStalenessTimeout
+	if hs.stalenessTimeout > 0 {
+		initialStaleness = hs.stalenessTimeout
+	}
+
+	// Staleness watchdog: cancel the stream if no message arrives within the
 	// timeout. This catches the "server goroutine stuck but TCP alive" failure
 	// mode that gRPC keepalive does not cover.
 	//
-	// The watchdog context is what we pass to ManagerHealthStream; cancelling it
+	// The watchdog context is passed to ManagerHealthStream so cancelling it
 	// terminates the gRPC stream and causes stream.Recv() to return an error.
 	watchdogCtx, cancelWatchdog := context.WithCancel(ctx)
 	defer cancelWatchdog()
 
-	// Resolve the effective staleness timeout (WithStalenessTimeout overrides the default).
-	effectiveStalenessTimeout := streamStalenessTimeout
-	if hs.stalenessTimeout > 0 {
-		effectiveStalenessTimeout = hs.stalenessTimeout
-	}
-
-	// resetCh is used by the recv loop to reset the staleness timer. The
-	// duration is taken from each snapshot's recommended timeout.
+	// resetCh carries the new timer duration whenever a message is received.
+	// Buffered so the recv loop never blocks on the watchdog goroutine.
 	resetCh := make(chan time.Duration, 1)
 	go func() {
-		timer := time.NewTimer(effectiveStalenessTimeout)
+		current := initialStaleness
+		timer := time.NewTimer(current)
 		defer timer.Stop()
 		for {
 			select {
 			case d := <-resetCh:
+				current = d
 				if !timer.Stop() {
 					select {
 					case <-timer.C:
 					default:
 					}
 				}
-				timer.Reset(d)
+				timer.Reset(current)
 			case <-timer.C:
-				hs.logger.WarnContext(ctx, "health stream stale: no snapshot received within timeout, reconnecting",
+				hs.logger.WarnContext(ctx, "health stream stale: no message received within timeout, reconnecting",
 					"pooler_id", poolerID,
-					"timeout", effectiveStalenessTimeout,
+					"timeout", current,
 				)
 				cancelWatchdog()
 				return
@@ -269,13 +292,41 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerH
 		return false, fmt.Errorf("open stream: %w", err)
 	}
 
-	// Send the start message so the server starts sending snapshots.
+	// Send the start message with the negotiated timing preferences.
 	if err := stream.Send(&multipoolermanagerdatapb.ManagerHealthStreamClientMessage{
 		Message: &multipoolermanagerdatapb.ManagerHealthStreamClientMessage_Start{
-			Start: &multipoolermanagerdatapb.ManagerHealthStreamStartRequest{},
+			Start: startReq,
 		},
 	}); err != nil {
 		return false, fmt.Errorf("send start: %w", err)
+	}
+
+	// Read the start response — the first server message confirms the actual
+	// timing values the server will use.
+	firstMsg, err := stream.Recv()
+	if err != nil {
+		if watchdogCtx.Err() != nil && ctx.Err() == nil {
+			return false, errors.New("staleness timeout waiting for start response")
+		}
+		return false, fmt.Errorf("recv start response: %w", err)
+	}
+	startResp := firstMsg.GetStart()
+	if startResp == nil {
+		return false, fmt.Errorf("expected start response, got %T", firstMsg.GetMessage())
+	}
+	// Determine the effective staleness for the watchdog:
+	//   - If a local override is set (WithStalenessTimeout), use it directly.
+	//     This preserves sub-second precision used in tests.
+	//   - Otherwise, use the server-confirmed value from the start response.
+	confirmedStaleness := initialStaleness
+	if hs.stalenessTimeout == 0 {
+		if s := startResp.StalenessTimeout.AsDuration(); s > 0 {
+			confirmedStaleness = s
+		}
+	}
+	select {
+	case resetCh <- confirmedStaleness:
+	default:
 	}
 
 	// Expose the live stream so Poll() can send requests.
@@ -296,22 +347,25 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerH
 			// Distinguish a staleness-triggered cancellation from an external one
 			// so the caller can log a useful error message.
 			if watchdogCtx.Err() != nil && ctx.Err() == nil {
-				return true, fmt.Errorf("staleness timeout: no snapshot received within %s", effectiveStalenessTimeout)
+				return true, fmt.Errorf("staleness timeout: no snapshot received within %s", confirmedStaleness)
 			}
 			return true, fmt.Errorf("recv: %w", err)
 		}
-		if resp.Snapshot != nil {
-			// Reset the staleness watchdog using the server's recommended timeout.
-			timeout := resp.Snapshot.Timeout.AsDuration()
-			if timeout <= 0 {
-				timeout = effectiveStalenessTimeout
+		if snap := resp.GetSnapshot(); snap != nil {
+			// Reset the staleness watchdog. Prefer the local override (which
+			// preserves sub-second precision); fall back to the server-echoed value.
+			timeout := confirmedStaleness
+			if hs.stalenessTimeout == 0 {
+				if s := snap.Timeout.AsDuration(); s > 0 {
+					timeout = s
+				}
 			}
 			select {
 			case resetCh <- timeout:
 			default:
 				// A reset is already pending; the watchdog will pick it up.
 			}
-			hs.applySnapshot(ctx, poolerID, poolerHealth, resp.Snapshot)
+			hs.applySnapshot(ctx, poolerID, poolerHealth, snap)
 		}
 	}
 }

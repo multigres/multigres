@@ -18,6 +18,7 @@ import (
 	"cmp"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -149,8 +150,6 @@ type PoolerAnalysis struct {
 	ReplicationStopped  bool
 	PrimaryConnInfoHost string
 
-	// Primary term and WAL position
-	PrimaryTerm   int64 // This pooler's primary term (term when promoted)
 	ConsensusTerm int64 // This node's consensus term (from health check)
 	// ConsensusStatus is the pooler's authoritative consensus state as of the last
 	// ConsensusStatus RPC.
@@ -158,12 +157,17 @@ type PoolerAnalysis struct {
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
 }
 
-// comparePrimaryTimeline compares two primary PoolerAnalysis entries by PrimaryTerm only.
-// Returns negative if a is less advanced than b, 0 if equal, positive if a is more advanced.
-// LSN is intentionally excluded: for primaries, PrimaryTerm must be unique per promotion, so
-// equal PrimaryTerms indicate a consensus bug rather than a resolvable tie.
+// comparePrimaryTimeline compares two primary PoolerAnalysis entries by the
+// coordinator term of each pooler's current rule (via commonconsensus.PrimaryTerm).
+// Returns negative if a is less advanced than b, 0 if equal, positive if a is
+// more advanced. LSN is intentionally excluded: for primaries, the coordinator
+// term must be unique per promotion, so equal terms indicate a consensus bug
+// rather than a resolvable tie.
 func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
-	return cmp.Compare(a.PrimaryTerm, b.PrimaryTerm)
+	return cmp.Compare(
+		commonconsensus.PrimaryTerm(a.ConsensusStatus),
+		commonconsensus.PrimaryTerm(b.ConsensusStatus),
+	)
 }
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
