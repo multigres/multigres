@@ -471,7 +471,7 @@ func (c *Coordinator) EstablishLeadership(
 			defer wg.Done()
 			c.logger.InfoContext(ctx, "Configuring standby replication before promotion",
 				"standby", s.MultiPooler.Id.Name,
-				"primary", candidate.MultiPooler.Id.Name)
+				"leader", candidate.MultiPooler.Id.Name)
 
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 			defer cancel()

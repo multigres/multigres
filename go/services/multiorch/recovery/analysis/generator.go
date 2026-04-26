@@ -181,7 +181,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 
 // GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
 // the given pooler ID. Used primarily in tests to inspect shard-level fields like
-// ReplicasConnectedToPrimary without running the full analysis loop.
+// FollowersConnectedToLeader without running the full analysis loop.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*ShardAnalysis, error) {
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {

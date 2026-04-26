@@ -33,8 +33,8 @@ import (
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-// primaryRule returns a ShardRule that designates the named node in zone1 as primary.
-// Passing the same rule to all nodes in a test makes the incumbent primary explicit.
+// primaryRule returns a ShardRule that designates the named node in zone1 as leader.
+// Passing the same rule to all nodes in a test makes the incumbent leader explicit.
 func primaryRule(name string) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
 		LeaderId: &clustermetadatapb.ID{
@@ -46,7 +46,7 @@ func primaryRule(name string) *clustermetadatapb.ShardRule {
 }
 
 // createMockNode creates a mock node for testing using FakeClient.
-// rule is the current shard rule shared by all nodes in the cluster (nil if no primary exists).
+// rule is the current shard rule shared by all nodes in the cluster (nil if no leader exists).
 func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, rule *clustermetadatapb.ShardRule) *multiorchdatapb.PoolerHealthState {
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
