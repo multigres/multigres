@@ -282,8 +282,7 @@ func (re *Engine) fetchConsensusStatus(ctx context.Context, poolerID *clustermet
 
 	re.logger.DebugContext(ctx, "consensus status received",
 		"pooler_id", poolerIDStr,
-		"current_term", resp.CurrentTerm,
-		"has_timeline_info", resp.TimelineInfo != nil,
+		"current_term", resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(),
 	)
 
 	return resp

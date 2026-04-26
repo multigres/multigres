@@ -45,7 +45,6 @@ func TestMultipoolerPrimaryLSN(t *testing.T) {
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	statusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 	require.NoError(t, err)
-	require.NotNil(t, statusResp.WalPosition, "WAL position should not be nil on primary")
-	assert.NotEmpty(t, statusResp.WalPosition.CurrentLsn, "Primary LSN should not be empty")
-	assert.Contains(t, statusResp.WalPosition.CurrentLsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+	assert.NotEmpty(t, statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "Primary LSN should not be empty")
+	assert.Contains(t, statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
 }

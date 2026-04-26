@@ -406,75 +406,13 @@ func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) err
 
 // ConsensusStatus returns the current status of this node for consensus
 func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	term, err := pm.consensusState.GetInconsistentTerm()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get consensus term: %w", err)
-	}
-
-	localCurrentTerm := int64(0)
-	if term != nil {
-		localCurrentTerm = term.GetTermNumber()
-	}
-
-	// Check if database is healthy by attempting a simple query
-	_, healthErr := pm.query(ctx, "SELECT 1")
-	isHealthy := healthErr == nil
-
-	// Get WAL position and determine role (primary/replica)
-	walPosition := &consensusdatapb.WALPosition{
-		Timestamp: timestamppb.New(time.Now()),
-	}
-	role := consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED
-
-	if isHealthy {
-		// Check role and get appropriate WAL position
-		isPrimary, err := pm.isPrimary(ctx)
-		if err == nil {
-			if isPrimary {
-				// On primary: get current write position
-				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY
-				currentLsn, err := pm.getPrimaryLSN(ctx)
-				if err == nil {
-					walPosition.CurrentLsn = currentLsn
-				}
-			} else {
-				role = consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA
-				// On standby: get receive and replay positions
-				status, err := pm.queryReplicationStatus(ctx)
-				if err == nil {
-					walPosition.LastReceiveLsn = status.LastReceiveLsn
-					walPosition.LastReplayLsn = status.LastReplayLsn
-				}
-			}
-		}
-	}
-
-	// Get timeline information for divergence detection
-	var timelineInfo *consensusdatapb.TimelineInfo
-	if isHealthy {
-		timelineID, err := pm.getTimelineID(ctx)
-		if err == nil {
-			timelineInfo = &consensusdatapb.TimelineInfo{
-				TimelineId: timelineID,
-				// TODO: Populate history for primaries
-			}
-		}
-	}
-
 	consensusStatus, statusErr := pm.getInconsistentConsensusStatus(ctx)
 	if statusErr != nil {
 		pm.logger.WarnContext(ctx, "Failed to build consensus status for StatusResponse", "error", statusErr)
 	}
 
 	return &consensusdatapb.StatusResponse{
-		PoolerId:           pm.serviceID.GetName(),
-		CurrentTerm:        localCurrentTerm,
-		WalPosition:        walPosition,
-		IsHealthy:          isHealthy,
-		IsEligible:         true, // TODO: implement eligibility logic based on policy
-		Cell:               pm.serviceID.GetCell(),
-		Role:               role,
-		TimelineInfo:       timelineInfo,
+		Id:                 pm.serviceID,
 		ConsensusStatus:    consensusStatus,
 		AvailabilityStatus: pm.buildAvailabilityStatus(),
 	}, nil

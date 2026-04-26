@@ -217,7 +217,7 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKe
 	// Return consensus term for the RPC parameter
 	consensusTerm := int64(0)
 	if correctLeader.ConsensusStatus != nil {
-		consensusTerm = correctLeader.ConsensusStatus.CurrentTerm
+		consensusTerm = correctLeader.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	}
 
 	return correctLeader, consensusTerm, nil
