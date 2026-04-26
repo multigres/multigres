@@ -117,6 +117,20 @@ jobs:
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
+      # On failure, surface the per-process logs from the shardsetup tempdir
+      # (multipooler.log, pgctld.log, multigateway.log, multiorch.log). The
+      # failing job uploads nothing useful for cluster-bootstrap / reinit
+      # issues without these — go test swallows structured logs and the
+      # CI stdout only shows the outer test error.
+      - name: Upload cluster logs on failure
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ failure() }}
+        with:
+          name: pgregress-cluster-logs
+          path: /tmp/shardsetup_test_*/**/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Notify Slack on regression
         if: >-
           !cancelled() &&

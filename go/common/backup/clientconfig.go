@@ -30,6 +30,7 @@ type ClientConfigOpts struct {
 	Pg1Port       int    // Local PostgreSQL port
 	Pg1SocketPath string // Local PostgreSQL socket directory
 	Pg1Path       string // Local PostgreSQL data directory
+	Pg1User       string // PostgreSQL superuser for pgbackrest connections
 }
 
 // WriteClientConfig generates pgbackrest.conf for client operations (backup, restore, info).
@@ -78,6 +79,7 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		Pg1SocketPath string
 		Pg1Port       int
 		Pg1Path       string
+		Pg1User       string
 	}{
 		LogPath:   logPath,
 		SpoolPath: spoolPath,
@@ -90,6 +92,7 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		Pg1SocketPath: opts.Pg1SocketPath,
 		Pg1Port:       opts.Pg1Port,
 		Pg1Path:       opts.Pg1Path,
+		Pg1User:       opts.Pg1User,
 	}
 
 	// Execute template

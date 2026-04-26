@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc"
@@ -1391,14 +1392,22 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
 	// StopPostgres must be called BEFORE killing pgctld, otherwise
 	// the postgres process survives and holds the port.
+	//
+	// Use immediate shutdown (SIGQUIT, no checkpoint): the data dir is
+	// about to be wiped, so clean-shutdown state is irrelevant. Fast mode's
+	// pre-shutdown checkpoint can take >10s on the primary (especially under
+	// replication load), triggering a graceful-period SIGKILL that leaves
+	// postgres's listen port in TIME_WAIT on Linux for ~60s. The subsequent
+	// postgres restart then cannot bind its port and retries until
+	// WaitForManagerReady times out.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
 			inst.Multipooler.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
-			inst.Pgctld.StopPostgres(t)
-			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
+			inst.Pgctld.StopPostgresImmediate(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s (immediate)", name)
 			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
@@ -1434,6 +1443,20 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
 	}
+
+	// 3c. Clear stale topology state. Without this, a pooler that was elected
+	// PRIMARY in the previous suite reads its stale role from etcd on restart,
+	// finds an empty data directory (wiped in step 3), and hangs in recovery —
+	// never reaching PostgresReady. The restart loop below then times out on
+	// WaitForManagerReady for that pooler.
+	//
+	// We wipe:
+	//   - databases/<db>/<tablegroup>/*   (shard records + ShardInitClaim)
+	//   - <cell>/poolers|gateways|orchs/* (per-process registration state)
+	// We keep:
+	//   - databases/<db>/Database         (preserves BackupLocation + DurabilityPolicy)
+	//   - cells/<cell>/Cell               (cell config multipoolers need to reconnect)
+	s.wipeTopologyForReinit(t, "postgres", constants.DefaultTableGroup)
 
 	t.Logf("ReinitializeCluster: restarting cluster...")
 
@@ -1472,6 +1495,49 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
+// wipeTopologyForReinit removes the etcd keys that would otherwise carry
+// stale shard-election and per-process registration state across a
+// ReinitializeCluster call. See the call site in ReinitializeCluster for
+// the full rationale.
+//
+// It connects to etcd directly (rather than via TopoServer) because the
+// public topoclient API only exposes per-record delete helpers and this
+// needs a recursive prefix delete.
+func (s *ShardSetup) wipeTopologyForReinit(t *testing.T, database, tableGroup string) {
+	t.Helper()
+
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{s.EtcdClientAddr},
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ReinitializeCluster: failed to open etcd client for topology wipe: %v", err)
+	}
+	defer func() {
+		if cerr := cli.Close(); cerr != nil {
+			t.Logf("ReinitializeCluster: warning: closing etcd client: %v", cerr)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// topoclient test root is "/multigres". Global topo is under /multigres/global,
+	// and each cell is under /multigres/<cell>/.
+	prefixes := []string{
+		path.Join("/multigres/global", topoclient.DatabasesPath, database, tableGroup) + "/",
+		path.Join("/multigres", s.CellName, topoclient.PoolersPath) + "/",
+		path.Join("/multigres", s.CellName, topoclient.GatewaysPath) + "/",
+		path.Join("/multigres", s.CellName, topoclient.OrchsPath) + "/",
+	}
+	for _, p := range prefixes {
+		if _, err := cli.Delete(ctx, p, clientv3.WithPrefix()); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to wipe topology prefix %s: %v", p, err)
+		}
+	}
+	t.Logf("ReinitializeCluster: wiped stale topology state (shard records + pooler/gateway/orch registrations)")
 }
 
 // SetupTest provides test isolation by validating clean state and automatically
