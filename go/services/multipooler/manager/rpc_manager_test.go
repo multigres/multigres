@@ -996,7 +996,7 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	cs, err := pm.getInconsistentConsensusStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int64(0),
-		commonconsensus.PrimaryTerm(cs),
+		commonconsensus.LeaderTerm(cs),
 		"primary_term should be 0 before promotion")
 
 	// Call Promote - should FAIL because rule history write fails
@@ -1012,7 +1012,7 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	cs, err = pm.getInconsistentConsensusStatus(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0),
-		commonconsensus.PrimaryTerm(cs),
+		commonconsensus.LeaderTerm(cs),
 		"primary_term should be 0 because the rule history write failed")
 
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
@@ -1140,9 +1140,9 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	// Verify health streamer has primary observation with self as primary
 	healthState := pm.healthStreamer.getState()
-	require.NotNil(t, healthState.PrimaryObservation, "health streamer should have primary observation after Promote")
-	assert.Equal(t, serviceID, healthState.PrimaryObservation.PrimaryID, "primary observation should point to self")
-	assert.Equal(t, int64(10), healthState.PrimaryObservation.PrimaryTerm, "primary observation term should match consensus term")
+	require.NotNil(t, healthState.LeaderObservation, "health streamer should have primary observation after Promote")
+	assert.Equal(t, serviceID, healthState.LeaderObservation.LeaderID, "primary observation should point to self")
+	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm, "primary observation term should match consensus term")
 
 	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())

@@ -246,7 +246,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					consensusStatusCtx := utils.WithShortDeadline(t)
 					consensusResp, err := standbyConsensusClient.Status(consensusStatusCtx, &consensusdatapb.StatusRequest{})
 					require.NoError(t, err, "Should be able to get consensus status after restore")
-					assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
+					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(consensusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore

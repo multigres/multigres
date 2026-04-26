@@ -593,10 +593,10 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 		ServingStatus: state.ServingStatus,
 	}
 
-	if state.PrimaryObservation != nil {
-		resp.PrimaryObservation = &multipoolerpb.PrimaryObservation{
-			PrimaryId:   state.PrimaryObservation.PrimaryID,
-			PrimaryTerm: state.PrimaryObservation.PrimaryTerm,
+	if state.LeaderObservation != nil {
+		resp.LeaderObservation = &multipoolerpb.LeaderObservation{
+			LeaderId:   state.LeaderObservation.LeaderID,
+			LeaderTerm: state.LeaderObservation.LeaderTerm,
 		}
 	}
 

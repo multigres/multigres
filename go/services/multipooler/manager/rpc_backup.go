@@ -362,7 +362,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		if err := pm.consensusState.DeleteTermFile(); err != nil {
 			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
 		}
-		pm.healthStreamer.UpdatePrimaryObservation(nil)
+		pm.healthStreamer.UpdateLeaderObservation(nil)
 		return nil
 	}); err != nil {
 		return err

@@ -135,11 +135,11 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
-	// resignedPrimaryAtTerm is set when this node voluntarily resigns as primary
+	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
 	// (via EmergencyDemote). The value is the consensus term at which the primary
 	// resigned. A non-zero value signals the coordinator to trigger an immediate
 	// election. Protected by mu. Cleared when this node is elected primary again.
-	resignedPrimaryAtTerm int64
+	resignedLeaderAtTerm int64
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
@@ -717,13 +717,13 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		}
 
 		// Set initial primary observation from the highest known rule.
-		// commonconsensus.PrimaryTerm returns 0 unless the rule names us as the
+		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
 		// primary, so publishing serviceID here is safe.
 		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
-			if primaryTerm := commonconsensus.PrimaryTerm(cs); primaryTerm > 0 {
-				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-					PrimaryID:   pm.serviceID,
-					PrimaryTerm: primaryTerm,
+			if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
+				pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+					LeaderID:   pm.serviceID,
+					LeaderTerm: primaryTerm,
 				})
 			}
 		}
@@ -1597,7 +1597,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		// Lock-free first pass from the monitor: use the inconsistent read,
 		// which falls back to the cached rule when postgres is unreachable.
 		if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
-			state.primaryTerm = commonconsensus.PrimaryTerm(cs)
+			state.primaryTerm = commonconsensus.LeaderTerm(cs)
 		}
 	}
 
@@ -1627,13 +1627,13 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 //
 // Callers that cannot hold the action lock should read
 // getInconsistentConsensusStatus themselves and pass the result to
-// consensus.PrimaryTerm.
+// consensus.LeaderTerm.
 func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
 	cs, err := pm.getConsensusStatus(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read consensus status: %w", err)
 	}
-	return commonconsensus.PrimaryTerm(cs), nil
+	return commonconsensus.LeaderTerm(cs), nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
@@ -1666,7 +1666,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		// lost after a process restart following EmergencyDemote.
 		if !currentState.isPrimary {
 			pm.mu.Lock()
-			resigned := pm.resignedPrimaryAtTerm
+			resigned := pm.resignedLeaderAtTerm
 			pm.mu.Unlock()
 			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
@@ -1733,7 +1733,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// election. Use the primary_term (the term at which we were elected) since
 		// the coordinator uses this to decide whether the signal is still active.
 		if state.primaryTerm != 0 {
-			if err := pm.setResignedPrimaryAtTerm(ctx, state.primaryTerm); err != nil {
+			if err := pm.setResignedLeaderAtTerm(ctx, state.primaryTerm); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 				return
 			}

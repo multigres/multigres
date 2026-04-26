@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,123 +23,123 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
-// PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
-// It operates at the shard level: if any initialized replica observes the primary as dead,
-// one shard-scoped problem (PoolerID nil) is emitted.
-type PrimaryIsDeadAnalyzer struct {
+// LeaderIsDeadAnalyzer detects when a leader exists in the shard but is unhealthy/unreachable.
+// It operates at the shard level: if any initialized follower observes the leader as dead,
+// one shard-scoped problem is emitted.
+type LeaderIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
 
-func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
-	return "PrimaryIsDead"
+func (a *LeaderIsDeadAnalyzer) Name() types.CheckName {
+	return "LeaderIsDead"
 }
 
-func (a *PrimaryIsDeadAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemPrimaryIsDead
+func (a *LeaderIsDeadAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemLeaderIsDead
 }
 
-func (a *PrimaryIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
+func (a *LeaderIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
-func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// No primary known — nothing to declare dead.
-	if sa.HighestTermDiscoveredPrimaryID == nil {
+	// No leader known — nothing to declare dead.
+	if sa.HighestTermDiscoveredLeaderID == nil {
 		return nil, nil
 	}
 
-	// Primary is fully reachable — no problem.
-	if sa.PrimaryReachable {
+	// Leader is fully reachable — no problem.
+	if sa.LeaderReachable {
 		return nil, nil
 	}
 
-	// No initialized replica to confirm the primary is dead — skip to avoid false positives
-	// when the shard has no replica that has joined the cohort yet.
+	// No initialized follower to confirm the leader is dead — skip to avoid false positives
+	// when the shard has no follower that has joined the cohort yet.
 	if !sa.HasInitializedReplica {
 		return nil, nil
 	}
 
-	// At this point, PrimaryReachable is false. This can happen in three cases:
+	// At this point, LeaderReachable is false. This can happen in three cases:
 	//
-	// 1. Primary pooler is unreachable (e.g. pooler process crashed).
-	//    Postgres may still be running; replicas can still receive WAL.
+	// 1. Leader pooler is unreachable (e.g. pooler process crashed).
+	//    Postgres may still be running; followers can still receive WAL.
 	//
-	// 2. Primary pooler is reachable and Postgres process is alive yet
+	// 2. Leader pooler is reachable and Postgres process is alive yet
 	//    unresponsive, pg_isready fails but the process exists (e.g. SIGSTOP or
-	//    overloaded). Replicas remain connected until TCP keepalive times out.
+	//    overloaded). Followers remain connected until TCP keepalive times out.
 	//
-	// 3. Primary pooler is reachable but Postgres process is dead: this means
+	// 3. Leader pooler is reachable but Postgres process is dead: this means
 	//    pg_isready can be assumed to fail and the process is gone (e.g.
-	//    SIGKILL). Replicas may still appear connected for ~30s via TCP
+	//    SIGKILL). Followers may still appear connected for ~30s via TCP
 	//    keepalive even though Postgres is dead.
 	//
-	// For cases 1 and 2, we check if ALL replicas are still connected to the
-	// primary Postgres. If they are, Postgres is still running (or recovering)
-	// and we suppress failover, but only if the primary postgres responded
-	// recently enough. This prevents suppressing indefinitely when replicas are
+	// For cases 1 and 2, we check if ALL followers are still connected to the
+	// leader's postgres. If they are, postgres is still running (or recovering)
+	// and we suppress failover, but only if the leader's postgres responded
+	// recently enough. This prevents suppressing indefinitely when followers are
 	// observing stale connections while postgres is unresponsive.
 	//
 	// For case 3, we must NOT suppress: the pooler reports the process is dead,
-	// so replicas' apparent connections are stale (TCP keepalive hasn't fired
+	// so followers' apparent connections are stale (TCP keepalive hasn't fired
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
-	if sa.ReplicasConnectedToPrimary && !sa.PrimaryHasResigned {
-		threshold := a.factory.Config().GetPrimaryPostgresResponseThreshold()
-		lastReadyTime := sa.PrimaryLastPostgresReadyTime
-		primaryPostgresUnresponsive := !sa.PrimaryPostgresReady &&
+	if sa.FollowersConnectedToLeader && !sa.LeaderHasResigned {
+		threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
+		lastReadyTime := sa.LeaderLastPostgresReadyTime
+		primaryPostgresUnresponsive := !sa.LeaderPostgresReady &&
 			(lastReadyTime.IsZero() || time.Since(lastReadyTime) > threshold)
 
-		// Cases 1 and 2: replicas are connected and the primary pooler is down
+		// Cases 1 and 2: followers are connected and the leader pooler is down
 		// OR the postgres process is alive (but possibly unresponsive). Suppress
 		// failover if postgres responded recently (within threshold).
-		if (!sa.PrimaryPoolerReachable || sa.PrimaryPostgresRunning) && !primaryPostgresUnresponsive {
-			a.factory.Logger().Warn("primary not fully reachable but replicas still connected to postgres (within threshold)",
+		if (!sa.LeaderPoolerReachable || sa.LeaderPostgresRunning) && !primaryPostgresUnresponsive {
+			a.factory.Logger().Warn("leader not fully reachable but replicas still connected to postgres (within threshold)",
 				"shard_key", sa.ShardKey.String(),
-				"primary_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredPrimaryID),
-				"primary_pooler_reachable", sa.PrimaryPoolerReachable,
-				"primary_postgres_ready", sa.PrimaryPostgresReady,
-				"primary_postgres_running", sa.PrimaryPostgresRunning,
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_pooler_reachable", sa.LeaderPoolerReachable,
+				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_running", sa.LeaderPostgresRunning,
 				"last_postgres_ready_time", lastReadyTime,
 				"threshold", threshold)
 			return nil, nil
 		}
 
 		// Cases 1 and 2: postgres timestamp expired or unset — suppression window closed, allowing failover.
-		if (!sa.PrimaryPoolerReachable || sa.PrimaryPostgresRunning) && primaryPostgresUnresponsive {
-			a.factory.Logger().Warn("primary not fully reachable, postgres timestamp expired or unset, allowing failover",
+		if (!sa.LeaderPoolerReachable || sa.LeaderPostgresRunning) && primaryPostgresUnresponsive {
+			a.factory.Logger().Warn("leader not fully reachable, postgres timestamp expired or unset, allowing failover",
 				"shard_key", sa.ShardKey.String(),
-				"primary_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredPrimaryID),
-				"primary_pooler_reachable", sa.PrimaryPoolerReachable,
-				"primary_postgres_ready", sa.PrimaryPostgresReady,
-				"primary_postgres_running", sa.PrimaryPostgresRunning,
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_pooler_reachable", sa.LeaderPoolerReachable,
+				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_running", sa.LeaderPostgresRunning,
 				"last_postgres_ready_time", lastReadyTime,
 				"threshold", threshold)
 		}
 
 		// Case 3: pooler is reachable but reports postgres process is dead.
-		// This happens after SIGKILL: the process is gone but replicas still show as connected.
-		if sa.PrimaryPoolerReachable && !sa.PrimaryPostgresRunning {
-			a.factory.Logger().Warn("primary pooler reachable but postgres process is dead, replicas still connected (stale connections)",
+		// This happens after SIGKILL: the process is gone but followers still show as connected.
+		if sa.LeaderPoolerReachable && !sa.LeaderPostgresRunning {
+			a.factory.Logger().Warn("leader pooler reachable but postgres process is dead, replicas still connected (stale connections)",
 				"shard_key", sa.ShardKey.String(),
-				"primary_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredPrimaryID),
-				"primary_postgres_ready", sa.PrimaryPostgresReady,
-				"primary_postgres_running", sa.PrimaryPostgresRunning,
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_running", sa.LeaderPostgresRunning,
 			)
 		}
 	}
 
 	// Primary is dead — emit one shard-level problem.
 	return []types.Problem{{
-		Code:           types.ProblemPrimaryIsDead,
-		CheckName:      "PrimaryIsDead",
-		PoolerID:       sa.HighestTermDiscoveredPrimaryID,
+		Code:           types.ProblemLeaderIsDead,
+		CheckName:      "LeaderIsDead",
+		PoolerID:       sa.HighestTermDiscoveredLeaderID,
 		ShardKey:       sa.ShardKey,
-		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable", sa.ShardKey),
+		Description:    fmt.Sprintf("Leader for shard %s is dead/unreachable", sa.ShardKey),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

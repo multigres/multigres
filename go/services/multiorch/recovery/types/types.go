@@ -38,9 +38,9 @@ const (
 	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
 	// Primary problems (catastrophic - block everything else).
-	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
+	ProblemLeaderIsDead       ProblemCode = "LeaderIsDead"
 	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
-	ProblemStalePrimary       ProblemCode = "StalePrimary"
+	ProblemStaleLeader        ProblemCode = "StaleLeader"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"

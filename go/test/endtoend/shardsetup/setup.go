@@ -167,7 +167,7 @@ func WithMultigatewayTLS() SetupOption {
 // WithPrimaryFailoverGracePeriod sets the grace period configuration for primary failover.
 // Default is "0s" for both base and maxJitter to make tests run fast.
 // Use this to test grace period behavior explicitly.
-func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
+func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
 		c.PrimaryFailoverGracePeriodBase = base
 		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter

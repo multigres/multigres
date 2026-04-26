@@ -918,7 +918,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
-		if err := pm.setResignedPrimaryAtTerm(ctx, primaryTerm); err != nil {
+		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 	}
@@ -930,7 +930,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	pm.healthStreamer.UpdatePrimaryObservation(nil)
+	pm.healthStreamer.UpdateLeaderObservation(nil)
 
 	// Suppress the postgres monitor until a rewind completes; the monitor would
 	// otherwise restart postgres on this demoted node.
@@ -1073,9 +1073,9 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Report the new primary (source) so the gateway can use this observation.
-	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-		PrimaryID:   source.Id,
-		PrimaryTerm: consensusTerm,
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   source.Id,
+		LeaderTerm: consensusTerm,
 	})
 
 	// Update consensus term to match the correct primary's term after successful demotion
@@ -1198,13 +1198,13 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// explicitly re-promoted us at a new term. A higher primary_term implicitly
 	// invalidates the old signal, but clearing eagerly avoids a window where
 	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
-	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 	}
 
-	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-		PrimaryID:   pm.serviceID,
-		PrimaryTerm: consensusTerm,
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   pm.serviceID,
+		LeaderTerm: consensusTerm,
 	})
 
 	// Write rule history record - this validates that sync replication is working.

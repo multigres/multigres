@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -116,7 +116,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
 	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
-	// and multigateway learns the new primary via PrimaryObservation health streams,
+	// and multigateway learns the new primary via LeaderObservation health streams,
 	// so neither component requires etcd during or after failover.
 	t.Log("Stopping etcd to verify etcd-independent failover...")
 	setup.StopEtcd(t)
@@ -170,7 +170,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get consensus status from new primary")
 		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
-		newPrimaryTermActual := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
+		newPrimaryTermActual := commonconsensus.LeaderTerm(consensusResp.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -305,7 +305,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			require.NotNil(t, status.Status.ConsensusTerm, "Replica %s should have consensus term", name)
 			consensusResp, err := client.Consensus.Status(utils.WithTimeout(t, 5*time.Second), &consensusdatapb.StatusRequest{})
 			require.NoError(t, err, "Replica %s: should be able to get consensus status", name)
-			assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
+			assert.Equal(t, int64(0), commonconsensus.LeaderTerm(consensusResp.ConsensusStatus),
 				"Replica %s should have primary_term=0 (never been primary)", name)
 		}
 		client.Close()

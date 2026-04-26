@@ -35,7 +35,7 @@ import (
 
 // primaryConsensusStatus builds a consensusdata.StatusResponse that names id as
 // the primary in its current rule with the given coordinator term. This is the
-// minimal fixture required for commonconsensus.IsPrimary to return true for a
+// minimal fixture required for commonconsensus.IsLeader to return true for a
 // given pooler.
 func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *consensusdatapb.StatusResponse {
 	return &consensusdatapb.StatusResponse{
@@ -45,7 +45,7 @@ func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *consensusdata
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-					PrimaryId:  id,
+					LeaderId:   id,
 				},
 			},
 		},
@@ -101,7 +101,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	assert.Equal(t, "testdb", analysis.ShardKey.Database)
 	assert.Equal(t, "testtg", analysis.ShardKey.TableGroup)
 	assert.Equal(t, "0", analysis.ShardKey.Shard)
-	assert.True(t, analysis.IsPrimary)
+	assert.True(t, analysis.IsLeader)
 	assert.True(t, analysis.LastCheckValid)
 }
 
@@ -203,14 +203,14 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Find the primary analysis
 	var primaryAnalysis *PoolerAnalysis
 	for _, a := range analyses {
-		if a.IsPrimary {
+		if a.IsLeader {
 			primaryAnalysis = a
 			break
 		}
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.True(t, primaryAnalysis.IsPrimary)
+	assert.True(t, primaryAnalysis.IsLeader)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
@@ -281,11 +281,11 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Find the replica analysis
 	replicaAnalysis := sa.Replicas()
 	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.False(t, replicaAnalysis[0].IsPrimary)
+	assert.False(t, replicaAnalysis[0].IsLeader)
 
 	// Primary health is now a shard-level field
-	assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID, "should have topology primary ID populated")
-	assert.True(t, sa.PrimaryReachable)
+	assert.NotNil(t, sa.HighestTermDiscoveredLeaderID, "should have topology primary ID populated")
+	assert.True(t, sa.LeaderReachable)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.T) {
@@ -412,8 +412,8 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil/false
-	assert.Nil(t, sa.HighestTermDiscoveredPrimaryID)
-	assert.False(t, sa.PrimaryReachable)
+	assert.Nil(t, sa.HighestTermDiscoveredLeaderID)
+	assert.False(t, sa.LeaderReachable)
 }
 
 // Task 7: Test for primary with postgres down
@@ -470,9 +470,9 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	require.NotNil(t, analysis)
 
 	// HighestTermDiscoveredPrimaryID should be set even when postgres is down
-	assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID)
+	assert.NotNil(t, sa.HighestTermDiscoveredLeaderID)
 	// But PrimaryReachable should be false because postgres is down
-	assert.False(t, sa.PrimaryReachable, "primary should NOT be reachable when postgres is down")
+	assert.False(t, sa.LeaderReachable, "primary should NOT be reachable when postgres is down")
 }
 
 func TestIsInStandbyList(t *testing.T) {
@@ -651,10 +651,10 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, sa.PrimaryPoolerReachable)
-		assert.True(t, sa.PrimaryPostgresReady)
-		assert.True(t, sa.PrimaryReachable)
-		assert.WithinDuration(t, respondedAt, sa.PrimaryLastPostgresReadyTime, time.Second,
+		assert.True(t, sa.LeaderPoolerReachable)
+		assert.True(t, sa.LeaderPostgresReady)
+		assert.True(t, sa.LeaderReachable)
+		assert.WithinDuration(t, respondedAt, sa.LeaderLastPostgresReadyTime, time.Second,
 			"PrimaryLastPostgresReadyTime should be propagated from primary's LastPostgresReadyTime")
 	})
 
@@ -706,13 +706,13 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.PrimaryPoolerReachable)
-		assert.False(t, sa.PrimaryPostgresReady)
-		assert.False(t, sa.PrimaryReachable)
+		assert.False(t, sa.LeaderPoolerReachable)
+		assert.False(t, sa.LeaderPostgresReady)
+		assert.False(t, sa.LeaderReachable)
 	})
 }
 
-func TestAllReplicasConnectedToPrimary(t *testing.T) {
+func TestAllFollowersConnectedToLeader(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
@@ -800,7 +800,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, sa.ReplicasConnectedToPrimary, "should be true when all replicas are connected")
+		assert.True(t, sa.FollowersConnectedToLeader, "should be true when all replicas are connected")
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
@@ -882,7 +882,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when any replica is disconnected")
+		assert.False(t, sa.FollowersConnectedToLeader, "should be false when any replica is disconnected")
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
@@ -933,7 +933,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when replica is unreachable")
+		assert.False(t, sa.FollowersConnectedToLeader, "should be false when replica is unreachable")
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
@@ -966,8 +966,8 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		// Primary-only shard: ReplicasConnectedToPrimary should be false (no replicas)
-		assert.False(t, sa.ReplicasConnectedToPrimary)
+		// Primary-only shard: FollowersConnectedToLeader should be false (no replicas)
+		assert.False(t, sa.FollowersConnectedToLeader)
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
@@ -1027,7 +1027,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
+		assert.False(t, sa.FollowersConnectedToLeader, "should be false when replica points to wrong primary")
 	})
 
 	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
@@ -1076,7 +1076,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			gen := NewAnalysisGenerator(ps, nil)
 			analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 			require.NoError(t, err)
-			assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when wal_receiver_status=%q", status)
+			assert.False(t, analysis.FollowersConnectedToLeader, "should be false when wal_receiver_status=%q", status)
 		}
 	})
 
@@ -1132,7 +1132,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when last_msg_receive_time is stale")
+		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when last_msg_receive_time is stale")
 	})
 
 	t.Run("returns false when last_msg_receive_time is stale (dynamic threshold)", func(t *testing.T) {
@@ -1189,7 +1189,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when last_msg_receive_time exceeds dynamic threshold")
+		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when last_msg_receive_time exceeds dynamic threshold")
 	})
 
 	t.Run("returns false when last_msg_receive_time exceeds wal_receiver_timeout", func(t *testing.T) {
@@ -1250,7 +1250,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when delay exceeds wal_receiver_timeout")
+		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when delay exceeds wal_receiver_timeout")
 	})
 
 	t.Run("returns true when last_msg_receive_time is nil", func(t *testing.T) {
@@ -1302,7 +1302,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when last_msg_receive_time is nil")
+		assert.True(t, analysis.FollowersConnectedToLeader, "should be true when last_msg_receive_time is nil")
 	})
 }
 
@@ -1455,7 +1455,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
-						PrimaryId:  newPrimaryID,
+						LeaderId:   newPrimaryID,
 					},
 				},
 			},
@@ -1479,7 +1479,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-						PrimaryId:  stalePrimaryID,
+						LeaderId:   stalePrimaryID,
 					},
 				},
 			},
@@ -1512,11 +1512,11 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// The shard-level topology primary must point to the new (correct) primary, not the stale one.
 	// If it pointed to the stale primary (postgres dead), PrimaryReachable would be false
-	// and PrimaryIsDeadAnalyzer would falsely trigger a new election.
-	require.NotNil(t, sa.HighestTermDiscoveredPrimaryID)
-	assert.Equal(t, "new-primary", sa.HighestTermDiscoveredPrimaryID.Name,
+	// and LeaderIsDeadAnalyzer would falsely trigger a new election.
+	require.NotNil(t, sa.HighestTermDiscoveredLeaderID)
+	assert.Equal(t, "new-primary", sa.HighestTermDiscoveredLeaderID.Name,
 		"should pick primary with highest PrimaryTerm")
-	assert.True(t, sa.PrimaryReachable,
+	assert.True(t, sa.LeaderReachable,
 		"primary must appear reachable when new primary has postgres running")
 }
 
@@ -1534,12 +1534,12 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both primaries detected in shard
-		require.Len(t, sa.Primaries, 2)
+		require.Len(t, sa.Leaders, 2)
 
 		// primary-2 has higher PrimaryTerm, so it's the most advanced
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-2", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(6), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 
 	t.Run("multiple other primaries detected", func(t *testing.T) {
@@ -1554,10 +1554,10 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// All three primaries detected in shard
-		require.Len(t, sa.Primaries, 3)
+		require.Len(t, sa.Leaders, 3)
 
-		primaryNames := make([]string, len(sa.Primaries))
-		for i, p := range sa.Primaries {
+		primaryNames := make([]string, len(sa.Leaders))
+		for i, p := range sa.Leaders {
 			primaryNames[i] = p.PoolerID.Name
 		}
 		assert.Contains(t, primaryNames, "primary-1")
@@ -1566,9 +1566,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 
 		// primary-3 has highest PrimaryTerm (6), even though primary-1 has highest ConsensusTerm (11).
 		// This verifies we're comparing on PrimaryTerm, not ConsensusTerm.
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-3", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(6), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-3", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(6), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 
 	t.Run("this primary is most advanced", func(t *testing.T) {
@@ -1583,12 +1583,12 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// All three primaries detected in shard
-		require.Len(t, sa.Primaries, 3)
+		require.Len(t, sa.Leaders, 3)
 
 		// This primary has highest PrimaryTerm (7), so it's the most advanced
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(7), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-1", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(7), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 
 	t.Run("tie in primary_term returns nil", func(t *testing.T) {
@@ -1602,10 +1602,10 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both primaries detected in shard
-		require.Len(t, sa.Primaries, 2)
+		require.Len(t, sa.Leaders, 2)
 
 		// Tie detected, so HighestTermPrimary should be nil
-		assert.Nil(t, sa.HighestTermReachablePrimary, "tie in PrimaryTerm should result in nil HighestTermPrimary")
+		assert.Nil(t, sa.HighestTermReachableLeader, "tie in PrimaryTerm should result in nil HighestTermPrimary")
 	})
 
 	t.Run("all primary_terms zero returns nil (defensive - invalid state)", func(t *testing.T) {
@@ -1622,10 +1622,10 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both primaries detected in shard
-		require.Len(t, sa.Primaries, 2)
+		require.Len(t, sa.Leaders, 2)
 
 		// All PrimaryTerm=0 is invalid state, defensive check returns nil
-		assert.Nil(t, sa.HighestTermReachablePrimary, "all PrimaryTerm=0 (invalid state) should result in nil HighestTermPrimary")
+		assert.Nil(t, sa.HighestTermReachableLeader, "all PrimaryTerm=0 (invalid state) should result in nil HighestTermPrimary")
 	})
 
 	t.Run("mix of zero and non-zero primary_terms", func(t *testing.T) {
@@ -1640,12 +1640,12 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// All three primaries detected in shard
-		require.Len(t, sa.Primaries, 3)
+		require.Len(t, sa.Leaders, 3)
 
 		// primary-2 has non-zero PrimaryTerm (5), so it's the most advanced
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-2", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-2", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(5), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 
 	t.Run("no other primaries detected", func(t *testing.T) {
@@ -1658,12 +1658,12 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// Single primary in shard
-		require.Len(t, sa.Primaries, 1)
+		require.Len(t, sa.Leaders, 1)
 
 		// Single primary is still the most advanced
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-1", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(5), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 
 	t.Run("unreachable primary not detected", func(t *testing.T) {
@@ -1677,12 +1677,12 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		// Only reachable primary detected
-		require.Len(t, sa.Primaries, 1, "unreachable primaries should not be detected")
+		require.Len(t, sa.Leaders, 1, "unreachable primaries should not be detected")
 
 		// Only this primary is reachable, so it's the most advanced
-		require.NotNil(t, sa.HighestTermReachablePrimary)
-		assert.Equal(t, "primary-1", sa.HighestTermReachablePrimary.PoolerID.Name)
-		assert.Equal(t, int64(5), commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus))
+		require.NotNil(t, sa.HighestTermReachableLeader)
+		assert.Equal(t, "primary-1", sa.HighestTermReachableLeader.PoolerID.Name)
+		assert.Equal(t, int64(5), commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus))
 	})
 }
 
@@ -1738,7 +1738,7 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 					CurrentPosition: &clustermetadatapb.PoolerPosition{
 						Rule: &clustermetadatapb.ShardRule{
 							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.primaryTerm},
-							PrimaryId:  id,
+							LeaderId:   id,
 						},
 					},
 				},

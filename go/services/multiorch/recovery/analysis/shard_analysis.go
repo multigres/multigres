@@ -40,70 +40,71 @@ type ShardAnalysis struct {
 
 	// Shard-level aggregates computed once by the generator.
 
-	// Primaries is the list of all reachable poolers in the shard that are reporting
-	// as PRIMARY. More than one entry indicates a split-brain / stale-primary scenario.
-	Primaries []*PoolerAnalysis
+	// Leaders is the list of all reachable poolers in the shard that are reporting
+	// as the consensus leader. More than one entry usually indicates a stale-leader but
+	// could be a sign of split-brain if there's a consensus bug or unsafe manual override.
+	Leaders []*PoolerAnalysis
 
-	// HighestTermReachablePrimary is the primary with the highest PrimaryTerm among all
-	// primaries in Primaries. Nil when Primaries is empty or there is a tie.
-	HighestTermReachablePrimary *PoolerAnalysis
+	// HighestTermReachableLeader is the leader with the highest LeaderTerm among all
+	// leaders in Leaders. Nil when Leaders is empty or there is a tie.
+	HighestTermReachableLeader *PoolerAnalysis
 
-	// HighestTermDiscoveredPrimaryID is the pooler ID of the highest-term primary known to exist
+	// HighestTermDiscoveredLeaderID is the pooler ID of the highest-term leader known to exist
 	// in this shard's topology, regardless of whether it is currently reachable.
-	// Nil if no primary has been recorded in topology yet.
-	HighestTermDiscoveredPrimaryID *clustermetadatapb.ID
+	// Nil if no leader has been recorded in topology yet.
+	HighestTermDiscoveredLeaderID *clustermetadatapb.ID
 
-	// PrimaryReachable is true if the topology primary's pooler is reachable AND
-	// its Postgres is running. False when TopologyPrimaryID is nil.
-	PrimaryReachable bool
+	// LeaderReachable is true if the topology leader's pooler is reachable AND
+	// its Postgres is running. False when TopologyLeaderID is nil.
+	LeaderReachable bool
 
-	// PrimaryPoolerReachable is true if the topology primary's pooler health check
+	// LeaderPoolerReachable is true if the topology leader's pooler health check
 	// succeeded, independently of whether Postgres is running.
-	// False when TopologyPrimaryID is nil.
-	PrimaryPoolerReachable bool
+	// False when TopologyLeaderID is nil.
+	LeaderPoolerReachable bool
 
-	// PrimaryStandbyIDs is the synchronous_standby_names list from the topology primary.
-	// Nil when TopologyPrimaryID is nil or the primary has no sync replication config.
+	// LeaderStandbyIDs is the synchronous_standby_names list from the topology leader.
+	// Nil when TopologyLeaderID is nil or the leader has no sync replication config.
 	// Use IsInStandbyList to check membership.
-	PrimaryStandbyIDs []*clustermetadatapb.ID
+	LeaderStandbyIDs []*clustermetadatapb.ID
 
-	// HasInitializedReplica is true if at least one non-primary, reachable,
-	// initialized pooler exists in the shard. Used by PrimaryIsDeadAnalyzer to
-	// avoid false positives when the shard has no replica that can observe the primary.
+	// HasInitializedReplica is true if at least one non-leader, reachable,
+	// initialized pooler exists in the shard. Used by LeaderIsDeadAnalyzer to
+	// avoid false positives when the shard has no follower that can observe the leader.
 	HasInitializedReplica bool
 
-	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
-	// connected to the primary Postgres. Used to avoid failover when only the primary
+	// FollowersConnectedToLeader is true only if ALL followers in the shard are still
+	// connected to the leader's Postgres. Used to avoid failover when only the leader
 	// pooler process is down but Postgres is still running.
-	ReplicasConnectedToPrimary bool
+	FollowersConnectedToLeader bool
 
-	// PrimaryPostgresReady is true if the topology primary's Postgres is accepting connections
-	// (pg_isready succeeds). Distinct from PrimaryReachable: the pooler may be reachable
+	// LeaderPostgresReady is true if the topology leader's Postgres is accepting connections
+	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable
 	// but Postgres may not yet be ready (e.g. still starting up).
-	PrimaryPostgresReady bool
+	LeaderPostgresReady bool
 
-	// PrimaryPostgresRunning is true if the topology primary's Postgres process exists,
+	// LeaderPostgresRunning is true if the topology leader's Postgres process exists,
 	// even if it is not accepting connections. False when the process is dead (SIGKILL).
-	PrimaryPostgresRunning bool
+	LeaderPostgresRunning bool
 
-	// PrimaryLastPostgresReadyTime is the last time the topology primary's Postgres
+	// LeaderLastPostgresReadyTime is the last time the topology leader's Postgres
 	// responded healthy (IsPostgresReady was true). Zero if never seen ready.
-	// Used to time-bound failover suppression when replicas are still connected.
-	PrimaryLastPostgresReadyTime time.Time
+	// Used to time-bound failover suppression when followers are still connected.
+	LeaderLastPostgresReadyTime time.Time
 
-	// PrimaryHasResigned is true when the topology primary has voluntarily requested
+	// LeaderHasResigned is true when the topology leader has voluntarily requested
 	// replacement via the REQUESTING_DEMOTION signal (set during EmergencyDemote).
-	// When true, the PrimaryIsDead failover suppression logic (which normally waits
-	// for replicas to disconnect before declaring the primary dead) is bypassed
+	// When true, the LeaderIsDead failover suppression logic (which normally waits
+	// for followers to disconnect before declaring the leader dead) is bypassed
 	// because the resignation is an explicit and intentional signal, not an ambiguous
 	// network/process failure.
-	PrimaryHasResigned bool
+	LeaderHasResigned bool
 }
 
-// IsInStandbyList reports whether the given pooler ID appears in the primary's
+// IsInStandbyList reports whether the given pooler ID appears in the leader's
 // synchronous standby list. Returns false when no standby list is available.
 func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
-	for _, standbyID := range sa.PrimaryStandbyIDs {
+	for _, standbyID := range sa.LeaderStandbyIDs {
 		if standbyID.Cell == id.Cell && standbyID.Name == id.Name {
 			return true
 		}
@@ -111,11 +112,11 @@ func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
 	return false
 }
 
-// Replicas returns the PoolerAnalysis entries for all replica poolers.
+// Replicas returns the PoolerAnalysis entries for all follower poolers.
 func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
 	var replicas []*PoolerAnalysis
 	for _, pa := range sa.Analyses {
-		if !pa.IsPrimary {
+		if !pa.IsLeader {
 			replicas = append(replicas, pa)
 		}
 	}
@@ -132,7 +133,7 @@ type PoolerAnalysis struct {
 
 	// Pooler properties
 	PoolerType clustermetadatapb.PoolerType
-	IsPrimary  bool
+	IsLeader   bool
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool
@@ -157,22 +158,22 @@ type PoolerAnalysis struct {
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
 }
 
-// comparePrimaryTimeline compares two primary PoolerAnalysis entries by the
-// coordinator term of each pooler's current rule (via commonconsensus.PrimaryTerm).
+// compareLeaderTimeline compares two leader PoolerAnalysis entries by the
+// coordinator term of each pooler's current rule (via commonconsensus.LeaderTerm).
 // Returns negative if a is less advanced than b, 0 if equal, positive if a is
-// more advanced. LSN is intentionally excluded: for primaries, the coordinator
+// more advanced. LSN is intentionally excluded: for leaders, the coordinator
 // term must be unique per promotion, so equal terms indicate a consensus bug
 // rather than a resolvable tie.
-func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
+func compareLeaderTimeline(a, b *PoolerAnalysis) int {
 	return cmp.Compare(
-		commonconsensus.PrimaryTerm(a.ConsensusStatus),
-		commonconsensus.PrimaryTerm(b.ConsensusStatus),
+		commonconsensus.LeaderTerm(a.ConsensusStatus),
+		commonconsensus.LeaderTerm(b.ConsensusStatus),
 	)
 }
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
 // Both the shard analysis and the per-pooler analysis are passed so callbacks can
-// access shard-level fields (e.g. PrimaryReachable) alongside pooler-specific state.
+// access shard-level fields (e.g. LeaderReachable) alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
 func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *PoolerAnalysis) (*types.Problem, error)) ([]types.Problem, error) {
 	var problems []types.Problem

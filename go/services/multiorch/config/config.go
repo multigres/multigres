@@ -146,17 +146,17 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // Config encapsulates all multiorch configuration.
 // This is passed to the recovery engine and other components.
 type Config struct {
-	cell                                viperutil.Value[string]
-	serviceID                           viperutil.Value[string]
-	shardWatchTargets                   viperutil.Value[[]string]
-	bookkeepingInterval                 viperutil.Value[time.Duration]
-	poolerHealthCheckInterval           viperutil.Value[time.Duration]
-	healthCheckWorkers                  viperutil.Value[int]
-	recoveryCycleInterval               viperutil.Value[time.Duration]
-	primaryFailoverGracePeriodBase      viperutil.Value[time.Duration]
-	primaryFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
-	verifyReplicationTimeout            viperutil.Value[time.Duration]
-	primaryPostgresResponseThreshold    viperutil.Value[time.Duration]
+	cell                               viperutil.Value[string]
+	serviceID                          viperutil.Value[string]
+	shardWatchTargets                  viperutil.Value[[]string]
+	bookkeepingInterval                viperutil.Value[time.Duration]
+	poolerHealthCheckInterval          viperutil.Value[time.Duration]
+	healthCheckWorkers                 viperutil.Value[int]
+	recoveryCycleInterval              viperutil.Value[time.Duration]
+	leaderFailoverGracePeriodBase      viperutil.Value[time.Duration]
+	leaderFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
+	verifyReplicationTimeout           viperutil.Value[time.Duration]
+	leaderPostgresResponseThreshold    viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -210,15 +210,15 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
 		}),
-		primaryFailoverGracePeriodBase: viperutil.Configure(reg, "primary-failover-grace-period-base", viperutil.Options[time.Duration]{
+		leaderFailoverGracePeriodBase: viperutil.Configure(reg, "leader-failover-grace-period-base", viperutil.Options[time.Duration]{
 			Default:  4 * time.Second,
-			FlagName: "primary-failover-grace-period-base",
+			FlagName: "leader-failover-grace-period-base",
 			Dynamic:  true,
 			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_BASE"},
 		}),
-		primaryFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "primary-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
+		leaderFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "leader-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
 			Default:  8 * time.Second,
-			FlagName: "primary-failover-grace-period-max-jitter",
+			FlagName: "leader-failover-grace-period-max-jitter",
 			Dynamic:  true,
 			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
 		}),
@@ -228,9 +228,9 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_VERIFY_REPLICATION_TIMEOUT"},
 		}),
-		primaryPostgresResponseThreshold: viperutil.Configure(reg, "primary-postgres-response-threshold", viperutil.Options[time.Duration]{
+		leaderPostgresResponseThreshold: viperutil.Configure(reg, "leader-postgres-response-threshold", viperutil.Options[time.Duration]{
 			Default:  30 * time.Second,
-			FlagName: "primary-postgres-response-threshold",
+			FlagName: "leader-postgres-response-threshold",
 			Dynamic:  true,
 			EnvVars:  []string{"MT_PRIMARY_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
@@ -267,20 +267,20 @@ func (c *Config) GetRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Get()
 }
 
-func (c *Config) GetPrimaryFailoverGracePeriodBase() time.Duration {
-	return c.primaryFailoverGracePeriodBase.Get()
+func (c *Config) GetLeaderFailoverGracePeriodBase() time.Duration {
+	return c.leaderFailoverGracePeriodBase.Get()
 }
 
-func (c *Config) GetPrimaryFailoverGracePeriodMaxJitter() time.Duration {
-	return c.primaryFailoverGracePeriodMaxJitter.Get()
+func (c *Config) GetLeaderFailoverGracePeriodMaxJitter() time.Duration {
+	return c.leaderFailoverGracePeriodMaxJitter.Get()
 }
 
 func (c *Config) GetVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Get()
 }
 
-func (c *Config) GetPrimaryPostgresResponseThreshold() time.Duration {
-	return c.primaryPostgresResponseThreshold.Get()
+func (c *Config) GetLeaderPostgresResponseThreshold() time.Duration {
+	return c.leaderPostgresResponseThreshold.Get()
 }
 
 // Defaults for flags (used in RegisterFlags)
@@ -313,12 +313,12 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Default()
 }
 
-func (c *Config) DefaultPrimaryFailoverGracePeriodBase() time.Duration {
-	return c.primaryFailoverGracePeriodBase.Default()
+func (c *Config) DefaultLeaderFailoverGracePeriodBase() time.Duration {
+	return c.leaderFailoverGracePeriodBase.Default()
 }
 
-func (c *Config) DefaultPrimaryFailoverGracePeriodMaxJitter() time.Duration {
-	return c.primaryFailoverGracePeriodMaxJitter.Default()
+func (c *Config) DefaultLeaderFailoverGracePeriodMaxJitter() time.Duration {
+	return c.leaderFailoverGracePeriodMaxJitter.Default()
 }
 
 func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
@@ -326,7 +326,7 @@ func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
 }
 
 func (c *Config) DefaultPrimaryPostgresResponseThreshold() time.Duration {
-	return c.primaryPostgresResponseThreshold.Default()
+	return c.leaderPostgresResponseThreshold.Default()
 }
 
 // RegisterFlags registers the config flags with pflag.
@@ -338,10 +338,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
-	fs.Duration("primary-failover-grace-period-base", c.DefaultPrimaryFailoverGracePeriodBase(), "base grace period before executing primary failover")
-	fs.Duration("primary-failover-grace-period-max-jitter", c.DefaultPrimaryFailoverGracePeriodMaxJitter(), "max jitter added to primary failover grace period")
+	fs.Duration("leader-failover-grace-period-base", c.DefaultLeaderFailoverGracePeriodBase(), "base grace period before executing leader failover")
+	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
-	fs.Duration("primary-postgres-response-threshold", c.DefaultPrimaryPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
+	fs.Duration("leader-postgres-response-threshold", c.DefaultPrimaryPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -350,10 +350,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
 		c.recoveryCycleInterval,
-		c.primaryFailoverGracePeriodBase,
-		c.primaryFailoverGracePeriodMaxJitter,
+		c.leaderFailoverGracePeriodBase,
+		c.leaderFailoverGracePeriodMaxJitter,
 		c.verifyReplicationTimeout,
-		c.primaryPostgresResponseThreshold)
+		c.leaderPostgresResponseThreshold)
 }
 
 // Test helper functions
@@ -365,8 +365,8 @@ func NewTestConfig(opts ...func(*Config)) *Config {
 	cfg := NewConfig(reg)
 
 	// Set safe defaults for tests - no grace period by default
-	cfg.primaryFailoverGracePeriodBase.Set(0)
-	cfg.primaryFailoverGracePeriodMaxJitter.Set(0)
+	cfg.leaderFailoverGracePeriodBase.Set(0)
+	cfg.leaderFailoverGracePeriodMaxJitter.Set(0)
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -409,23 +409,23 @@ func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
 	}
 }
 
-// WithPrimaryFailoverGracePeriodBase sets the primary failover grace period base for testing.
-func WithPrimaryFailoverGracePeriodBase(d time.Duration) func(*Config) {
+// WithLeaderFailoverGracePeriodBase sets the leader failover grace period base for testing.
+func WithLeaderFailoverGracePeriodBase(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
-		cfg.primaryFailoverGracePeriodBase.Set(d)
+		cfg.leaderFailoverGracePeriodBase.Set(d)
 	}
 }
 
-// WithPrimaryFailoverGracePeriodMaxJitter sets the primary failover grace period max jitter for testing.
-func WithPrimaryFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
+// WithLeaderFailoverGracePeriodMaxJitter sets the leader failover grace period max jitter for testing.
+func WithLeaderFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
-		cfg.primaryFailoverGracePeriodMaxJitter.Set(d)
+		cfg.leaderFailoverGracePeriodMaxJitter.Set(d)
 	}
 }
 
-// WithPrimaryPostgresResponseThreshold sets the primary postgres responded threshold for testing.
-func WithPrimaryPostgresResponseThreshold(d time.Duration) func(*Config) {
+// WithLeaderPostgresResponseThreshold sets the primary postgres responded threshold for testing.
+func WithLeaderPostgresResponseThreshold(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
-		cfg.primaryPostgresResponseThreshold.Set(d)
+		cfg.leaderPostgresResponseThreshold.Set(d)
 	}
 }

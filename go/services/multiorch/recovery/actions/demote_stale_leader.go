@@ -34,18 +34,18 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// Compile-time assertion that DemoteStalePrimaryAction implements types.RecoveryAction.
-var _ types.RecoveryAction = (*DemoteStalePrimaryAction)(nil)
+// Compile-time assertion that DemoteStaleLeaderAction implements types.RecoveryAction.
+var _ types.RecoveryAction = (*DemoteStaleLeaderAction)(nil)
 
-// StalePrimaryDrainTimeout is a shorter drain timeout for stale primaries.
+// StaleLeaderDrainTimeout is a shorter drain timeout for stale primaries.
 // Stale primaries that just came back online typically have no active connections,
 // so we use a shorter timeout to speed up demotion.
-const StalePrimaryDrainTimeout = 5 * time.Second
+const StaleLeaderDrainTimeout = 5 * time.Second
 
-// DemoteStalePrimaryAction demotes a stale primary that was detected after failover.
-// It uses the DemoteStalePrimary RPC with the correct primary's term to force the stale primary
+// DemoteStaleLeaderAction demotes a stale leader that was detected after failover.
+// It uses the DemoteStalePrimary RPC with the correct primary's term to force the stale leader
 // to accept the term and demote, preventing further writes.
-type DemoteStalePrimaryAction struct {
+type DemoteStaleLeaderAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
@@ -53,15 +53,15 @@ type DemoteStalePrimaryAction struct {
 	logger      *slog.Logger
 }
 
-// NewDemoteStalePrimaryAction creates a new action to demote a stale primary.
-func NewDemoteStalePrimaryAction(
+// NewDemoteStaleLeaderAction creates a new action to demote a stale leader.
+func NewDemoteStaleLeaderAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
-) *DemoteStalePrimaryAction {
-	return &DemoteStalePrimaryAction{
+) *DemoteStaleLeaderAction {
+	return &DemoteStaleLeaderAction{
 		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
@@ -70,69 +70,69 @@ func NewDemoteStalePrimaryAction(
 	}
 }
 
-func (a *DemoteStalePrimaryAction) Metadata() types.RecoveryMetadata {
+func (a *DemoteStaleLeaderAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
-		Name:        "DemoteStalePrimary",
-		Description: "Demote a stale primary that came back online after failover",
+		Name:        "DemoteStaleLeader",
+		Description: "Demote a stale leader that came back online after failover",
 		Timeout:     60 * time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
 }
 
-func (a *DemoteStalePrimaryAction) Priority() types.Priority {
+func (a *DemoteStaleLeaderAction) Priority() types.Priority {
 	return types.PriorityHigh
 }
 
-func (a *DemoteStalePrimaryAction) RequiresHealthyPrimary() bool {
+func (a *DemoteStaleLeaderAction) RequiresHealthyPrimary() bool {
 	// We're demoting a primary, so we can't require a healthy primary
 	return false
 }
 
-func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
+func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
-		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
-		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),
 	}
 }
 
-// Execute demotes the stale primary using the DemoteStalePrimary RPC with the correct primary's term.
+// Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct primary's term.
 // This is safer than BeginTerm because:
 // 1. We use the correct primary's term (not a new term), avoiding term inconsistency
-// 2. The stale primary accepts term >= its current term and demotes
+// 2. The stale leader accepts term >= its current term and demotes
 // 3. Both primaries end up with the same term (no term inconsistency)
-func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
+func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
-	a.logger.InfoContext(ctx, "executing demote stale primary action",
+	a.logger.InfoContext(ctx, "executing demote stale leader action",
 		"shard_key", problem.ShardKey.String(),
-		"stale_primary", poolerIDStr)
+		"stale_leader", poolerIDStr)
 
-	// Get the stale primary from the store
-	stalePrimary, ok := a.poolerStore.Get(poolerIDStr)
+	// Get the stale leader from the store
+	staleLeader, ok := a.poolerStore.Get(poolerIDStr)
 	if !ok {
-		return fmt.Errorf("stale primary %s not found in store", poolerIDStr)
+		return fmt.Errorf("stale leader %s not found in store", poolerIDStr)
 	}
 
-	// Check if postgres is running on the stale primary before attempting demote.
+	// Check if postgres is running on the stale leader before attempting demote.
 	// Demote requires postgres to be healthy. If postgres is not running yet,
 	// we should skip this attempt and let the next recovery cycle retry once
 	// postgres is ready. This avoids wasting time on RPCs that will fail.
 	// if !stalePrimary.IsPostgresReady {
 	// 	return mterrors.New(mtrpcpb.Code_UNAVAILABLE,
-	// 		fmt.Sprintf("postgres not running on stale primary %s, skipping demote attempt", poolerIDStr))
+	// 		fmt.Sprintf("postgres not running on stale leader %s, skipping demote attempt", poolerIDStr))
 	// }
 
-	// Find the correct primary to use as rewind source
-	correctPrimary, correctPrimaryTerm, err := a.findCorrectPrimary(problem.ShardKey, poolerIDStr)
+	// Find the correct leader to use as rewind source
+	correctLeader, correctLeaderTerm, err := a.findCorrectLeader(problem.ShardKey, poolerIDStr)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to find correct primary")
+		return mterrors.Wrap(err, "failed to find correct leader")
 	}
 
-	a.logger.InfoContext(ctx, "demoting stale primary using DemoteStalePrimary RPC",
-		"stale_primary", poolerIDStr,
-		"correct_primary", correctPrimary.MultiPooler.Id.Name,
-		"correct_primary_term", correctPrimaryTerm)
+	a.logger.InfoContext(ctx, "demoting stale leader using DemoteStalePrimary RPC",
+		"stale_leader", poolerIDStr,
+		"correct_leader", correctLeader.MultiPooler.Id.Name,
+		"correct_leader_term", correctLeaderTerm)
 
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"})
 	defer func() {
@@ -145,38 +145,38 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 
 	// Call DemoteStalePrimary RPC - this will:
 	// 1. Stop postgres
-	// 2. Run pg_rewind to sync with correct primary
+	// 2. Run pg_rewind to sync with the correct leader's postgres
 	// 3. Restart as standby
 	// 4. Clear sync replication config
 	// 5. Update topology to REPLICA
-	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
-		Source:        correctPrimary.MultiPooler,
-		ConsensusTerm: correctPrimaryTerm,
+	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
+		Source:        correctLeader.MultiPooler,
+		ConsensusTerm: correctLeaderTerm,
 		Force:         false,
 	})
 	if err != nil {
 		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
 	}
 
-	a.logger.InfoContext(ctx, "stale primary demoted successfully",
-		"stale_primary", poolerIDStr,
+	a.logger.InfoContext(ctx, "stale leader demoted successfully",
+		"stale_leader", poolerIDStr,
 		"rewind_performed", demoteResp.RewindPerformed,
 		"lsn_position", demoteResp.LsnPosition)
 
-	a.logger.InfoContext(ctx, "demote stale primary action completed",
+	a.logger.InfoContext(ctx, "demote stale leader action completed",
 		"shard_key", problem.ShardKey.String(),
-		"demoted_primary", poolerIDStr)
+		"demoted_leader", poolerIDStr)
 
 	return nil
 }
 
-// findCorrectPrimary finds the correct primary in the shard and returns it along with its term.
-// The correct primary is the one with the highest PrimaryTerm.
-func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
-	var correctPrimary *multiorchdatapb.PoolerHealthState
-	var maxPrimaryTerm int64
+// findCorrectLeader finds the current leader in the shard and returns it along with its term.
+// The correct leader is the one with the highest LeaderTerm.
+func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
+	var correctLeader *multiorchdatapb.PoolerHealthState
+	var maxLeaderTerm int64
 
-	// Iterate through all poolers to find the correct primary
+	// Iterate through all poolers to find the current leader
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
@@ -191,34 +191,34 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 
 		poolerIDStr := topoclient.MultiPoolerIDString(pooler.MultiPooler.Id)
 
-		// Skip the stale primary
+		// Skip the stale leader
 		if poolerIDStr == stalePrimaryIDStr {
 			return true // continue
 		}
 
-		if !commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()) {
+		if !commonconsensus.IsLeader(pooler.GetConsensusStatus().GetConsensusStatus()) {
 			return true // continue
 		}
 
-		primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+		leaderTerm := commonconsensus.LeaderTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 
-		if primaryTerm > maxPrimaryTerm {
-			maxPrimaryTerm = primaryTerm
-			correctPrimary = pooler
+		if leaderTerm > maxLeaderTerm {
+			maxLeaderTerm = leaderTerm
+			correctLeader = pooler
 		}
 
 		return true // continue
 	})
 
-	if correctPrimary == nil {
-		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
+	if correctLeader == nil {
+		return nil, 0, fmt.Errorf("no current leader found in shard %s", shardKey.String())
 	}
 
 	// Return consensus term for the RPC parameter
 	consensusTerm := int64(0)
-	if correctPrimary.ConsensusStatus != nil {
-		consensusTerm = correctPrimary.ConsensusStatus.CurrentTerm
+	if correctLeader.ConsensusStatus != nil {
+		consensusTerm = correctLeader.ConsensusStatus.CurrentTerm
 	}
 
-	return correctPrimary, consensusTerm, nil
+	return correctLeader, consensusTerm, nil
 }

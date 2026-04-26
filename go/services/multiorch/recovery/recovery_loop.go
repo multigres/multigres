@@ -320,7 +320,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 
 	// The pooler store is kept up-to-date by the watcher, so no explicit
 	// topology refresh is needed here. Force re-poll poolers based on scope
-	if problem.Code == types.ProblemPrimaryIsDead && problem.PoolerID != nil {
+	if problem.Code == types.ProblemLeaderIsDead && problem.PoolerID != nil {
 		// Refresh all poolers in shard except the dead primary itself.
 		deadPrimaryID := topoclient.MultiPoolerIDString(problem.PoolerID)
 		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, []string{deadPrimaryID})
@@ -417,7 +417,7 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 	}
 }
 
-// findPrimaryInShard finds the primary pooler ID for a given shard.
+// findPrimaryInShard finds the leader (PoolerType_PRIMARY) pooler ID for a given shard.
 func (re *Engine) findPrimaryInShard(shardKey commontypes.ShardKey) (string, error) {
 	var primaryID string
 	var found bool
@@ -427,6 +427,10 @@ func (re *Engine) findPrimaryInShard(shardKey commontypes.ShardKey) (string, err
 			return true
 		}
 
+		// TODO: MultiPooler.Type is the etcd topology record, which lags consensus
+		// state. A newly-appointed leader still shows Type=REPLICA until it updates
+		// topology, and a resigned leader still shows Type=PRIMARY after resignation.
+		// This should use consensus.IsLeader(ConsensusStatus) instead.
 		if poolerHealth.MultiPooler.Database == shardKey.Database &&
 			poolerHealth.MultiPooler.TableGroup == shardKey.TableGroup &&
 			poolerHealth.MultiPooler.Shard == shardKey.Shard &&

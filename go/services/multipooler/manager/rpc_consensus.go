@@ -361,7 +361,7 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 // and no leadership context exists.
 func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
 	pm.mu.Lock()
-	resignedTerm := pm.resignedPrimaryAtTerm
+	resignedTerm := pm.resignedLeaderAtTerm
 	pm.mu.Unlock()
 
 	if resignedTerm == 0 {
@@ -370,36 +370,36 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 
 	return &clustermetadatapb.AvailabilityStatus{
 		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-			PrimaryTerm: resignedTerm,
-			Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			LeaderTerm: resignedTerm,
+			Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 		},
 	}
 }
 
-// setResignedPrimaryAtTerm records that this node is requesting demotion as primary
+// setResignedLeaderAtTerm records that this node is requesting demotion as primary
 // for the given term. The signal is included in subsequent StatusResponses so the
 // coordinator can trigger an immediate election.
 // Requires the action lock (ctx must be an action-lock context).
-func (pm *MultiPoolerManager) setResignedPrimaryAtTerm(ctx context.Context, term int64) error {
+func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term int64) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	pm.mu.Lock()
-	pm.resignedPrimaryAtTerm = term
+	pm.resignedLeaderAtTerm = term
 	pm.mu.Unlock()
 	return nil
 }
 
-// clearResignedPrimaryAtTerm clears the leadership demotion request. Called by
+// clearResignedLeaderAtTerm clears the leadership demotion request. Called by
 // coordinator-driven promotion (Promote) when this node is explicitly
 // re-appointed as primary at a new term.
 // Requires the action lock (ctx must be an action-lock context).
-func (pm *MultiPoolerManager) clearResignedPrimaryAtTerm(ctx context.Context) error {
+func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	pm.mu.Lock()
-	pm.resignedPrimaryAtTerm = 0
+	pm.resignedLeaderAtTerm = 0
 	pm.mu.Unlock()
 	return nil
 }

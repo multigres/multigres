@@ -221,7 +221,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		PoolerID:         pooler.MultiPooler.Id,
 		ShardKey:         shardKey,
 		PoolerType:       poolerType,
-		IsPrimary:        commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()),
+		IsLeader:         commonconsensus.IsLeader(pooler.GetConsensusStatus().GetConsensusStatus()),
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
 		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
@@ -239,7 +239,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
-	if !analysis.IsPrimary {
+	if !analysis.IsLeader {
 		if rs := pooler.GetStatus().GetReplicationStatus(); rs != nil {
 			analysis.ReplicationStopped = rs.IsWalReplayPaused
 
@@ -253,10 +253,10 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	return analysis
 }
 
-// findHighestTermRawPooler returns the raw PoolerHealthState with the highest PrimaryTerm
+// findHighestTermRawLeader returns the raw PoolerHealthState with the highest LeaderTerm
 // among all PRIMARY-typed poolers, regardless of reachability. Returns nil if none found.
-func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
-	// TODO: If multiple poolers claim to be primary at the same term, we should surface an error that
+func findHighestTermRawLeader(poolers map[string]*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	// TODO: If multiple poolers claim to be leader at the same term, we should surface an error that
 	// manual intervention is needed.
 
 	var best *multiorchdatapb.PoolerHealthState
@@ -265,10 +265,16 @@ func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthSt
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
 		}
+		// Note: if a node is the consensus leader but reports PoolerType_REPLICA (e.g.
+		// its postgres crashed and restarted in recovery mode without going through the
+		// normal resign flow), it is skipped here and won't appear in
+		// HighestTermDiscoveredLeaderID, so LeaderIsDead detection would miss it.
+		// The normal resign path avoids this because PoolerType stays PRIMARY until
+		// DemoteStalePrimary completes.
 		if pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
-		term := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+		term := commonconsensus.LeaderTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 		if best == nil || term > bestTerm {
 			best = pooler
 			bestTerm = term
@@ -277,15 +283,15 @@ func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthSt
 	return best
 }
 
-// allReplicasConnectedToPrimary checks if ALL replicas in the shard are connected to the primary.
+// allFollowersConnectedToLeader checks if ALL replicas in the shard are connected to the leader's postgres.
 // A replica is considered connected if:
 // 1. Its health check is valid (IsLastCheckValid)
-// 2. It has PrimaryConnInfo configured pointing to this primary
+// 2. It has PrimaryConnInfo configured pointing to the leader's postgres
 // 3. It has received WAL (LastReceiveLsn is not empty)
 //
 // Returns true only if all replicas meet these criteria.
 // Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
+func (g *AnalysisGenerator) allFollowersConnectedToLeader(
 	primary *multiorchdatapb.PoolerHealthState,
 	poolers map[string]*multiorchdatapb.PoolerHealthState,
 ) bool {
@@ -301,12 +307,15 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 			continue
 		}
 
-		// Skip the primary itself
+		// Skip the leader itself
 		if poolerID == primaryIDStr {
 			continue
 		}
 
-		// Skip non-replicas
+		// Skip non-replicas. Note: a node whose postgres crashed into recovery mode
+		// without going through the normal resign flow could report PoolerType_REPLICA
+		// while still being the consensus leader. Such a node would be incorrectly
+		// counted as a follower here, overstating connected-follower count.
 		replicaType := pooler.GetStatus().GetPoolerType()
 		if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
 			replicaType = pooler.MultiPooler.Type
@@ -317,8 +326,8 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 
 		replicaCount++
 
-		// Check if replica is connected to the primary
-		if !g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
+		// Check if replica is connected to the leader's postgres
+		if !g.isFollowerConnectedToLeader(pooler, primaryHost, primaryPort) {
 			continue
 		}
 
@@ -329,10 +338,10 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 	return replicaCount > 0 && connectedCount == replicaCount
 }
 
-// isReplicaConnectedToPrimary checks if a single replica is actively connected to the primary.
+// isFollowerConnectedToLeader checks if a single replica is actively connected to the leader's postgres.
 // It verifies both that the connection is configured correctly and that the WAL receiver is
-// actively exchanging keepalives with the primary via pg_stat_wal_receiver.
-func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
+// actively exchanging keepalives with the leader's postgres via pg_stat_wal_receiver.
+func (g *AnalysisGenerator) isFollowerConnectedToLeader(
 	replica *multiorchdatapb.PoolerHealthState,
 	primaryHost string,
 	primaryPort int32,
@@ -373,7 +382,7 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 		return false
 	}
 
-	// If last_msg_receive_time is available, verify the primary is still
+	// If last_msg_receive_time is available, verify the leader's postgres is still
 	// sending keepalives. The threshold is
 	// replicationHeartbeatStalenessMultiplier × wal_receiver_status_interval,
 	// falling back to defaultReplicationHeartbeatStalenessThreshold when the
@@ -417,81 +426,81 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// Collect all reachable primaries in the shard.
 	for _, pa := range sa.Analyses {
-		if pa.IsPrimary && pa.LastCheckValid {
-			sa.Primaries = append(sa.Primaries, pa)
+		if pa.IsLeader && pa.LastCheckValid {
+			sa.Leaders = append(sa.Leaders, pa)
 		}
 	}
 
-	// Determine the highest-term primary (used for stale-primary detection).
-	sa.HighestTermReachablePrimary = findHighestTermPooler(sa.Primaries)
+	// Determine the highest-term reachable leader (used for stale-leader detection).
+	sa.HighestTermReachableLeader = findHighestTermLeader(sa.Leaders)
 
-	// Compute topology primary: the highest-term primary in the shard regardless of reachability.
-	// This may differ from HighestTermPrimary when the primary pooler is down.
-	topologyPrimary := findHighestTermRawPooler(poolers)
+	// Compute the highest-term leader in the shard regardless of reachability.
+	// This may differ from HighestTermReachableLeader when the leader pooler is down.
+	topologyPrimary := findHighestTermRawLeader(poolers)
 	if topologyPrimary != nil {
-		sa.HighestTermDiscoveredPrimaryID = topologyPrimary.MultiPooler.Id
-		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
-		sa.PrimaryPostgresReady = topologyPrimary.GetStatus().GetPostgresReady()
-		sa.PrimaryPostgresRunning = topologyPrimary.GetStatus().GetPostgresRunning()
-		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.GetStatus().GetPostgresReady() && !sa.PrimaryHasResigned
+		sa.HighestTermDiscoveredLeaderID = topologyPrimary.MultiPooler.Id
+		sa.LeaderPoolerReachable = topologyPrimary.IsLastCheckValid
+		sa.LeaderPostgresReady = topologyPrimary.GetStatus().GetPostgresReady()
+		sa.LeaderPostgresRunning = topologyPrimary.GetStatus().GetPostgresRunning()
+		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary)
+		sa.LeaderReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.GetStatus().GetPostgresReady() && !sa.LeaderHasResigned
 		if topologyPrimary.LastPostgresReadyTime != nil {
-			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
+			sa.LeaderLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}
 
 		// Populate the standby list from the topology primary (used by IsInStandbyList).
 		if ps := topologyPrimary.GetStatus().GetPrimaryStatus(); ps != nil && ps.SyncReplicationConfig != nil {
-			sa.PrimaryStandbyIDs = ps.SyncReplicationConfig.StandbyIds
+			sa.LeaderStandbyIDs = ps.SyncReplicationConfig.StandbyIds
 		}
 	}
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
 	for _, pa := range sa.Analyses {
-		if !pa.IsPrimary && pa.LastCheckValid && pa.IsInitialized {
+		if !pa.IsLeader && pa.LastCheckValid && pa.IsInitialized {
 			sa.HasInitializedReplica = true
 			break
 		}
 	}
 
-	// Determine if all replicas are still connected to the primary Postgres.
-	// Use the topology primary (which may be unreachable) so we can detect the
-	// "pooler down but Postgres still running" scenario that ReplicasConnectedToPrimary
+	// Determine if all followers are still connected to the leader's postgres.
+	// Use the highest-term discovered leader (which may be unreachable) so we can detect the
+	// "pooler down but postgres still running" scenario that FollowersConnectedToLeader
 	// is designed to catch.
 	if topologyPrimary != nil {
-		sa.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(topologyPrimary, poolers)
+		sa.FollowersConnectedToLeader = g.allFollowersConnectedToLeader(topologyPrimary, poolers)
 	}
 }
 
-// findHighestTermPooler returns the primary PoolerAnalysis with the highest PrimaryTerm.
-// Returns nil if primaries is empty, all have PrimaryTerm=0, or there is a tie.
+// findHighestTermLeader returns the leader PoolerAnalysis with the highest LeaderTerm.
+// Returns nil if leaders is empty, all have LeaderTerm=0, or there is a tie.
 //
-// Invariant: In a properly initialized shard, PrimaryTerm is always >0 for PRIMARY poolers.
-// PrimaryTerm is set during promotion and only cleared during demotion. This function
-// is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
+// Invariant: In a properly initialized shard, LeaderTerm is always >0 for PRIMARY poolers.
+// LeaderTerm is set during promotion and only cleared during demotion. This function
+// is defensive and returns nil if all leaders have LeaderTerm=0, but this should
 // never happen in a properly initialized shard.
-func findHighestTermPooler(primaries []*PoolerAnalysis) *PoolerAnalysis {
+func findHighestTermLeader(primaries []*PoolerAnalysis) *PoolerAnalysis {
 	if len(primaries) == 0 {
 		return nil
 	}
 
-	mostAdvanced := slices.MaxFunc(primaries, comparePrimaryTimeline)
+	mostAdvanced := slices.MaxFunc(primaries, compareLeaderTimeline)
 
 	// Defensive: should not happen in initialized shards, but guard against invalid state
-	if commonconsensus.PrimaryTerm(mostAdvanced.ConsensusStatus) == 0 {
+	if commonconsensus.LeaderTerm(mostAdvanced.ConsensusStatus) == 0 {
 		return nil
 	}
 
-	// Tie detection: multiple primaries with the same PrimaryTerm indicates a consensus bug.
-	// PrimaryTerm should be unique per primary and monotonically increasing. If two primaries
-	// claim the same PrimaryTerm, something went wrong in the consensus protocol (bug in
+	// Tie detection: multiple leaders with the same LeaderTerm indicates a consensus bug.
+	// LeaderTerm should be unique per leader and monotonically increasing. If two leaders
+	// claim the same LeaderTerm, something went wrong in the consensus protocol (bug in
 	// promotion logic, data corruption, or split-brain).
 	//
 	// TODO: Rather than requiring manual intervention, multiorch could automatically resolve
-	// this by starting a new term and reappointing one of the primaries, which would update
-	// its primary_term and make the others stale. For now, we skip automatic demotion to
+	// this by starting a new term and reappointing one of the leaders, which would update
+	// its leader_term and make the others stale. For now, we skip automatic demotion to
 	// avoid making the situation worse without understanding the root cause.
 	for _, p := range primaries {
-		if p != mostAdvanced && comparePrimaryTimeline(p, mostAdvanced) == 0 {
+		if p != mostAdvanced && compareLeaderTimeline(p, mostAdvanced) == 0 {
 			return nil
 		}
 	}

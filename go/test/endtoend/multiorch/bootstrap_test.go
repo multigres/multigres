@@ -157,7 +157,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
 		consensusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get consensus status from primary")
-		primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
+		primaryTerm := commonconsensus.LeaderTerm(consensusResp.ConsensusStatus)
 		assert.Equal(t, int64(1), primaryTerm, "Primary term should be set to 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
 			status.Status.ConsensusTerm.TermNumber, primaryTerm)
@@ -189,7 +189,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				require.NotNil(t, status.Status.ConsensusTerm, "Standby %s should have consensus term", name)
 				consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 				require.NoError(t, err, "Standby %s: should be able to get consensus status", name)
-				primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
+				primaryTerm := commonconsensus.LeaderTerm(consensusResp.ConsensusStatus)
 				assert.Equal(t, int64(0), primaryTerm,
 					"Standby %s should have primary_term=0 (never been primary)", name)
 

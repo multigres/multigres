@@ -693,14 +693,14 @@ func TestSelectCandidate(t *testing.T) {
 					CurrentPosition: &clustermetadatapb.PoolerPosition{
 						Rule: &clustermetadatapb.ShardRule{
 							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
-							PrimaryId:  resignedPoolerID,
+							LeaderId:   resignedPoolerID,
 						},
 					},
 				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 4,
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+						LeaderTerm: 4,
+						Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 					},
 				},
 			},
@@ -755,14 +755,14 @@ func TestSelectCandidate(t *testing.T) {
 					CurrentPosition: &clustermetadatapb.PoolerPosition{
 						Rule: &clustermetadatapb.ShardRule{
 							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
-							PrimaryId:  onlyNodeID,
+							LeaderId:   onlyNodeID,
 						},
 					},
 				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 3,
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+						LeaderTerm: 3,
+						Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 					},
 				},
 			},
@@ -799,14 +799,14 @@ func TestSelectCandidate(t *testing.T) {
 					CurrentPosition: &clustermetadatapb.PoolerPosition{
 						Rule: &clustermetadatapb.ShardRule{
 							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-							PrimaryId:  staleSignalID,
+							LeaderId:   staleSignalID,
 						},
 					},
 				},
 				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 3, // signal from an old term — stale
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+						LeaderTerm: 3, // signal from an old term — stale
+						Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 					},
 				},
 			},
@@ -1303,21 +1303,21 @@ func TestBeginTerm(t *testing.T) {
 		// mp1 was the previous primary at term 4 and has emergency-demoted.
 		// Its cached health still shows rule=(primary=mp1, term=4) and the
 		// leadership status carries REQUESTING_DEMOTION at that same term —
-		// the shape types.PrimaryNeedsReplacement looks for.
+		// the shape types.LeaderNeedsReplacement looks for.
 		mp1.ConsensusStatus = &consensusdatapb.StatusResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: mp1.MultiPooler.Id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
-						PrimaryId:  mp1.MultiPooler.Id,
+						LeaderId:   mp1.MultiPooler.Id,
 					},
 				},
 			},
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					PrimaryTerm: 4,
-					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					LeaderTerm: 4,
+					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 				},
 			},
 		}
