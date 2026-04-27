@@ -64,24 +64,28 @@ type DurabilityPolicy interface {
 	//     commit outside our recruitment.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
-	// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
-	// new leader must apply to satisfy this policy's durability obligations.
+	// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config
+	// the new primary must apply to satisfy this policy's durability
+	// obligations.
 	//
 	// cohort is the full set of poolers participating in the term, including
-	// the candidate. The method excludes the candidate from cohort to derive
-	// the standby set, then applies any policy-specific filtering (e.g., cell
-	// affinity in MultiCellPolicy). Passing the full cohort keeps the
-	// caller-side contract simple and makes "forgot to filter the candidate"
-	// impossible.
+	// the leader. The method derives the eligible standby set per policy
+	// (e.g., MultiCellPolicy excludes the leader's cell). Passing the full
+	// cohort keeps the caller-side contract simple.
 	//
-	// A nil result means the policy does not require leader-side sync
-	// enforcement — async replication is sufficient, either because the
-	// policy is trivially satisfied (e.g., RequiredCount==1) or because the
-	// configured AsyncFallback is ALLOW and no eligible standbys remain.
+	// On success the config is always non-nil — every promotion explicitly
+	// rewires Postgres replication, so the caller can blindly translate it
+	// to a ConfigureSynchronousReplicationRequest. For policies trivially
+	// satisfied without sync replication (RequiredCount==1), the config
+	// uses SYNCHRONOUS_COMMIT_LOCAL with an empty SyncStandbyIDs, which
+	// causes Postgres to clear synchronous_standby_names — explicitly
+	// dropping any stale sync configuration the new primary may have
+	// inherited from a prior role. Returns an error when the cohort cannot
+	// satisfy the policy's num_sync requirement.
 	BuildLeaderDurabilityPostgresConfig(
 		logger *slog.Logger,
 		cohort []*clustermetadatapb.ID,
-		candidate *clustermetadatapb.ID,
+		leader *clustermetadatapb.ID,
 	) (*LeaderDurabilityPostgresConfig, error)
 
 	// Description returns a human-readable summary of the policy.
@@ -115,19 +119,13 @@ func NewPolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityP
 		if policy.RequiredCount < 1 {
 			return nil, fmt.Errorf("AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
 		}
-		return AtLeastNPolicy{
-			N:             int(policy.RequiredCount),
-			AsyncFallback: policy.AsyncFallback,
-		}, nil
+		return AtLeastNPolicy{N: int(policy.RequiredCount)}, nil
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
 		// N=0 would make revocation (|uncovered cells| < N) unsatisfiable for any recruitment.
 		if policy.RequiredCount < 1 {
 			return nil, fmt.Errorf("MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
 		}
-		return MultiCellPolicy{
-			N:             int(policy.RequiredCount),
-			AsyncFallback: policy.AsyncFallback,
-		}, nil
+		return MultiCellPolicy{N: int(policy.RequiredCount)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported quorum type: %v", policy.QuorumType)
 	}

@@ -296,34 +296,26 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 
 func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 	logger := testLogger()
-	candidate := id("primary", "cell-primary")
+	leader := id("primary", "cell-primary")
 
-	t.Run("N=1 returns nil (async sufficient)", func(t *testing.T) {
+	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 1}
 		cohort := []*clustermetadatapb.ID{
-			candidate,
+			leader,
 			id("mp1", "cell1"),
 			id("mp2", "cell1"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
-		require.Nil(t, cfg)
-	})
-
-	t.Run("ALLOW with empty cohort returns nil", func(t *testing.T) {
-		p := AtLeastNPolicy{
-			N:             2,
-			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
-		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
-		require.NoError(t, err)
-		require.Nil(t, cfg)
+		require.NotNil(t, cfg)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
+		require.Empty(t, cfg.SyncStandbyIDs, "N=1 should produce an empty standby list so Postgres clears synchronous_standby_names")
 	})
 
 	t.Run("N=2 with cohort of 2 sets num_sync=1", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
-		cohort := []*clustermetadatapb.ID{candidate, id("mp1", "cell1")}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cohort := []*clustermetadatapb.ID{leader, id("mp1", "cell1")}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)
@@ -338,11 +330,11 @@ func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 	t.Run("N=3 with cohort of 3 sets num_sync=2", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 3}
 		cohort := []*clustermetadatapb.ID{
-			candidate,
+			leader,
 			id("mp1", "cell1"),
 			id("mp2", "cell1"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync)
@@ -352,43 +344,27 @@ func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 	t.Run("N=3 with cohort of 6 keeps num_sync=2 (not capped by cohort size)", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 3}
 		cohort := []*clustermetadatapb.ID{
-			candidate,
+			leader,
 			id("mp1", "cell1"), id("mp2", "cell1"),
 			id("mp3", "cell1"), id("mp4", "cell1"),
 			id("mp5", "cell1"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync, "num_sync should be N-1, not the cohort size")
 		require.Len(t, cfg.SyncStandbyIDs, 6)
 	})
 
-	t.Run("N=5 with cohort of 2 + ALLOW caps num_sync at cohort size", func(t *testing.T) {
-		p := AtLeastNPolicy{
-			N:             5,
-			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
-		}
-		cohort := []*clustermetadatapb.ID{
-			candidate,
-			id("mp1", "cell1"),
-		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
-		require.NoError(t, err)
-		require.NotNil(t, cfg)
-		require.Equal(t, 2, cfg.NumSync, "num_sync should be capped at cohort size")
-		require.Len(t, cfg.SyncStandbyIDs, 2)
-	})
-
 	t.Run("AT_LEAST_N does not filter by cell", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
-		sameCellCandidate := id("primary", "us-west-1a")
+		sameCellLeader := id("primary", "us-west-1a")
 		cohort := []*clustermetadatapb.ID{
-			sameCellCandidate,
-			id("mp1", "us-west-1a"), // same cell as candidate; AT_LEAST_N keeps it
+			sameCellLeader,
+			id("mp1", "us-west-1a"), // same cell as leader; AT_LEAST_N keeps it
 			id("mp2", "us-west-1b"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, sameCellCandidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, sameCellLeader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.ElementsMatch(t,
@@ -397,55 +373,38 @@ func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 		)
 	})
 
-	t.Run("REJECT with empty cohort returns error", func(t *testing.T) {
-		p := AtLeastNPolicy{
-			N:             2,
-			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
-		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
+	t.Run("empty cohort returns error", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 2}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, leader)
 		require.Error(t, err)
 		require.Nil(t, cfg)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")
-		require.Contains(t, err.Error(), "async_fallback=REJECT")
+		require.Contains(t, err.Error(), "insufficient cohort members")
 	})
 
-	t.Run("REJECT with insufficient cohort returns error", func(t *testing.T) {
-		p := AtLeastNPolicy{
-			N:             5, // requires 4 standbys
-			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
-		}
+	t.Run("insufficient cohort returns error", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 5} // requires 4 standbys
 		cohort := []*clustermetadatapb.ID{
-			candidate,
+			leader,
 			id("mp1", "us-west-1a"),
 			id("mp2", "us-west-1b"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.Error(t, err)
 		require.Nil(t, cfg)
 		require.Contains(t, err.Error(), "required 4 standbys")
-		require.Contains(t, err.Error(), "async_fallback=REJECT")
+		require.Contains(t, err.Error(), "available 3")
 	})
 
-	t.Run("UNKNOWN defaults to REJECT", func(t *testing.T) {
-		p := AtLeastNPolicy{
-			N:             2,
-			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN,
-		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
-		require.Error(t, err)
-		require.Nil(t, cfg)
-		require.Contains(t, err.Error(), "async_fallback=REJECT")
-	})
-
-	t.Run("includes the full cohort (candidate + standbys) in result", func(t *testing.T) {
+	t.Run("includes the full cohort (leader + standbys) in result", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
 		cohort := []*clustermetadatapb.ID{
-			candidate,
+			leader,
 			id("mp-alpha", "cell-a"),
 			id("mp-beta", "cell-b"),
 			id("mp-gamma", "cell-c"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.ElementsMatch(t,

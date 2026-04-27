@@ -27,11 +27,6 @@ import (
 // AtLeastNPolicy requires any N poolers from the cohort to acknowledge writes.
 type AtLeastNPolicy struct {
 	N int
-	// AsyncFallback governs what BuildLeaderDurabilityPostgresConfig does when
-	// no eligible standbys are available to satisfy synchronous replication.
-	// REJECT (or unset) refuses to promote without sync; ALLOW degrades to
-	// async-only.
-	AsyncFallback clustermetadatapb.AsyncReplicationFallbackMode
 }
 
 // CheckAchievable returns nil iff the proposed cohort has at least N poolers.
@@ -90,69 +85,51 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 	return nil
 }
 
-// BuildLeaderDurabilityPostgresConfig returns the leader-side Postgres config
-// needed to satisfy AT_LEAST_N. The standby list is the full cohort —
-// AT_LEAST_N is cell-agnostic and the candidate is part of the list (Postgres
-// ignores the primary's own entry for ack purposes; num_sync = N-1 already
-// accounts for the primary's local write counting as 1).
+// BuildPrimaryDurabilityPostgresConfig returns the Postgres-level config the
+// new primary must apply to satisfy AT_LEAST_N. The standby list is the full
+// cohort — AT_LEAST_N is cell-agnostic and including the primary is harmless
+// (Postgres ignores its own entry; num_sync = N-1 already accounts for the
+// primary's local write counting as 1).
+//
+// Errors when the cohort is too small to satisfy num_sync.
 func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(
 	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
-	candidate *clustermetadatapb.ID,
+	leader *clustermetadatapb.ID,
 ) (*LeaderDurabilityPostgresConfig, error) {
-	asyncFallback := p.AsyncFallback
-	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
-		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
-	}
-
-	// N==1 means the primary alone satisfies durability; async is sufficient.
+	// N==1 means the primary alone satisfies durability — return an explicit
+	// "no sync standbys" config so the new primary clears any stale
+	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Skipping synchronous replication configuration",
+		logger.Info("Configuring leader for local-only durability",
 			"policy", "AT_LEAST_N",
-			"required_count", p.N,
-			"reason", "async replication sufficient for quorum")
-		return nil, nil
-	}
-
-	if len(cohort) == 0 {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: no cohort members available (required %d standbys, async_fallback=REJECT)",
-					p.N-1))
-		}
-		logger.Info("Skipping synchronous replication configuration",
-			"policy", "AT_LEAST_N",
-			"required_count", p.N,
-			"reason", "no cohort members available, async fallback enabled")
-		return nil, nil
+			"required_count", p.N)
+		return &LeaderDurabilityPostgresConfig{
+			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
+			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			NumSync:        1,
+			SyncStandbyIDs: nil,
+		}, nil
 	}
 
 	// num_sync = required_count - 1: the primary's own write counts as 1 ack.
 	requiredNumSync := p.N - 1
 	if requiredNumSync > len(cohort) {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: insufficient cohort members (required %d standbys, available %d, async_fallback=REJECT)",
-					requiredNumSync, len(cohort)))
-		}
-		logger.Warn("Not enough cohort members for required sync count, using all available",
-			"policy", "AT_LEAST_N",
-			"required_num_sync", requiredNumSync,
-			"available_standbys", len(cohort))
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("cannot establish synchronous replication: insufficient cohort members (required %d standbys, available %d)",
+				requiredNumSync, len(cohort)))
 	}
-
-	numSync := min(requiredNumSync, len(cohort))
 
 	logger.Info("Configuring synchronous replication",
 		"policy", "AT_LEAST_N",
 		"required_count", p.N,
-		"num_sync", numSync,
+		"num_sync", requiredNumSync,
 		"standbys", len(cohort))
 
 	return &LeaderDurabilityPostgresConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-		NumSync:        numSync,
+		NumSync:        requiredNumSync,
 		SyncStandbyIDs: cohort,
 	}, nil
 }

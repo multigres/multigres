@@ -28,11 +28,6 @@ import (
 // distinct cells.
 type MultiCellPolicy struct {
 	N int
-	// AsyncFallback governs what BuildLeaderDurabilityPostgresConfig does when
-	// no eligible (different-cell) standbys are available to satisfy
-	// synchronous replication. REJECT (or unset) refuses to promote without
-	// sync; ALLOW degrades to async-only.
-	AsyncFallback clustermetadatapb.AsyncReplicationFallbackMode
 }
 
 // CheckAchievable returns nil iff the proposed cohort spans at least N
@@ -83,85 +78,74 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 	return nil
 }
 
-// BuildLeaderDurabilityPostgresConfig returns the leader-side Postgres config
-// needed to satisfy MULTI_CELL_AT_LEAST_N. Standbys in the candidate's own
-// cell are excluded so synchronous acknowledgement always crosses a cell
-// boundary.
+// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
+// new primary must apply to satisfy MULTI_CELL_AT_LEAST_N. Standbys in the
+// primary's own cell are excluded so synchronous acknowledgement always
+// crosses a cell boundary.
+//
+// Errors when no eligible different-cell standbys exist or when the eligible
+// set is too small to satisfy num_sync.
 func (p MultiCellPolicy) BuildLeaderDurabilityPostgresConfig(
 	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
-	candidate *clustermetadatapb.ID,
+	leader *clustermetadatapb.ID,
 ) (*LeaderDurabilityPostgresConfig, error) {
-	asyncFallback := p.AsyncFallback
-	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
-		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
-	}
-
-	// N==1 means the primary alone satisfies durability; async is sufficient.
+	// N==1 means the primary alone satisfies durability — return an explicit
+	// "no sync standbys" config so the new primary clears any stale
+	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Skipping synchronous replication configuration",
+		logger.Info("Configuring leader for local-only durability",
 			"policy", "MULTI_CELL_AT_LEAST_N",
-			"required_count", p.N,
-			"reason", "async replication sufficient for quorum")
-		return nil, nil
+			"required_count", p.N)
+		return &LeaderDurabilityPostgresConfig{
+			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
+			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			NumSync:        1,
+			SyncStandbyIDs: nil,
+		}, nil
 	}
 
-	// Drop cohort members in the candidate's own cell so synchronous
-	// acknowledgement always crosses a cell boundary. The candidate itself is
+	// Drop cohort members in the primary's own cell so synchronous
+	// acknowledgement always crosses a cell boundary. The primary itself is
 	// naturally excluded (it's in its own cell).
-	candidateCell := candidate.GetCell()
+	leaderCell := leader.GetCell()
 	eligible := make([]*clustermetadatapb.ID, 0, len(cohort))
 	for _, s := range cohort {
-		if s.GetCell() != candidateCell {
+		if s.GetCell() != leaderCell {
 			eligible = append(eligible, s)
 		}
 	}
 
 	logger.Info("Filtered standbys for MULTI_CELL_AT_LEAST_N",
-		"candidate_cell", candidateCell,
+		"leader_cell", leaderCell,
 		"cohort_size", len(cohort),
 		"eligible_standbys", len(eligible),
 		"excluded_same_cell", len(cohort)-len(eligible))
 
 	if len(eligible) == 0 {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
-					candidateCell))
-		}
-		logger.Info("Skipping synchronous replication configuration",
-			"policy", "MULTI_CELL_AT_LEAST_N",
-			"candidate_cell", candidateCell,
-			"reason", "no eligible standbys in different cells, async fallback enabled")
-		return nil, nil
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (leader_cell=%s)",
+				leaderCell))
 	}
 
 	// num_sync = required_count - 1: primary itself counts as 1 ack.
 	requiredNumSync := p.N - 1
 	if requiredNumSync > len(eligible) {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: insufficient different-cell standbys (required %d standbys, available %d, async_fallback=REJECT)",
-					requiredNumSync, len(eligible)))
-		}
-		logger.Warn("Not enough standbys for required sync count, using all available",
-			"policy", "MULTI_CELL_AT_LEAST_N",
-			"required_num_sync", requiredNumSync,
-			"available_standbys", len(eligible))
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("cannot establish synchronous replication: insufficient different-cell standbys (required %d standbys, available %d)",
+				requiredNumSync, len(eligible)))
 	}
-
-	numSync := min(requiredNumSync, len(eligible))
 
 	logger.Info("Configuring synchronous replication",
 		"policy", "MULTI_CELL_AT_LEAST_N",
 		"required_count", p.N,
-		"num_sync", numSync,
+		"num_sync", requiredNumSync,
 		"eligible_standbys", len(eligible))
 
 	return &LeaderDurabilityPostgresConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-		NumSync:        numSync,
+		NumSync:        requiredNumSync,
 		SyncStandbyIDs: eligible,
 	}, nil
 }

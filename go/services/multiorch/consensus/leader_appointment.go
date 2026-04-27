@@ -516,15 +516,12 @@ func (c *Coordinator) EstablishLeadership(
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
-	var syncConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
-	if leaderCfg != nil {
-		syncConfig = &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-			SynchronousCommit: leaderCfg.SyncCommit,
-			SynchronousMethod: leaderCfg.SyncMethod,
-			NumSync:           int32(leaderCfg.NumSync),
-			StandbyIds:        leaderCfg.SyncStandbyIDs,
-			ReloadConfig:      true,
-		}
+	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+		SynchronousCommit: leaderCfg.SyncCommit,
+		SynchronousMethod: leaderCfg.SyncMethod,
+		NumSync:           int32(leaderCfg.NumSync),
+		StandbyIds:        leaderCfg.SyncStandbyIDs,
+		ReloadConfig:      true,
 	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
