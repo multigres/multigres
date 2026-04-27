@@ -17,9 +17,11 @@ package consensus
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ParseUserSpecifiedDurabilityPolicy converts a policy name string into a DurabilityPolicy message.
@@ -62,8 +64,42 @@ type DurabilityPolicy interface {
 	//     commit outside our recruitment.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
+	// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
+	// new leader must apply to satisfy this policy's durability obligations.
+	//
+	// cohort is the full set of poolers participating in the term, including
+	// the candidate. The method excludes the candidate from cohort to derive
+	// the standby set, then applies any policy-specific filtering (e.g., cell
+	// affinity in MultiCellPolicy). Passing the full cohort keeps the
+	// caller-side contract simple and makes "forgot to filter the candidate"
+	// impossible.
+	//
+	// A nil result means the policy does not require leader-side sync
+	// enforcement — async replication is sufficient, either because the
+	// policy is trivially satisfied (e.g., RequiredCount==1) or because the
+	// configured AsyncFallback is ALLOW and no eligible standbys remain.
+	BuildLeaderDurabilityPostgresConfig(
+		logger *slog.Logger,
+		cohort []*clustermetadatapb.ID,
+		candidate *clustermetadatapb.ID,
+	) (*LeaderDurabilityPostgresConfig, error)
+
 	// Description returns a human-readable summary of the policy.
 	Description() string
+}
+
+// LeaderDurabilityPostgresConfig is the Postgres-level configuration a new
+// leader must apply to satisfy a durability policy.
+//
+// It captures only the durability-meaningful outputs of the policy — the
+// commit level, the standby acknowledgement method, the count, and the
+// eligible standby set. RPC plumbing concerns (reload-vs-restart, etc.) live
+// at the call site that translates this into a wire request.
+type LeaderDurabilityPostgresConfig struct {
+	SyncCommit     multipoolermanagerdatapb.SynchronousCommitLevel
+	SyncMethod     multipoolermanagerdatapb.SynchronousMethod
+	NumSync        int
+	SyncStandbyIDs []*clustermetadatapb.ID
 }
 
 // NewPolicyFromProto converts a proto DurabilityPolicy into a concrete
@@ -79,13 +115,19 @@ func NewPolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityP
 		if policy.RequiredCount < 1 {
 			return nil, fmt.Errorf("AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
 		}
-		return AtLeastNPolicy{N: int(policy.RequiredCount)}, nil
+		return AtLeastNPolicy{
+			N:             int(policy.RequiredCount),
+			AsyncFallback: policy.AsyncFallback,
+		}, nil
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
 		// N=0 would make revocation (|uncovered cells| < N) unsatisfiable for any recruitment.
 		if policy.RequiredCount < 1 {
 			return nil, fmt.Errorf("MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
 		}
-		return MultiCellPolicy{N: int(policy.RequiredCount)}, nil
+		return MultiCellPolicy{
+			N:             int(policy.RequiredCount),
+			AsyncFallback: policy.AsyncFallback,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported quorum type: %v", policy.QuorumType)
 	}

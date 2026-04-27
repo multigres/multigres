@@ -16,13 +16,22 @@ package consensus
 
 import (
 	"fmt"
+	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // AtLeastNPolicy requires any N poolers from the cohort to acknowledge writes.
 type AtLeastNPolicy struct {
 	N int
+	// AsyncFallback governs what BuildLeaderDurabilityPostgresConfig does when
+	// no eligible standbys are available to satisfy synchronous replication.
+	// REJECT (or unset) refuses to promote without sync; ALLOW degrades to
+	// async-only.
+	AsyncFallback clustermetadatapb.AsyncReplicationFallbackMode
 }
 
 // CheckAchievable returns nil iff the proposed cohort has at least N poolers.
@@ -79,6 +88,73 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 			unrecruited, p.N)
 	}
 	return nil
+}
+
+// BuildLeaderDurabilityPostgresConfig returns the leader-side Postgres config
+// needed to satisfy AT_LEAST_N. The standby list is the full cohort —
+// AT_LEAST_N is cell-agnostic and the candidate is part of the list (Postgres
+// ignores the primary's own entry for ack purposes; num_sync = N-1 already
+// accounts for the primary's local write counting as 1).
+func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(
+	logger *slog.Logger,
+	cohort []*clustermetadatapb.ID,
+	candidate *clustermetadatapb.ID,
+) (*LeaderDurabilityPostgresConfig, error) {
+	asyncFallback := p.AsyncFallback
+	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
+		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
+	}
+
+	// N==1 means the primary alone satisfies durability; async is sufficient.
+	if p.N == 1 {
+		logger.Info("Skipping synchronous replication configuration",
+			"policy", "AT_LEAST_N",
+			"required_count", p.N,
+			"reason", "async replication sufficient for quorum")
+		return nil, nil
+	}
+
+	if len(cohort) == 0 {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: no cohort members available (required %d standbys, async_fallback=REJECT)",
+					p.N-1))
+		}
+		logger.Info("Skipping synchronous replication configuration",
+			"policy", "AT_LEAST_N",
+			"required_count", p.N,
+			"reason", "no cohort members available, async fallback enabled")
+		return nil, nil
+	}
+
+	// num_sync = required_count - 1: the primary's own write counts as 1 ack.
+	requiredNumSync := p.N - 1
+	if requiredNumSync > len(cohort) {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: insufficient cohort members (required %d standbys, available %d, async_fallback=REJECT)",
+					requiredNumSync, len(cohort)))
+		}
+		logger.Warn("Not enough cohort members for required sync count, using all available",
+			"policy", "AT_LEAST_N",
+			"required_num_sync", requiredNumSync,
+			"available_standbys", len(cohort))
+	}
+
+	numSync := min(requiredNumSync, len(cohort))
+
+	logger.Info("Configuring synchronous replication",
+		"policy", "AT_LEAST_N",
+		"required_count", p.N,
+		"num_sync", numSync,
+		"standbys", len(cohort))
+
+	return &LeaderDurabilityPostgresConfig{
+		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+		SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+		NumSync:        numSync,
+		SyncStandbyIDs: cohort,
+	}, nil
 }
 
 // Description returns a human-readable summary of the policy.

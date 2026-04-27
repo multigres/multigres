@@ -410,7 +410,7 @@ func (c *Coordinator) EstablishLeadership(
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
 	term int64,
-	policy *clustermetadatapb.DurabilityPolicy,
+	policy commonconsensus.DurabilityPolicy,
 	reason string,
 	cohort []*multiorchdatapb.PoolerHealthState,
 	recruited []*multiorchdatapb.PoolerHealthState,
@@ -504,10 +504,27 @@ func (c *Coordinator) EstablishLeadership(
 		c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
 	}
 
-	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := BuildSyncReplicationConfig(c.logger, policy, cohort, candidate)
+	// Build synchronous replication configuration based on quorum policy.
+	// Pass the full cohort; the policy excludes the candidate internally.
+	cohortIDs := make([]*clustermetadatapb.ID, 0, len(cohort))
+	for _, p := range cohort {
+		if p.MultiPooler != nil && p.MultiPooler.Id != nil {
+			cohortIDs = append(cohortIDs, p.MultiPooler.Id)
+		}
+	}
+	leaderCfg, err := policy.BuildLeaderDurabilityPostgresConfig(c.logger, cohortIDs, candidate.MultiPooler.Id)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
+	}
+	var syncConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
+	if leaderCfg != nil {
+		syncConfig = &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: leaderCfg.SyncCommit,
+			SynchronousMethod: leaderCfg.SyncMethod,
+			NumSync:           int32(leaderCfg.NumSync),
+			StandbyIds:        leaderCfg.SyncStandbyIDs,
+			ReloadConfig:      true,
+		}
 	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{

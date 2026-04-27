@@ -15,12 +15,31 @@
 package consensus
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
+
+// testLogger discards output to keep test runs quiet.
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// clusterIDStrings maps poolers to their "cell_name" keys for unordered
+// membership assertions via require.ElementsMatch.
+func clusterIDStrings(ids []*clustermetadatapb.ID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = topoclient.ClusterIDString(id)
+	}
+	return out
+}
 
 // id builds a minimal *clustermetadatapb.ID for test fixtures. Shared across
 // policy test files in this package.
@@ -273,4 +292,165 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
+	logger := testLogger()
+	candidate := id("primary", "cell-primary")
+
+	t.Run("N=1 returns nil (async sufficient)", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 1}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp1", "cell1"),
+			id("mp2", "cell1"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.Nil(t, cfg)
+	})
+
+	t.Run("ALLOW with empty cohort returns nil", func(t *testing.T) {
+		p := AtLeastNPolicy{
+			N:             2,
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
+		require.NoError(t, err)
+		require.Nil(t, cfg)
+	})
+
+	t.Run("N=2 with cohort of 2 sets num_sync=1", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{candidate, id("mp1", "cell1")}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+		require.Equal(t, 1, cfg.NumSync)
+		require.ElementsMatch(t,
+			[]string{"cell-primary_primary", "cell1_mp1"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
+
+	t.Run("N=3 with cohort of 3 sets num_sync=2", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 3}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp1", "cell1"),
+			id("mp2", "cell1"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 2, cfg.NumSync)
+		require.Len(t, cfg.SyncStandbyIDs, 3)
+	})
+
+	t.Run("N=3 with cohort of 6 keeps num_sync=2 (not capped by cohort size)", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 3}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp1", "cell1"), id("mp2", "cell1"),
+			id("mp3", "cell1"), id("mp4", "cell1"),
+			id("mp5", "cell1"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 2, cfg.NumSync, "num_sync should be N-1, not the cohort size")
+		require.Len(t, cfg.SyncStandbyIDs, 6)
+	})
+
+	t.Run("N=5 with cohort of 2 + ALLOW caps num_sync at cohort size", func(t *testing.T) {
+		p := AtLeastNPolicy{
+			N:             5,
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
+		}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp1", "cell1"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 2, cfg.NumSync, "num_sync should be capped at cohort size")
+		require.Len(t, cfg.SyncStandbyIDs, 2)
+	})
+
+	t.Run("AT_LEAST_N does not filter by cell", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 2}
+		sameCellCandidate := id("primary", "us-west-1a")
+		cohort := []*clustermetadatapb.ID{
+			sameCellCandidate,
+			id("mp1", "us-west-1a"), // same cell as candidate; AT_LEAST_N keeps it
+			id("mp2", "us-west-1b"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, sameCellCandidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.ElementsMatch(t,
+			[]string{"us-west-1a_primary", "us-west-1a_mp1", "us-west-1b_mp2"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
+
+	t.Run("REJECT with empty cohort returns error", func(t *testing.T) {
+		p := AtLeastNPolicy{
+			N:             2,
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "cannot establish synchronous replication")
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+	})
+
+	t.Run("REJECT with insufficient cohort returns error", func(t *testing.T) {
+		p := AtLeastNPolicy{
+			N:             5, // requires 4 standbys
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
+		}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp1", "us-west-1a"),
+			id("mp2", "us-west-1b"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "required 4 standbys")
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+	})
+
+	t.Run("UNKNOWN defaults to REJECT", func(t *testing.T) {
+		p := AtLeastNPolicy{
+			N:             2,
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN,
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, []*clustermetadatapb.ID{}, candidate)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+	})
+
+	t.Run("includes the full cohort (candidate + standbys) in result", func(t *testing.T) {
+		p := AtLeastNPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{
+			candidate,
+			id("mp-alpha", "cell-a"),
+			id("mp-beta", "cell-b"),
+			id("mp-gamma", "cell-c"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, candidate)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.ElementsMatch(t,
+			[]string{"cell-primary_primary", "cell-a_mp-alpha", "cell-b_mp-beta", "cell-c_mp-gamma"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
 }
