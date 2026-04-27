@@ -128,46 +128,82 @@ func (c *Conn) writeMessage(msgType byte, body []byte) error {
 	return nil
 }
 
-// startPacket reserves a buffer sized for a single pgwire packet of the
-// given body length, with the message type and 4-byte length header
-// pre-written. The returned position points at the first byte of the
-// body. Callers encode the body in-place via writeXxxAt, then call
-// writePacket exactly once. The buffer comes from listener.bufPool and
-// must not be retained after writePacket.
-func (c *Conn) startPacket(msgType byte, bodyLen int) (*[]byte, int) {
+// startPacket reserves space for a single pgwire packet of the given
+// body length, with the message type and 4-byte length header pre-
+// written. The returned slice has length 5+bodyLen and pos points at
+// the first body byte. Callers encode the body in-place via writeXxxAt
+// then call writePacket exactly once.
+//
+// startPacket acquires bufMu and writePacket releases it. The lock is
+// held across body encoding so an interleaved write from the async
+// notification pusher cannot split the packet.
+//
+// Fast path: when a bufferedWriter is attached and the packet fits in
+// its currently-available capacity, the body is written directly into
+// the buffered writer's internal byte slice. writePacket then commits
+// the bytes in place — no copy through a separate buffer, no buffer
+// pool round-trip, no per-message allocation. This mirrors how postgres
+// builds messages straight into PqSendBuffer.
+//
+// Fallback: when the body wouldn't fit (large packets) or no
+// bufferedWriter is set yet (pre-startup writes), borrow a buffer from
+// the listener's bufpool — the same pool the read path uses to stage
+// inbound message bodies. The read and write sides see the same byte
+// stream (multipooler's reads from postgres become multigateway's
+// writes to the client), so any workload that exercises the read pool
+// will exercise the write pool at a similar rate; routing both sides
+// through one pool means a workload of large packets allocates once
+// and then reuses the buffer indefinitely. writePacket returns the
+// buffer to the pool. We do not keep a per-connection scratch buffer:
+// the pool is per-listener, so memory amortizes across all
+// connections rather than being pinned per-connection.
+func (c *Conn) startPacket(msgType byte, bodyLen int) ([]byte, int) {
 	totalLen := 5 + bodyLen
-	var bufp *[]byte
-	if c.listener != nil && c.listener.bufPool != nil {
-		bufp = c.listener.bufPool.Get(totalLen)
-	} else {
-		b := make([]byte, totalLen)
-		bufp = &b
+	c.bufMu.Lock()
+
+	if c.bufferedWriter != nil {
+		avail := c.bufferedWriter.AvailableBuffer()
+		if cap(avail) >= totalLen {
+			buf := avail[:totalLen]
+			buf[0] = msgType
+			binary.BigEndian.PutUint32(buf[1:5], uint32(4+bodyLen))
+			return buf, 5
+		}
 	}
-	buf := *bufp
+
+	var buf []byte
+	if c.listener != nil && c.listener.bufPool != nil {
+		c.outboundPoolBuf = c.listener.bufPool.Get(totalLen)
+		buf = *c.outboundPoolBuf
+	} else {
+		buf = make([]byte, totalLen)
+	}
 	buf[0] = msgType
 	binary.BigEndian.PutUint32(buf[1:5], uint32(4+bodyLen))
-	return bufp, 5
+	return buf, 5
 }
 
-// writePacket sends the fully-built packet to the connection writer in a
-// single Write call and recycles the buffer.
+// writePacket commits the packet started by startPacket. Releases
+// bufMu (which was acquired by startPacket) and returns any pool
+// buffer the slow path borrowed.
 //
-// The packet length is taken from the slice length set by startPacket
-// (the bufpool returns a slice already sized to total packet bytes), so
-// the caller must encode exactly bodyLen bytes after the header.
-func (c *Conn) writePacket(bufp *[]byte) error {
-	c.bufMu.Lock()
-	var w io.Writer
+// On the fast path, buf aliases the bufferedWriter's internal storage,
+// so bufio.Writer.Write performs a self-copy that is effectively a no-
+// op and just advances the internal write cursor. On the slow path,
+// this is a normal Write of the pool-backed slice; afterwards the
+// pool buffer is returned to listener.bufPool for reuse.
+func (c *Conn) writePacket(buf []byte) error {
+	var err error
 	if c.bufferedWriter != nil {
-		w = c.bufferedWriter
+		_, err = c.bufferedWriter.Write(buf)
 	} else {
-		w = c.conn
+		_, err = c.conn.Write(buf)
 	}
-	_, err := w.Write(*bufp)
+	if c.outboundPoolBuf != nil {
+		c.listener.bufPool.Put(c.outboundPoolBuf)
+		c.outboundPoolBuf = nil
+	}
 	c.bufMu.Unlock()
-	if c.listener != nil && c.listener.bufPool != nil {
-		c.listener.bufPool.Put(bufp)
-	}
 	return err
 }
 

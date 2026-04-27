@@ -60,8 +60,26 @@ type Conn struct {
 	// bufferedWriter is used for writing to the connection.
 	bufferedWriter *bufio.Writer
 
-	// bufMu protects bufferedReader and bufferedWriter.
+	// bufMu protects bufferedReader, bufferedWriter, and the
+	// startPacket→writePacket critical section. It is held across
+	// in-place packet encoding when startPacket reserves space inside
+	// the bufferedWriter, so the body can't be split by an interleaved
+	// write from the async notification pusher.
 	bufMu sync.Mutex
+
+	// outboundPoolBuf holds the listener-level bufpool buffer that
+	// startPacket grabbed for an oversize (slow-path) packet. Non-nil
+	// only between startPacket and writePacket, and only on the slow
+	// path. writePacket returns it to the pool. Protected by bufMu.
+	//
+	// Stored as the original *[]byte the pool returned (rather than
+	// taking &buf inside writePacket) because passing the address of a
+	// stack-local slice to bufPool.Put would force the slice header to
+	// escape to the heap on every call, even when the slow path
+	// doesn't fire — sync.Pool retains its arguments. Going through
+	// this field, which already points at heap memory the pool owns,
+	// avoids that escape.
+	outboundPoolBuf *[]byte
 
 	// listener is a reference to the listener that accepted this connection.
 	listener *Listener

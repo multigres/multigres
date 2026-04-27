@@ -72,14 +72,13 @@ func (c *Conn) readQueryMessage() (string, error) {
 //   - Type OID: int32
 func (c *Conn) writeParameterDescription(params []*query.ParameterDescription) error {
 	bodyLen := 2 + 4*len(params)
-	bufp, pos := c.startPacket(protocol.MsgParameterDescription, bodyLen)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgParameterDescription, bodyLen)
 	pos = writeInt16At(buf, pos, int16(len(params)))
 	for _, param := range params {
 		pos = writeInt32At(buf, pos, int32(param.DataTypeOid))
 	}
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // writeRowDescription writes a 'T' (RowDescription) message.
@@ -102,8 +101,7 @@ func (c *Conn) writeRowDescription(fields []*query.Field) error {
 		bodyLen += 4 + 2 + 4 + 2 + 4 + 2
 	}
 
-	bufp, pos := c.startPacket(protocol.MsgRowDescription, bodyLen)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgRowDescription, bodyLen)
 	pos = writeInt16At(buf, pos, int16(len(fields)))
 	for _, field := range fields {
 		pos = writeStringAt(buf, pos, field.Name)
@@ -115,7 +113,7 @@ func (c *Conn) writeRowDescription(fields []*query.Field) error {
 		pos = writeInt16At(buf, pos, int16(field.Format))
 	}
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // writeDataRow writes a 'D' (DataRow) message.
@@ -135,8 +133,7 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 		}
 	}
 
-	bufp, pos := c.startPacket(protocol.MsgDataRow, bodyLen)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgDataRow, bodyLen)
 	pos = writeInt16At(buf, pos, int16(len(row.Values)))
 	for _, value := range row.Values {
 		if value == nil {
@@ -147,7 +144,7 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 		}
 	}
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // writeCommandComplete writes a 'C' (CommandComplete) message.
@@ -156,11 +153,10 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 //   - Length: int32
 //   - Command tag: null-terminated string (e.g., "SELECT 5", "INSERT 0 1")
 func (c *Conn) writeCommandComplete(tag string) error {
-	bufp, pos := c.startPacket(protocol.MsgCommandComplete, len(tag)+1)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgCommandComplete, len(tag)+1)
 	pos = writeStringAt(buf, pos, tag)
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // writeReadyForQuery writes a 'Z' (ReadyForQuery) message.
@@ -169,11 +165,10 @@ func (c *Conn) writeCommandComplete(tag string) error {
 //   - Length: int32 (always 5)
 //   - Transaction status: byte ('I', 'T', or 'E')
 func (c *Conn) writeReadyForQuery() error {
-	bufp, pos := c.startPacket(protocol.MsgReadyForQuery, 1)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgReadyForQuery, 1)
 	pos = writeByteAt(buf, pos, byte(c.txnStatus))
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // writeEmptyQueryResponse writes an 'I' (EmptyQueryResponse) message.
@@ -182,8 +177,8 @@ func (c *Conn) writeReadyForQuery() error {
 //   - Type: 'I'
 //   - Length: int32 (always 4)
 func (c *Conn) writeEmptyQueryResponse() error {
-	bufp, _ := c.startPacket(protocol.MsgEmptyQueryResponse, 0)
-	return c.writePacket(bufp)
+	buf, _ := c.startPacket(protocol.MsgEmptyQueryResponse, 0)
+	return c.writePacket(buf)
 }
 
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
@@ -294,8 +289,7 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 		}
 	}
 
-	bufp, pos := c.startPacket(msgType, bodyLen)
-	buf := *bufp
+	buf, pos := c.startPacket(msgType, bodyLen)
 	for _, fieldType := range diagFieldOrder {
 		if value, ok := fields[fieldType]; ok {
 			pos = writeByteAt(buf, pos, fieldType)
@@ -304,22 +298,21 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 	}
 	pos = writeByteAt(buf, pos, 0)
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // WriteCopyInResponse writes a CopyInResponse ('G') message to the client
 // This tells the client that the server is ready to receive COPY data
 func (c *Conn) WriteCopyInResponse(format int16, columnFormats []int16) error {
 	bodyLen := 1 + 2 + 2*len(columnFormats)
-	bufp, pos := c.startPacket(protocol.MsgCopyInResponse, bodyLen)
-	buf := *bufp
+	buf, pos := c.startPacket(protocol.MsgCopyInResponse, bodyLen)
 	pos = writeByteAt(buf, pos, byte(format))
 	pos = writeInt16At(buf, pos, int16(len(columnFormats)))
 	for _, fmt := range columnFormats {
 		pos = writeInt16At(buf, pos, fmt)
 	}
 	_ = pos
-	return c.writePacket(bufp)
+	return c.writePacket(buf)
 }
 
 // ReadCopyDataMessage reads a CopyData ('d') message body
