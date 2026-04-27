@@ -242,9 +242,12 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 		bufferedWriter: bufio.NewWriter(&buf),
 	}
 
-	// Write a message (without flush for this test).
+	// Write a message (without per-call flush for this test).
 	body := []byte("test message")
-	err := conn.writeMessageNoFlush(protocol.MsgQuery, body)
+	pktBuf, pos := conn.startPacket(protocol.MsgQuery, len(body))
+	pos = writeBytesAt(pktBuf, pos, body)
+	_ = pos
+	err := conn.writePacket(pktBuf)
 	require.NoError(t, err)
 
 	// Flush to the buffer.

@@ -526,75 +526,93 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 
 // writeParse writes a Parse message.
 func (c *Conn) writeParse(name, queryStr string, paramTypes []uint32) error {
-	w := NewMessageWriter()
-	w.WriteString(name)
-	w.WriteString(queryStr)
-	w.WriteInt16(int16(len(paramTypes)))
+	bodyLen := len(name) + 1 + len(queryStr) + 1 + 2 + 4*len(paramTypes)
+	buf, pos := c.startPacket(protocol.MsgParse, bodyLen)
+	pos = writeStringAt(buf, pos, name)
+	pos = writeStringAt(buf, pos, queryStr)
+	pos = writeInt16At(buf, pos, int16(len(paramTypes)))
 	for _, oid := range paramTypes {
-		w.WriteUint32(oid)
+		pos = writeUint32At(buf, pos, oid)
 	}
-	return c.writeMessageNoFlush(protocol.MsgParse, w.Bytes())
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // writeBind writes a Bind message.
 func (c *Conn) writeBind(portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
-	w := NewMessageWriter()
-	w.WriteString(portalName)
-	w.WriteString(stmtName)
-
-	// Parameter format codes.
-	w.WriteInt16(int16(len(paramFormats)))
-	for _, f := range paramFormats {
-		w.WriteInt16(f)
-	}
-
-	// Parameter values.
-	w.WriteInt16(int16(len(params)))
+	bodyLen := len(portalName) + 1 + len(stmtName) + 1
+	bodyLen += 2 + 2*len(paramFormats)
+	bodyLen += 2
 	for _, p := range params {
-		w.WriteByteString(p)
+		bodyLen += 4
+		if p != nil {
+			bodyLen += len(p)
+		}
+	}
+	bodyLen += 2 + 2*len(resultFormats)
+
+	buf, pos := c.startPacket(protocol.MsgBind, bodyLen)
+	pos = writeStringAt(buf, pos, portalName)
+	pos = writeStringAt(buf, pos, stmtName)
+
+	pos = writeInt16At(buf, pos, int16(len(paramFormats)))
+	for _, f := range paramFormats {
+		pos = writeInt16At(buf, pos, f)
 	}
 
-	// Result format codes.
-	w.WriteInt16(int16(len(resultFormats)))
+	pos = writeInt16At(buf, pos, int16(len(params)))
+	for _, p := range params {
+		pos = writeByteStringAt(buf, pos, p)
+	}
+
+	pos = writeInt16At(buf, pos, int16(len(resultFormats)))
 	for _, f := range resultFormats {
-		w.WriteInt16(f)
+		pos = writeInt16At(buf, pos, f)
 	}
-
-	return c.writeMessageNoFlush(protocol.MsgBind, w.Bytes())
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // writeExecute writes an Execute message.
 func (c *Conn) writeExecute(portalName string, maxRows int32) error {
-	w := NewMessageWriter()
-	w.WriteString(portalName)
-	w.WriteInt32(maxRows)
-	return c.writeMessageNoFlush(protocol.MsgExecute, w.Bytes())
+	bodyLen := len(portalName) + 1 + 4
+	buf, pos := c.startPacket(protocol.MsgExecute, bodyLen)
+	pos = writeStringAt(buf, pos, portalName)
+	pos = writeInt32At(buf, pos, maxRows)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // writeDescribe writes a Describe message.
 func (c *Conn) writeDescribe(typ byte, name string) error {
-	w := NewMessageWriter()
-	w.WriteByte(typ)
-	w.WriteString(name)
-	return c.writeMessageNoFlush(protocol.MsgDescribe, w.Bytes())
+	bodyLen := 1 + len(name) + 1
+	buf, pos := c.startPacket(protocol.MsgDescribe, bodyLen)
+	pos = writeByteAt(buf, pos, typ)
+	pos = writeStringAt(buf, pos, name)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // writeClose writes a Close message.
 func (c *Conn) writeClose(typ byte, name string) error {
-	w := NewMessageWriter()
-	w.WriteByte(typ)
-	w.WriteString(name)
-	return c.writeMessageNoFlush(protocol.MsgClose, w.Bytes())
+	bodyLen := 1 + len(name) + 1
+	buf, pos := c.startPacket(protocol.MsgClose, bodyLen)
+	pos = writeByteAt(buf, pos, typ)
+	pos = writeStringAt(buf, pos, name)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // writeSync writes a Sync message.
 func (c *Conn) writeSync() error {
-	return c.writeMessageNoFlush(protocol.MsgSync, nil)
+	buf, _ := c.startPacket(protocol.MsgSync, 0)
+	return c.writePacket(buf)
 }
 
 // writeFlush writes a Flush message.
 func (c *Conn) writeFlush() error {
-	return c.writeMessageNoFlush(protocol.MsgFlush, nil)
+	buf, _ := c.startPacket(protocol.MsgFlush, 0)
+	return c.writePacket(buf)
 }
 
 // Response processing methods.

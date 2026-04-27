@@ -87,6 +87,21 @@ type Conn struct {
 	// bufmu protects bufferedReader and bufferedWriter during concurrent access.
 	bufmu sync.Mutex
 
+	// outboundPoolBuf holds the package-level bufpool buffer that
+	// startPacket grabbed for an oversize (slow-path) packet. Non-nil
+	// only between startPacket and writePacket, and only on the slow
+	// path. writePacket returns it to the pool. Protected by the
+	// caller-held bufmu.
+	//
+	// Stored as the original *[]byte the pool returned (rather than
+	// taking &buf inside writePacket) because passing the address of a
+	// stack-local slice to bufPool.Put would force the slice header to
+	// escape to the heap on every call, even when the slow path
+	// doesn't fire — sync.Pool retains its arguments. Going through
+	// this field, which already points at heap memory the pool owns,
+	// avoids that escape.
+	outboundPoolBuf *[]byte
+
 	// config is the connection configuration.
 	config *Config
 
@@ -320,18 +335,12 @@ func (c *Conn) WriteCopyData(data []byte) error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	// Write message: 'd' + length (4 bytes) + data
-	msgLen := 4 + len(data)
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyData); err != nil {
-		return fmt.Errorf("failed to write CopyData type: %w", err)
+	buf, pos := c.startPacket(protocol.MsgCopyData, len(data))
+	pos = writeBytesAt(buf, pos, data)
+	_ = pos
+	if err := c.writePacket(buf); err != nil {
+		return fmt.Errorf("failed to write CopyData: %w", err)
 	}
-	if err := c.writeUint32(uint32(msgLen)); err != nil {
-		return fmt.Errorf("failed to write CopyData length: %w", err)
-	}
-	if _, err := c.bufferedWriter.Write(data); err != nil {
-		return fmt.Errorf("failed to write CopyData body: %w", err)
-	}
-
 	return c.flush()
 }
 
@@ -341,13 +350,10 @@ func (c *Conn) WriteCopyDone() error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyDone); err != nil {
-		return fmt.Errorf("failed to write CopyDone type: %w", err)
+	buf, _ := c.startPacket(protocol.MsgCopyDone, 0)
+	if err := c.writePacket(buf); err != nil {
+		return fmt.Errorf("failed to write CopyDone: %w", err)
 	}
-	if err := c.writeUint32(4); err != nil { // Length only (no body)
-		return fmt.Errorf("failed to write CopyDone length: %w", err)
-	}
-
 	return c.flush()
 }
 
@@ -357,19 +363,13 @@ func (c *Conn) WriteCopyFail(errorMsg string) error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	msgBytes := append([]byte(errorMsg), 0) // Null-terminated
-	msgLen := 4 + len(msgBytes)
-
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyFail); err != nil {
-		return fmt.Errorf("failed to write CopyFail type: %w", err)
+	bodyLen := len(errorMsg) + 1 // null terminator
+	buf, pos := c.startPacket(protocol.MsgCopyFail, bodyLen)
+	pos = writeStringAt(buf, pos, errorMsg)
+	_ = pos
+	if err := c.writePacket(buf); err != nil {
+		return fmt.Errorf("failed to write CopyFail: %w", err)
 	}
-	if err := c.writeUint32(uint32(msgLen)); err != nil {
-		return fmt.Errorf("failed to write CopyFail length: %w", err)
-	}
-	if _, err := c.bufferedWriter.Write(msgBytes); err != nil {
-		return fmt.Errorf("failed to write CopyFail body: %w", err)
-	}
-
 	return c.flush()
 }
 
@@ -550,10 +550,8 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	// Send the COPY query
-	w := NewMessageWriter()
-	w.WriteString(copyQuery)
-	if err := c.writeMessage(protocol.MsgQuery, w.Bytes()); err != nil {
+	// Send the COPY query (simple-protocol Q message + flush).
+	if err := c.writeQueryMessage(copyQuery); err != nil {
 		return 0, nil, fmt.Errorf("failed to send COPY query: %w", err)
 	}
 

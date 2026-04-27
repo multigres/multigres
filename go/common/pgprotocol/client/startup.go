@@ -76,43 +76,59 @@ func (c *Conn) negotiateSSL() error {
 }
 
 // sendStartupMessage sends the startup message to the server.
+//
+// The startup packet has no message type byte — only a 4-byte length
+// (including itself) followed by the body — so it's encoded inline
+// here instead of through startPacket (which always writes a 5-byte
+// type+length header).
 func (c *Conn) sendStartupMessage() error {
-	w := NewMessageWriter()
-
-	// Protocol version (3.0).
-	w.WriteUint32(protocol.ProtocolVersionNumber)
-
-	// User parameter (required).
-	w.WriteString("user")
-	w.WriteString(c.config.User)
-
-	// Database parameter (optional, defaults to user name on server).
+	// Pre-compute body length so we can encode in place.
+	bodyLen := 4 // protocol version
+	bodyLen += len("user") + 1 + len(c.config.User) + 1
 	if c.config.Database != "" {
-		w.WriteString("database")
-		w.WriteString(c.config.Database)
+		bodyLen += len("database") + 1 + len(c.config.Database) + 1
 	}
-
-	// Additional parameters.
 	for key, value := range c.config.Parameters {
-		w.WriteString(key)
-		w.WriteString(value)
+		bodyLen += len(key) + 1 + len(value) + 1
+	}
+	bodyLen++ // trailing null terminator for the parameter list
+
+	totalLen := 4 + bodyLen // length field includes itself
+
+	// Reserve a buffer: AvailableBuffer fast path, bufpool slow path.
+	var buf []byte
+	var poolBuf *[]byte
+	if avail := c.bufferedWriter.AvailableBuffer(); cap(avail) >= totalLen {
+		buf = avail[:totalLen]
+	} else {
+		poolBuf = bufPool.Get(totalLen)
+		buf = *poolBuf
 	}
 
-	// Null terminator for parameter list.
-	w.WriteByte(0)
+	pos := 0
+	pos = writeUint32At(buf, pos, uint32(totalLen))
+	pos = writeUint32At(buf, pos, protocol.ProtocolVersionNumber)
+	pos = writeStringAt(buf, pos, "user")
+	pos = writeStringAt(buf, pos, c.config.User)
+	if c.config.Database != "" {
+		pos = writeStringAt(buf, pos, "database")
+		pos = writeStringAt(buf, pos, c.config.Database)
+	}
+	for key, value := range c.config.Parameters {
+		pos = writeStringAt(buf, pos, key)
+		pos = writeStringAt(buf, pos, value)
+	}
+	pos = writeByteAt(buf, pos, 0)
+	_ = pos
 
-	// Write the startup packet (no message type, just length + body).
-	body := w.Bytes()
-	length := uint32(4 + len(body)) // length includes itself
-
-	// Write length.
-	if err := c.writeUint32(length); err != nil {
+	if _, err := c.bufferedWriter.Write(buf); err != nil {
+		if poolBuf != nil {
+			bufPool.Put(poolBuf)
+		}
 		return err
 	}
-
-	// Write body.
-	if _, err := c.bufferedWriter.Write(body); err != nil {
-		return err
+	if poolBuf != nil {
+		bufPool.Put(poolBuf)
 	}
 
 	return c.flush()
@@ -273,13 +289,27 @@ func (c *Conn) handleReadyForQuery(body []byte) error {
 }
 
 // writeSSLRequest writes an SSL negotiation request.
+//
+// SSLRequest has no message type byte — just length (8) +
+// SSLRequestCode. Encoded as a single 8-byte slice into the
+// bufferedWriter's available space so it goes out in one Write.
 func (c *Conn) writeSSLRequest() error {
-	// SSLRequest message format:
-	// - Length (4 bytes): 8
-	// - SSLRequestCode (4 bytes)
-
-	if err := c.writeUint32(8); err != nil {
-		return err
+	avail := c.bufferedWriter.AvailableBuffer()
+	var buf []byte
+	var poolBuf *[]byte
+	if cap(avail) >= 8 {
+		buf = avail[:8]
+	} else {
+		poolBuf = bufPool.Get(8)
+		buf = *poolBuf
 	}
-	return c.writeUint32(protocol.SSLRequestCode)
+	pos := 0
+	pos = writeUint32At(buf, pos, 8)
+	pos = writeUint32At(buf, pos, protocol.SSLRequestCode)
+	_ = pos
+	_, err := c.bufferedWriter.Write(buf)
+	if poolBuf != nil {
+		bufPool.Put(poolBuf)
+	}
+	return err
 }

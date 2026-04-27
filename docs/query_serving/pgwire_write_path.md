@@ -1,9 +1,15 @@
 # pgwire write path: architecture and rationale
 
 This doc describes how multigres encodes outbound PostgreSQL wire protocol
-packets on the client-facing side (`go/common/pgprotocol/server/`). The shape
-chosen here is opinionated — it diverges from how Vitess does the equivalent
-work for MySQL — and the reasoning is non-obvious enough that it's worth
+packets. There are two write paths in the codebase:
+
+- `go/common/pgprotocol/server/` — multigateway emits responses to clients.
+- `go/common/pgprotocol/client/` — multipooler sends requests to postgres.
+
+Both sides use the same in-place encoding pattern, with a couple of small
+differences forced by the threading model on each side. The shape chosen
+here is opinionated — it diverges from how Vitess does the equivalent work
+for MySQL — and the reasoning is non-obvious enough that it's worth
 spelling out so the next person doesn't have to rederive it.
 
 If you only read one section, read [The path of a byte](#the-path-of-a-byte).
@@ -235,6 +241,74 @@ So bufio earns its keep on three different axes simultaneously:
 - It's the thing we pool at the listener level so idle connections
   don't pin memory.
 
+## Client side (multipooler → postgres)
+
+The client-side write path in `go/common/pgprotocol/client/` uses the
+same in-place encoding pattern with two intentional differences,
+forced by the threading model on that side.
+
+**Difference 1: `startPacket` does NOT acquire a mutex.** On the
+server side, `bufMu` spans the encoding window so the async
+notification pusher can't interleave bytes mid-packet. The client
+side has no async pusher analog — each `*Conn` is checked out to one
+goroutine at a time by the pooler, and the high-level operation
+(`Query`, `BindAndExecute`, `DescribePrepared`, …) already holds
+`bufmu` across the entire request/response cycle before calling any
+of the write helpers. Adding a lock acquisition inside `startPacket`
+would deadlock on the second call within a single operation. So the
+client-side `startPacket`/`writePacket` rely on the caller's lock and
+add none of their own.
+
+**Difference 2: `writePacket` does NOT flush.** Extended-protocol
+operations pipeline multiple messages — `Parse + Bind + Execute +
+Sync`, or `Bind + Describe + Sync` — and flush exactly once at the
+end. Pushing a flush inside every `writePacket` would issue a syscall
+per message and defeat the coalescing. The exception is
+`writeQueryMessage` (simple-protocol Query is a single-shot send), which
+calls `flush()` itself after `writePacket`.
+
+**Buffer pool location.** The client side has no per-listener context
+— each `*Conn` is created standalone via `Connect()`. The slow-path
+buffer pool therefore lives at package scope
+(`var bufPool = bufpool.New(16*1024, 64*1024*1024)` in `packet.go`)
+and is shared across all client connections in the process. Same
+sizing as the server side. This works well because the cardinality
+on the client side is low (each multipooler holds at most a few
+hundred connections to postgres) — pool contention is negligible.
+
+**Cardinality difference matters less than you'd think.** It's
+tempting to argue "since multipooler has only ~100 connections to
+postgres, we could afford richer per-connection state on this side."
+We don't, for two reasons. First, keeping both sides identical means
+the same diagnostic mental model applies, the same benchmark file
+template fits, and a future reader doesn't need to rederive why one
+side differs from the other. Second, the pgbouncer comparison
+([Decision 3](#decision-3-slow-path-borrows-from-listenerbufpool-no-per-connection-scratch))
+applies just as well here: pgbouncer treats client-facing and server-
+facing connections identically because the per-connection cost is
+already small enough that asymmetric optimization isn't worth the
+complexity. We're following the same logic.
+
+**One encoding API, used everywhere.** All client-side writers —
+hot-path (`writeQueryMessage`, `writeParse`, `writeBind`,
+`writeExecute`, `writeDescribe`, `writeClose`, `writeSync`,
+`writeFlush`) and cold-path (`WriteCopyData`/`Done`/`Fail`,
+`writeTerminate`, the SCRAM exchange, `sendStartupMessage`,
+`writeSSLRequest`) — go through `startPacket` / `writePacket` and the
+`writeXxxAt` encoders. The older `writeMessage` / `writeMessageNoFlush`
+/ `writeByte` / `writeUint32` methods on `*Conn`, plus the
+`MessageWriter` type, are gone from production code. `MessageWriter`
+moved to a `_test.go` file — tests still use it to construct
+synthetic server-response byte fixtures for parser tests, but it's
+no longer compiled into the production binary.
+
+The startup and SSLRequest messages are special (no message-type
+byte; just length + body). They're encoded inline with the same
+AvailableBuffer + bufpool primitives but without `startPacket`
+(which unconditionally writes a 5-byte type+length header).
+`InitiateCopyFromStdin` previously hand-rolled a Q message; it now
+just calls `writeQueryMessage`.
+
 ## What about reads?
 
 Reads (parsing incoming pgwire messages) are out of scope for this doc;
@@ -243,9 +317,13 @@ listener-pooled `bufio.Reader` that's allocated in `newConn` and held
 for the connection's lifetime. That's different from the write side
 (which only holds the bufio.Writer during a query) and is a known
 asymmetry — at high client-connection counts it's worth tightening,
-but it's a separate change.
+but it's a separate change. This applies to the server side; the
+client-side reader is bounded by connection count to postgres and
+isn't a memory concern.
 
 ## Code map
+
+### Server-side files
 
 - `go/common/pgprotocol/server/packet.go`
   - `startPacket(msgType, bodyLen) ([]byte, int)` — reserves space,
@@ -270,32 +348,83 @@ but it's a separate change.
   `bufferedWriter` lifecycle (`startWriterBuffering` /
   `endWriterBuffering`), `bufMu` field, async notification pusher.
 - `go/common/pgprotocol/server/listener.go` — `writersPool`
-  (`sync.Pool` of `*bufio.Writer`, 16 KB each).
+  (`sync.Pool` of `*bufio.Writer`, 16 KB each), `bufPool` for slow-
+  path packet bodies.
 - `go/common/pgprotocol/server/packet_bench_test.go` — local
   microbenchmarks of the write path. Use to verify any future changes
   don't regress encoder cost.
 
+### Client-side files
+
+- `go/common/pgprotocol/client/packet.go`
+  - Package-level `bufPool = bufpool.New(16*1024, 64*1024*1024)` —
+    shared across all client connections in the process; replaces the
+    per-listener pool the server side has.
+  - `startPacket(msgType, bodyLen) ([]byte, int)` — same shape as
+    the server side, but does **not** acquire any mutex (the high-
+    level operation already holds `bufmu`).
+  - `writePacket(buf) error` — same shape, but does **not** flush.
+    Caller is responsible for calling `flush()` once after a sequence
+    of pipelined writes.
+  - `writeByteAt`, `writeInt16At`, `writeInt32At`, `writeUint32At`,
+    `writeStringAt`, `writeBytesAt`, `writeByteStringAt` — in-place
+    body encoders. (`writeByteStringAt` writes the length-prefixed
+    `int32 + bytes` form used in Bind parameters; the server side
+    doesn't need it.)
+  - `writeTerminate` — uses startPacket/writePacket directly.
+- `go/common/pgprotocol/client/query.go` — `writeQueryMessage`
+  (simple-protocol `Q`). Self-flushing.
+- `go/common/pgprotocol/client/extended.go` — extended-protocol
+  writers: `writeParse`, `writeBind`, `writeExecute`, `writeDescribe`,
+  `writeClose`, `writeSync`, `writeFlush`. None of these flush; the
+  high-level caller flushes once after the pipelined sequence.
+- `go/common/pgprotocol/client/startup.go` — `sendStartupMessage` and
+  `writeSSLRequest` are encoded inline (no message-type byte) using
+  `AvailableBuffer` directly with the bufpool as fallback.
+- `go/common/pgprotocol/client/scram.go` — SCRAM handshake messages
+  (`sendClientFirst`, `sendClientFinal`) use `startPacket`.
+- `go/common/pgprotocol/client/conn.go` — `Conn` struct,
+  `bufferedWriter` allocated in `resetConn` (held for connection
+  lifetime; client cardinality is bounded so this is fine), `bufmu`
+  held by the high-level operation, `outboundPoolBuf` field for
+  slow-path bufpool tracking. Also `WriteCopyData`/`Done`/`Fail` use
+  `startPacket`.
+- `go/common/pgprotocol/client/test_helpers_test.go` — test-only
+  `MessageWriter` type, used by parser tests to construct synthetic
+  server-response byte fixtures. Not compiled into the production
+  binary.
+- `go/common/pgprotocol/client/packet_bench_test.go` — local
+  microbenchmarks symmetric to the server-side suite.
+
 ## Pitfalls when modifying this code
 
-- **Do not call `startPacket` without a matching `writePacket`.** The
-  lock will be held forever. Treat the pair like `Lock` / `Unlock`.
+- **Do not call `startPacket` without a matching `writePacket`.** On
+  the server side, `bufMu` will be held forever. On the client side,
+  any pool buffer borrowed for the slow path will leak. Treat the
+  pair like `Lock` / `Unlock`.
 - **Do not hold a slice returned by `startPacket` past the matching
   `writePacket`.** On the fast path the slice aliases bufio's internal
   storage, which gets reused on the next message. On the slow path the
-  backing array goes back to `listener.bufPool` and can be handed to
-  another connection on the very next `Get`. Either way, retaining it
+  backing array goes back to the bufpool and can be handed to
+  another packet on the very next `Get`. Either way, retaining it
   is a bug.
 - **`writeXxxAt` helpers are unsafe by design.** They write at
   `buf[pos:]` without bounds-checking the body length. Correctness
   depends on the body-size pre-pass in the writer. If you add a new
   field to a packet body, update the body-length computation at the
   top of the writer accordingly.
-- **The lock spans encoding.** If you add a writer that does I/O or
-  blocking work mid-encoding (e.g. waiting on a channel), you'll
-  serialize the whole connection on it. Pre-compute everything before
-  `startPacket`.
+- **The server-side lock spans encoding.** If you add a server-side
+  writer that does I/O or blocking work mid-encoding (e.g. waiting on
+  a channel), you'll serialize the whole connection on it. Pre-
+  compute everything before `startPacket`.
+- **The client-side lock is held by the caller, not by `startPacket`.**
+  If you call a client-side write helper from somewhere that doesn't
+  already hold `bufmu`, you'll race with concurrent operations on the
+  same `*Conn`. All existing callers acquire `bufmu` at the top of
+  their high-level operation; new callers should do the same.
 - **Adding a new outbound message type:** follow the existing pattern
-  — pre-compute body size, `startPacket`, in-place encode,
-  `writePacket`. Don't reach for `writeMessage` (the cold path used
-  for body-less messages like `ParseComplete`); it doesn't get the
-  same fast-path treatment.
+  — pre-compute body size, call `startPacket`, encode in place with
+  the `writeXxxAt` helpers, call `writePacket`. The server side has a
+  legacy `writeMessage` helper used for body-less messages like
+  `ParseComplete`; new code should not reach for it. The client side
+  has no such helper — `startPacket` / `writePacket` is the only API.

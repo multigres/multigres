@@ -79,13 +79,20 @@ func (s *scramClient) sendClientFirst() error {
 		return err
 	}
 
-	// Send SASLInitialResponse message.
-	w := NewMessageWriter()
-	w.WriteString(scram.ScramSHA256Mechanism)
-	w.WriteInt32(int32(len(clientFirstMessage)))
-	w.WriteBytes([]byte(clientFirstMessage))
-
-	return s.conn.writeMessage(protocol.MsgPasswordMsg, w.Bytes())
+	// Send SASLInitialResponse message:
+	//   - mechanism (null-terminated string)
+	//   - client-first-message length (int32)
+	//   - client-first-message bytes
+	bodyLen := len(scram.ScramSHA256Mechanism) + 1 + 4 + len(clientFirstMessage)
+	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
+	pos = writeStringAt(buf, pos, scram.ScramSHA256Mechanism)
+	pos = writeInt32At(buf, pos, int32(len(clientFirstMessage)))
+	pos = writeBytesAt(buf, pos, []byte(clientFirstMessage))
+	_ = pos
+	if err := s.conn.writePacket(buf); err != nil {
+		return err
+	}
+	return s.conn.flush()
 }
 
 // receiveServerFirst receives and parses the AuthenticationSASLContinue message.
@@ -130,11 +137,15 @@ func (s *scramClient) sendClientFinal(serverFirst string) error {
 		return err
 	}
 
-	// Send SASLResponse message.
-	w := NewMessageWriter()
-	w.WriteBytes([]byte(clientFinalMessage))
-
-	return s.conn.writeMessage(protocol.MsgPasswordMsg, w.Bytes())
+	// Send SASLResponse message: just the client-final-message bytes.
+	bodyLen := len(clientFinalMessage)
+	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
+	pos = writeBytesAt(buf, pos, []byte(clientFinalMessage))
+	_ = pos
+	if err := s.conn.writePacket(buf); err != nil {
+		return err
+	}
+	return s.conn.flush()
 }
 
 // receiveServerFinal receives and verifies the AuthenticationSASLFinal message.

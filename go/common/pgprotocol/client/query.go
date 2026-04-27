@@ -189,9 +189,14 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 
 // writeQueryMessage writes a 'Q' (Query) message.
 func (c *Conn) writeQueryMessage(queryStr string) error {
-	w := NewMessageWriter()
-	w.WriteString(queryStr)
-	return c.writeMessage(protocol.MsgQuery, w.Bytes())
+	bodyLen := len(queryStr) + 1 // null terminator
+	buf, pos := c.startPacket(protocol.MsgQuery, bodyLen)
+	pos = writeStringAt(buf, pos, queryStr)
+	_ = pos
+	if err := c.writePacket(buf); err != nil {
+		return err
+	}
+	return c.flush()
 }
 
 // processQueryResponses processes all responses to a query until ReadyForQuery.
