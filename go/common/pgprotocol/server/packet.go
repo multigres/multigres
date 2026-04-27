@@ -111,12 +111,10 @@ func (c *Conn) readStartupPacket() ([]byte, error) {
 // type byte).
 //
 // Routes through startPacket/writePacket so the header + body land in
-// the bufferedWriter as a single Write (a self-copy on the fast path),
-// rather than the previous header-then-body two-Write shape. Used for
-// the cold-path callers that already have the body materialized as a
-// []byte (ParseComplete/BindComplete/NoData/CloseComplete with nil
-// body, plus the startup-flow Auth/BackendKeyData/ParameterStatus/
-// ReadyForQuery messages built via MessageWriter).
+// the bufferedWriter as a single Write (a self-copy on the fast path).
+// Used by the few callers that already have the body materialized as
+// a []byte — body-less control messages like ParseComplete /
+// BindComplete / NoData / CloseComplete pass nil here.
 func (c *Conn) writeMessage(msgType byte, body []byte) error {
 	buf, pos := c.startPacket(msgType, len(body))
 	if len(body) > 0 {
@@ -221,6 +219,11 @@ func writeInt16At(buf []byte, pos int, v int16) int {
 
 func writeInt32At(buf []byte, pos int, v int32) int {
 	binary.BigEndian.PutUint32(buf[pos:], uint32(v))
+	return pos + 4
+}
+
+func writeUint32At(buf []byte, pos int, v uint32) int {
+	binary.BigEndian.PutUint32(buf[pos:], v)
 	return pos + 4
 }
 
@@ -349,70 +352,4 @@ func (r *MessageReader) ReadByteString() ([]byte, error) {
 		return nil, fmt.Errorf("invalid string length: %d", length)
 	}
 	return r.ReadBytes(int(length))
-}
-
-// MessageWriter provides helper methods for building message bodies.
-type MessageWriter struct {
-	buf []byte
-}
-
-// NewMessageWriter creates a new message writer.
-func NewMessageWriter() *MessageWriter {
-	return &MessageWriter{buf: make([]byte, 0, 1024)}
-}
-
-// Bytes returns the accumulated message bytes.
-func (w *MessageWriter) Bytes() []byte {
-	return w.buf
-}
-
-// WriteByte writes a single byte.
-func (w *MessageWriter) WriteByte(b byte) {
-	w.buf = append(w.buf, b)
-}
-
-// WriteUint16 writes a 16-bit unsigned integer in network byte order.
-func (w *MessageWriter) WriteUint16(v uint16) {
-	buf := [2]byte{}
-	binary.BigEndian.PutUint16(buf[:], v)
-	w.buf = append(w.buf, buf[:]...)
-}
-
-// WriteUint32 writes a 32-bit unsigned integer in network byte order.
-func (w *MessageWriter) WriteUint32(v uint32) {
-	buf := [4]byte{}
-	binary.BigEndian.PutUint32(buf[:], v)
-	w.buf = append(w.buf, buf[:]...)
-}
-
-// WriteInt16 writes a 16-bit signed integer in network byte order.
-func (w *MessageWriter) WriteInt16(v int16) {
-	w.WriteUint16(uint16(v))
-}
-
-// WriteInt32 writes a 32-bit signed integer in network byte order.
-func (w *MessageWriter) WriteInt32(v int32) {
-	w.WriteUint32(uint32(v))
-}
-
-// WriteString writes a null-terminated string.
-func (w *MessageWriter) WriteString(s string) {
-	w.buf = append(w.buf, []byte(s)...)
-	w.buf = append(w.buf, 0)
-}
-
-// WriteBytes writes raw bytes (not null-terminated).
-func (w *MessageWriter) WriteBytes(b []byte) {
-	w.buf = append(w.buf, b...)
-}
-
-// WriteByteString writes a length-prefixed string (4-byte length + data).
-// Writes -1 for nil (NULL).
-func (w *MessageWriter) WriteByteString(b []byte) {
-	if b == nil {
-		w.WriteInt32(-1)
-		return
-	}
-	w.WriteInt32(int32(len(b)))
-	w.WriteBytes(b)
 }

@@ -289,23 +289,44 @@ facing connections identically because the per-connection cost is
 already small enough that asymmetric optimization isn't worth the
 complexity. We're following the same logic.
 
-**One encoding API, used everywhere.** All client-side writers —
-hot-path (`writeQueryMessage`, `writeParse`, `writeBind`,
-`writeExecute`, `writeDescribe`, `writeClose`, `writeSync`,
-`writeFlush`) and cold-path (`WriteCopyData`/`Done`/`Fail`,
-`writeTerminate`, the SCRAM exchange, `sendStartupMessage`,
-`writeSSLRequest`) — go through `startPacket` / `writePacket` and the
-`writeXxxAt` encoders. The older `writeMessage` / `writeMessageNoFlush`
-/ `writeByte` / `writeUint32` methods on `*Conn`, plus the
-`MessageWriter` type, are gone from production code. `MessageWriter`
-moved to a `_test.go` file — tests still use it to construct
-synthetic server-response byte fixtures for parser tests, but it's
-no longer compiled into the production binary.
+**One encoding API, used everywhere — on both sides.** Every writer
+in the package — server and client, hot path and cold — goes through
+`startPacket` / `writePacket` and the `writeXxxAt` encoders.
 
-The startup and SSLRequest messages are special (no message-type
-byte; just length + body). They're encoded inline with the same
-AvailableBuffer + bufpool primitives but without `startPacket`
-(which unconditionally writes a 5-byte type+length header).
+On the **client** side that means `writeQueryMessage`, `writeParse`,
+`writeBind`, `writeExecute`, `writeDescribe`, `writeClose`,
+`writeSync`, `writeFlush`, `WriteCopyData` / `Done` / `Fail`,
+`writeTerminate`, and the SCRAM exchange.
+
+On the **server** side that means `writeRowDescription`,
+`writeDataRow`, `writeCommandComplete`, `writeReadyForQuery`,
+`writeEmptyQueryResponse`, `writeParameterDescription`,
+`writeErrorOrNotice`, `WriteCopyInResponse`, the auth-flow writers
+(`sendAuthenticationSASL` / `Continue` / `Final` / `Ok`,
+`sendBackendKeyData`, `sendParameterStatus`), and the async
+notification pusher (`writeNotificationResponseMsg`). The thin
+`writeMessage(msgType, body)` helper exists only for the
+already-have-a-body-as-`[]byte` callers (body-less control messages
+like `ParseComplete` pass nil) and routes through the same primitives.
+
+`MessageWriter` (the append-style body builder used by older code) is
+gone from production on both sides. It's now in a `_test.go` file —
+tests still use it to construct synthetic byte fixtures for parser
+tests, but it's never compiled into the production binary. The older
+`writeMessage` / `writeMessageNoFlush` / `writeByte` / `writeUint32`
+methods on `*Conn` (client side) are also deleted.
+
+Two narrow exceptions on the server side, both intentional:
+
+- The startup-flow `sendStartupMessage` and `writeSSLRequest` (client
+  side) are not pgwire packets — they have no message-type byte, just
+  a length + body. They use `AvailableBuffer` + bufpool inline but
+  skip `startPacket` (which would write the 5-byte type+length
+  header).
+- `writeRawByte` (server side) sends the single SSL/GSSENC
+  negotiation response byte ('S' / 'N'), which has no length prefix
+  at all.
+
 `InitiateCopyFromStdin` previously hand-rolled a Q message; it now
 just calls `writeQueryMessage`.
 
@@ -338,9 +359,10 @@ isn't a memory concern.
     `writeBytesAt` — in-place body encoders. Plain functions, no
     interfaces, the compiler inlines them and they don't escape
     arguments.
-  - `writeMessage(msgType, body)` — thin convenience wrapper for
-    callers that already have the body materialized as a `[]byte`
-    (auth-flow messages, body-less messages like `ParseComplete`).
+  - `writeMessage(msgType, body)` — thin convenience wrapper for the
+    handful of callers that already have the body materialized as a
+    `[]byte` (body-less control messages like `ParseComplete` /
+    `BindComplete` / `NoData` / `CloseComplete` pass nil here).
     Routes through `startPacket`/`writePacket` underneath, so it
     gets the same single-Write fast path.
   - `writeRawByte(b)` — sends a single non-pgwire byte. Used only
@@ -433,14 +455,15 @@ isn't a memory concern.
 - **Adding a new outbound message type:** follow the existing pattern
   — pre-compute body size, call `startPacket`, encode in place with
   the `writeXxxAt` helpers, call `writePacket`. The server side keeps
-  a thin `writeMessage(msgType, body)` helper for cases where the
-  body is already materialized as a `[]byte` (auth-flow messages
-  built via `MessageWriter`, body-less messages like `ParseComplete`)
-  — it routes through the same `startPacket`/`writePacket` underneath,
-  so it gets the same fast-path treatment, but new code that's
-  building bodies field-by-field should use the encoders directly to
-  skip the intermediate buffer. The client side has no such helper —
-  `startPacket` / `writePacket` is the only API.
+  a thin `writeMessage(msgType, body)` helper for the few cases where
+  the body is already materialized as a `[]byte` (body-less control
+  messages like `ParseComplete` / `BindComplete` / `NoData` /
+  `CloseComplete` pass nil) — it routes through the same
+  `startPacket`/`writePacket` underneath, so it gets the same
+  fast-path treatment. New code that builds bodies field-by-field
+  should use the encoders directly to skip the intermediate buffer.
+  The client side has no such helper — `startPacket` / `writePacket`
+  is the only API.
 
 - **`writeRawByte` is the SSL/GSSENC escape hatch, not a general
   helper.** It exists only to send the single 'S'/'N' negotiation

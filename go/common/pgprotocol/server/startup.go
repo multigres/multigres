@@ -463,29 +463,39 @@ func (c *Conn) authenticateSCRAM() error {
 
 // sendAuthenticationSASL sends AuthenticationSASL message with supported mechanisms.
 func (c *Conn) sendAuthenticationSASL(mechanisms []string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASL)
+	bodyLen := 4 // AuthSASL int32
 	for _, mech := range mechanisms {
-		w.WriteString(mech)
+		bodyLen += len(mech) + 1
 	}
-	w.WriteByte(0) // Terminator
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen++ // Trailing null terminator for the mechanism list.
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASL)
+	for _, mech := range mechanisms {
+		pos = writeStringAt(buf, pos, mech)
+	}
+	pos = writeByteAt(buf, pos, 0)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // sendAuthenticationSASLContinue sends AuthenticationSASLContinue with server data.
 func (c *Conn) sendAuthenticationSASLContinue(data string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASLContinue)
-	w.WriteBytes([]byte(data))
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen := 4 + len(data)
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASLContinue)
+	pos = writeBytesAt(buf, pos, []byte(data))
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // sendAuthenticationSASLFinal sends AuthenticationSASLFinal with server signature.
 func (c *Conn) sendAuthenticationSASLFinal(data string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASLFinal)
-	w.WriteBytes([]byte(data))
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen := 4 + len(data)
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASLFinal)
+	pos = writeBytesAt(buf, pos, []byte(data))
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // readSASLInitialResponse reads SASLInitialResponse from the client.
@@ -579,18 +589,20 @@ func (c *Conn) sendAuthError(message string) error {
 
 // sendAuthenticationOk sends an AuthenticationOk message to the client.
 func (c *Conn) sendAuthenticationOk() error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthOk)
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, 4)
+	pos = writeInt32At(buf, pos, protocol.AuthOk)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // sendBackendKeyData sends the BackendKeyData message.
 // This contains the process ID (connection ID) and secret key for query cancellation.
 func (c *Conn) sendBackendKeyData() error {
-	w := NewMessageWriter()
-	w.WriteUint32(c.connectionID)   // Process ID
-	w.WriteUint32(c.backendKeyData) // Secret key
-	return c.writeMessage(protocol.MsgBackendKeyData, w.Bytes())
+	buf, pos := c.startPacket(protocol.MsgBackendKeyData, 8)
+	pos = writeUint32At(buf, pos, c.connectionID)
+	pos = writeUint32At(buf, pos, c.backendKeyData)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // sendParameterStatuses sends initial ParameterStatus messages to the client.
@@ -618,17 +630,17 @@ func (c *Conn) sendParameterStatuses() error {
 
 // sendParameterStatus sends a single ParameterStatus message.
 func (c *Conn) sendParameterStatus(name, value string) error {
-	w := NewMessageWriter()
-	w.WriteString(name)
-	w.WriteString(value)
-	return c.writeMessage(protocol.MsgParameterStatus, w.Bytes())
+	bodyLen := len(name) + 1 + len(value) + 1
+	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
+	pos = writeStringAt(buf, pos, name)
+	pos = writeStringAt(buf, pos, value)
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.
 func (c *Conn) sendReadyForQuery() error {
-	w := NewMessageWriter()
-	w.WriteByte(byte(c.txnStatus))
-	if err := c.writeMessage(protocol.MsgReadyForQuery, w.Bytes()); err != nil {
+	if err := c.writeReadyForQuery(); err != nil {
 		return err
 	}
 	// Flush to ensure the client receives the message immediately.

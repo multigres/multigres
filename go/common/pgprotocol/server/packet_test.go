@@ -109,60 +109,6 @@ func TestMessageReaderEOF(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 }
 
-func TestMessageWriterWriteByte(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByte(0x01)
-	w.WriteByte(0x02)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02}, buf)
-}
-
-func TestMessageWriterWriteUint16(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteUint16(0x0102)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02}, buf)
-}
-
-func TestMessageWriterWriteUint32(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteUint32(0x01020304)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02, 0x03, 0x04}, buf)
-}
-
-func TestMessageWriterWriteString(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteString("hello")
-
-	buf := w.Bytes()
-	expected := []byte{'h', 'e', 'l', 'l', 'o', 0}
-	assert.Equal(t, expected, buf)
-}
-
-func TestMessageWriterWriteByteString(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByteString([]byte("hello"))
-
-	buf := w.Bytes()
-	// Should be: length (4 bytes) + data (5 bytes)
-	expected := []byte{0x00, 0x00, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'}
-	assert.Equal(t, expected, buf)
-}
-
-func TestMessageWriterWriteByteStringNull(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByteString(nil)
-
-	buf := w.Bytes()
-	// Should be: length=-1 (0xFFFFFFFF)
-	expected := []byte{0xFF, 0xFF, 0xFF, 0xFF}
-	assert.Equal(t, expected, buf)
-}
-
 func TestConnWriteAndReadMessage(t *testing.T) {
 	// Create a mock connection using a bytes buffer.
 	var buf bytes.Buffer

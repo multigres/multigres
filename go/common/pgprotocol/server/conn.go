@@ -1037,18 +1037,16 @@ func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.No
 					return
 				}
 				c.startWriterBuffering()
-				c.bufMu.Lock()
-				if c.bufferedWriter == nil {
-					c.bufMu.Unlock()
+				// writeNotificationResponseMsg acquires bufMu through
+				// startPacket/writePacket; each notification packet is
+				// committed atomically under that lock, so it can't be
+				// interleaved with a synchronous handler's packet.
+				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+					c.logger.Error("failed to push notification", "error", err)
 					return
 				}
-				err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload)
-				if err == nil {
-					err = c.bufferedWriter.Flush()
-				}
-				c.bufMu.Unlock()
-				if err != nil {
-					c.logger.Error("failed to push notification", "error", err)
+				if err := c.flush(); err != nil {
+					c.logger.Error("failed to flush notification", "error", err)
 					return
 				}
 			}
@@ -1066,63 +1064,48 @@ func (c *Conn) StopAsyncNotifications() {
 	}
 }
 
-// FlushPendingNotifications drains all pending notifications from the async pusher
-// channel and writes them to the client socket. This is called synchronously after
-// each query completes (before ReadyForQuery) to deliver any notifications that
-// arrived during query execution.
+// FlushPendingNotifications drains all pending notifications from
+// the async pusher channel and writes them to the client socket.
+// Called synchronously after each query completes (before
+// ReadyForQuery) to deliver notifications that arrived during query
+// execution.
 //
-// This is the safe synchronous path: it holds bufMu while writing, preventing
-// races with the async pusher goroutine which also writes with bufMu held.
+// Each notification is written via writeNotificationResponseMsg,
+// which acquires bufMu inside startPacket/writePacket per packet.
+// Multiple notifications may interleave with the synchronous query
+// handler's writes between packets, but every individual packet is
+// committed atomically under the lock, so packet bodies can never be
+// split.
 func (c *Conn) FlushPendingNotifications() error {
 	if c.notifPush == nil {
 		return nil
 	}
 	c.startWriterBuffering()
-	c.bufMu.Lock()
-	defer c.bufMu.Unlock()
-	if c.bufferedWriter == nil {
-		return nil
-	}
 	for {
 		select {
 		case notif, ok := <-c.notifPush.ch:
 			if !ok || notif == nil {
-				return c.bufferedWriter.Flush()
+				return c.flush()
 			}
 			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
 				return err
 			}
 		default:
-			return c.bufferedWriter.Flush()
+			return c.flush()
 		}
 	}
 }
 
-// writeNotificationResponseMsg writes a NotificationResponse without locking bufMu.
-// Caller must hold bufMu.
+// writeNotificationResponseMsg writes a NotificationResponse ('A')
+// packet: int32 pid, null-terminated channel, null-terminated payload.
+// Goes through startPacket/writePacket — caller does NOT need to hold
+// bufMu (the helpers manage it).
 func (c *Conn) writeNotificationResponseMsg(pid int32, channel, payload string) error {
-	// 'A' (NotificationResponse): int32 pid, string channel, string payload
-	msgLen := 4 + 4 + len(channel) + 1 + len(payload) + 1
-	if err := c.bufferedWriter.WriteByte(protocol.MsgNotificationResponse); err != nil {
-		return err
-	}
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(msgLen))
-	if _, err := c.bufferedWriter.Write(buf); err != nil {
-		return err
-	}
-	binary.BigEndian.PutUint32(buf, uint32(pid))
-	if _, err := c.bufferedWriter.Write(buf); err != nil {
-		return err
-	}
-	if _, err := c.bufferedWriter.WriteString(channel); err != nil {
-		return err
-	}
-	if err := c.bufferedWriter.WriteByte(0); err != nil {
-		return err
-	}
-	if _, err := c.bufferedWriter.WriteString(payload); err != nil {
-		return err
-	}
-	return c.bufferedWriter.WriteByte(0)
+	bodyLen := 4 + len(channel) + 1 + len(payload) + 1
+	buf, pos := c.startPacket(protocol.MsgNotificationResponse, bodyLen)
+	pos = writeInt32At(buf, pos, pid)
+	pos = writeStringAt(buf, pos, channel)
+	pos = writeStringAt(buf, pos, payload)
+	_ = pos
+	return c.writePacket(buf)
 }
