@@ -92,8 +92,7 @@ func (c *Conn) handleSSLRequest() error {
 	if c.tlsConfig == nil {
 		// No TLS configured, decline SSL.
 		c.logger.Debug("client requested SSL, declining (no TLS config)")
-		writer := c.getWriter()
-		if err := c.writeByte(writer, 'N'); err != nil {
+		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
 		if err := c.flush(); err != nil {
@@ -105,8 +104,7 @@ func (c *Conn) handleSSLRequest() error {
 
 	// Accept SSL and upgrade to TLS.
 	c.logger.Debug("client requested SSL, accepting")
-	writer := c.getWriter()
-	if err := c.writeByte(writer, 'S'); err != nil {
+	if err := c.writeRawByte('S'); err != nil {
 		return fmt.Errorf("failed to send SSL response: %w", err)
 	}
 	if err := c.flush(); err != nil {
@@ -128,8 +126,9 @@ func (c *Conn) handleSSLRequest() error {
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
-	// startup (lazy init via startWriterBuffering), so getWriter() falls
-	// back to c.conn directly — after this swap, writes go through TLS.
+	// startup (lazy init via startWriterBuffering), so writeRawByte
+	// falls back to c.conn directly — after this swap, writes go
+	// through TLS.
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
 
@@ -149,8 +148,7 @@ func (c *Conn) handleGSSENCRequest() error {
 	c.gssDone = true
 
 	c.logger.Debug("client requested GSSAPI encryption, declining")
-	writer := c.getWriter()
-	if err := c.writeByte(writer, 'N'); err != nil {
+	if err := c.writeRawByte('N'); err != nil {
 		return fmt.Errorf("failed to send GSSENC response: %w", err)
 	}
 	if err := c.flush(); err != nil {

@@ -370,17 +370,6 @@ func (c *Conn) startWriterBuffering() {
 	}
 }
 
-// getWriter returns the writer to use (buffered or direct).
-func (c *Conn) getWriter() io.Writer {
-	c.bufMu.Lock()
-	defer c.bufMu.Unlock()
-
-	if c.bufferedWriter != nil {
-		return c.bufferedWriter
-	}
-	return c.conn
-}
-
 // flush flushes any buffered writes.
 func (c *Conn) flush() error {
 	c.bufMu.Lock()

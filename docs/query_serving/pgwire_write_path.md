@@ -338,6 +338,14 @@ isn't a memory concern.
     `writeBytesAt` — in-place body encoders. Plain functions, no
     interfaces, the compiler inlines them and they don't escape
     arguments.
+  - `writeMessage(msgType, body)` — thin convenience wrapper for
+    callers that already have the body materialized as a `[]byte`
+    (auth-flow messages, body-less messages like `ParseComplete`).
+    Routes through `startPacket`/`writePacket` underneath, so it
+    gets the same single-Write fast path.
+  - `writeRawByte(b)` — sends a single non-pgwire byte. Used only
+    for the SSL/GSSENC negotiation response ('S'/'N'), which is a
+    raw byte on the wire with no protocol framing.
 - `go/common/pgprotocol/server/query.go` — concrete writers:
   `writeRowDescription`, `writeDataRow`, `writeCommandComplete`,
   `writeReadyForQuery`, `writeEmptyQueryResponse`,
@@ -424,7 +432,18 @@ isn't a memory concern.
   their high-level operation; new callers should do the same.
 - **Adding a new outbound message type:** follow the existing pattern
   — pre-compute body size, call `startPacket`, encode in place with
-  the `writeXxxAt` helpers, call `writePacket`. The server side has a
-  legacy `writeMessage` helper used for body-less messages like
-  `ParseComplete`; new code should not reach for it. The client side
-  has no such helper — `startPacket` / `writePacket` is the only API.
+  the `writeXxxAt` helpers, call `writePacket`. The server side keeps
+  a thin `writeMessage(msgType, body)` helper for cases where the
+  body is already materialized as a `[]byte` (auth-flow messages
+  built via `MessageWriter`, body-less messages like `ParseComplete`)
+  — it routes through the same `startPacket`/`writePacket` underneath,
+  so it gets the same fast-path treatment, but new code that's
+  building bodies field-by-field should use the encoders directly to
+  skip the intermediate buffer. The client side has no such helper —
+  `startPacket` / `writePacket` is the only API.
+
+- **`writeRawByte` is the SSL/GSSENC escape hatch, not a general
+  helper.** It exists only to send the single 'S'/'N' negotiation
+  response, which has no length prefix and no message-type framing —
+  it is not a pgwire packet. Don't use it for anything else; if you
+  need a 1-byte packet, that's still a packet (`startPacket(t, 0)`).

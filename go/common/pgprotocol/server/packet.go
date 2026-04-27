@@ -107,25 +107,23 @@ func (c *Conn) readStartupPacket() ([]byte, error) {
 }
 
 // writeMessage writes a complete message with type, length, and body.
-// The length is calculated automatically (includes length field, excludes type byte).
+// The length is calculated automatically (includes length field, excludes
+// type byte).
 //
-// Coalesces the type+length header into one Write call to halve the
-// number of bufio.Write trips through the buffered writer per message.
+// Routes through startPacket/writePacket so the header + body land in
+// the bufferedWriter as a single Write (a self-copy on the fast path),
+// rather than the previous header-then-body two-Write shape. Used for
+// the cold-path callers that already have the body materialized as a
+// []byte (ParseComplete/BindComplete/NoData/CloseComplete with nil
+// body, plus the startup-flow Auth/BackendKeyData/ParameterStatus/
+// ReadyForQuery messages built via MessageWriter).
 func (c *Conn) writeMessage(msgType byte, body []byte) error {
-	var hdr [5]byte
-	hdr[0] = msgType
-	binary.BigEndian.PutUint32(hdr[1:], uint32(4+len(body)))
-
-	writer := c.getWriter()
-	if _, err := writer.Write(hdr[:]); err != nil {
-		return err
-	}
+	buf, pos := c.startPacket(msgType, len(body))
 	if len(body) > 0 {
-		if _, err := writer.Write(body); err != nil {
-			return err
-		}
+		pos = writeBytesAt(buf, pos, body)
 	}
-	return nil
+	_ = pos
+	return c.writePacket(buf)
 }
 
 // startPacket reserves space for a single pgwire packet of the given
@@ -239,50 +237,19 @@ func writeBytesAt(buf []byte, pos int, b []byte) int {
 	return pos + n
 }
 
-// writeByte writes a single byte.
-func (c *Conn) writeByte(w io.Writer, b byte) error {
-	buf := [1]byte{b}
-	_, err := w.Write(buf[:])
-	return err
-}
+// writeRawByte writes a single byte that is NOT a pgwire packet —
+// just one raw byte on the wire. Used only for the SSL/GSSENC
+// negotiation response ('S' or 'N'), which has no length prefix and
+// no message-type framing. Goes through the bufferedWriter if one is
+// attached, otherwise straight to the conn.
+func (c *Conn) writeRawByte(b byte) error {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
-// writeUint16 writes a 16-bit unsigned integer in network byte order (big-endian).
-func (c *Conn) writeUint16(w io.Writer, v uint16) error {
-	buf := [2]byte{}
-	binary.BigEndian.PutUint16(buf[:], v)
-	_, err := w.Write(buf[:])
-	return err
-}
-
-// writeUint32 writes a 32-bit unsigned integer in network byte order (big-endian).
-func (c *Conn) writeUint32(w io.Writer, v uint32) error {
-	buf := [4]byte{}
-	binary.BigEndian.PutUint32(buf[:], v)
-	_, err := w.Write(buf[:])
-	return err
-}
-
-// writeInt16 writes a 16-bit signed integer in network byte order (big-endian).
-func (c *Conn) writeInt16(w io.Writer, v int16) error {
-	return c.writeUint16(w, uint16(v))
-}
-
-// writeInt32 writes a 32-bit signed integer in network byte order (big-endian).
-func (c *Conn) writeInt32(w io.Writer, v int32) error {
-	return c.writeUint32(w, uint32(v))
-}
-
-// writeString writes a null-terminated string.
-func (c *Conn) writeString(w io.Writer, s string) error {
-	if _, err := w.Write([]byte(s)); err != nil {
-		return err
+	if c.bufferedWriter != nil {
+		return c.bufferedWriter.WriteByte(b)
 	}
-	return c.writeByte(w, 0)
-}
-
-// writeBytes writes a byte slice (not null-terminated).
-func (c *Conn) writeBytes(w io.Writer, b []byte) error {
-	_, err := w.Write(b)
+	_, err := c.conn.Write([]byte{b})
 	return err
 }
 
