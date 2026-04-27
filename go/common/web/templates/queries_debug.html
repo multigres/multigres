@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta http-equiv="refresh" content="10" />
+    <title>{{.Title}}</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
+    <style>
+      td.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      td code {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .sort-links a {
+        margin-right: 0.75rem;
+      }
+      .sort-links .active {
+        font-weight: bold;
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{{.Title}}</h1>
+    </header>
+
+    <main>
+      <section>
+        <h4>Summary</h4>
+        <table>
+          <tbody>
+            <tr>
+              <th>Tracked Fingerprints</th>
+              <td>{{.TrackedFingerprints}}</td>
+            </tr>
+            <tr>
+              <th>Showing</th>
+              <td>{{.Returned}} (limit {{.Limit}})</td>
+            </tr>
+            <tr>
+              <th>Sorted By</th>
+              <td>{{.SortBy}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h4>Sort</h4>
+        <p class="sort-links">
+          {{range .SortLinks}} {{if .Active}}
+          <a class="active" href="?sort={{.Key}}&amp;limit={{$.Limit}}"
+            >{{.Label}}</a
+          >
+          {{else}}
+          <a href="?sort={{.Key}}&amp;limit={{$.Limit}}">{{.Label}}</a>
+          {{end}} {{end}}
+        </p>
+      </section>
+
+      <section>
+        <h4>Query Shapes</h4>
+        {{if .Queries}}
+        <table>
+          <thead>
+            <tr>
+              <th>Fingerprint</th>
+              <th>Query</th>
+              <th class="num">Calls</th>
+              <th class="num">Errors</th>
+              <th class="num">Avg (ms)</th>
+              <th class="num">Min (ms)</th>
+              <th class="num">Max (ms)</th>
+              <th class="num">Total Rows</th>
+              <th>Last Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Queries}}
+            <tr>
+              <td><code>{{.Fingerprint}}</code></td>
+              <td><code>{{.NormalizedSQL}}</code></td>
+              <td class="num">{{.Calls}}</td>
+              <td class="num">{{.Errors}}</td>
+              <td class="num">{{.AvgMs}}</td>
+              <td class="num">{{.MinMs}}</td>
+              <td class="num">{{.MaxMs}}</td>
+              <td class="num">{{.TotalRows}}</td>
+              <td>{{.LastSeen.Format "15:04:05"}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <p>
+          <em
+            >No tracked query fingerprints yet. Run some traffic through the
+            gateway and this page will populate within a few seconds.</em
+          >
+        </p>
+        {{end}}
+      </section>
+
+      <section>
+        <p>
+          <small>
+            <a
+              href="/debug/queries?format=json&amp;sort={{.SortBy}}&amp;limit={{.Limit}}"
+              >View as JSON</a
+            >
+          </small>
+        </p>
+      </section>
+    </main>
+
+    <footer>{{template "timestamp.tmpl"}}</footer>
+  </body>
+</html>

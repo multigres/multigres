@@ -127,6 +127,42 @@ func (s *ProtoStore[K, V]) Range(fn func(key K, value V) bool) {
 	}
 }
 
+// DoUpdateRange iterates over all key-value pairs while holding the lock and
+// allows in-place updates.
+//
+// Each value passed to the callback is the raw internal value (not a clone).
+// The callback may mutate it in place. Return the updated value to write it
+// back to the store, or nil to leave the entry unchanged. Return false to stop
+// iteration early — consistent with Range.
+//
+// The callback must not retain the pointer after it returns, and must not
+// perform any expensive or blocking operations since it runs while holding the
+// store lock.
+//
+// Example:
+//
+//	store.DoUpdateRange(func(key string, value *PoolerHealthState) (*PoolerHealthState, bool) {
+//	    value.LastSeen = timestamppb.Now()
+//	    return value, true  // write updated value and continue
+//	    return nil, true    // no update, continue
+//	    return value, false // write updated value and stop
+//	})
+func (s *ProtoStore[K, V]) DoUpdateRange(fn func(key K, value V) (V, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for k, v := range s.items {
+		var zero V
+		newValue, cont := fn(k, v)
+		if any(newValue) != any(zero) {
+			s.items[k] = newValue
+		}
+		if !cont {
+			return
+		}
+	}
+}
+
 // DoUpdate performs an atomic read-modify-write operation for a given key.
 //
 // The provided function receives a pointer to the current value and can modify
@@ -140,14 +176,10 @@ func (s *ProtoStore[K, V]) Range(fn func(key K, value V) bool) {
 // Example:
 //
 //	store.DoUpdate("pooler1", func(value *PoolerHealthState) *PoolerHealthState {
-//	    // Update value based on current state (value is a pointer to the current or zero value)
 //	    value.LastSeen = timestamppb.Now()
-//	    return value  // return the updated value to store it back in the map
+//	    return value // write updated value
+//	    return nil   // no update
 //	})
-//
-// Note: The update function should return the new value to be stored. If the
-// function does not modify the value, it should return the original value to
-// ensure it remains in the store.
 //
 // Right now we are holding a lock on the entire store for the duration of the
 // update function, but an improvement for the future could be to implement
@@ -159,6 +191,9 @@ func (s *ProtoStore[K, V]) DoUpdate(key K, fn func(value V) V) {
 	// Skip the update if the key doesn't exist to avoid accidentally creating
 	// new entries.
 	if v, ok := s.items[key]; ok {
-		s.items[key] = fn(v)
+		var zero V
+		if newValue := fn(v); any(newValue) != any(zero) {
+			s.items[key] = newValue
+		}
 	}
 }

@@ -35,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // errPoolerUninitialized is the initial error before health stream connects.
@@ -57,6 +56,10 @@ type PoolerHealth struct {
 	// PrimaryObservation contains the pooler's view of who the primary is.
 	// Used for term-based primary reconciliation.
 	PrimaryObservation *multipoolerservice.PrimaryObservation
+
+	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
+	// Zero on the primary or when not yet measured.
+	ReplicationLagNs int64
 
 	// LastError is the most recent error from the health stream.
 	LastError error
@@ -87,6 +90,7 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 		PoolerID:           h.PoolerID,
 		ServingStatus:      h.ServingStatus,
 		PrimaryObservation: h.PrimaryObservation,
+		ReplicationLagNs:   h.ReplicationLagNs,
 		LastError:          h.LastError,
 		LastResponse:       h.LastResponse,
 	}
@@ -152,6 +156,7 @@ func NewPoolerConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 	logger *slog.Logger,
+	grpcDialOpt grpc.DialOption,
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
@@ -166,7 +171,7 @@ func NewPoolerConnection(
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		grpccommon.WithDialOptions(grpcDialOpt),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
@@ -411,6 +416,7 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 		PoolerID:           response.PoolerId,
 		ServingStatus:      response.ServingStatus,
 		PrimaryObservation: response.PrimaryObservation,
+		ReplicationLagNs:   response.ReplicationLagNs,
 		LastError:          nil,
 		LastResponse:       time.Now(),
 	}

@@ -47,7 +47,12 @@ type CancelQueryRequest struct {
 	// secret_key is the backend key data for cancel request authentication.
 	// Required: the receiving gateway verifies this matches before canceling.
 	// Without it, any client that can guess a PID could cancel arbitrary queries.
-	SecretKey     uint32 `protobuf:"varint,2,opt,name=secret_key,json=secretKey,proto3" json:"secret_key,omitempty"`
+	SecretKey uint32 `protobuf:"varint,2,opt,name=secret_key,json=secretKey,proto3" json:"secret_key,omitempty"`
+	// replica indicates the cancel targets a connection on the replica-reads listener.
+	// When false (default), the cancel targets the primary listener. This is needed
+	// because both listeners share the same PID prefix and may have overlapping local
+	// connection IDs — the connection type disambiguates which listener owns the PID.
+	Replica       bool `protobuf:"varint,3,opt,name=replica,proto3" json:"replica,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -96,6 +101,13 @@ func (x *CancelQueryRequest) GetSecretKey() uint32 {
 	return 0
 }
 
+func (x *CancelQueryRequest) GetReplica() bool {
+	if x != nil {
+		return x.Replica
+	}
+	return false
+}
+
 // CancelQueryResponse is empty on success.
 type CancelQueryResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -137,12 +149,13 @@ var File_multigatewayservice_proto protoreflect.FileDescriptor
 
 const file_multigatewayservice_proto_rawDesc = "" +
 	"\n" +
-	"\x19multigatewayservice.proto\x12\x13multigatewayservice\"R\n" +
+	"\x19multigatewayservice.proto\x12\x13multigatewayservice\"l\n" +
 	"\x12CancelQueryRequest\x12\x1d\n" +
 	"\n" +
 	"process_id\x18\x01 \x01(\rR\tprocessId\x12\x1d\n" +
 	"\n" +
-	"secret_key\x18\x02 \x01(\rR\tsecretKey\"\x15\n" +
+	"secret_key\x18\x02 \x01(\rR\tsecretKey\x12\x18\n" +
+	"\areplica\x18\x03 \x01(\bR\areplica\"\x15\n" +
 	"\x13CancelQueryResponse2w\n" +
 	"\x13MultiGatewayService\x12`\n" +
 	"\vCancelQuery\x12'.multigatewayservice.CancelQueryRequest\x1a(.multigatewayservice.CancelQueryResponseB:Z8github.com/multigres/multigres/go/pb/multigatewayserviceb\x06proto3"

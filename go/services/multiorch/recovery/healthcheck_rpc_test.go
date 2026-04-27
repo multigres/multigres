@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,6 +60,10 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 					{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 					{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica2"},
 				},
+			},
+			CohortMembers: []*clustermetadata.ID{
+				{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+				{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			},
 		},
 	})
@@ -108,14 +113,21 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 	require.NotNil(t, updated.LastCheckSuccessful, "LastCheckSuccessful should be set")
 
 	// Check that PRIMARY-specific fields were populated
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "should report PRIMARY type")
-	require.NotNil(t, updated.PrimaryStatus, "PrimaryStatus should be populated")
-	require.Equal(t, "0/123ABC", updated.PrimaryStatus.Lsn, "LSN should match response")
-	require.True(t, updated.PrimaryStatus.Ready, "should be ready")
-	require.Len(t, updated.PrimaryStatus.ConnectedFollowers, 2, "should have 2 connected followers")
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType(), "should report PRIMARY type")
+	require.NotNil(t, updated.GetStatus().GetPrimaryStatus(), "PrimaryStatus should be populated")
+	require.Equal(t, "0/123ABC", updated.GetStatus().GetPrimaryStatus().GetLsn(), "LSN should match response")
+	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady(), "should be ready")
+	require.Len(t, updated.GetStatus().GetPrimaryStatus().GetConnectedFollowers(), 2, "should have 2 connected followers")
 
 	// Check that REPLICA fields are not populated
-	require.Nil(t, updated.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
+	require.Nil(t, updated.GetStatus().GetReplicationStatus(), "ReplicationStatus should be nil for PRIMARY")
+
+	// Check that CohortMembers are propagated from Status response
+	require.Len(t, updated.GetStatus().GetCohortMembers(), 2, "CohortMembers should be propagated from Status response")
+	require.Equal(t, "zone1", updated.GetStatus().GetCohortMembers()[0].GetCell())
+	require.Equal(t, "pooler1", updated.GetStatus().GetCohortMembers()[0].GetName())
+	require.Equal(t, "zone1", updated.GetStatus().GetCohortMembers()[1].GetCell())
+	require.Equal(t, "replica1", updated.GetStatus().GetCohortMembers()[1].GetName())
 
 	// Check that LastPostgresReadyTime is NOT set when PostgresReady is false (default in this mock)
 	require.Nil(t, updated.LastPostgresReadyTime, "LastPostgresReadyTime should not be set when PostgresReady is false")
@@ -199,20 +211,20 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 	require.NotNil(t, updated.LastSeen, "LastSeen should be set")
 
 	// Check that REPLICA-specific fields were populated
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.PoolerType, "should report REPLICA type")
-	require.NotNil(t, updated.ReplicationStatus, "ReplicationStatus should be populated")
-	require.Equal(t, "0/123ABC", updated.ReplicationStatus.LastReplayLsn, "replay LSN should match response")
-	require.Equal(t, "0/123DEF", updated.ReplicationStatus.LastReceiveLsn, "receive LSN should match response")
-	require.False(t, updated.ReplicationStatus.IsWalReplayPaused, "WAL replay should not be paused")
-	require.Equal(t, "not paused", updated.ReplicationStatus.WalReplayPauseState)
-	require.Equal(t, int64(500), updated.ReplicationStatus.Lag.AsDuration().Milliseconds(), "lag should be 500ms")
-	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.ReplicationStatus.LastXactReplayTimestamp)
-	require.NotNil(t, updated.ReplicationStatus.PrimaryConnInfo, "primary conn info should be set")
-	require.Equal(t, "primary-host", updated.ReplicationStatus.PrimaryConnInfo.Host)
-	require.Equal(t, int32(5432), updated.ReplicationStatus.PrimaryConnInfo.Port)
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.GetStatus().GetPoolerType(), "should report REPLICA type")
+	require.NotNil(t, updated.GetStatus().GetReplicationStatus(), "ReplicationStatus should be populated")
+	require.Equal(t, "0/123ABC", updated.GetStatus().GetReplicationStatus().GetLastReplayLsn(), "replay LSN should match response")
+	require.Equal(t, "0/123DEF", updated.GetStatus().GetReplicationStatus().GetLastReceiveLsn(), "receive LSN should match response")
+	require.False(t, updated.GetStatus().GetReplicationStatus().GetIsWalReplayPaused(), "WAL replay should not be paused")
+	require.Equal(t, "not paused", updated.GetStatus().GetReplicationStatus().GetWalReplayPauseState())
+	require.Equal(t, int64(500), updated.GetStatus().GetReplicationStatus().GetLag().AsDuration().Milliseconds(), "lag should be 500ms")
+	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.GetStatus().GetReplicationStatus().GetLastXactReplayTimestamp())
+	require.NotNil(t, updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo(), "primary conn info should be set")
+	require.Equal(t, "primary-host", updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost())
+	require.Equal(t, int32(5432), updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetPort())
 
 	// Check that PRIMARY fields are not populated
-	require.Nil(t, updated.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
+	require.Nil(t, updated.GetStatus().GetPrimaryStatus(), "PrimaryStatus should be nil for REPLICA")
 }
 
 // TestPollPooler_RPCFailure tests that polling failure is properly recorded in the store
@@ -413,12 +425,15 @@ func TestPollPooler_DeletedDuringPoll(t *testing.T) {
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Delete the pooler while the RPC is in-flight.
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		time.Sleep(10 * time.Millisecond)
 		re.poolerStore.Delete(poolerKey)
-	}()
+	})
 
 	re.pollPooler(ctx, poolerID, pooler, false /* forceDiscovery */)
+
+	wg.Wait()
 
 	_, ok := re.poolerStore.Get(poolerKey)
 	require.False(t, ok, "deleted pooler should not be resurrected by health check")
@@ -590,10 +605,10 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	// Topology type is in MultiPooler.Type
 	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type, "topology type should remain REPLICA")
 	// Reported type is in PoolerType
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "reported type should be PRIMARY")
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType(), "reported type should be PRIMARY")
 
 	// Should have populated PRIMARY fields (what the pooler actually reports)
-	require.NotNil(t, updated.PrimaryStatus, "PrimaryStatus should be populated")
-	require.Equal(t, "0/FFFFFF", updated.PrimaryStatus.Lsn)
-	require.True(t, updated.PrimaryStatus.Ready)
+	require.NotNil(t, updated.GetStatus().GetPrimaryStatus(), "PrimaryStatus should be populated")
+	require.Equal(t, "0/FFFFFF", updated.GetStatus().GetPrimaryStatus().GetLsn())
+	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady())
 }

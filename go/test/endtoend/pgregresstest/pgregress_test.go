@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -31,27 +32,33 @@ import (
 // This test performs the following steps:
 // 1. Checks out PostgreSQL source code (REL_17_6) from GitHub
 // 2. Builds PostgreSQL using ./configure and make
-// 3. Builds isolation test tools if RUN_PGISOLATION=1
+// 3. Builds isolation test tools (only when the isolation suite will run)
 // 4. Prepends the built PostgreSQL bin directory to PATH
 // 5. Spins up a multigres cluster (2 nodes + multigateway) using the built PostgreSQL
-// 6. Runs regression tests (if RUN_PGREGRESS=1) through multigateway
-// 7. Runs isolation tests (if RUN_PGISOLATION=1) through multigateway
+// 6. Runs regression tests through multigateway (if enabled)
+// 7. Runs isolation tests through multigateway (if enabled)
 // 8. Generates a unified compatibility report
 //
-// The test is skipped by default. Set RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1 to run.
+// The test is skipped by default. Enable via one of:
+//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — runs both suites (what CI uses)
+//   - RUN_PGREGRESS=1 — runs the regression suite only (local iteration)
+//   - RUN_PGISOLATION=1 — runs the isolation suite only (local iteration)
+//
+// Setting more than one is fine; the union is run.
 //
 // Environment variables:
-//   - RUN_PGREGRESS=1: enable regression tests
-//   - PGREGRESS_TESTS="boolean char": run only specific regression tests
-//   - RUN_PGISOLATION=1: enable isolation tests
-//   - PGISOLATION_TESTS="deadlock-simple tuplelock-update": run only specific isolation tests
+//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — enable both regression and isolation
+//   - RUN_PGREGRESS=1 — enable regression only
+//   - RUN_PGISOLATION=1 — enable isolation only
+//   - PGREGRESS_TESTS="boolean char" — run only specific regression tests
+//   - PGISOLATION_TESTS="deadlock-simple tuplelock-update" — run only specific isolation tests
 func TestPostgreSQLRegression(t *testing.T) {
-	runRegress := os.Getenv("RUN_PGREGRESS") == "1"
-	runIsolation := os.Getenv("RUN_PGISOLATION") == "1"
-
-	// Skip unless at least one suite is enabled
+	extendedGate := os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1"
+	runRegress := extendedGate || os.Getenv("RUN_PGREGRESS") == "1"
+	runIsolation := extendedGate || os.Getenv("RUN_PGISOLATION") == "1"
 	if !runRegress && !runIsolation {
-		t.Skip("skipping pg_regress/isolation tests (set RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1 to run)")
+		t.Skipf("skipping: set %s=1, or RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1, to run",
+			suiteutil.EnvRunExtendedQueryServingTests)
 	}
 
 	// Check build dependencies first (before doing anything expensive)
@@ -60,9 +67,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 	}
 
 	// Each test suite gets its own sub-context so one suite hanging cannot
-	// starve the other. The build phase uses a separate 10-minute budget.
+	// starve the other. The build phase needs room for a cold clone + configure
+	// + make + install on slower developer machines (macOS); CI is faster so
+	// 20 minutes is overkill there but harmless.
 	const (
-		buildTimeout = 10 * time.Minute
+		buildTimeout = 20 * time.Minute
 		suiteTimeout = 20 * time.Minute
 	)
 
@@ -84,7 +93,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Fatalf("Failed to build PostgreSQL: %v", err)
 	}
 
-	// Phase 2b: Build isolation test tools (only when needed)
+	// Phase 2b: Build isolation test tools (only when that suite will run)
 	if runIsolation {
 		t.Logf("Phase 2b: Building isolation test tools...")
 		if err := builder.BuildIsolation(t, buildCtx); err != nil {
@@ -124,6 +133,14 @@ func TestPostgreSQLRegression(t *testing.T) {
 				}
 				t.Fatal("Test harness returned nil results")
 				return
+			}
+
+			// Replace pg_regress's strict diff verdict with patch-based
+			// verification. Operates on the regress build directory, where
+			// pg_regress wrote expected/ and results/ files.
+			regressDir := filepath.Join(builder.BuildDir, "src", "test", "regress")
+			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir); verr != nil {
+				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 
 			logSuiteResults(t, "Regression", results)

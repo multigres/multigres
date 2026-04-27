@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -239,7 +240,7 @@ func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, par
 // QueryArgs executes a parameterized query using the extended query protocol.
 // This is a convenience method that accepts Go values as arguments and converts
 // them to the appropriate text format for PostgreSQL.
-// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 // float32, float64, bool, and time.Time.
 func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*sqltypes.Result, error) {
 	// Convert args to [][]byte
@@ -338,6 +339,11 @@ func argToParam(arg any) ([]byte, error) {
 		return []byte(strconv.FormatInt(int64(v), 10)), nil
 	case int64:
 		return []byte(strconv.FormatInt(v, 10)), nil
+	case *int64:
+		if v == nil {
+			return nil, nil // NULL
+		}
+		return []byte(strconv.FormatInt(*v, 10)), nil
 	case uint32:
 		return []byte(strconv.FormatUint(uint64(v), 10)), nil
 	case uint64:
@@ -354,9 +360,39 @@ func argToParam(arg any) ([]byte, error) {
 	case time.Time:
 		// Use RFC3339 format which PostgreSQL understands.
 		return []byte(v.Format(time.RFC3339Nano)), nil
+	case []string:
+		// Encode as PostgreSQL array literal: {elem1,elem2,...}
+		// Elements containing commas, braces, backslashes, or whitespace are double-quoted.
+		return []byte(encodeStringArray(v)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", arg)
 	}
+}
+
+// encodeStringArray encodes a []string as a PostgreSQL text-format array literal (e.g. {"foo","bar"}).
+// All elements are double-quoted with internal double-quotes and backslashes escaped.
+// Always quoting avoids edge cases (empty strings, NULL, whitespace, unicode) without loss of correctness.
+func encodeStringArray(elems []string) string {
+	if len(elems) == 0 {
+		return "{}"
+	}
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, e := range elems {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('"')
+		for _, c := range e {
+			if c == '"' || c == '\\' {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(c)
+		}
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String()
 }
 
 // processExecuteResponses processes responses to an Execute command.

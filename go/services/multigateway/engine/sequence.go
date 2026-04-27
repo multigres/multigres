@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -42,11 +43,12 @@ func (s *Sequence) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Execute each primitive in order
 	for i, p := range s.Primitives {
-		if err := p.StreamExecute(ctx, exec, conn, state, callback); err != nil {
+		if err := p.StreamExecute(ctx, exec, conn, state, nil, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}

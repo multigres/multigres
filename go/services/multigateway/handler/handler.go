@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
 
 // ExecuteResult carries plan metadata back from the executor to the handler
@@ -45,6 +46,18 @@ type ExecuteResult struct {
 
 	// PlanTime is how long query planning took.
 	PlanTime time.Duration
+
+	// CacheHit indicates whether the plan was served from the plan cache.
+	CacheHit bool
+
+	// NormalizedSQL is the query with literals replaced by $N placeholders.
+	// Empty for non-cacheable statements (utility, DDL, transactions) that
+	// don't go through normalization.
+	NormalizedSQL string
+
+	// Fingerprint is a stable 16-hex-char hash of NormalizedSQL, used to
+	// aggregate per-query-shape metrics. Empty if NormalizedSQL is empty.
+	Fingerprint string
 }
 
 // Executor defines the interface for query execution.
@@ -78,6 +91,10 @@ type MultiGatewayHandler struct {
 	slowThreshold    time.Duration
 	notifMgr         NotificationManager
 	onNotifDropped   func(ctx context.Context) // called when async notification delivery drops
+	queryRegistry    *queryregistry.Registry
+	// targetReplica is set to true for the replica-port listener. When true,
+	// new connection states target replicas so the planner routes queries there.
+	targetReplica bool
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -97,9 +114,35 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 	}
 }
 
+// SetTargetReplica configures whether connections accepted by this handler
+// target replicas. Must be called before connections are accepted.
+func (h *MultiGatewayHandler) SetTargetReplica(target bool) {
+	h.targetReplica = target
+}
+
+// SetQueryRegistry attaches a per-query-shape registry to the handler.
+// When set, the handler emits a `query.fingerprint` label on query metrics
+// and records aggregate stats for queries in the registry's tracked set.
+// A nil registry disables per-query tracking (all other metrics still work).
+func (h *MultiGatewayHandler) SetQueryRegistry(r *queryregistry.Registry) {
+	h.queryRegistry = r
+}
+
+// QueryRegistry returns the attached query registry, or nil if none is set.
+// Exposed so the /debug/queries HTTP handler can enumerate tracked fingerprints.
+func (h *MultiGatewayHandler) QueryRegistry() *queryregistry.Registry {
+	return h.queryRegistry
+}
+
 // Consolidator returns the prepared statement consolidator.
 func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 	return h.psc
+}
+
+// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+// statement registered under the given user-visible name on connID.
+func (h *MultiGatewayHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return h.psc.GetPreparedStatementInfo(connID, name)
 }
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
@@ -267,6 +310,7 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{
 			notifMgr:       h.notifMgr,
@@ -512,24 +556,44 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 ) {
 	dbNamespace := conn.Database()
 
+	var (
+		tablesUsed    []string
+		planType      string
+		planTime      time.Duration
+		normalizedSQL string
+		fingerprint   string
+	)
+	if result != nil {
+		tablesUsed = result.TablesUsed
+		planType = result.PlanType
+		planTime = result.PlanTime
+		normalizedSQL = result.NormalizedSQL
+		fingerprint = result.Fingerprint
+	}
+
+	// Resolve the fingerprint label: either the fingerprint itself (if tracked),
+	// __other__ (tracked query space exists but this fingerprint didn't make the
+	// cut), or __utility__ (non-cacheable statement with no fingerprint).
+	fingerprintLabel := queryregistry.UtilityLabel
+	if fingerprint != "" {
+		fingerprintLabel = h.queryRegistry.Labelize(fingerprint)
+	}
+
 	status := QueryStatusOK
 	errorType := ""
 	if err != nil {
 		status = QueryStatusError
 		errorType = mterrors.ExtractSQLSTATE(err)
-		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName)
+		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName, fingerprintLabel)
 	}
 
-	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
-	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName)
+	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status, fingerprintLabel)
+	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName, fingerprintLabel)
 
-	var tablesUsed []string
-	var planType string
-	var planTime time.Duration
-	if result != nil {
-		tablesUsed = result.TablesUsed
-		planType = result.PlanType
-		planTime = result.PlanTime
+	// Feed the registry so popular fingerprints stay tracked, their stats roll
+	// up for /debug/queries, and newly-popular queries get promoted.
+	if fingerprint != "" {
+		h.queryRegistry.Record(fingerprint, normalizedSQL, totalDuration, int(rowCount), err != nil)
 	}
 
 	for _, table := range tablesUsed {

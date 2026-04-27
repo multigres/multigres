@@ -23,12 +23,14 @@ ADDLICENSE_VER = v1.2.0
 export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
+SQLLOGICTEST_VER = v0.29.1
+export SQLLOGICTEST_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
 
 ##@ General
 
@@ -144,6 +146,21 @@ test-coverage: build-coverage ## Run tests with comprehensive coverage.
 	PORT_POOL_PID=$$!; \
 	trap "kill $$PORT_POOL_PID" EXIT; \
 	MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock ./scripts/go_test_coverage.sh ./...
+
+# Run the PostgreSQL regression suite (patch-verify mode). Requires the test
+# cluster to be built (via `make build`) and will clone/build PostgreSQL on
+# first run.
+pgregress: build ## Run the PostgreSQL regression suite with patch-based verification.
+	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=verify \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Re-run the PostgreSQL regression suite in generate mode: any residual diff
+# between actual output and patched-expected output is absorbed by (re)writing
+# testdata/pg17/patches/<name>.patch. Review the resulting patches in the PR
+# diff before merging.
+pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from the current run.
+	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
 ##@ Maintenance
 

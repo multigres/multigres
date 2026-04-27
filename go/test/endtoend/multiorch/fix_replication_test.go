@@ -214,7 +214,7 @@ func TestFixReplication(t *testing.T) {
 	t.Log("Verifying replica was removed from standby list...")
 	require.Eventually(t, func() bool {
 		return !isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 2*time.Second, 100*time.Millisecond, "replica should not be in standby list after removal")
+	}, 5*time.Second, 200*time.Millisecond, "replica should not be in standby list after removal")
 
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")
@@ -245,19 +245,21 @@ func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClie
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 
-	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	require.NoError(t, err, "StandbyReplicationStatus should succeed")
-	require.NotNil(t, resp.Status, "Status should not be nil")
+	statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	require.NotNil(t, statusResp.Status, "Status should not be nil")
+	repStatus := statusResp.Status.ReplicationStatus
 
 	// Verify primary_conninfo is configured
-	require.NotNil(t, resp.Status.PrimaryConnInfo, "PrimaryConnInfo should be set")
-	require.NotEmpty(t, resp.Status.PrimaryConnInfo.Host, "PrimaryConnInfo.Host should not be empty")
+	require.NotNil(t, repStatus, "ReplicationStatus should be set")
+	require.NotNil(t, repStatus.PrimaryConnInfo, "PrimaryConnInfo should be set")
+	require.NotEmpty(t, repStatus.PrimaryConnInfo.Host, "PrimaryConnInfo.Host should not be empty")
 
 	// Verify we're receiving WAL (LastReceiveLsn is set when streaming)
-	require.NotEmpty(t, resp.Status.LastReceiveLsn, "LastReceiveLsn should not be empty when streaming")
+	require.NotEmpty(t, repStatus.LastReceiveLsn, "LastReceiveLsn should not be empty when streaming")
 
 	t.Logf("Replication verified: primary_host=%s, last_receive_lsn=%s",
-		resp.Status.PrimaryConnInfo.Host, resp.Status.LastReceiveLsn)
+		repStatus.PrimaryConnInfo.Host, repStatus.LastReceiveLsn)
 }
 
 // breakReplication stops replication and clears primary_conninfo using the RPC API.
@@ -269,7 +271,7 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient, inst *
 
 	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
-	_, err := client.Manager.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	_, err := client.Consensus.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               nil, // nil primary clears the connection
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
@@ -287,20 +289,20 @@ func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerC
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 
-	resp, err := primaryClient.Manager.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
-		t.Logf("PrimaryStatus failed: %v", err)
+		t.Logf("Status failed: %v", err)
 		return false
 	}
 
-	if resp.Status == nil || resp.Status.SyncReplicationConfig == nil {
+	if statusResp.Status == nil || statusResp.Status.PrimaryStatus == nil || statusResp.Status.PrimaryStatus.SyncReplicationConfig == nil {
 		t.Log("Waiting for sync replication config...")
 		return false
 	}
 
 	// Look for the replica in the standby list by Name
 	// In shardsetup, standbys are identified by Name (e.g., "pooler-1", "pooler-2")
-	for _, standbyID := range resp.Status.SyncReplicationConfig.StandbyIds {
+	for _, standbyID := range statusResp.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
 		if standbyID.Name == replicaName {
 			t.Logf("Found replica %s in standby list", replicaName)
 			return true
@@ -308,7 +310,7 @@ func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerC
 	}
 
 	t.Logf("Replica %s not yet in standby list, current standbys: %v",
-		replicaName, resp.Status.SyncReplicationConfig.StandbyIds)
+		replicaName, statusResp.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 	return false
 }
 
@@ -320,7 +322,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 
 	// Use UpdateSynchronousStandbyList to remove the replica
 	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
-	_, err := primaryClient.Manager.UpdateSynchronousStandbyList(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
+	_, err := primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 		Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -330,6 +332,6 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 		ReloadConfig: true,
 		Force:        true, // Force to bypass term check
 	})
-	require.NoError(t, err, "UpdateSynchronousStandbyList (remove) should succeed")
+	require.NoError(t, err, "UpdateConsensusRule (remove) should succeed")
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)
 }

@@ -40,6 +40,10 @@ const (
 	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
 	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
 
+	// PgInitDbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
+	// Multiple files are comma-separated.
+	PgInitDbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
@@ -57,6 +61,13 @@ const (
 	// ConsensusTermFile is the name of the file used to persist the consensus term
 	// for a multipooler instance. It is stored under the pooler directory.
 	ConsensusTermFile = "consensus_term.json"
+
+	// BootstrapSentinelFile marks an in-progress first-backup bootstrap. Written
+	// before initdb and removed after the final data-directory cleanup; its
+	// presence on startup means a prior attempt crashed and the stale pg_data
+	// can be removed. Lives in pooler_dir (not PGDATA) to stay out of pgBackRest
+	// backups.
+	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second

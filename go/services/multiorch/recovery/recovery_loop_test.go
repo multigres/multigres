@@ -40,6 +40,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -522,7 +523,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Create multiple shard-wide problems with different priorities
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemShardNeedsBootstrap,
+			Code:     types.ProblemShardNeedsInitialization,
 			PoolerID: poolerID1,
 			Priority: types.PriorityShardBootstrap,
 			Scope:    types.ScopeShard,
@@ -550,7 +551,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Should return only the highest priority shard-wide problem
 	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, types.ProblemShardNeedsBootstrap, filtered[0].Code)
+	assert.Equal(t, types.ProblemShardNeedsInitialization, filtered[0].Code)
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
@@ -719,7 +720,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		})
 		t.Cleanup(analysis.ResetAnalyzers)
 
-		// Set up store state: dead primary, replica with replication stopped
+		// Set up store state: dead primary, replica with replication stopped.
+		// Even though IsLastCheckValid is false, ConsensusStatus carries the
+		// last-known state from before the primary went unreachable, and
+		// analysis.IsPrimary is rule-based.
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -730,6 +734,17 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			IsLastCheckValid: false,
 			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: primaryID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+							PrimaryId:  primaryID,
+						},
+					},
+				},
+			},
 		}
 		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
@@ -742,10 +757,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
-			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				IsWalReplayPaused: true, // Replication stopped
+			LastSeen:         timestamppb.Now(),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					IsWalReplayPaused: true, // Replication stopped
+				},
 			},
-			LastSeen: timestamppb.Now(),
 		}
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -800,10 +818,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
-			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				IsWalReplayPaused: true, // Replication stopped
+			LastSeen:         timestamppb.Now(),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					IsWalReplayPaused: true, // Replication stopped
+				},
 			},
-			LastSeen: timestamppb.Now(),
 		}
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -890,10 +911,13 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Replication stopped
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Replication stopped
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -1041,6 +1065,17 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		IsUpToDate:         true,
 		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
+		ConsensusStatus: &consensusdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: primaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						PrimaryId:  primaryID,
+					},
+				},
+			},
+		},
 	}
 	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
@@ -1238,10 +1273,13 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Problem
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Problem
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
 
@@ -1254,10 +1292,13 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true, // Problem
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true, // Problem
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
 
@@ -1423,10 +1464,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true,
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true,
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
@@ -1540,10 +1584,13 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
-		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			IsWalReplayPaused: true,
+		LastSeen:         timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true,
+			},
 		},
-		LastSeen: timestamppb.Now(),
 	}
 	engine.poolerStore.Set("multipooler-zone1-replica-pooler", replicaPooler)
 
@@ -2080,7 +2127,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 // and returns all detected problems. Fails the test if any analyzer returns an error.
 func detectProblems(t *testing.T, engine *Engine) []types.Problem {
 	t.Helper()
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore, nil)
 	var problems []types.Problem
 	for _, sa := range generator.GenerateShardAnalyses() {
 		for _, az := range analysis.DefaultAnalyzers(engine.actionFactory) {

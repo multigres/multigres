@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -64,32 +65,49 @@ type poolerID struct {
 // This is used consistently for:
 // - SetPrimaryConnInfo: standby's application_name when connecting to primary
 // - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+//
+// On validation failure an approximate poolerID is returned alongside the error.
+// The approximate appName is "{cell}_{name}" with missing fields replaced by
+// "<unknown>". For overlong names the full (invalid) string is returned as-is.
+// Callers that require a strictly valid appName must check the error. Callers that
+// can tolerate an approximate name (e.g. for logging or informational responses)
+// may use the returned value regardless.
 func newPoolerID(id *clustermetadatapb.ID) (poolerID, error) {
 	if id == nil {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil")
+		return poolerID{appName: "<nil>"}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil ID")
 	}
+
+	cell := id.Cell
+	if cell == "" {
+		cell = "<unknown>"
+	}
+	name := id.Name
+	if name == "" {
+		name = "<unknown>"
+	}
+	appName := fmt.Sprintf("%s_%s", cell, name)
+
 	if id.Cell == "" {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
+		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
 	}
 	if id.Name == "" {
-		return poolerID{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
+		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
 	}
 	// Underscores are not allowed in Cell or Name because they are used as delimiters
 	// in the application_name format (cell_name). Allowing underscores would break parsing.
 	if strings.Contains(id.Cell, "_") {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"cell contains underscore: %q (underscores not allowed)", id.Cell)
 	}
 	if strings.Contains(id.Name, "_") {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"name contains underscore: %q (underscores not allowed)", id.Name)
 	}
-	name := fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	if len(name) > maxApplicationNameLength {
-		return poolerID{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"application name %q exceeds maximum length of %d characters", name, maxApplicationNameLength)
+	if len(appName) > maxApplicationNameLength {
+		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"application name %q exceeds maximum length of %d characters", appName, maxApplicationNameLength)
 	}
-	return poolerID{id: id, appName: name}, nil
+	return poolerID{id: id, appName: appName}, nil
 }
 
 // poolerIDsToAppNames converts a slice of poolerID to their application name strings for use in APIs
@@ -111,17 +129,43 @@ func formatStandbyList(ids []poolerID) string {
 	return strings.Join(quoted, ", ")
 }
 
-// toPoolerIDs converts a slice of standby IDs to their poolerID representations.
+// toPoolerIDs converts a slice of IDs to their poolerID representations.
+// If any ID fails strict validation the corresponding poolerID contains an
+// approximate appName and the first error is returned alongside the full slice.
+// Callers that require strict validity must check the error. Callers that can
+// tolerate approximate names (e.g. for logging or informational responses) may
+// use the returned slice regardless.
 func toPoolerIDs(ids []*clustermetadatapb.ID) ([]poolerID, error) {
 	result := make([]poolerID, len(ids))
+	var firstErr error
 	for i, id := range ids {
 		pid, err := newPoolerID(id)
-		if err != nil {
-			return nil, mterrors.Wrapf(err, "standby_ids[%d]", i)
-		}
 		result[i] = pid
+		if err != nil && firstErr == nil {
+			firstErr = mterrors.Wrapf(err, "ids[%d]", i)
+		}
 	}
-	return result, nil
+	return result, firstErr
+}
+
+// poolerIDFromAppName parses a PostgreSQL application_name (format: "cell_name") into
+// a poolerID. This is the inverse of newPoolerID's appName generation.
+// On parse failure an error is returned alongside a best-effort poolerID that
+// preserves the raw appName in the Name field so callers can include it rather
+// than silently dropping the member.
+//
+// TODO: once leadership_history stores serialized clustermetadata.ID values directly
+// instead of application_name strings, this parsing and its error path can be removed.
+func poolerIDFromAppName(appName string) (poolerID, error) {
+	id, err := parseApplicationName(appName)
+	if err != nil {
+		return poolerID{
+			id:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Name: appName},
+			appName: appName,
+		}, err
+	}
+	id.Component = clustermetadatapb.ID_MULTIPOOLER
+	return poolerID{id: id, appName: appName}, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -228,22 +272,35 @@ func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn str
 	return reachedTarget, nil
 }
 
-// queryReplicationStatus queries PostgreSQL for all replication status fields.
-// This method handles NULL values properly for LSN fields that may be NULL
-// when not in recovery mode or when no WAL has been received/replayed.
-func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	sql := `SELECT
-		pg_last_wal_replay_lsn(),
+// sqlGetReplicationStatus is the SQL query to retrieve all relevant replication
+// status fields from pg_stat_wal_receiver. This is used by
+// queryReplicationStatus to get a comprehensive view of the replication state
+// in one query. Note that some fields may be NULL depending on the state of the
+// standby (e.g., if not in recovery or if no WAL has been received).
+//
+// Scalar subqueries are used for pg_stat_wal_receiver fields so that NULL is
+// returned when the view is empty (e.g., on the primary or when the WAL
+// receiver is not running), rather than returning zero rows.
+const sqlGetReplicationStatus = `
+SELECT	pg_last_wal_replay_lsn(),
 		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
 		current_setting('primary_conninfo'),
-		(SELECT status FROM pg_stat_wal_receiver LIMIT 1)`
+		(SELECT status FROM pg_stat_wal_receiver LIMIT 1),
+		(SELECT last_msg_receipt_time FROM pg_stat_wal_receiver LIMIT 1),
+		current_setting('wal_receiver_status_interval'),
+		current_setting('wal_receiver_timeout')
+`
 
+// queryReplicationStatus queries PostgreSQL for all replication status fields.
+// This method handles NULL values properly for LSN fields that may be NULL
+// when not in recovery mode or when no WAL has been received/replayed.
+func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.query(queryCtx, sqlGetReplicationStatus)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -255,8 +312,11 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	var lastXactTime *string
 	var primaryConnInfo string
 	var walReceiverStatus *string
+	var lastMsgReceiveTime *time.Time
+	var walReceiverStatusInterval *string
+	var walReceiverTimeout *string
 
-	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus)
+	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus, &lastMsgReceiveTime, &walReceiverStatusInterval, &walReceiverTimeout)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -275,6 +335,26 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	}
 	if walReceiverStatus != nil {
 		status.WalReceiverStatus = *walReceiverStatus
+	}
+
+	if lastMsgReceiveTime != nil {
+		status.LastMsgReceiveTime = timestamppb.New(*lastMsgReceiveTime)
+	}
+
+	if walReceiverStatusInterval != nil {
+		// We can use ParseDuration here since PostgreSQL interval settings are
+		// in a format compatible with Go durations (e.g., "10s", "500ms").
+		if d, err := time.ParseDuration(*walReceiverStatusInterval); err == nil {
+			status.WalReceiverStatusInterval = durationpb.New(d)
+		}
+	}
+
+	if walReceiverTimeout != nil {
+		// We can use ParseDuration here since PostgreSQL interval settings are
+		// in a format compatible with Go durations (e.g., "10s", "500ms").
+		if d, err := time.ParseDuration(*walReceiverTimeout); err == nil {
+			status.WalReceiverTimeout = durationpb.New(d)
+		}
 	}
 
 	// Parse primary_conninfo into structured format
@@ -963,7 +1043,11 @@ func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) 
 	if len(standbyIDs) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
 	}
-	return toPoolerIDs(standbyIDs)
+	pids, err := toPoolerIDs(standbyIDs)
+	if err != nil {
+		return pids, mterrors.Wrap(err, "invalid standby_ids")
+	}
+	return pids, nil
 }
 
 // validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
@@ -1002,8 +1086,6 @@ func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperati
 		return "add"
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		return "remove"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		return "replace"
 	default:
 		return "unknown"
 	}
@@ -1042,11 +1124,6 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 	return updatedStandbys
 }
 
-// applyReplaceOperation replaces the entire standby list
-func applyReplaceOperation(newStandbys []poolerID) []poolerID {
-	return newStandbys
-}
-
 // ----------------------------------------------------------------------------
 // Primary-side Replication Queries
 // ----------------------------------------------------------------------------
@@ -1081,98 +1158,4 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 	}
 
 	return followers, nil
-}
-
-// queryFollowerReplicationStats queries pg_stat_replication for detailed replication statistics
-// Returns a map of application_name -> ReplicationStats
-func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context) (map[string]*multipoolermanagerdatapb.ReplicationStats, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	sql := `SELECT
-		pid,
-		application_name,
-		client_addr::text,
-		state,
-		sync_state,
-		sent_lsn::text,
-		write_lsn::text,
-		flush_lsn::text,
-		replay_lsn::text,
-		EXTRACT(EPOCH FROM write_lag),
-		EXTRACT(EPOCH FROM flush_lag),
-		EXTRACT(EPOCH FROM replay_lag)
-	FROM pg_stat_replication
-	WHERE application_name IS NOT NULL AND application_name != ''`
-
-	result, err := pm.query(queryCtx, sql)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query replication status")
-	}
-
-	// Build a map of connected followers by application_name
-	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
-	if result != nil {
-		for _, row := range result.Rows {
-			var pid int32
-			var appName string
-			var clientAddr string
-			var state string
-			var syncState string
-			var sentLsn string
-			var writeLsn string
-			var flushLsn string
-			var replayLsn string
-			var writeLagSecs *float64
-			var flushLagSecs *float64
-			var replayLagSecs *float64
-
-			err := executor.ScanRow(
-				row,
-				&pid,
-				&appName,
-				&clientAddr,
-				&state,
-				&syncState,
-				&sentLsn,
-				&writeLsn,
-				&flushLsn,
-				&replayLsn,
-				&writeLagSecs,
-				&flushLagSecs,
-				&replayLagSecs,
-			)
-			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan replication row", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan replication statistics")
-			}
-
-			stats := &multipoolermanagerdatapb.ReplicationStats{
-				Pid:        pid,
-				ClientAddr: clientAddr,
-				State:      state,
-				SyncState:  syncState,
-				SentLsn:    sentLsn,
-				WriteLsn:   writeLsn,
-				FlushLsn:   flushLsn,
-				ReplayLsn:  replayLsn,
-			}
-
-			// Convert lag values from seconds to Duration (only if not null/empty)
-			// Convert lag values from seconds to Duration (only if not null)
-			if writeLagSecs != nil {
-				stats.WriteLag = durationpb.New(time.Duration(*writeLagSecs * float64(time.Second)))
-			}
-			if flushLagSecs != nil {
-				stats.FlushLag = durationpb.New(time.Duration(*flushLagSecs * float64(time.Second)))
-			}
-			if replayLagSecs != nil {
-				stats.ReplayLag = durationpb.New(time.Duration(*replayLagSecs * float64(time.Second)))
-			}
-
-			connectedMap[appName] = stats
-		}
-	}
-
-	return connectedMap, nil
 }

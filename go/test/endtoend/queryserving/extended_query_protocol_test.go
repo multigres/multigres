@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -276,6 +277,90 @@ func TestZeroColumnResults(t *testing.T) {
 					}
 				}
 			})
+		})
+	}
+}
+
+// TestExtendedProtocol_TransactionIsolation is the end-to-end regression for
+// extended-protocol BEGIN/COMMIT/ROLLBACK handling in the gateway planner.
+// Before the fix, sending BEGIN over the extended protocol fell through to
+// the default "execute portal on backend" path, so the BEGIN ran on a pooled
+// backend connection instead of opening a reserved gateway transaction. The
+// subsequent INSERT routed through the normal autocommit path — committing
+// immediately — and a ROLLBACK issued over the same session had no effect.
+// This test issues every control statement over the extended protocol (the
+// same pattern pgbench -M extended uses) and confirms ROLLBACK actually
+// discards the write.
+func TestExtendedProtocol_TransactionIsolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	// Run against both direct postgres and multigateway so the test pins the
+	// expected behavior (postgres) and catches the proxy regression.
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			// Unique table per target — direct postgres and multigateway share
+			// the same backend, so both subtests would otherwise race on the
+			// same name via concurrent cleanup.
+			tableName := "test_ext_txn_iso_" + target.Name
+
+			setupConn := connectLowLevelToPort(t, ctx, target.Port)
+			_, err := setupConn.Query(ctx, "DROP TABLE IF EXISTS "+tableName)
+			require.NoError(t, err)
+			_, err = setupConn.Query(ctx, "CREATE TABLE "+tableName+" (id int)")
+			require.NoError(t, err)
+			setupConn.Close()
+
+			t.Cleanup(func() {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				c := connectLowLevelToPort(t, cleanupCtx, target.Port)
+				defer c.Close()
+				_, _ = c.Query(cleanupCtx, "DROP TABLE IF EXISTS "+tableName)
+			})
+
+			conn := connectLowLevelToPort(t, ctx, target.Port)
+			defer conn.Close()
+
+			// Each PrepareAndExecute issues Parse + Bind + Execute + Sync,
+			// i.e. the full extended-protocol cycle, which is exactly how
+			// pgbench -M extended sends BEGIN / DML / COMMIT.
+			noopCb := func(context.Context, *sqltypes.Result) error { return nil }
+
+			require.NoError(t, conn.PrepareAndExecute(ctx, "", "BEGIN", nil, noopCb))
+			// After BEGIN, the backend must report 'T' on its ReadyForQuery.
+			// Without the fix, the gateway's pooled BEGIN closes with the next
+			// Sync and we'd see 'I' here instead.
+			assert.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus(),
+				"ReadyForQuery after BEGIN should report 'T' (in transaction)")
+
+			require.NoError(t, conn.PrepareAndExecute(ctx,
+				"", "INSERT INTO "+tableName+" VALUES (1)", nil, noopCb))
+			assert.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus(),
+				"ReadyForQuery after INSERT in transaction should still report 'T'")
+
+			require.NoError(t, conn.PrepareAndExecute(ctx, "", "ROLLBACK", nil, noopCb))
+			assert.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus(),
+				"ReadyForQuery after ROLLBACK should report 'I' (idle)")
+
+			// The real assertion: ROLLBACK must have discarded the INSERT.
+			// Without the fix this reads "1" on multigateway because the
+			// INSERT ran in its own autocommit transaction, outside the
+			// phantom BEGIN that never updated gateway-side txn state.
+			results, err := conn.Query(ctx, "SELECT COUNT(*) FROM "+tableName)
+			require.NoError(t, err)
+			require.NotEmpty(t, results)
+			require.NotEmpty(t, results[0].Rows)
+			got := string(results[0].Rows[0].Values[0])
+			assert.Equal(t, "0", got,
+				"ROLLBACK should discard the INSERT; got %s row(s) — the gateway is not honoring BEGIN over the extended protocol", got)
 		})
 	}
 }

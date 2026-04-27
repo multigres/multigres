@@ -18,10 +18,10 @@ import (
 	"cmp"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // ShardAnalysis groups all per-pooler analyses for a single shard.
@@ -29,6 +29,14 @@ import (
 type ShardAnalysis struct {
 	ShardKey commontypes.ShardKey
 	Analyses []*PoolerAnalysis
+
+	// NumInitialized is the count of reachable, initialized poolers in this shard.
+	// Pre-computed by the generator for use in analyzers.
+	NumInitialized int
+
+	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
+	// May be nil if not yet configured or not available.
+	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
 
 	// Shard-level aggregates computed once by the generator.
 
@@ -82,6 +90,14 @@ type ShardAnalysis struct {
 	// responded healthy (IsPostgresReady was true). Zero if never seen ready.
 	// Used to time-bound failover suppression when replicas are still connected.
 	PrimaryLastPostgresReadyTime time.Time
+
+	// PrimaryHasResigned is true when the topology primary has voluntarily requested
+	// replacement via the REQUESTING_DEMOTION signal (set during EmergencyDemote).
+	// When true, the PrimaryIsDead failover suppression logic (which normally waits
+	// for replicas to disconnect before declaring the primary dead) is bypassed
+	// because the resignation is an explicit and intentional signal, not an ambiguous
+	// network/process failure.
+	PrimaryHasResigned bool
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the primary's
@@ -123,29 +139,35 @@ type PoolerAnalysis struct {
 	IsStale          bool
 	IsInitialized    bool // Whether this pooler is fully initialized and ready to join the cohort
 	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
-	AnalyzedAt       time.Time
+	// CohortMembers are the strongly-typed IDs from the most recent
+	// multigres.leadership_history record. Nil or empty both indicate no cohort
+	// has been established. When IsInitialized=true, an empty list means the
+	// 0-member bootstrap record is present — Phase 2 is needed.
+	CohortMembers []*clustermetadatapb.ID
+	AnalyzedAt    time.Time
 
 	// Replica-specific fields
 	ReplicationStopped  bool
 	PrimaryConnInfoHost string
 
-	// Primary term and WAL position
-	PrimaryTerm   int64 // This pooler's primary term (term when promoted)
 	ConsensusTerm int64 // This node's consensus term (from health check)
-	// LSN is the most relevant WAL position for this node.
-	// For primaries this should probably be the last committed LSN (pg_last_committed_xact()).
-	// For replicas this should probably be the last applied/replayed LSN (pg_last_wal_replay_lsn()).
-	// TODO: consider also tracking flush LSN (pg_current_wal_flush_lsn()) for primaries
-	// to distinguish committed vs written-but-not-committed data.
-	LSN pgutil.LSN
+	// ConsensusStatus is the pooler's authoritative consensus state as of the last
+	// ConsensusStatus RPC.
+	// Nil if the ConsensusStatus RPC failed or has not yet been called.
+	ConsensusStatus *clustermetadatapb.ConsensusStatus
 }
 
-// comparePrimaryTimeline compares two primary PoolerAnalysis entries by PrimaryTerm only.
-// Returns negative if a is less advanced than b, 0 if equal, positive if a is more advanced.
-// LSN is intentionally excluded: for primaries, PrimaryTerm must be unique per promotion, so
-// equal PrimaryTerms indicate a consensus bug rather than a resolvable tie.
+// comparePrimaryTimeline compares two primary PoolerAnalysis entries by the
+// coordinator term of each pooler's current rule (via commonconsensus.PrimaryTerm).
+// Returns negative if a is less advanced than b, 0 if equal, positive if a is
+// more advanced. LSN is intentionally excluded: for primaries, the coordinator
+// term must be unique per promotion, so equal terms indicate a consensus bug
+// rather than a resolvable tie.
 func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
-	return cmp.Compare(a.PrimaryTerm, b.PrimaryTerm)
+	return cmp.Compare(
+		commonconsensus.PrimaryTerm(a.ConsensusStatus),
+		commonconsensus.PrimaryTerm(b.ConsensusStatus),
+	)
 }
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.

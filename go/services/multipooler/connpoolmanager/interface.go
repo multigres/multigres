@@ -66,7 +66,8 @@ type PoolManager interface {
 
 	// NewReservedConn creates a new reserved connection for the specified user.
 	// Settings are provided as a map and internally converted via the shared SettingsCache.
-	NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error)
+	// Optional ReservedConnOption values configure validate-with-retry behavior.
+	NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)

@@ -43,7 +43,7 @@ var defaultAnalyzers []Analyzer
 func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 	if defaultAnalyzers == nil {
 		return []Analyzer{
-			&ShardNeedsBootstrapAnalyzer{factory: factory},
+			&ShardNeedsInitializationAnalyzer{factory: factory},
 			&StalePrimaryAnalyzer{factory: factory},
 			&PrimaryIsDeadAnalyzer{factory: factory},
 			&ReplicaNotReplicatingAnalyzer{factory: factory},

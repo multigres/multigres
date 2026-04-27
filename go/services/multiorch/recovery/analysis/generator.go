@@ -19,13 +19,30 @@ import (
 	"slices"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
+
+// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
+const DefaultReplicaLagThreshold = 10 * time.Second
+
+// replicationHeartbeatStalenessMultiplier is applied to wal_receiver_status_interval
+// to compute the heartbeat staleness threshold. The replica sends a status message
+// to the primary every wal_receiver_status_interval; the primary echoes a keepalive
+// reply. Three missed intervals means the primary has gone silent well before the
+// wal_receiver_timeout (60s) would disconnect the WAL receiver.
+const replicationHeartbeatStalenessMultiplier = 3
+
+// defaultReplicationHeartbeatStalenessThreshold is the fallback threshold used
+// when wal_receiver_status_interval is not available in the replica's health
+// state. Equals replicationHeartbeatStalenessMultiplier × the default
+// wal_receiver_status_interval (10s).
+const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -35,13 +52,20 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 type AnalysisGenerator struct {
 	poolerStore    *store.PoolerStore
 	poolersByShard PoolersByShard
+	// policyLookup returns the bootstrap durability policy for a database name.
+	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
+	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
+	now          func() time.Time
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
-func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
+// policyLookup is optional; pass nil if the bootstrap policy is unavailable.
+func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
-		poolerStore: poolerStore,
+		poolerStore:  poolerStore,
+		policyLookup: policyLookup,
+		now:          time.Now,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	return g
@@ -155,6 +179,31 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	return poolerIDs, nil
 }
 
+// GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
+// the given pooler ID. Used primarily in tests to inspect shard-level fields like
+// ReplicasConnectedToPrimary without running the full analysis loop.
+func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*ShardAnalysis, error) {
+	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	if !ok {
+		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
+	}
+	if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
+	}
+
+	database := pooler.MultiPooler.Database
+	tableGroup := pooler.MultiPooler.TableGroup
+	shard := pooler.MultiPooler.Shard
+
+	poolers, ok := g.poolersByShard[database][tableGroup][shard]
+	if !ok || len(poolers) == 0 {
+		return nil, fmt.Errorf("shard not found for pooler: %s", poolerIDStr)
+	}
+
+	shardKey := commontypes.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
+	return g.buildShardAnalysis(shardKey, poolers), nil
+}
+
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *multiorchdatapb.PoolerHealthState,
@@ -163,7 +212,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	// Determine pooler type from health check (PoolerType).
 	// Nodes are never created with topology type PRIMARY, so health check is authoritative.
 	// Fall back to topology type only if health check type is UNKNOWN.
-	poolerType := pooler.PoolerType
+	poolerType := pooler.GetStatus().GetPoolerType()
 	if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
 		poolerType = pooler.MultiPooler.Type
 	}
@@ -172,40 +221,26 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		PoolerID:         pooler.MultiPooler.Id,
 		ShardKey:         shardKey,
 		PoolerType:       poolerType,
-		IsPrimary:        poolerType == clustermetadatapb.PoolerType_PRIMARY,
+		IsPrimary:        commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()),
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
-		HasDataDirectory: pooler.HasDataDirectory,
+		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
+		CohortMembers:    pooler.GetStatus().GetCohortMembers(),
 		AnalyzedAt:       time.Now(),
 	}
 
 	// Compute staleness
 	analysis.IsStale = !pooler.IsUpToDate
 
-	// Store consensus term for stale primary detection
+	// Store consensus status.
 	if pooler.ConsensusStatus != nil {
-		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
-	}
-
-	// Store primary term (term when this pooler was promoted to primary)
-	if pooler.ConsensusTerm != nil {
-		analysis.PrimaryTerm = pooler.ConsensusTerm.PrimaryTerm
-	}
-
-	// Store WAL position for timeline comparison (LSN is a secondary tiebreaker;
-	// ignore parse errors — zero value is safe).
-	// Primaries use their write LSN; replicas use their last applied (replay) LSN
-	// since only applied data is readable (e.g. for cohort/coordinator term lookups).
-	if analysis.IsPrimary && pooler.PrimaryStatus != nil {
-		analysis.LSN, _ = pgutil.ParseLSN(pooler.PrimaryStatus.Lsn)
-	} else if !analysis.IsPrimary && pooler.ReplicationStatus != nil {
-		analysis.LSN, _ = pgutil.ParseLSN(pooler.ReplicationStatus.LastReplayLsn)
+		analysis.ConsensusTerm = pooler.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+		analysis.ConsensusStatus = pooler.ConsensusStatus.ConsensusStatus
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
 	if !analysis.IsPrimary {
-		if pooler.ReplicationStatus != nil {
-			rs := pooler.ReplicationStatus
+		if rs := pooler.GetStatus().GetReplicationStatus(); rs != nil {
 			analysis.ReplicationStopped = rs.IsWalReplayPaused
 
 			// Extract primary connection info
@@ -230,13 +265,10 @@ func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthSt
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
 		}
-		if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
+		if pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
-		var term int64
-		if pooler.ConsensusTerm != nil {
-			term = pooler.ConsensusTerm.PrimaryTerm
-		}
+		term := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
 		if best == nil || term > bestTerm {
 			best = pooler
 			bestTerm = term
@@ -275,7 +307,7 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 		}
 
 		// Skip non-replicas
-		replicaType := pooler.PoolerType
+		replicaType := pooler.GetStatus().GetPoolerType()
 		if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
 			replicaType = pooler.MultiPooler.Type
 		}
@@ -297,12 +329,9 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 	return replicaCount > 0 && connectedCount == replicaCount
 }
 
-// isReplicaConnectedToPrimary checks if a single replica is connected to the primary.
-//
-// TODO: Check heartbeat data timestamp to verify writes are actively flowing through replication.
-// The multigres.heartbeat table is updated periodically on the primary, so checking if the
-// replica's heartbeat timestamp is recent would prove the replication connection is active.
-// Currently we check that LastReceiveLsn is non-empty, but this doesn't prove active connectivity.
+// isReplicaConnectedToPrimary checks if a single replica is actively connected to the primary.
+// It verifies both that the connection is configured correctly and that the WAL receiver is
+// actively exchanging keepalives with the primary via pg_stat_wal_receiver.
 func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	replica *multiorchdatapb.PoolerHealthState,
 	primaryHost string,
@@ -314,24 +343,57 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	}
 
 	// Replica must have replication status
-	if replica.ReplicationStatus == nil {
+	rs := replica.GetStatus().GetReplicationStatus()
+	if rs == nil {
 		return false
 	}
 
 	// Replica must have PrimaryConnInfo pointing to the primary
-	connInfo := replica.ReplicationStatus.PrimaryConnInfo
+	connInfo := rs.PrimaryConnInfo
 	if connInfo == nil || connInfo.Host == "" {
 		return false
 	}
 
-	// Verify the replica is pointing to the correct primary
+	// Verify the replica is pointing to the correct primary. Note: if this is
+	// not the case, there is a more fundamental problem (e.g., misconfiguration
+	// or split-brain). This is not correctly indicated by a simple "false"
+	// return value, but we still want to return false here to avoid falsely
+	// triggering failover analyzers that rely on this method.
 	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
 		return false
 	}
 
 	// Replica must have received WAL (indicates connection was established)
-	if replica.ReplicationStatus.LastReceiveLsn == "" {
+	if rs.LastReceiveLsn == "" {
 		return false
+	}
+
+	// WAL receiver must be in streaming state
+	if rs.WalReceiverStatus != "streaming" {
+		return false
+	}
+
+	// If last_msg_receive_time is available, verify the primary is still
+	// sending keepalives. The threshold is
+	// replicationHeartbeatStalenessMultiplier × wal_receiver_status_interval,
+	// falling back to defaultReplicationHeartbeatStalenessThreshold when the
+	// interval is unknown.
+	//
+	// If the last heartbeat is older than WAL receiver timeout, the connection
+	// is effectively dead even if the replica hasn't noticed yet, so we check
+	// that as well.
+	if ts := rs.LastMsgReceiveTime; ts != nil {
+		threshold := defaultReplicationHeartbeatStalenessThreshold
+		delay := g.now().Sub(ts.AsTime())
+		if d := rs.WalReceiverTimeout; d != nil && delay > d.AsDuration() {
+			return false
+		}
+		if d := rs.WalReceiverStatusInterval; d != nil && d.AsDuration() > 0 {
+			threshold = replicationHeartbeatStalenessMultiplier * d.AsDuration()
+		}
+		if delay > threshold {
+			return false
+		}
 	}
 
 	return true
@@ -341,6 +403,18 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 // analyses have been built. These fields describe the shard as a whole rather than
 // any individual pooler, so they are computed once here rather than per-pooler.
 func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[string]*multiorchdatapb.PoolerHealthState) {
+	// Bootstrap durability policy lookup.
+	if g.policyLookup != nil {
+		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
+	}
+
+	// Count reachable, initialized poolers for bootstrap analysis.
+	for _, pa := range sa.Analyses {
+		if pa.LastCheckValid && pa.IsInitialized {
+			sa.NumInitialized++
+		}
+	}
+
 	// Collect all reachable primaries in the shard.
 	for _, pa := range sa.Analyses {
 		if pa.IsPrimary && pa.LastCheckValid {
@@ -357,16 +431,17 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	if topologyPrimary != nil {
 		sa.HighestTermDiscoveredPrimaryID = topologyPrimary.MultiPooler.Id
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
-		sa.PrimaryPostgresReady = topologyPrimary.IsPostgresReady
-		sa.PrimaryPostgresRunning = topologyPrimary.IsPostgresRunning
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.IsPostgresReady
+		sa.PrimaryPostgresReady = topologyPrimary.GetStatus().GetPostgresReady()
+		sa.PrimaryPostgresRunning = topologyPrimary.GetStatus().GetPostgresRunning()
+		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.GetStatus().GetPostgresReady() && !sa.PrimaryHasResigned
 		if topologyPrimary.LastPostgresReadyTime != nil {
 			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}
 
 		// Populate the standby list from the topology primary (used by IsInStandbyList).
-		if topologyPrimary.PrimaryStatus != nil && topologyPrimary.PrimaryStatus.SyncReplicationConfig != nil {
-			sa.PrimaryStandbyIDs = topologyPrimary.PrimaryStatus.SyncReplicationConfig.StandbyIds
+		if ps := topologyPrimary.GetStatus().GetPrimaryStatus(); ps != nil && ps.SyncReplicationConfig != nil {
+			sa.PrimaryStandbyIDs = ps.SyncReplicationConfig.StandbyIds
 		}
 	}
 
@@ -402,7 +477,7 @@ func findHighestTermPooler(primaries []*PoolerAnalysis) *PoolerAnalysis {
 	mostAdvanced := slices.MaxFunc(primaries, comparePrimaryTimeline)
 
 	// Defensive: should not happen in initialized shards, but guard against invalid state
-	if mostAdvanced.PrimaryTerm == 0 {
+	if commonconsensus.PrimaryTerm(mostAdvanced.ConsensusStatus) == 0 {
 		return nil
 	}
 

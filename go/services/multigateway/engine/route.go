@@ -18,8 +18,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -30,32 +32,72 @@ type Route struct {
 	// TableGroup is the target tablegroup for this query.
 	TableGroup string
 
-	// Query is the SQL query string to execute.
+	// Query is the SQL query string to execute. For cached plans, this is the
+	// normalized SQL template with $1, $2, ... placeholders.
 	Query string
 
 	// Shard is the target shard (empty string for unsharded or any shard).
 	Shard string
+
+	// NormalizedAST is the normalized AST with ParamRef placeholders.
+	// It is set for cached plans and used together with bindVars to
+	// reconstruct the final SQL at execution time. Nil for non-cached plans.
+	NormalizedAST ast.Stmt
+
+	// PreparedStatement, if set, is a gateway-managed prepared statement
+	// that must be parsed on the backend connection before Query runs.
+	// Used for wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS
+	// EXECUTE) where Query references the prepared statement by its
+	// canonical name (e.g., "stmt42"). The planner rewrites the user-facing
+	// name ("p") to the canonical name and attaches the metadata here so
+	// the multipooler can ensurePrepared() on the chosen backend connection.
+	PreparedStatement *query.PreparedStatement
 }
 
 // NewRoute creates a new Route primitive.
-func NewRoute(tableGroup, shard, query string) *Route {
+// The astStmt parameter is stored as NormalizedAST for SQL reconstruction at
+// execution time (substituting bind values into ParamRef placeholders). Pass
+// nil for routes that don't need SQL reconstruction (e.g., non-cached plans).
+func NewRoute(tableGroup, shard, query string, astStmt ast.Stmt) *Route {
 	return &Route{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Query:      query,
+		TableGroup:    tableGroup,
+		Shard:         shard,
+		Query:         query,
+		NormalizedAST: astStmt,
+	}
+}
+
+// NewRouteWithPreparedStatement creates a Route that carries a gateway-managed
+// prepared statement to be ensured on the backend connection before execution.
+// See Route.PreparedStatement for details.
+func NewRouteWithPreparedStatement(tableGroup, shard, sql string, ps *query.PreparedStatement) *Route {
+	return &Route{
+		TableGroup:        tableGroup,
+		Shard:             shard,
+		Query:             sql,
+		PreparedStatement: ps,
 	}
 }
 
 // StreamExecute executes the route by sending the query to the target tablegroup.
 // It uses the IExecute interface to perform the actual execution, allowing for
 // easy testing and decoupling from concrete execution implementations.
+//
+// If bindVars is non-empty and NormalizedAST is set, the final SQL is
+// reconstructed by substituting the bind values into the normalized AST.
+// Otherwise, the Route's Query string is sent as-is.
 func (r *Route) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	query := r.Query
+	if len(bindVars) > 0 && r.NormalizedAST != nil {
+		query = ast.ReconstructSQL(r.NormalizedAST, bindVars)
+	}
 	// Execute the query through the execution interface.
 	// We pass ctx (not conn.Context()) so that deadlines set by executeWithTimeout
 	// propagate through gRPC to the multipooler for statement timeout enforcement.
@@ -64,7 +106,8 @@ func (r *Route) StreamExecute(
 		conn,
 		r.TableGroup,
 		r.Shard,
-		r.Query,
+		query,
+		r.PreparedStatement,
 		state,
 		callback,
 	)

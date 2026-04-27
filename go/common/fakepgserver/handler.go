@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -178,6 +179,12 @@ func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 
 // ConnectionClosed handles connection cleanup.
 func (h *fakeHandler) ConnectionClosed(conn *server.Conn) {}
+
+// GetPreparedStatementInfo returns nil — fakepgserver does not manage
+// gateway-level prepared statement consolidation.
+func (h *fakeHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
 
 // Ensure fakeHandler implements server.Handler.
 var _ server.Handler = (*fakeHandler)(nil)

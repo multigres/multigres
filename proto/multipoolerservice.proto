@@ -420,6 +420,10 @@ message StreamPoolerHealthResponse {
   // to detect a stale/dead health stream. If no message is received within
   // this duration, clients should mark the pooler as unhealthy.
   google.protobuf.Duration recommended_staleness_timeout = 5;
+
+  // replication_lag_ns is the current replication lag in nanoseconds,
+  // measured via heartbeat timestamps. Zero on the primary or when unknown.
+  int64 replication_lag_ns = 6;
 }
 
 // PrimaryObservation represents a pooler's view of who the primary is.

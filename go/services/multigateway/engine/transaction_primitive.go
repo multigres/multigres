@@ -71,6 +71,7 @@ func (t *TransactionPrimitive) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch t.Kind {
@@ -88,7 +89,7 @@ func (t *TransactionPrimitive) StreamExecute(
 
 	default:
 		// For other transaction statements (SAVEPOINT, RELEASE SAVEPOINT), pass through to backend
-		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	}
 }
 
@@ -249,7 +250,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 ) error {
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
 
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	if err != nil {
 		return err
 	}

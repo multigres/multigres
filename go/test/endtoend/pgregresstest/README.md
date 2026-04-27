@@ -46,21 +46,27 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Set `RUN_PGREGRESS=1` and/or `RUN_PGISOLATION=1` to enable:
+The test is **disabled by default**. Three env vars enable it; setting more
+than one is fine (the union runs):
+
+- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **both** regression and isolation.
+  This is what CI uses (matches the "Run Extended Query Serving Tests" PR label).
+- `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
+  iteration when you don't need isolation.
+- `RUN_PGISOLATION=1` — runs the isolation suite only.
 
 ```bash
-# Run regression tests only
+# Run both suites (unified report) — same as CI
+RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Local iteration: regression only
 RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
-# Run isolation tests only
+# Local iteration: isolation only
 RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
-# Run both suites (unified report)
-RUN_PGREGRESS=1 RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
-
-# Without either variable, all tests are skipped
+# Without any of these, the test is skipped
 go test -v ./go/test/endtoend/pgregresstest/...
-# Output: "skipping pg_regress/isolation tests (set RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1 to run)"
 ```
 
 ### Running Specific Tests
@@ -98,13 +104,13 @@ To force a fresh clone and build every time (useful for testing cache behavior o
 ```bash
 # Option 1: Remove cache before running
 rm -rf /tmp/multigres_pg_cache
-RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
 # Option 2: Use a different cache directory each time
-MULTIGRES_PG_CACHE_DIR="/tmp/multigres_pg_test_$(date +%s)" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+MULTIGRES_PG_CACHE_DIR="/tmp/multigres_pg_test_$(date +%s)" RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
 # Option 3: Use a custom temporary cache location
-MULTIGRES_PG_CACHE_DIR="$(mktemp -d)" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+MULTIGRES_PG_CACHE_DIR="$(mktemp -d)" RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 # Cache will be in a unique temp directory
 ```
 
@@ -112,7 +118,7 @@ MULTIGRES_PG_CACHE_DIR="$(mktemp -d)" RUN_PGREGRESS=1 go test -v -timeout 60m ./
 
 ```bash
 # From repository root
-RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 ## Troubleshooting
