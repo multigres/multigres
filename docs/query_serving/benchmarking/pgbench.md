@@ -100,11 +100,17 @@ the test is skipped.
 
 ### Environment variables
 
-| Variable           | Default   | Description                                                                  |
-| ------------------ | --------- | ---------------------------------------------------------------------------- |
-| `RUN_BENCHMARKS`   | (unset)   | Set to `1` to enable benchmark tests. Matches the "Run Benchmarks" PR label. |
-| `PGBENCH_DURATION` | `30`      | Seconds per scenario                                                         |
-| `PGBENCH_CLIENTS`  | `1,10,50` | Comma-separated client counts                                                |
+| Variable                     | Default           | Description                                                                                      |
+| ---------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| `RUN_BENCHMARKS`             | (unset)           | Set to `1` to enable benchmark tests. Matches the "Run Benchmarks" PR label.                     |
+| `PGBENCH_DURATION`           | `30`              | Seconds per scenario                                                                             |
+| `PGBENCH_CLIENTS`            | `1,10,50`         | Comma-separated client counts                                                                    |
+| `PGBENCH_PROTOCOLS`          | `simple,extended` | Comma-separated subset of `simple,extended`                                                      |
+| `PGBENCH_NO_CHURN`           | (unset)           | Set to `1` to skip the connection-churn (`-C`) variants                                          |
+| `PGBENCH_TARGETS`            | `multigateway`    | Comma-separated subset of `postgres,multigateway,pgbouncer`                                      |
+| `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Bump postgres `max_connections` to this value and restart pgctld (needed for direct ≥ 60 client) |
+| `CAPTURE_PPROF`              | (unset)           | Set to `1` to capture CPU profiles from multigateway and primary multipooler during each run     |
+| `CAPTURE_HEAP`               | (unset)           | Set to `1` to capture heap, allocs and goroutine snapshots before+after each scenario            |
 
 ## How metrics are computed
 
@@ -128,11 +134,14 @@ gives us percentile data that the text summary does not include.
 
 Reports are written to `/tmp/multigres_pgbench_results/<timestamp>/`:
 
-| File                        | Format            | Purpose                                             |
-| --------------------------- | ----------------- | --------------------------------------------------- |
-| `results.json`              | JSON              | Machine-readable results for CI baseline comparison |
-| `benchmark-report.md`       | Markdown          | Human-readable comparison tables                    |
-| `logs/<scenario>/<target>/` | pgbench log files | Raw per-transaction data                            |
+| File                                                                       | Format            | Purpose                                                             |
+| -------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------- |
+| `results.json`                                                             | JSON              | Machine-readable results for CI baseline comparison                 |
+| `benchmark-report.md`                                                      | Markdown          | Human-readable comparison tables                                    |
+| `logs/<scenario>/<target>/`                                                | pgbench log files | Raw per-transaction data                                            |
+| `cpu/<scenario>/<target>.json`                                             | JSON              | Per-process CPU usage samples (postgres, multigateway, multipooler) |
+| `pprof/<scenario>/<target>/cpu-*.pb.gz`                                    | pprof gzip        | CPU profiles (when `CAPTURE_PPROF=1`)                               |
+| `pprof/<scenario>/<target>/{heap,allocs,goroutine}-{before,after}-*.pb.gz` | pprof gzip        | Memory and goroutine snapshots (when `CAPTURE_HEAP=1`)              |
 
 ### Markdown report example
 
