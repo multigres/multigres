@@ -209,8 +209,9 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	if newTerm > currentTerm {
 		// Higher term: create new revocation with the candidate already set
 		newRevocation = &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:       newTerm,
-			AcceptedCoordinatorId:  proto.Clone(candidateID).(*clustermetadatapb.ID),
+			RevokedBelowTerm:      newTerm,
+			AcceptedCoordinatorId: proto.Clone(candidateID).(*clustermetadatapb.ID),
+			// TODO: Switch this to be a time actually chosen by the coordinator
 			CoordinatorInitiatedAt: timestamppb.New(time.Now()),
 		}
 	} else {
