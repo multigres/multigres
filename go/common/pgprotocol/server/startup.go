@@ -49,7 +49,7 @@ func (c *Conn) readAndDispatchStartup() error {
 	if err != nil {
 		return fmt.Errorf("failed to read startup packet: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	reader := NewMessageReader(buf)
 	protocolCode, err := reader.ReadUint32()
@@ -71,10 +71,10 @@ func (c *Conn) readAndDispatchStartup() error {
 		return c.handleGSSENCRequest()
 
 	case protocol.CancelRequestCode:
-		return c.handleCancelRequest(reader)
+		return c.handleCancelRequest(&reader)
 
 	case protocol.ProtocolVersionNumber:
-		return c.handleStartupMessage(protocolCode, reader)
+		return c.handleStartupMessage(protocolCode, &reader)
 
 	default:
 		return fmt.Errorf("unsupported protocol version: %d", protocolCode)

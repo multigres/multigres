@@ -42,33 +42,45 @@ func (c *Conn) readMessageType() (byte, error) {
 // readMessageLength reads the 4-byte message length from the connection.
 // The length includes itself but excludes the message type byte.
 // Returns the length of the message body (length - 4).
+//
+// Uses Peek + Discard to read the 4 bytes directly out of bufio's
+// internal buffer — vs the previous io.ReadFull(io.Reader, []byte)
+// shape, which forced the stack-local slice header to the heap on
+// every call due to the io.Reader interface dispatch.
 func (c *Conn) readMessageLength() (int, error) {
-	var lenBuf [4]byte
-	_, err := io.ReadFull(c.bufferedReader, lenBuf[:])
+	hdr, err := c.bufferedReader.Peek(4)
 	if err != nil {
 		return 0, err
 	}
-
-	length := binary.BigEndian.Uint32(lenBuf[:])
+	length := binary.BigEndian.Uint32(hdr)
+	if _, err := c.bufferedReader.Discard(4); err != nil {
+		return 0, err
+	}
 	if length < 4 {
 		return 0, fmt.Errorf("invalid message length: %d", length)
 	}
-
 	return int(length - 4), nil
 }
 
 // readMessageBody reads the message body of the given length.
+//
+// Note: the client side intentionally does NOT pool body buffers
+// (unlike the write path or the server-side read path). The reason
+// is that parseDataRow returns sqltypes.Value slices that alias
+// into the body buffer, and those values accumulate across multiple
+// readMessage calls before being handed up to the user callback.
+// Recycling the body would require copying every column value
+// individually — strictly more allocations than the current
+// single-make-per-body pattern. If we ever change parseDataRow to
+// fully copy values, we can pool here too.
 func (c *Conn) readMessageBody(length int) ([]byte, error) {
 	if length == 0 {
 		return nil, nil
 	}
-
 	buf := make([]byte, length)
-	_, err := io.ReadFull(c.bufferedReader, buf)
-	if err != nil {
+	if _, err := io.ReadFull(c.bufferedReader, buf); err != nil {
 		return nil, err
 	}
-
 	return buf, nil
 }
 
@@ -227,8 +239,19 @@ type MessageReader struct {
 }
 
 // NewMessageReader creates a new message reader for the given buffer.
-func NewMessageReader(buf []byte) *MessageReader {
-	return &MessageReader{buf: buf, pos: 0}
+//
+// Returns by value (not pointer). Callers do `r := NewMessageReader(body)`
+// and the struct lives on their stack — no heap allocation. The
+// methods take pointer receivers to mutate `pos`; Go auto-addresses
+// the stack-local value when calling them.
+//
+// IMPORTANT: helpers that walk the SAME MessageReader as their
+// caller MUST accept `*MessageReader`, not `MessageReader` by value.
+// A by-value parameter copies the struct, and any cursor mutations
+// inside the helper vanish on return — silently producing wrong
+// reads if the caller continues parsing after the call.
+func NewMessageReader(buf []byte) MessageReader {
+	return MessageReader{buf: buf, pos: 0}
 }
 
 // Remaining returns the number of unread bytes.

@@ -330,17 +330,66 @@ Two narrow exceptions on the server side, both intentional:
 `InitiateCopyFromStdin` previously hand-rolled a Q message; it now
 just calls `writeQueryMessage`.
 
-## What about reads?
+## Reads
 
-Reads (parsing incoming pgwire messages) are out of scope for this doc;
-this covers the write side only. The read side currently uses a
-listener-pooled `bufio.Reader` that's allocated in `newConn` and held
-for the connection's lifetime. That's different from the write side
-(which only holds the bufio.Writer during a query) and is a known
-asymmetry — at high client-connection counts it's worth tightening,
-but it's a separate change. This applies to the server side; the
-client-side reader is bounded by connection count to postgres and
-isn't a memory concern.
+Reads share a lot of structure with writes — same `bufio.Reader`
+fronting the socket, same listener-level `bufpool` on the server
+side. The two key fixes mirror what the write side did.
+
+**Type and length use Peek + Discard, not `io.ReadFull`.** The
+naive shape — `var hdr [4]byte; io.ReadFull(c.bufferedReader, hdr[:])`
+— forces the stack-local slice header to the heap on every call,
+because `io.ReadFull` takes an `io.Reader` interface and the compiler
+can't prove the implementation doesn't retain the slice. Switching
+to `c.bufferedReader.Peek(4)` reads the bytes directly from bufio's
+internal buffer (no intermediate slice), and `Discard(4)` advances
+the cursor. `bufio.Reader` is a concrete type, so both calls
+devirtualize and nothing escapes. The single-byte case
+(`ReadMessageType`) similarly uses `bufferedReader.ReadByte()`. Per
+read this drops two heap allocations.
+
+**Server-side body buffers come from `listener.bufPool`, with the
+pool pointer stashed on `Conn`.** Same escape-analysis trick as the
+write-side `outboundPoolBuf`: `readMessageBody` stores the pool's
+`*[]byte` in `c.inboundPoolBuf`, and the parameterless
+`returnReadBuffer()` releases it from there. The previous shape
+(`returnReadBuffer(buf []byte)` taking `&buf` of a parameter) forced
+the slice header to the heap on every call. After the fix, the
+server-side read path is **0 allocs/op** for everything except
+parses that copy strings out of the body — which are unavoidable.
+
+**MessageReader returns by value, not pointer.** `NewMessageReader`
+used to return `*MessageReader`, which heap-allocated the 32-byte
+struct on every parse. Now it returns `MessageReader` (value); the
+struct lives on the caller's stack, methods take pointer receivers
+that auto-address it. Helpers that previously took
+`*MessageReader` parameters now take `MessageReader` by value.
+
+**Why the client side does NOT pool body buffers.** It would seem
+symmetric with the server side, but `parseDataRow` returns
+`sqltypes.Value` slices that alias _into_ the body buffer — and
+those values accumulate across multiple `readMessage` calls before
+being handed up to the user callback. Pooling the body would
+require copying every column value out before recycling, which is
+strictly more allocations than the current single `make([]byte,
+length)` per body. The server-side equivalent (Bind params) is safe
+because `ParamsToProto` copies the param bytes into the portal
+proto before `defer returnReadBuffer()` fires. The asymmetry is
+intentional and documented in `readMessageBody`'s comment on the
+client side.
+
+The client-side read path therefore still costs **1 alloc per
+message** (the body). All other read overhead — type, length,
+MessageReader struct — is gone.
+
+| benchmark                         | before                    | after              | speedup   |
+| --------------------------------- | ------------------------- | ------------------ | --------- |
+| (server) ReadMessage_Sync         | 14.7 ns / 32 B / 3 allocs | 1.2 ns / 0 / 0     | **12.5×** |
+| (server) ReadMessage_Bind_4param  | 20.9 ns / 32 B / 3 allocs | 5.6 ns / 0 / 0     | **3.7×**  |
+| (server) ReadMessage_Bind_16param | 22.5 ns / 32 B / 3 allocs | 6.9 ns / 0 / 0     | **3.3×**  |
+| (server) ReadAndParseBind_4param  | 29.6 ns / 36 B / 4 allocs | 17.0 ns / 4 B / 1  | 1.7×      |
+| (client) ReadMessage_DataRow_4col | 20.7 ns / 68 B / 2 allocs | 15.7 ns / 64 B / 1 | 1.3×      |
+| (client) ReadAndParseDataRow_4col | 19.6 ns / 68 B / 2 allocs | 17.7 ns / 64 B / 1 | 1.1×      |
 
 ## Code map
 

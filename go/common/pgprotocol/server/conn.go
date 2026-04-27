@@ -81,6 +81,18 @@ type Conn struct {
 	// avoids that escape.
 	outboundPoolBuf *[]byte
 
+	// inboundPoolBuf is the read-path equivalent of outboundPoolBuf:
+	// holds the listener-level bufpool buffer that readMessageBody
+	// grabbed for the most recent message body. Non-nil between
+	// readMessageBody and returnReadBuffer. Same escape-avoidance
+	// rationale — the parameterless returnReadBuffer reads this field
+	// instead of taking &buf, so callers don't pay a 24-byte slice-
+	// header heap alloc per message.
+	//
+	// Reads on a Conn are sequential (one in flight at a time), so a
+	// single field is enough.
+	inboundPoolBuf *[]byte
+
 	// listener is a reference to the listener that accepted this connection.
 	listener *Listener
 
@@ -630,7 +642,7 @@ func (c *Conn) handleParse() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Parse message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)
@@ -700,7 +712,7 @@ func (c *Conn) handleBind() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Bind message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)
@@ -796,7 +808,7 @@ func (c *Conn) handleExecute() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Execute message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)

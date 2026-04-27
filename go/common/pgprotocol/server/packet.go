@@ -24,70 +24,78 @@ import (
 
 // ReadMessageType reads a single byte message type from the connection.
 // Returns 0 and io.EOF if the connection is closed gracefully.
+//
+// Uses bufferedReader.ReadByte (concrete-type method, no interface
+// dispatch) so the compiler can prove nothing escapes — vs the
+// previous io.ReadFull(io.Reader, []byte) shape, which forced the
+// stack-local slice header to the heap on every call.
 func (c *Conn) ReadMessageType() (byte, error) {
-	var msgType [1]byte
-	_, err := io.ReadFull(c.bufferedReader, msgType[:])
-	if err != nil {
-		return 0, err
-	}
-	return msgType[0], nil
+	return c.bufferedReader.ReadByte()
 }
 
 // ReadMessageLength reads the 4-byte message length from the connection.
 // The length includes itself but excludes the message type byte.
 // Returns the length of the message body (length - 4).
+//
+// Uses Peek + Discard to read the 4 bytes directly out of bufio's
+// internal buffer with no intermediate slice — same escape-avoidance
+// reason as ReadMessageType. Peek returns a slice into bufio's
+// storage; we read it before Discarding the bytes so the buffer
+// can reuse the space.
 func (c *Conn) ReadMessageLength() (int, error) {
-	var lenBuf [4]byte
-	_, err := io.ReadFull(c.bufferedReader, lenBuf[:])
+	hdr, err := c.bufferedReader.Peek(4)
 	if err != nil {
 		return 0, err
 	}
-
-	length := binary.BigEndian.Uint32(lenBuf[:])
+	length := binary.BigEndian.Uint32(hdr)
+	if _, err := c.bufferedReader.Discard(4); err != nil {
+		return 0, err
+	}
 	if length < 4 {
 		return 0, fmt.Errorf("invalid message length: %d", length)
 	}
-
-	// Return body length (excluding the length field itself).
 	return int(length - 4), nil
 }
 
 // readMessageBody reads the message body of the given length.
-// Returns a buffer from the pool that must be returned using returnReadBuffer.
+// Returns a slice that must be released by calling returnReadBuffer.
+//
+// On the pool path, the underlying *[]byte is stashed in
+// c.inboundPoolBuf so returnReadBuffer can return it without taking
+// the address of a stack-local slice (which would force the slice
+// header to the heap on every call). On the make-fallback path
+// (no listener), there's nothing to recycle and inboundPoolBuf
+// stays nil.
 func (c *Conn) readMessageBody(length int) ([]byte, error) {
 	if length == 0 {
 		return nil, nil
 	}
 
-	// Allocate buffer from pool if available.
 	var buf []byte
-	var pooledBuf *[]byte
-
 	if c.listener != nil && c.listener.bufPool != nil {
-		pooledBuf = c.listener.bufPool.Get(length)
-		buf = *pooledBuf
+		c.inboundPoolBuf = c.listener.bufPool.Get(length)
+		buf = *c.inboundPoolBuf
 	} else {
 		buf = make([]byte, length)
 	}
 
-	// Read the message body.
-	_, err := io.ReadFull(c.bufferedReader, buf)
-	if err != nil {
-		// Return buffer to pool on error.
-		if pooledBuf != nil {
-			c.listener.bufPool.Put(pooledBuf)
+	if _, err := io.ReadFull(c.bufferedReader, buf); err != nil {
+		if c.inboundPoolBuf != nil {
+			c.listener.bufPool.Put(c.inboundPoolBuf)
+			c.inboundPoolBuf = nil
 		}
 		return nil, err
 	}
-
 	return buf, nil
 }
 
-// returnReadBuffer returns a buffer obtained from readMessageBody to the pool.
-func (c *Conn) returnReadBuffer(buf []byte) {
-	if c.listener != nil && c.listener.bufPool != nil && buf != nil {
-		pooledBuf := &buf
-		c.listener.bufPool.Put(pooledBuf)
+// returnReadBuffer releases the buffer held by inboundPoolBuf back
+// to the listener bufpool. No-op when readMessageBody used the make
+// fallback (inboundPoolBuf is nil) or returned a zero-length slice.
+func (c *Conn) returnReadBuffer() {
+	if c.inboundPoolBuf != nil {
+		c.listener.bufPool.Put(c.inboundPoolBuf)
+		c.inboundPoolBuf = nil
 	}
 }
 
@@ -263,8 +271,21 @@ type MessageReader struct {
 }
 
 // NewMessageReader creates a new message reader for the given buffer.
-func NewMessageReader(buf []byte) *MessageReader {
-	return &MessageReader{buf: buf, pos: 0}
+//
+// Returns by value (not pointer). Callers do `r := NewMessageReader(body)`
+// and the struct lives on their stack — no heap allocation. The
+// methods take pointer receivers to mutate `pos`; Go auto-addresses
+// the stack-local value when calling them.
+//
+// IMPORTANT: helpers that walk the SAME MessageReader as their
+// caller MUST accept `*MessageReader`, not `MessageReader` by value.
+// A by-value parameter copies the struct, and any cursor mutations
+// inside the helper vanish on return — silently producing wrong
+// reads if the caller continues parsing after the call. Pass-by-
+// pointer-of-stack-local doesn't escape (the helper just calls
+// methods locally), so safety is free.
+func NewMessageReader(buf []byte) MessageReader {
+	return MessageReader{buf: buf, pos: 0}
 }
 
 // Remaining returns the number of unread bytes.
