@@ -108,29 +108,99 @@ func (c *Conn) readStartupPacket() ([]byte, error) {
 
 // writeMessage writes a complete message with type, length, and body.
 // The length is calculated automatically (includes length field, excludes type byte).
+//
+// Coalesces the type+length header into one Write call to halve the
+// number of bufio.Write trips through the buffered writer per message.
 func (c *Conn) writeMessage(msgType byte, body []byte) error {
+	var hdr [5]byte
+	hdr[0] = msgType
+	binary.BigEndian.PutUint32(hdr[1:], uint32(4+len(body)))
+
 	writer := c.getWriter()
-
-	// Write message type.
-	if err := c.writeByte(writer, msgType); err != nil {
+	if _, err := writer.Write(hdr[:]); err != nil {
 		return err
 	}
-
-	// Write length (4 bytes + body length).
-	length := uint32(4 + len(body))
-	if err := c.writeUint32(writer, length); err != nil {
-		return err
-	}
-
-	// Write body.
 	if len(body) > 0 {
-		_, err := writer.Write(body)
-		if err != nil {
+		if _, err := writer.Write(body); err != nil {
 			return err
 		}
 	}
-
 	return nil
+}
+
+// startPacket reserves a buffer sized for a single pgwire packet of the
+// given body length, with the message type and 4-byte length header
+// pre-written. The returned position points at the first byte of the
+// body. Callers encode the body in-place via writeXxxAt, then call
+// writePacket exactly once. The buffer comes from listener.bufPool and
+// must not be retained after writePacket.
+func (c *Conn) startPacket(msgType byte, bodyLen int) (*[]byte, int) {
+	totalLen := 5 + bodyLen
+	var bufp *[]byte
+	if c.listener != nil && c.listener.bufPool != nil {
+		bufp = c.listener.bufPool.Get(totalLen)
+	} else {
+		b := make([]byte, totalLen)
+		bufp = &b
+	}
+	buf := *bufp
+	buf[0] = msgType
+	binary.BigEndian.PutUint32(buf[1:5], uint32(4+bodyLen))
+	return bufp, 5
+}
+
+// writePacket sends the fully-built packet to the connection writer in a
+// single Write call and recycles the buffer.
+//
+// The packet length is taken from the slice length set by startPacket
+// (the bufpool returns a slice already sized to total packet bytes), so
+// the caller must encode exactly bodyLen bytes after the header.
+func (c *Conn) writePacket(bufp *[]byte) error {
+	c.bufMu.Lock()
+	var w io.Writer
+	if c.bufferedWriter != nil {
+		w = c.bufferedWriter
+	} else {
+		w = c.conn
+	}
+	_, err := w.Write(*bufp)
+	c.bufMu.Unlock()
+	if c.listener != nil && c.listener.bufPool != nil {
+		c.listener.bufPool.Put(bufp)
+	}
+	return err
+}
+
+// In-place packet body encoders. Each writes at buf[pos:] and returns the
+// new position. Callers must size the buffer (via startPacket) so that
+// these never run off the end — out-of-range slice writes will panic.
+
+func writeByteAt(buf []byte, pos int, b byte) int {
+	buf[pos] = b
+	return pos + 1
+}
+
+func writeInt16At(buf []byte, pos int, v int16) int {
+	binary.BigEndian.PutUint16(buf[pos:], uint16(v))
+	return pos + 2
+}
+
+func writeInt32At(buf []byte, pos int, v int32) int {
+	binary.BigEndian.PutUint32(buf[pos:], uint32(v))
+	return pos + 4
+}
+
+// writeStringAt writes s followed by a single null terminator.
+func writeStringAt(buf []byte, pos int, s string) int {
+	n := copy(buf[pos:], s)
+	buf[pos+n] = 0
+	return pos + n + 1
+}
+
+// writeBytesAt writes raw bytes (no terminator).
+func writeBytesAt(buf []byte, pos int, b []byte) int {
+	n := copy(buf[pos:], b)
+	return pos + n
 }
 
 // writeByte writes a single byte.
