@@ -516,6 +516,13 @@ func (c *Coordinator) EstablishLeadership(
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
+	// Contract: the policy method must return a non-nil config on success so
+	// every promotion explicitly rewires sync replication. A nil config here
+	// is a bug, not a legitimate "no config needed" signal — refuse to proceed.
+	if leaderCfg == nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			"BuildLeaderDurabilityPostgresConfig returned nil config without error")
+	}
 	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
 		SynchronousCommit: leaderCfg.SyncCommit,
 		SynchronousMethod: leaderCfg.SyncMethod,
