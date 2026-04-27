@@ -105,6 +105,37 @@ func poolerKeysOf(poolers []*clustermetadatapb.ID) map[string]struct{} {
 	return keysOf(poolers, topoclient.ClusterIDString)
 }
 
+// cohortIntersect returns the IDs of nodes (from statuses) that are members of
+// cohort. statuses is assumed to be already deduplicated by ID.
+func cohortIntersect(cohort []*clustermetadatapb.ID, statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ID {
+	cohortKeys := poolerKeysOf(cohort)
+	result := make([]*clustermetadatapb.ID, 0, len(cohort))
+	for _, cs := range statuses {
+		id := cs.GetId()
+		if id == nil {
+			continue
+		}
+		if _, inCohort := cohortKeys[topoclient.ClusterIDString(id)]; inCohort {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// sameCohort reports whether a and b represent the same set of pooler IDs.
+func sameCohort(a, b []*clustermetadatapb.ID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aKeys := poolerKeysOf(a)
+	for _, id := range b {
+		if _, ok := aKeys[topoclient.ClusterIDString(id)]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // validateRecruitedSubset returns an error if any recruited pooler is not a
 // member of the cohort. All durability policies assume recruited ⊆ cohort so
 // that candidacy counts reflect only policy-eligible poolers. This is a
