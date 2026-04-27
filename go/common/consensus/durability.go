@@ -17,9 +17,11 @@ package consensus
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ParseUserSpecifiedDurabilityPolicy converts a policy name string into a DurabilityPolicy message.
@@ -62,8 +64,46 @@ type DurabilityPolicy interface {
 	//     commit outside our recruitment.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
+	// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config
+	// the new primary must apply to satisfy this policy's durability
+	// obligations.
+	//
+	// cohort is the full set of poolers participating in the term, including
+	// the leader. The method derives the eligible standby set per policy
+	// (e.g., MultiCellPolicy excludes the leader's cell). Passing the full
+	// cohort keeps the caller-side contract simple.
+	//
+	// On success the config is always non-nil — every promotion explicitly
+	// rewires Postgres replication, so the caller can blindly translate it
+	// to a ConfigureSynchronousReplicationRequest. For policies trivially
+	// satisfied without sync replication (RequiredCount==1), the config
+	// uses SYNCHRONOUS_COMMIT_LOCAL with an empty SyncStandbyIDs, which
+	// causes Postgres to clear synchronous_standby_names — explicitly
+	// dropping any stale sync configuration the new primary may have
+	// inherited from a prior role. Returns an error when the cohort cannot
+	// satisfy the policy's num_sync requirement.
+	BuildLeaderDurabilityPostgresConfig(
+		logger *slog.Logger,
+		cohort []*clustermetadatapb.ID,
+		leader *clustermetadatapb.ID,
+	) (*LeaderDurabilityPostgresConfig, error)
+
 	// Description returns a human-readable summary of the policy.
 	Description() string
+}
+
+// LeaderDurabilityPostgresConfig is the Postgres-level configuration a new
+// leader must apply to satisfy a durability policy.
+//
+// It captures only the durability-meaningful outputs of the policy — the
+// commit level, the standby acknowledgement method, the count, and the
+// eligible standby set. RPC plumbing concerns (reload-vs-restart, etc.) live
+// at the call site that translates this into a wire request.
+type LeaderDurabilityPostgresConfig struct {
+	SyncCommit     multipoolermanagerdatapb.SynchronousCommitLevel
+	SyncMethod     multipoolermanagerdatapb.SynchronousMethod
+	NumSync        int
+	SyncStandbyIDs []*clustermetadatapb.ID
 }
 
 // NewPolicyFromProto converts a proto DurabilityPolicy into a concrete
