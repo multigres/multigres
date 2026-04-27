@@ -306,6 +306,7 @@ func NewPgCtldService(
 			Pg1Port:       cfg.Port,
 			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
 			Pg1Path:       pgctld.PostgresDataDir(),
+			Pg1User:       cfg.User,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)

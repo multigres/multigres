@@ -43,6 +43,9 @@ const (
 	MultiPoolerConsensus_DemoteStalePrimary_FullMethodName  = "/consensus.MultiPoolerConsensus/DemoteStalePrimary"
 	MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName  = "/consensus.MultiPoolerConsensus/SetPrimaryConnInfo"
 	MultiPoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultiPoolerConsensus/RewindToSource"
+	MultiPoolerConsensus_Recruit_FullMethodName             = "/consensus.MultiPoolerConsensus/Recruit"
+	MultiPoolerConsensus_Propose_FullMethodName             = "/consensus.MultiPoolerConsensus/Propose"
+	MultiPoolerConsensus_Inform_FullMethodName              = "/consensus.MultiPoolerConsensus/Inform"
 )
 
 // MultiPoolerConsensusClient is the client API for MultiPoolerConsensus service.
@@ -78,6 +81,15 @@ type MultiPoolerConsensusClient interface {
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// Recruit asks a pooler to revoke all terms below the one specified and
+	// record the coordinator's exclusive claim on that term.
+	Recruit(ctx context.Context, in *consensusdata.RecruitRequest, opts ...grpc.CallOption) (*consensusdata.RecruitResponse, error)
+	// Propose sends a complete shard-state proposal to a pooler. The designated
+	// leader promotes its postgres; all other cohort members point replication at
+	// the new primary.
+	Propose(ctx context.Context, in *consensusdata.ProposeRequest, opts ...grpc.CallOption) (*consensusdata.ProposeResponse, error)
+	// Inform broadcasts a decided, durable rule.
+	Inform(ctx context.Context, in *consensusdata.InformRequest, opts ...grpc.CallOption) (*consensusdata.InformResponse, error)
 }
 
 type multiPoolerConsensusClient struct {
@@ -168,6 +180,36 @@ func (c *multiPoolerConsensusClient) RewindToSource(ctx context.Context, in *mul
 	return out, nil
 }
 
+func (c *multiPoolerConsensusClient) Recruit(ctx context.Context, in *consensusdata.RecruitRequest, opts ...grpc.CallOption) (*consensusdata.RecruitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.RecruitResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Recruit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerConsensusClient) Propose(ctx context.Context, in *consensusdata.ProposeRequest, opts ...grpc.CallOption) (*consensusdata.ProposeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.ProposeResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Propose_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerConsensusClient) Inform(ctx context.Context, in *consensusdata.InformRequest, opts ...grpc.CallOption) (*consensusdata.InformResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.InformResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Inform_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerConsensusServer is the server API for MultiPoolerConsensus service.
 // All implementations must embed UnimplementedMultiPoolerConsensusServer
 // for forward compatibility.
@@ -201,6 +243,15 @@ type MultiPoolerConsensusServer interface {
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// Recruit asks a pooler to revoke all terms below the one specified and
+	// record the coordinator's exclusive claim on that term.
+	Recruit(context.Context, *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error)
+	// Propose sends a complete shard-state proposal to a pooler. The designated
+	// leader promotes its postgres; all other cohort members point replication at
+	// the new primary.
+	Propose(context.Context, *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error)
+	// Inform broadcasts a decided, durable rule.
+	Inform(context.Context, *consensusdata.InformRequest) (*consensusdata.InformResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
 
@@ -234,6 +285,15 @@ func (UnimplementedMultiPoolerConsensusServer) SetPrimaryConnInfo(context.Contex
 }
 func (UnimplementedMultiPoolerConsensusServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) Recruit(context.Context, *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Recruit not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) Propose(context.Context, *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Propose not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) Inform(context.Context, *consensusdata.InformRequest) (*consensusdata.InformResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Inform not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) mustEmbedUnimplementedMultiPoolerConsensusServer() {}
 func (UnimplementedMultiPoolerConsensusServer) testEmbeddedByValue()                              {}
@@ -400,6 +460,60 @@ func _MultiPoolerConsensus_RewindToSource_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerConsensus_Recruit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.RecruitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).Recruit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_Recruit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).Recruit(ctx, req.(*consensusdata.RecruitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerConsensus_Propose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.ProposeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).Propose(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_Propose_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).Propose(ctx, req.(*consensusdata.ProposeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerConsensus_Inform_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.InformRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).Inform(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_Inform_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).Inform(ctx, req.(*consensusdata.InformRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerConsensus_ServiceDesc is the grpc.ServiceDesc for MultiPoolerConsensus service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -438,6 +552,18 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RewindToSource",
 			Handler:    _MultiPoolerConsensus_RewindToSource_Handler,
+		},
+		{
+			MethodName: "Recruit",
+			Handler:    _MultiPoolerConsensus_Recruit_Handler,
+		},
+		{
+			MethodName: "Propose",
+			Handler:    _MultiPoolerConsensus_Propose_Handler,
+		},
+		{
+			MethodName: "Inform",
+			Handler:    _MultiPoolerConsensus_Inform_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
