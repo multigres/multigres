@@ -307,8 +307,11 @@ func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 		}
 		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
 		require.NoError(t, err)
-		require.NotNil(t, cfg)
-		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
+		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit,
+			"N=1 should pin synchronous_commit to local-flush durability")
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+		require.Equal(t, 1, cfg.NumSync, "NumSync must be a valid positive value; the empty standby list is what disables sync")
 		require.Empty(t, cfg.SyncStandbyIDs, "N=1 should produce an empty standby list so Postgres clears synchronous_standby_names")
 	})
 

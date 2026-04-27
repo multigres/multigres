@@ -223,6 +223,23 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 	logger := testLogger()
 
+	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
+		leader := id("primary", "cell-a")
+		p := MultiCellPolicy{N: 1}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "cell-b"),
+			id("mp2", "cell-c"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+		require.Equal(t, 1, cfg.NumSync, "NumSync must be a valid positive value; the empty standby list is what disables sync")
+		require.Empty(t, cfg.SyncStandbyIDs)
+	})
+
 	t.Run("excludes same-cell standbys", func(t *testing.T) {
 		leader := id("primary", "us-west-1a")
 		p := MultiCellPolicy{N: 2}
