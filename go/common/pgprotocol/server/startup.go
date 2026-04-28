@@ -400,8 +400,21 @@ func (c *Conn) authenticateSCRAM() error {
 	// send empty username in SCRAM (like pgx).
 	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage, c.user)
 	if err != nil {
+		// rolcanlogin=false: emit PG's exact wording with SQLSTATE 28000
+		// (invalid_authorization_specification), matching native PG.
+		if errors.Is(err, scram.ErrLoginDisabled) {
+			c.logger.Warn("authentication failed: role not permitted to log in", "user", c.user)
+			return c.sendLoginDisabledError()
+		}
+		// Expired rolvaliduntil and unknown-user both surface as the opaque
+		// "password authentication failed" message (28P01), matching PG's
+		// convention of not disclosing why auth failed.
 		if errors.Is(err, scram.ErrUserNotFound) {
 			c.logger.Warn("authentication failed: user not found", "user", c.user)
+			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		if errors.Is(err, scram.ErrPasswordExpired) {
+			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		return fmt.Errorf("failed to handle client-first-message: %w", err)
@@ -574,6 +587,18 @@ func (c *Conn) readSASLResponse() (string, error) {
 // sendAuthError sends an authentication error to the client.
 func (c *Conn) sendAuthError(message string) error {
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, message, "")); err != nil {
+		return err
+	}
+	return c.flush()
+}
+
+// sendLoginDisabledError sends the FATAL error PostgreSQL emits when a role
+// with rolcanlogin=false attempts to authenticate (SQLSTATE 28000). The
+// message format matches native PG verbatim so libpq-compatible clients
+// parse it identically.
+func (c *Conn) sendLoginDisabledError() error {
+	msg := "role \"" + c.user + "\" is not permitted to log in"
+	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec, msg, "")); err != nil {
 		return err
 	}
 	return c.flush()

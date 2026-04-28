@@ -16,6 +16,7 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -29,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -37,6 +37,11 @@ import (
 
 // Compile-time assertion that FixReplicationAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*FixReplicationAction)(nil)
+
+// errPoolerDrained is returned by tryPgRewind when pg_rewind is not feasible and the
+// pooler has been successfully marked DRAINED. The caller should stop attempting to
+// verify replication and treat the action as complete.
+var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot be established")
 
 // FixReplicationAction handles replication configuration and repair for replicas.
 //
@@ -194,12 +199,20 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
-	// Get the current consensus term from the primary
-	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get consensus status from primary")
-	}
-	consensusTerm := consensusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	// Use the term numbers already carried in the health state rather than
+	// making extra ConsensusStatus RPCs. Both values come from StatusResponse
+	// via the health stream, so they reflect the same data we would get from
+	// a fresh RPC at the time the problem was detected.
+	//
+	// We take max(primaryTerm, replicaTerm) because after a failover the
+	// replica may have accepted a higher term (from BeginTerm) than the
+	// newly-elected primary has seen yet. validateAndUpdateTerm rejects
+	// requests whose CurrentTerm is below the local term, so using the
+	// maximum satisfies both nodes. A higher term is safe: the primary
+	// accepts it and advances its own term to match.
+	primaryTerm := primary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	replicaTerm := replica.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	consensusTerm := max(primaryTerm, replicaTerm)
 
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
@@ -210,7 +223,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 		Force:                 false,
 	}
 
-	_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
+	_, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to set primary connection info")
 	}
@@ -222,7 +235,22 @@ func (a *FixReplicationAction) fixNotReplicating(
 			"replica", replica.MultiPooler.Id.Name,
 			"primary", primary.MultiPooler.Id.Name)
 
+		// Re-check the primary's latest health-stream state before running pg_rewind.
+		// pg_rewind stops the replica's postgres before contacting the source; if the
+		// primary postgres is no longer running the stop will leave two nodes down.
+		// Return an error for retry — the next cycle will detect PrimaryIsDead.
+		primaryKey := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
+		if latest, ok := a.poolerStore.Get(primaryKey); !ok || !latest.GetStatus().GetPostgresReady() {
+			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"primary postgres not running, skipping pg_rewind to avoid leaving two nodes down")
+		}
+
 		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
+			if errors.Is(rewindErr, errPoolerDrained) {
+				// pg_rewind was not feasible; pooler marked as DRAINED.
+				// No point verifying replication — treat as resolved.
+				return nil
+			}
 			return mterrors.Wrap(rewindErr, "pg_rewind failed")
 		}
 		// Re-verify replication after rewind. RewindToSource restarts
@@ -278,16 +306,21 @@ func (a *FixReplicationAction) tryPgRewind(
 	}
 	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
 	if err != nil {
-		a.logger.WarnContext(ctx, "pg_rewind RPC failed, marking as DRAINED",
+		// RPC failure (e.g. primary postgres unreachable) is transient — do not
+		// drain the pooler. Return an error so the next recovery cycle retries.
+		a.logger.WarnContext(ctx, "pg_rewind RPC failed, will retry next cycle",
 			"replica", replica.MultiPooler.Id.Name,
 			"error", err)
-		return a.markPoolerDrained(ctx, replica)
+		return mterrors.Wrap(err, "pg_rewind RPC failed")
 	}
 	if !rewindResp.Success {
 		a.logger.WarnContext(ctx, "pg_rewind not feasible, marking as DRAINED",
 			"replica", replica.MultiPooler.Id.Name,
 			"error", rewindResp.ErrorMessage)
-		return a.markPoolerDrained(ctx, replica)
+		if drainErr := a.markPoolerDrained(ctx, replica); drainErr != nil {
+			return drainErr
+		}
+		return errPoolerDrained
 	}
 
 	if rewindResp.RewindPerformed {

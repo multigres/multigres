@@ -140,7 +140,10 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{
+						IsInitialized: true,
+						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					},
 				},
 			},
 		},
@@ -212,7 +215,10 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{
+						IsInitialized: true,
+						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					},
 				},
 			},
 			"multipooler-cell1-replica1": {
@@ -306,7 +312,10 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{
+						IsInitialized: true,
+						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					},
 				},
 			},
 			"multipooler-cell1-replica1": {
@@ -491,7 +500,10 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	baseFakeClient := rpcclient.NewFakeClient()
 	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: true,
+			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+		},
 	})
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
 		"multipooler-cell1-primary": {
@@ -562,6 +574,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: primary,
+		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 	})
 
 	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
@@ -579,10 +592,9 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	err := action.Execute(ctx, problem)
 
-	// Should fail: pg_rewind marked pooler as DRAINED (returned nil), then
-	// re-verification fails because the replica is not actually replicating.
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replication did not start after pg_rewind")
+	// Should succeed: pg_rewind was not feasible so the pooler is marked DRAINED
+	// and the action returns nil — the problem is resolved by draining the node.
+	require.NoError(t, err)
 
 	// Verify SetPrimaryConnInfo was called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")

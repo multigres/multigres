@@ -196,11 +196,11 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 			return true // continue
 		}
 
-		if !commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()) {
+		if !commonconsensus.IsPrimary(pooler.GetConsensusStatus()) {
 			return true // continue
 		}
 
-		primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+		primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus())
 
 		if primaryTerm > maxPrimaryTerm {
 			maxPrimaryTerm = primaryTerm
@@ -214,11 +214,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
 	}
 
-	// Return consensus term for the RPC parameter
-	consensusTerm := int64(0)
-	if correctPrimary.ConsensusStatus != nil {
-		consensusTerm = correctPrimary.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	}
+	consensusTerm := correctPrimary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 	return correctPrimary, consensusTerm, nil
 }

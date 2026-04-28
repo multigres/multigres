@@ -600,18 +600,18 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		expectedStatus := &multipoolermanagerdatapb.Status{
-			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
-			IsInitialized: true,
-			PostgresReady: true,
-			PostgresRole:  "primary",
-			WalPosition:   "0/1000000",
-			TermRevocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm: 1,
-			},
-			ShardId: "0-inf",
+			PoolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			IsInitialized:  true,
+			PostgresReady:  true,
+			PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
+			WalPosition:    "0/1000000",
+			ShardId:        "0-inf",
 		}
 		fakeClient.SetStatusResponse(poolerKey, &multipoolermanagerdatapb.StatusResponse{
 			Status: expectedStatus,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			},
 		})
 
 		req := &multiadminpb.GetPoolerStatusRequest{
@@ -625,10 +625,10 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType)
 		assert.True(t, resp.Status.IsInitialized)
 		assert.True(t, resp.Status.PostgresReady)
-		assert.Equal(t, "primary", resp.Status.PostgresRole)
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, resp.Status.PostgresStatus)
 		assert.Equal(t, "0/1000000", resp.Status.WalPosition)
-		require.NotNil(t, resp.Status.TermRevocation)
-		assert.Equal(t, int64(1), resp.Status.TermRevocation.RevokedBelowTerm)
+		require.NotNil(t, resp.ConsensusStatus.GetTermRevocation())
+		assert.Equal(t, int64(1), resp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm())
 	})
 
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {

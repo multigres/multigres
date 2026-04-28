@@ -78,13 +78,11 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
 func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
-	status, err := s.manager.Status(ctx)
+	resp, err := s.manager.Status(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdatapb.StatusResponse{
-		Status: status,
-	}, nil
+	return resp, nil
 }
 
 // Backup performs a backup
@@ -295,13 +293,13 @@ func (s *managerService) sendManagerHealthSnapshot(
 	trigger multipoolermanagerdatapb.SnapshotTrigger,
 	timeout time.Duration,
 ) error {
-	st, err := s.manager.Status(ctx)
+	statusResp, err := s.manager.Status(ctx)
 	if err != nil {
 		return mterrors.ToGRPC(err)
 	}
 
 	healthSnapshot := &multipoolermanagerdatapb.ManagerHealthSnapshot{
-		Status:  &multipoolermanagerdatapb.StatusResponse{Status: st},
+		Status:  statusResp,
 		Timeout: durationpb.New(timeout),
 		Trigger: trigger,
 	}

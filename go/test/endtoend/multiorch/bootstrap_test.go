@@ -37,7 +37,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -70,15 +69,15 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "should get status from %s", name)
 
-			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresRole=%s, PoolerType=%s, CohortMembers=%d",
+			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresStatus=%s, PoolerType=%s, CohortMembers=%d",
 				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
-				status.Status.PostgresReady, status.Status.PostgresRole, status.Status.PoolerType,
+				status.Status.PostgresReady, status.Status.PostgresStatus, status.Status.PoolerType,
 				len(status.Status.CohortMembers))
 
 			// No node should have a cohort configured before multiorch starts
 			require.Empty(t, status.Status.CohortMembers, "Node %s should have no cohort members before multiorch", name)
 			// No node should be primary before multiorch elects one
-			require.NotEqual(t, "primary", status.Status.PostgresRole, "Node %s should not be primary before multiorch", name)
+			require.NotEqual(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, status.Status.PostgresStatus, "Node %s should not be primary before multiorch", name)
 			t.Logf("Node %s has no cohort members and is not primary (ready for multiorch to configure)", name)
 		}()
 	}
@@ -152,15 +151,12 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify primary term is set to 1 (bootstrap term)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get status from primary")
-		require.NotNil(t, status.Status.TermRevocation, "Primary should have consensus term")
-		assert.Equal(t, int64(1), status.Status.TermRevocation.RevokedBelowTerm, "Primary should be on term 1 after bootstrap")
+		require.NotNil(t, status.ConsensusStatus.GetTermRevocation(), "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Primary should be on term 1 after bootstrap")
 		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
-		consensusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
-		require.NoError(t, err, "Should be able to get consensus status from primary")
-		primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
-		assert.Equal(t, int64(1), primaryTerm, "Primary term should be set to 1 after bootstrap")
+		assert.Equal(t, int64(1), commonconsensus.PrimaryTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.Status.TermRevocation.RevokedBelowTerm, primaryTerm)
+			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.PrimaryTerm(status.ConsensusStatus))
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -186,15 +182,11 @@ func TestBootstrapInitialization(t *testing.T) {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
-				require.NotNil(t, status.Status.TermRevocation, "Standby %s should have consensus term", name)
-				consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
-				require.NoError(t, err, "Standby %s: should be able to get consensus status", name)
-				primaryTerm := commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus)
-				assert.Equal(t, int64(0), primaryTerm,
+				assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(status.ConsensusStatus),
 					"Standby %s should have primary_term=0 (never been primary)", name)
 
 				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
-					name, status.Status.PoolerType, primaryTerm)
+					name, status.Status.PoolerType, commonconsensus.PrimaryTerm(status.ConsensusStatus))
 			}
 			client.Close()
 		}
@@ -216,14 +208,11 @@ func TestBootstrapInitialization(t *testing.T) {
 			allInstances = append(allInstances, inst)
 		}
 		shardsetup.EventuallyPoolerCondition(t, allInstances, 30*time.Second, 1*time.Second,
-			func(name string, s *multipoolermanagerdatapb.Status) (bool, string) {
-				if !s.IsInitialized {
+			func(r shardsetup.PoolerStatusResult) (bool, string) {
+				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
 				}
-				termNum := int64(0)
-				if s.TermRevocation != nil {
-					termNum = s.TermRevocation.RevokedBelowTerm
-				}
+				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 				if termNum != 1 {
 					return false, fmt.Sprintf("consensus term is %d, expected 1", termNum)
 				}
@@ -362,14 +351,14 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Wait for auto-restore to complete
 		shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
-			func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
-				if !s.IsInitialized {
+			func(r shardsetup.PoolerStatusResult) (bool, string) {
+				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
 				}
-				if !s.PostgresReady {
+				if !r.Status.PostgresReady {
 					return false, "postgres not running"
 				}
-				if s.TermRevocation == nil || s.TermRevocation.RevokedBelowTerm == 0 {
+				if r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm() == 0 {
 					return false, "consensus term not yet assigned"
 				}
 				return true, ""
@@ -389,11 +378,11 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.True(t, status.Status.IsInitialized, "Standby should be initialized after auto-restore")
 		assert.True(t, status.Status.HasDataDirectory, "Standby should have data directory after auto-restore")
 		assert.True(t, status.Status.PostgresReady, "PostgreSQL should be running after auto-restore")
-		assert.Equal(t, "standby", status.Status.PostgresRole, "Should be in standby role after auto-restore")
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY, status.Status.PostgresStatus, "Should be in standby role after auto-restore")
 
-		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, Role=%s",
+		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, ServerStatus=%s",
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
-			status.Status.PostgresReady, status.Status.PostgresRole)
+			status.Status.PostgresReady, status.Status.PostgresStatus)
 	})
 
 	t.Run("verify archive_command config on all nodes", func(t *testing.T) {

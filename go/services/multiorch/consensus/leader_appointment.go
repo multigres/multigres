@@ -123,13 +123,13 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 
 	for _, pooler := range cohort {
 		// Invariant: poolers in the cohort with successful health checks must have TermRevocation populated
-		if pooler.IsLastCheckValid && pooler.GetStatus().GetTermRevocation() == nil {
+		if pooler.IsLastCheckValid && pooler.GetConsensusStatus().GetTermRevocation() == nil {
 			return 0, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 				"healthy pooler %s in cohort missing consensus term data - health check invariant violated",
 				pooler.MultiPooler.Id.Name)
 		}
 
-		if ct := pooler.GetStatus().GetTermRevocation(); ct != nil && ct.RevokedBelowTerm > maxTerm {
+		if ct := pooler.GetConsensusStatus().GetTermRevocation(); ct != nil && ct.RevokedBelowTerm > maxTerm {
 			maxTerm = ct.RevokedBelowTerm
 		}
 	}
@@ -410,7 +410,7 @@ func (c *Coordinator) EstablishLeadership(
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
 	term int64,
-	policy *clustermetadatapb.DurabilityPolicy,
+	policy commonconsensus.DurabilityPolicy,
 	reason string,
 	cohort []*multiorchdatapb.PoolerHealthState,
 	recruited []*multiorchdatapb.PoolerHealthState,
@@ -504,10 +504,31 @@ func (c *Coordinator) EstablishLeadership(
 		c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
 	}
 
-	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := BuildSyncReplicationConfig(c.logger, policy, cohort, candidate)
+	// Build synchronous replication configuration based on quorum policy.
+	// Pass the full cohort; the policy excludes the candidate internally.
+	cohortIDs := make([]*clustermetadatapb.ID, 0, len(cohort))
+	for _, p := range cohort {
+		if p.MultiPooler != nil && p.MultiPooler.Id != nil {
+			cohortIDs = append(cohortIDs, p.MultiPooler.Id)
+		}
+	}
+	leaderCfg, err := policy.BuildLeaderDurabilityPostgresConfig(c.logger, cohortIDs, candidate.MultiPooler.Id)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
+	}
+	// Contract: the policy method must return a non-nil config on success so
+	// every promotion explicitly rewires sync replication. A nil config here
+	// is a bug, not a legitimate "no config needed" signal — refuse to proceed.
+	if leaderCfg == nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			"BuildLeaderDurabilityPostgresConfig returned nil config without error")
+	}
+	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+		SynchronousCommit: leaderCfg.SyncCommit,
+		SynchronousMethod: leaderCfg.SyncMethod,
+		NumSync:           int32(leaderCfg.NumSync),
+		StandbyIds:        leaderCfg.SyncStandbyIDs,
+		ReloadConfig:      true,
 	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
@@ -545,13 +566,19 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 
 	// Filter cohort to poolers eligible to participate in recruitment right now.
 	// A pooler is eligible only if we can reach it, it's initialized with
-	// consensus-term data, and its postgres is running. Without consensus-term
+	// consensus-term data, and its postgres process is running. Without consensus-term
 	// info we can't reason about election safety; without postgres the pooler
 	// can't participate.
+	//
+	// We use postgres_running (process alive) rather than postgres_ready (pg_isready
+	// succeeds) so that standbys that are briefly unresponsive to pg_isready during
+	// WAL receiver reconnection after primary failure are still counted as eligible.
+	// A running multipooler process can accept BeginTerm RPCs regardless of whether
+	// pg_isready is momentarily failing.
 	var eligiblePoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
 		status := pooler.GetStatus()
-		if pooler.IsLastCheckValid && status.GetIsInitialized() && status.GetTermRevocation() != nil && status.GetPostgresReady() {
+		if pooler.IsLastCheckValid && status.GetIsInitialized() && pooler.GetConsensusStatus().GetTermRevocation() != nil && status.GetPostgresRunning() {
 			eligiblePoolers = append(eligiblePoolers, pooler)
 		}
 	}
@@ -578,7 +605,7 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// to give the other coordinator a chance to complete their election.
 	for _, pooler := range eligiblePoolers {
 		// Check if this pooler recently accepted a term from another coordinator
-		if ct := pooler.GetStatus().GetTermRevocation(); ct != nil && ct.CoordinatorInitiatedAt != nil {
+		if ct := pooler.GetConsensusStatus().GetTermRevocation(); ct != nil && ct.CoordinatorInitiatedAt != nil {
 			lastAcceptanceTime := ct.CoordinatorInitiatedAt.AsTime()
 			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
 

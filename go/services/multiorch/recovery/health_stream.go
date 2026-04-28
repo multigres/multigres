@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -143,11 +144,12 @@ func (hs *HealthStream) Shutdown() {
 	hs.wg.Wait()
 }
 
-// Start starts a health stream for poolerID.
+// Start starts a health stream for id.
 // If a stream is already running for this pooler the call is a no-op.
 // The pooler's MultiPooler metadata is read from the store on each
 // reconnect attempt so topology updates are automatically picked up.
-func (hs *HealthStream) Start(poolerID string) {
+func (hs *HealthStream) Start(id *clustermetadatapb.ID) {
+	poolerID := topoclient.MultiPoolerIDString(id)
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
@@ -176,13 +178,16 @@ func (hs *HealthStream) Start(poolerID string) {
 // in the store for the stream to reconnect if Start() is called again.
 //
 // If no stream is running for this pooler the call is a no-op.
-func (hs *HealthStream) Stop(poolerID string) {
+func (hs *HealthStream) Stop(id *clustermetadatapb.ID) {
+	poolerID := topoclient.MultiPoolerIDString(id)
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
+	// The goroutine removes itself from hs.streams via its defer so we
+	// don't need to delete the entry here; just cancel it and let the
+	// goroutine clean up.
 	if entry, exists := hs.streams[poolerID]; exists {
 		entry.cancel()
-		// The goroutine removes itself from hs.streams via its defer.
 	}
 }
 
@@ -373,7 +378,8 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerH
 // Poll sends a poll request on the active stream for poolerID, triggering an
 // immediate health snapshot from the pooler. Returns an error if no stream is
 // active or the send fails.
-func (hs *HealthStream) Poll(poolerID string) error {
+func (hs *HealthStream) Poll(id *clustermetadatapb.ID) error {
+	poolerID := topoclient.MultiPoolerIDString(id)
 	hs.mu.Lock()
 	entry, exists := hs.streams[poolerID]
 	hs.mu.Unlock()
@@ -414,11 +420,22 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, pool
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
 		existing.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
+		if snapshot.Status.AvailabilityStatus != nil {
+			existing.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
+		} else {
+			existing.AvailabilityStatus = nil
+		}
+		if snapshot.Status.ConsensusStatus != nil {
+			existing.ConsensusStatus = proto.Clone(snapshot.Status.ConsensusStatus).(*clustermetadatapb.ConsensusStatus)
+		} else {
+			existing.ConsensusStatus = nil
+		}
 		if status.PostgresReady {
 			existing.LastPostgresReadyTime = now
 		}
 		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 		// left at its previous value so callers can reason about "last known good" time.
+		existing.StreamSnapshotsReceived++
 		return existing
 	}
 

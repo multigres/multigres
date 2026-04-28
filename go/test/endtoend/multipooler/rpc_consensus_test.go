@@ -199,7 +199,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, managerStatusResp.Status.PoolerType, "Should still be PRIMARY")
-		assert.Equal(t, "primary", managerStatusResp.Status.PostgresRole, "PostgreSQL should still be primary")
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, managerStatusResp.Status.PostgresStatus, "PostgreSQL should still be primary")
 		assert.True(t, managerStatusResp.Status.PostgresReady, "PostgreSQL should still be running")
 
 		t.Logf("BeginTerm NO_ACTION on primary: term=%d, still primary with postgres running", expectedTerm)
@@ -266,7 +266,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, managerStatusResp.Status.PoolerType, "Should still be REPLICA")
-		assert.Equal(t, "standby", managerStatusResp.Status.PostgresRole, "PostgreSQL should still be standby")
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY, managerStatusResp.Status.PostgresStatus, "PostgreSQL should still be standby")
 		assert.True(t, managerStatusResp.Status.PostgresReady, "PostgreSQL should still be running")
 		assert.NotNil(t, managerStatusResp.Status.ReplicationStatus, "Replication status should be populated")
 		assert.NotNil(t, managerStatusResp.Status.ReplicationStatus.PrimaryConnInfo, "Primary connection info should be preserved")
@@ -344,7 +344,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return resp.GetStatus().GetPostgresRole() == "standby"
+			return resp.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("Confirmed: PostgreSQL running as standby after emergency demotion")
 
@@ -463,12 +463,12 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		t.Logf("Current term: %d", currentTerm)
 
 		// Verify PostgreSQL is actually running as primary (not in recovery)
-		require.Equal(t, "primary", func() string {
+		require.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, func() multipoolermanagerdatapb.PostgresStatus {
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 			resp, err := primaryManagerClient.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "Manager Status should succeed")
-			return resp.GetStatus().GetPostgresRole()
+			return resp.GetStatus().GetPostgresStatus()
 		}(), "PostgreSQL should NOT be in recovery (should be primary)")
 		t.Log("Confirmed PostgreSQL is running as primary")
 
@@ -508,7 +508,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return resp.GetStatus().GetPostgresRole() == "standby"
+			return resp.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 		}, 15*time.Second, 1*time.Second, "PostgreSQL should be running as standby after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("SUCCESS: PostgreSQL is running as standby after emergency demotion")
 
@@ -599,7 +599,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return resp.GetStatus().GetPostgresRole() == "primary"
+			return resp.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY
 		}, 10*time.Second, 500*time.Millisecond, "Original primary should be primary again")
 
 		t.Log("Original state restored - primary is primary, standby is standby")

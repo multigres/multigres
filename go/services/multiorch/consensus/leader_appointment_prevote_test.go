@@ -67,10 +67,11 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: isHealthy,
+		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
-			TermRevocation: consensusTerm,
-			IsInitialized:  isInitialized,
-			PostgresReady:  isHealthy && isInitialized, // postgres is ready if healthy and initialized
+			IsInitialized:   isInitialized,
+			PostgresReady:   isHealthy && isInitialized,
+			PostgresRunning: isHealthy && isInitialized,
 		},
 	}
 }
@@ -218,19 +219,19 @@ func TestPreVote(t *testing.T) {
 		require.Empty(t, reason)
 	})
 
-	t.Run("fails when postgres is not ready on poolers", func(t *testing.T) {
+	t.Run("fails when postgres is not running on poolers", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		coord := NewCoordinator(coordID, nil, fakeClient, logger)
 
-		// Create 3 poolers: 2 healthy but with postgres not ready, 1 healthy with postgres ready
+		// Create 3 poolers: 2 healthy but with postgres not running, 1 healthy with postgres running
 		pooler1 := createPoolerForPreVote("mp1", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
-		pooler1.Status.PostgresReady = false // postgres not ready
+		pooler1.Status.PostgresRunning = false // postgres not running
 
 		pooler2 := createPoolerForPreVote("mp2", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
-		pooler2.Status.PostgresReady = false // postgres not ready
+		pooler2.Status.PostgresRunning = false // postgres not running
 
 		pooler3 := createPoolerForPreVote("mp3", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
-		// pooler3 has postgres ready (default from helper)
+		// pooler3 has postgres running (default from helper)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{pooler1, pooler2, pooler3}
 
@@ -239,7 +240,7 @@ func TestPreVote(t *testing.T) {
 
 		canProceed, reason := coord.preVote(ctx, cohort, mustPolicy(t, policy), proposedTerm)
 
-		require.False(t, canProceed, "should fail when insufficient poolers have postgres ready")
+		require.False(t, canProceed, "should fail when insufficient poolers have postgres running")
 		require.Contains(t, reason, "not enough eligible poolers to achieve valid recruitment")
 	})
 }
