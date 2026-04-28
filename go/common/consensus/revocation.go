@@ -45,7 +45,10 @@ import (
 //  3. Recruitment idempotency: when the coordinator and term match, the
 //     coordinator_initiated_at timestamp must also match. A differing
 //     timestamp means a distinct recruitment round at the same term number,
-//     which is treated as a conflict.
+//     which is treated as a conflict. The timestamp is protection against
+//     a stateless coordinator restarting and forgetting what it was trying
+//     to do -- any previous promises made to it prior to the restart should
+//     be disregarded.
 //
 // The revocation must have a non-empty accepted_coordinator_id and a non-nil
 // coordinator_initiated_at; both are required fields.
