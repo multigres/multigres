@@ -515,6 +515,7 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read message body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
 	reader := NewMessageReader(body)
 

@@ -66,10 +66,17 @@ func (c *Conn) ReadMessageLength() (int, error) {
 // header to the heap on every call). On the make-fallback path
 // (no listener), there's nothing to recycle and inboundPoolBuf
 // stays nil.
+//
+// If a previous body buffer is still held by inboundPoolBuf (the
+// caller's defer hasn't fired, or readAndDispatchStartup recursed
+// through SSL/GSS negotiation between calls), it is returned to the
+// pool first to prevent a leak.
 func (c *Conn) readMessageBody(length int) ([]byte, error) {
 	if length == 0 {
 		return nil, nil
 	}
+
+	c.returnReadBuffer()
 
 	var buf []byte
 	if c.listener != nil && c.listener.bufPool != nil {

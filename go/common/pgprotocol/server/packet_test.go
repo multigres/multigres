@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"io"
 	"net"
 	"testing"
@@ -184,6 +185,71 @@ func TestReturnReadBufferIsIdempotent(t *testing.T) {
 	// Second call must be a safe no-op, not a double-Put.
 	conn.returnReadBuffer()
 	assert.Nil(t, conn.inboundPoolBuf)
+}
+
+// TestReadMessageBodyReleasesStaleInbound verifies that readMessageBody
+// releases any buffer already held in inboundPoolBuf before grabbing a
+// new one. This is the defensive cleanup that prevents a leak when a
+// caller forgets returnReadBuffer or when readAndDispatchStartup
+// recurses through SSL/GSS negotiation between calls.
+func TestReadMessageBodyReleasesStaleInbound(t *testing.T) {
+	l := newBenchListener()
+
+	// Pre-stash a buffer in inboundPoolBuf as if a previous caller
+	// neglected to release it.
+	stale := l.bufPool.Get(1024)
+	require.NotNil(t, stale)
+
+	netBuf := bytes.NewBuffer([]byte{0x0A, 0x0B, 0x0C, 0x0D})
+	conn := &Conn{
+		listener:       l,
+		bufferedReader: bufio.NewReader(netBuf),
+		inboundPoolBuf: stale,
+	}
+
+	body, err := conn.readMessageBody(4)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x0A, 0x0B, 0x0C, 0x0D}, body)
+
+	// inboundPoolBuf must be set to a buffer (the new one). The stale
+	// pointer was returned to the pool — without the defensive
+	// release, it would have been silently overwritten and orphaned.
+	require.NotNil(t, conn.inboundPoolBuf)
+
+	// returnReadBuffer must release exactly one buffer (the current
+	// one); the stale was already released by readMessageBody.
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf)
+}
+
+// TestReadSASLInitialResponseReleasesBuffer verifies the
+// readSASLInitialResponse helper pairs its readMessageBody with a
+// returnReadBuffer — the missing defer that previously leaked one
+// pool buffer per SCRAM authentication.
+func TestReadSASLInitialResponseReleasesBuffer(t *testing.T) {
+	l := newBenchListener()
+
+	mechanism := []byte("SCRAM-SHA-256\x00")
+	saslData := []byte("n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL")
+	bodyLen := len(mechanism) + 4 + len(saslData)
+
+	var w bytes.Buffer
+	w.WriteByte(protocol.MsgPasswordMsg)
+	_ = binary.Write(&w, binary.BigEndian, uint32(4+bodyLen))
+	w.Write(mechanism)
+	_ = binary.Write(&w, binary.BigEndian, uint32(len(saslData)))
+	w.Write(saslData)
+
+	conn := &Conn{
+		listener:       l,
+		bufferedReader: bufio.NewReader(&w),
+	}
+
+	got, err := conn.readSASLInitialResponse()
+	require.NoError(t, err)
+	assert.Equal(t, string(saslData), got)
+	assert.Nil(t, conn.inboundPoolBuf,
+		"readSASLInitialResponse must release its read buffer via defer")
 }
 
 // TestReturnOutboundBufferIsIdempotent verifies that returnOutboundBuffer
