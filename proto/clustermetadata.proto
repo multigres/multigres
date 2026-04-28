@@ -165,7 +165,6 @@ message MultiPooler {
   // PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
   // Used by multiadmin to compute the primary's data directory for pgBackRest.
   string pg_data_dir = 11;
-
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -270,7 +269,6 @@ enum PoolerServingStatus {
   // RESTORE is the status a server uses when restoring a backup, at
   // startup time.  No queries can be served in RESTORE mode.
   RESTORE = 3;
-
 }
 
 // =============================================================================
@@ -298,10 +296,6 @@ message DurabilityPolicy {
 
   // description is a human-readable summary of this policy
   string description = 5;
-
-  // async_fallback defines behavior when insufficient standbys are available
-  // for synchronous replication. Defaults to ALLOW if unset.
-  AsyncReplicationFallbackMode async_fallback = 6;
 }
 
 // QuorumType enumerates supported quorum algorithms
@@ -315,21 +309,6 @@ enum QuorumType {
   // QUORUM_TYPE_MULTI_CELL_AT_LEAST_N requires nodes from multiple cells (availability zones)
   // with at least one node from each of the required cells
   QUORUM_TYPE_MULTI_CELL_AT_LEAST_N = 4;
-}
-
-// AsyncReplicationFallbackMode defines the behavior when insufficient standbys are available
-// for synchronous replication to meet the quorum requirement
-enum AsyncReplicationFallbackMode {
-  // ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN represents an unknown or uninitialized mode
-  ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN = 0;
-
-  // ASYNC_REPLICATION_FALLBACK_MODE_ALLOW permits falling back to async replication
-  // when no standby servers are available. This is the default behavior.
-  ASYNC_REPLICATION_FALLBACK_MODE_ALLOW = 1;
-
-  // ASYNC_REPLICATION_FALLBACK_MODE_REJECT rejects the leader appointment
-  // if synchronous replication cannot be established to meet quorum requirements
-  ASYNC_REPLICATION_FALLBACK_MODE_REJECT = 2;
 }
 
 // =============================================================================

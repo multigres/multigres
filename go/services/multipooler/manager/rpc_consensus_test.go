@@ -45,11 +45,11 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	cols := []string{
 		"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 		"durability_policy_name", "durability_quorum_type", "durability_required_count",
-		"durability_async_fallback", "current_lsn",
+		"current_lsn",
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		nil, nil, nil, nil, "0/1",
+		nil, nil, nil, "0/1",
 	}}
 	return cols, row
 }

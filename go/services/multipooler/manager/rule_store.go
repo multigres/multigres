@@ -195,7 +195,6 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 		durability_policy_name    TEXT,
 		durability_quorum_type    TEXT,
 		durability_required_count INT,
-		durability_async_fallback TEXT,
 		created_at                TIMESTAMPTZ NOT NULL
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create current_rule table")
@@ -225,7 +224,6 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 		durability_policy_name    TEXT,
 		durability_quorum_type    TEXT,
 		durability_required_count INT,
-		durability_async_fallback TEXT,
 		operation                 TEXT,
 		created_at                TIMESTAMPTZ NOT NULL,
 		PRIMARY KEY (coordinator_term, leader_subterm)
@@ -256,7 +254,6 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	result, err := rs.queryService.QueryArgs(queryCtx, `
 		SELECT coordinator_term, leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       durability_async_fallback,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
@@ -274,7 +271,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	var coordinatorTerm, leaderSubterm int64
 	var leaderIDStr, coordinatorIDStr *string
 	var cohortNames []string
-	var durabilityPolicyName, durabilityQuorumType, durabilityAsyncFallback *string
+	var durabilityPolicyName, durabilityQuorumType *string
 	var durabilityRequiredCount *int64
 	var lsn string
 	if err := executor.ScanRow(result.Rows[0],
@@ -286,7 +283,6 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
-		&durabilityAsyncFallback,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan current position")
@@ -304,7 +300,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrVal, cohortNames,
-		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
+		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
 		lsn,
 	)
 	if err != nil {
@@ -439,7 +435,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		    RETURNING current_rule.coordinator_term, current_rule.leader_subterm,
 		              current_rule.leader_id, current_rule.coordinator_id, current_rule.cohort_members,
 		              current_rule.durability_policy_name, current_rule.durability_quorum_type,
-		              current_rule.durability_required_count, current_rule.durability_async_fallback
+		              current_rule.durability_required_count
 		  ),
 		  inserted AS (
 		    INSERT INTO multigres.rule_history
@@ -461,7 +457,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		SELECT updated.coordinator_term, updated.leader_subterm,
 		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
 		       updated.durability_policy_name, updated.durability_quorum_type,
-		       updated.durability_required_count, updated.durability_async_fallback,
+		       updated.durability_required_count,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
@@ -503,7 +499,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	var leaderIDStr *string
 	var coordinatorIDStrResult string
 	var cohortNames []string
-	var durabilityPolicyName, durabilityQuorumType, durabilityAsyncFallback *string
+	var durabilityPolicyName, durabilityQuorumType *string
 	var durabilityRequiredCount *int64
 	var lsn string
 	if err := executor.ScanSingleRow(result,
@@ -515,7 +511,6 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
-		&durabilityAsyncFallback,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan written rule position")
@@ -524,7 +519,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrResult, cohortNames,
-		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
+		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
 		lsn,
 	)
 	if err != nil {
@@ -544,7 +539,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 		SELECT coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       durability_async_fallback, created_at
+		       created_at
 		FROM multigres.rule_history
 		ORDER BY coordinator_term DESC, leader_subterm DESC
 		LIMIT $1`, limit)
@@ -572,7 +567,6 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 			&rec.DurabilityPolicyName,
 			&rec.DurabilityQuorumType,
 			&durabilityRequiredCount,
-			&rec.DurabilityAsyncFallback,
 			&rec.CreatedAt,
 		); err != nil {
 			return nil, mterrors.Wrap(err, "failed to parse rule_history row")
@@ -603,7 +597,6 @@ func buildPoolerPosition(
 	cohortNames []string,
 	durabilityPolicyName, durabilityQuorumType *string,
 	durabilityRequiredCount *int64,
-	durabilityAsyncFallback *string,
 	lsn string,
 ) (*clustermetadatapb.PoolerPosition, error) {
 	rule := &clustermetadatapb.ShardRule{
@@ -635,7 +628,7 @@ func buildPoolerPosition(
 	}
 	rule.CohortMembers = cohortIDs
 
-	if durabilityPolicyName != nil || durabilityQuorumType != nil || durabilityRequiredCount != nil || durabilityAsyncFallback != nil {
+	if durabilityPolicyName != nil || durabilityQuorumType != nil || durabilityRequiredCount != nil {
 		dp := &clustermetadatapb.DurabilityPolicy{}
 		if durabilityPolicyName != nil {
 			dp.PolicyName = *durabilityPolicyName
@@ -649,13 +642,6 @@ func buildPoolerPosition(
 		}
 		if durabilityRequiredCount != nil {
 			dp.RequiredCount = int32(*durabilityRequiredCount)
-		}
-		if durabilityAsyncFallback != nil {
-			v, ok := clustermetadatapb.AsyncReplicationFallbackMode_value[*durabilityAsyncFallback]
-			if !ok {
-				return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown async_fallback %q", *durabilityAsyncFallback)
-			}
-			dp.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode(v)
 		}
 		rule.DurabilityPolicy = dp
 	}
@@ -694,7 +680,6 @@ type ruleHistoryRecord struct {
 	DurabilityPolicyName    *string
 	DurabilityQuorumType    *string
 	DurabilityRequiredCount *int32
-	DurabilityAsyncFallback *string
 	CreatedAt               time.Time
 }
 
