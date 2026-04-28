@@ -181,13 +181,6 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 	hash, err := a.provider.GetPasswordHash(ctx, a.username, a.database)
 	if err != nil {
 		a.state = stateFailed
-		// Forward sentinel errors unwrapped so the caller can match on them
-		// without peeling wrapping layers.
-		if errors.Is(err, ErrUserNotFound) ||
-			errors.Is(err, ErrLoginDisabled) ||
-			errors.Is(err, ErrPasswordExpired) {
-			return "", err
-		}
 		return "", fmt.Errorf("auth: failed to get password hash: %w", err)
 	}
 	a.hash = hash
