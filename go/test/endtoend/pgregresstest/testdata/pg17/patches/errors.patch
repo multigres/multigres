@@ -1,0 +1,354 @@
+--- a
++++ b
+@@ -32,9 +32,7 @@
+                ^
+ -- empty distinct list isn't OK
+ select distinct from pg_database;
+-ERROR:  syntax error at or near "from"
+-LINE 1: select distinct from pg_database;
+-                        ^
++ERROR:  parse error at position 20: syntax error
+ -- bad attribute name on lhs of operator
+ select * from pg_database where nonesuch = pg_database.datname;
+ ERROR:  column "nonesuch" does not exist
+@@ -59,9 +57,7 @@
+ -- DELETE
+ -- missing relation name (this had better not wildcard!)
+ delete from;
+-ERROR:  syntax error at or near ";"
+-LINE 1: delete from;
+-                   ^
++ERROR:  parse error at position 12: syntax error
+ -- no such relation
+ delete from nonesuch;
+ ERROR:  relation "nonesuch" does not exist
+@@ -71,9 +67,7 @@
+ -- DROP
+ -- missing relation name (this had better not wildcard!)
+ drop table;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop table;
+-                  ^
++ERROR:  parse error at position 11: syntax error
+ -- no such relation
+ drop table nonesuch;
+ ERROR:  table "nonesuch" does not exist
+@@ -82,9 +76,7 @@
+ -- relation renaming
+ -- missing relation name
+ alter table rename;
+-ERROR:  syntax error at or near ";"
+-LINE 1: alter table rename;
+-                          ^
++ERROR:  parse error at position 19: syntax error
+ -- no such relation
+ alter table nonesuch rename to newnonesuch;
+ ERROR:  relation "nonesuch" does not exist
+@@ -114,10 +106,8 @@
+ -- TRANSACTION STUFF
+ -- not in a xact
+ abort;
+-WARNING:  there is no transaction in progress
+ -- not in a xact
+ end;
+-WARNING:  there is no transaction in progress
+ --
+ -- CREATE AGGREGATE
+ -- sfunc/finalfunc type disagreement
+@@ -136,14 +126,10 @@
+ -- DROP INDEX
+ -- missing index name
+ drop index;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop index;
+-                  ^
++ERROR:  parse error at position 11: syntax error
+ -- bad index name
+ drop index 314159;
+-ERROR:  syntax error at or near "314159"
+-LINE 1: drop index 314159;
+-                   ^
++ERROR:  parse error at position 17: syntax error
+ -- no such index
+ drop index nonesuch;
+ ERROR:  index "nonesuch" does not exist
+@@ -151,19 +137,13 @@
+ -- DROP AGGREGATE
+ -- missing aggregate name
+ drop aggregate;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop aggregate;
+-                      ^
++ERROR:  parse error at position 15: syntax error
+ -- missing aggregate type
+ drop aggregate newcnt1;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop aggregate newcnt1;
+-                              ^
++ERROR:  parse error at position 23: syntax error
+ -- bad aggregate name
+ drop aggregate 314159 (int);
+-ERROR:  syntax error at or near "314159"
+-LINE 1: drop aggregate 314159 (int);
+-                       ^
++ERROR:  parse error at position 21: syntax error
+ -- bad aggregate type
+ drop aggregate newcnt (nonesuch);
+ ERROR:  type "nonesuch" does not exist
+@@ -177,14 +157,10 @@
+ -- DROP FUNCTION
+ -- missing function name
+ drop function ();
+-ERROR:  syntax error at or near "("
+-LINE 1: drop function ();
+-                      ^
++ERROR:  parse error at position 15: syntax error
+ -- bad function name
+ drop function 314159();
+-ERROR:  syntax error at or near "314159"
+-LINE 1: drop function 314159();
+-                      ^
++ERROR:  parse error at position 20: syntax error
+ -- no such function
+ drop function nonesuch();
+ ERROR:  function nonesuch() does not exist
+@@ -192,14 +168,10 @@
+ -- DROP TYPE
+ -- missing type name
+ drop type;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop type;
+-                 ^
++ERROR:  parse error at position 10: syntax error
+ -- bad type name
+ drop type 314159;
+-ERROR:  syntax error at or near "314159"
+-LINE 1: drop type 314159;
+-                  ^
++ERROR:  parse error at position 16: syntax error
+ -- no such type
+ drop type nonesuch;
+ ERROR:  type "nonesuch" does not exist
+@@ -207,54 +179,34 @@
+ -- DROP OPERATOR
+ -- missing everything
+ drop operator;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop operator;
+-                     ^
++ERROR:  parse error at position 14: syntax error
+ -- bad operator name
+ drop operator equals;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop operator equals;
+-                            ^
++ERROR:  parse error at position 21: syntax error
+ -- missing type list
+ drop operator ===;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop operator ===;
+-                         ^
++ERROR:  parse error at position 18: syntax error
+ -- missing parentheses
+ drop operator int4, int4;
+-ERROR:  syntax error at or near ","
+-LINE 1: drop operator int4, int4;
+-                          ^
++ERROR:  parse error at position 19: syntax error
+ -- missing operator name
+ drop operator (int4, int4);
+-ERROR:  syntax error at or near "("
+-LINE 1: drop operator (int4, int4);
+-                      ^
++ERROR:  parse error at position 15: syntax error
+ -- missing type list contents
+ drop operator === ();
+-ERROR:  syntax error at or near ")"
+-LINE 1: drop operator === ();
+-                           ^
++ERROR:  parse error at position 20: syntax error
+ -- no such operator
+ drop operator === (int4);
+-ERROR:  missing argument
+-LINE 1: drop operator === (int4);
+-                               ^
+-HINT:  Use NONE to denote the missing argument of a unary operator.
++ERROR:  parse error at position 24: Use NONE to denote the missing argument of a unary operator.
+ -- no such operator by that name
+ drop operator === (int4, int4);
+ ERROR:  operator does not exist: integer === integer
+ -- no such type1
+ drop operator = (nonesuch);
+-ERROR:  missing argument
+-LINE 1: drop operator = (nonesuch);
+-                                 ^
+-HINT:  Use NONE to denote the missing argument of a unary operator.
++ERROR:  parse error at position 26: Use NONE to denote the missing argument of a unary operator.
+ -- no such type1
+ drop operator = ( , int4);
+-ERROR:  syntax error at or near ","
+-LINE 1: drop operator = ( , int4);
+-                          ^
++ERROR:  parse error at position 19: syntax error
+ -- no such type1
+ drop operator = (nonesuch, int4);
+ ERROR:  type "nonesuch" does not exist
+@@ -263,37 +215,25 @@
+ ERROR:  type "nonesuch" does not exist
+ -- no such type2
+ drop operator = (int4, );
+-ERROR:  syntax error at or near ")"
+-LINE 1: drop operator = (int4, );
+-                               ^
++ERROR:  parse error at position 24: syntax error
+ --
+ -- DROP RULE
+ -- missing rule name
+ drop rule;
+-ERROR:  syntax error at or near ";"
+-LINE 1: drop rule;
+-                 ^
++ERROR:  parse error at position 10: syntax error
+ -- bad rule name
+ drop rule 314159;
+-ERROR:  syntax error at or near "314159"
+-LINE 1: drop rule 314159;
+-                  ^
++ERROR:  parse error at position 16: syntax error
+ -- no such rule
+ drop rule nonesuch on noplace;
+ ERROR:  relation "noplace" does not exist
+ -- these postquel variants are no longer supported
+ drop tuple rule nonesuch;
+-ERROR:  syntax error at or near "tuple"
+-LINE 1: drop tuple rule nonesuch;
+-             ^
++ERROR:  parse error at position 10: syntax error
+ drop instance rule nonesuch on noplace;
+-ERROR:  syntax error at or near "instance"
+-LINE 1: drop instance rule nonesuch on noplace;
+-             ^
++ERROR:  parse error at position 13: syntax error
+ drop rewrite rule nonesuch;
+-ERROR:  syntax error at or near "rewrite"
+-LINE 1: drop rewrite rule nonesuch;
+-             ^
++ERROR:  parse error at position 12: syntax error
+ --
+ -- Check that division-by-zero is properly caught.
+ --
+@@ -323,62 +263,40 @@
+ -- Test psql's reporting of syntax error location
+ --
+ xxx;
+-ERROR:  syntax error at or near "xxx"
+-LINE 1: xxx;
+-        ^
++ERROR:  parse error at position 3: syntax error
+ CREATE foo;
+-ERROR:  syntax error at or near "foo"
+-LINE 1: CREATE foo;
+-               ^
++ERROR:  parse error at position 10: syntax error
+ CREATE TABLE ;
+-ERROR:  syntax error at or near ";"
+-LINE 1: CREATE TABLE ;
+-                     ^
++ERROR:  parse error at position 14: syntax error
+ CREATE TABLE
+ \g
+-ERROR:  syntax error at end of input
+-LINE 1: CREATE TABLE
+-                    ^
++ERROR:  parse error at position 12: syntax error
+ INSERT INTO foo VALUES(123) foo;
+-ERROR:  syntax error at or near "foo"
+-LINE 1: INSERT INTO foo VALUES(123) foo;
+-                                    ^
++ERROR:  parse error at position 31: syntax error
+ INSERT INTO 123
+ VALUES(123);
+-ERROR:  syntax error at or near "123"
+-LINE 1: INSERT INTO 123
+-                    ^
++ERROR:  parse error at position 15: syntax error
+ INSERT INTO foo
+ VALUES(123) 123
+ ;
+-ERROR:  syntax error at or near "123"
+-LINE 2: VALUES(123) 123
+-                    ^
++ERROR:  parse error at position 31: syntax error
+ -- with a tab
+ CREATE TABLE foo
+   (id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY,
+ 	id3 INTEGER NOT NUL,
+    id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL);
+-ERROR:  syntax error at or near "NUL"
+-LINE 3:  id3 INTEGER NOT NUL,
+-                         ^
++ERROR:  parse error at position 96: syntax error
+ -- long line to be truncated on the left
+ CREATE TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL,
+ id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL);
+-ERROR:  syntax error at or near "NUL"
+-LINE 1: ...OT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL,
+-                                                                   ^
++ERROR:  parse error at position 92: syntax error
+ -- long line to be truncated on the right
+ CREATE TABLE foo(
+ id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY);
+-ERROR:  syntax error at or near "NUL"
+-LINE 2: id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQ...
+-                        ^
++ERROR:  parse error at position 37: syntax error
+ -- long line to be truncated both ways
+ CREATE TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL);
+-ERROR:  syntax error at or near "NUL"
+-LINE 1: ...L, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 I...
+-                                                             ^
++ERROR:  parse error at position 92: syntax error
+ -- long line to be truncated on the left, many lines
+ CREATE
+ TEMPORARY
+@@ -393,9 +311,7 @@
+ NOT
+ NULL)
+ ;
+-ERROR:  syntax error at or near "NUL"
+-LINE 4: ...OT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL,
+-                                                                   ^
++ERROR:  parse error at position 102: syntax error
+ -- long line to be truncated on the right, many lines
+ CREATE
+ TEMPORARY
+@@ -403,9 +319,7 @@
+ foo(
+ id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY)
+ ;
+-ERROR:  syntax error at or near "NUL"
+-LINE 5: id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQ...
+-                        ^
++ERROR:  parse error at position 47: syntax error
+ -- long line to be truncated both ways, many lines
+ CREATE
+ TEMPORARY
+@@ -416,9 +330,7 @@
+ UNIQUE NOT NULL, idx INT4 UNIQUE NOT NULL, idy INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL,
+ idz INT4 UNIQUE NOT NULL,
+ idv INT4 UNIQUE NOT NULL);
+-ERROR:  syntax error at or near "NUL"
+-LINE 7: ...L, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 I...
+-                                                             ^
++ERROR:  parse error at position 155: syntax error
+ -- more than 10 lines...
+ CREATE
+ TEMPORARY
+@@ -442,6 +354,4 @@
+ UNIQUE
+ NOT
+ NULL);
+-ERROR:  syntax error at or near "NUL"
+-LINE 16: ...L, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 I...
+-                                                              ^
++ERROR:  parse error at position 182: syntax error

@@ -1,0 +1,45 @@
+--- a
++++ b
+@@ -75,9 +75,7 @@
+ -- should fail, can't have arguments
+ create event trigger regress_event_trigger2 on ddl_command_start
+    execute procedure test_event_trigger('argument not allowed');
+-ERROR:  syntax error at or near "'argument not allowed'"
+-LINE 2:    execute procedure test_event_trigger('argument not allowe...
+-                                                ^
++ERROR:  parse error at position 127: syntax error
+ -- OK
+ create event trigger regress_event_trigger2 on ddl_command_start
+    when tag in ('create table', 'CREATE FUNCTION')
+@@ -165,11 +163,11 @@
+ drop table event_trigger_fire1;
+ NOTICE:  test_event_trigger: ddl_command_end DROP TABLE
+ create foreign data wrapper useless;
+-NOTICE:  test_event_trigger: ddl_command_end CREATE FOREIGN DATA WRAPPER
++ERROR:  CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ create server useless_server foreign data wrapper useless;
+-NOTICE:  test_event_trigger: ddl_command_end CREATE SERVER
++ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ create user mapping for regress_evt_user server useless_server;
+-NOTICE:  test_event_trigger: ddl_command_end CREATE USER MAPPING
++ERROR:  server "useless_server" does not exist
+ alter default privileges for role regress_evt_user
+  revoke delete on tables from regress_evt_user;
+ NOTICE:  test_event_trigger: ddl_command_end ALTER DEFAULT PRIVILEGES
+@@ -192,7 +190,6 @@
+ drop role regress_evt_user;
+ ERROR:  role "regress_evt_user" cannot be dropped because some objects depend on it
+ DETAIL:  owner of event trigger regress_event_trigger3
+-owner of user mapping for regress_evt_user on server useless_server
+ owner of default privileges on new relations belonging to role regress_evt_user
+ -- cleanup before next test
+ -- these are all OK; the second one should emit a NOTICE
+@@ -519,7 +516,7 @@
+ -- matview rewrite when changing access method
+ CREATE MATERIALIZED VIEW heapmv USING heap AS SELECT 1 AS a;
+ ALTER MATERIALIZED VIEW heapmv SET ACCESS METHOD heap2;
+-NOTICE:  Table 'heapmv' is being rewritten (reason = 8)
++ERROR:  access method "heap2" does not exist
+ DROP MATERIALIZED VIEW heapmv;
+ -- shouldn't trigger a table_rewrite event
+ alter table rewriteme alter column foo type numeric(12,4);
