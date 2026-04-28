@@ -183,15 +183,19 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 }
 
 // UpdateTermAndAcceptCandidate atomically updates the term and accepts a candidate in one file write.
-// This is used by BeginTerm to avoid two separate file writes.
+// This is used by BeginTerm and Recruit to avoid two separate file writes.
 // If newTerm > currentTerm, updates term and resets acceptance, then sets the candidate.
 // If newTerm == currentTerm, just accepts the candidate (same as AcceptCandidateAndSave).
 // Returns error if newTerm < currentTerm.
 //
+// coordinatorInitiatedAt is the timestamp from the request (non-nil for Recruit; nil for
+// legacy BeginTerm which does not carry one). It is stored in LastAcceptanceTime as a
+// transitional measure until the on-disk format migrates from ConsensusTerm to TermRevocation.
+//
 // TODO(PR #904): Once the on-disk format migrates from ConsensusTerm to TermRevocation,
 // this method should delegate to consensus.ValidateRevocation and then persist the
 // TermRevocation directly, eliminating the duplicated coordinator/term logic here.
-func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID) error {
+func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID, coordinatorInitiatedAt *timestamppb.Timestamp) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -213,12 +217,18 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 
 	var newTermProto *multipoolermanagerdatapb.ConsensusTerm
 
+	acceptanceTime := coordinatorInitiatedAt
+	if acceptanceTime == nil {
+		// TODO: remove this default acceptance time logic once coordinatorInitiatedAt becomes required
+		acceptanceTime = timestamppb.New(time.Now())
+	}
+
 	if newTerm > currentTerm {
 		// Higher term: create new term with the candidate already set
 		newTermProto = &multipoolermanagerdatapb.ConsensusTerm{
 			TermNumber:                    newTerm,
 			AcceptedTermFromCoordinatorId: proto.Clone(candidateID).(*clustermetadatapb.ID),
-			LastAcceptanceTime:            timestamppb.New(time.Now()),
+			LastAcceptanceTime:            acceptanceTime,
 			LeaderId:                      nil,
 		}
 	} else {
@@ -241,7 +251,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 		// Prepare acceptance
 		newTermProto = cloneTerm(cs.term)
 		newTermProto.AcceptedTermFromCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
-		newTermProto.LastAcceptanceTime = timestamppb.New(time.Now())
+		newTermProto.LastAcceptanceTime = acceptanceTime
 	}
 
 	// Single file write

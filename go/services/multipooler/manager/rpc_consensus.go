@@ -84,7 +84,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	// Atomically update term and accept candidate
 	// This handles all consensus rules: term validation, duplicate check, etc.
-	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId)
+	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId, nil)
 	if err != nil {
 		// Term not accepted - return rejection with consensus status so the coordinator
 		// learns this pooler's current state even from a rejection.
@@ -282,9 +282,9 @@ func buildConsensusStatus(id *clustermetadatapb.ID, term *multipoolermanagerdata
 	status := &clustermetadatapb.ConsensusStatus{Id: id}
 	if term != nil {
 		status.TermRevocation = &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:      term.TermNumber,
-			AcceptedCoordinatorId: term.AcceptedTermFromCoordinatorId,
-			// coordinator_initiated_at: TODO once BeginTermRequest carries this timestamp
+			RevokedBelowTerm:       term.TermNumber,
+			AcceptedCoordinatorId:  term.AcceptedTermFromCoordinatorId,
+			CoordinatorInitiatedAt: term.LastAcceptanceTime,
 		}
 	}
 	if pos != nil {
@@ -504,7 +504,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	}
 
 	// Step 4: Position is consistent — persist the TermRevocation.
-	if err := pm.consensusState.UpdateTermAndAcceptCandidate(ctx, revokedBelowTerm, coordinatorID); err != nil {
+	if err := pm.consensusState.UpdateTermAndAcceptCandidate(ctx, revokedBelowTerm, coordinatorID, revocation.GetCoordinatorInitiatedAt()); err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to persist term revocation")
 	}

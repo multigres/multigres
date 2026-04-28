@@ -54,6 +54,24 @@ func TestValidateRevocation(t *testing.T) {
 			wantErr:    "revocation is nil",
 		},
 		{
+			name:   "NilCoordinatorID_Refused",
+			status: nil,
+			revocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       5,
+				CoordinatorInitiatedAt: ts1,
+			},
+			wantErr: "accepted_coordinator_id is required",
+		},
+		{
+			name:   "NilTimestamp_Refused",
+			status: nil,
+			revocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:      5,
+				AcceptedCoordinatorId: coordA,
+			},
+			wantErr: "coordinator_initiated_at is required",
+		},
+		{
 			name:       "NilStatus_Accepted",
 			status:     nil,
 			revocation: revocationAt5,
@@ -145,19 +163,6 @@ func TestValidateRevocation(t *testing.T) {
 				CoordinatorInitiatedAt: ts2,
 			},
 			wantErr: "different coordinator_initiated_at",
-		},
-		{
-			name: "SameTerm_BothNilTimestamp_Idempotent",
-			status: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      5,
-					AcceptedCoordinatorId: coordA,
-				},
-			},
-			revocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm:      5,
-				AcceptedCoordinatorId: coordA,
-			},
 		},
 		{
 			name: "WALAndStoredTerm_BothChecked_WALFails",

@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -38,6 +39,9 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
+
+// recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
+var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 
 // observePositionRow builds a mock result row for the observePosition query
 // where the rule names primaryAppName (e.g. "zone1_stale-primary") as the
@@ -802,7 +806,7 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 			}
 
 			// Call UpdateTermAndAcceptCandidate
-			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID)
+			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1384,8 +1388,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(5)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      5,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
@@ -1400,8 +1405,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(7)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      5,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
@@ -1417,8 +1423,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      7,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -1433,12 +1440,14 @@ func TestRecruit(t *testing.T) {
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber:                    7,
 				AcceptedTermFromCoordinatorId: coordinatorA,
+				LastAcceptanceTime:            recruitTS,
 			},
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      7,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -1458,8 +1467,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore: &fakeRuleStore{},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      7,
-					AcceptedCoordinatorId: coordinatorB,
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorB,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -1476,8 +1486,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore: &fakeRuleStore{},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      5,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -1493,8 +1504,9 @@ func TestRecruit(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:      7,
-					AcceptedCoordinatorId: coordinatorA,
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {

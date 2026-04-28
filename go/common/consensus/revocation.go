@@ -45,6 +45,9 @@ import (
 //     timestamp means a distinct recruitment round at the same term number,
 //     which is treated as a conflict.
 //
+// The revocation must have a non-empty accepted_coordinator_id and a non-nil
+// coordinator_initiated_at; both are required fields.
+//
 // A nil status or nil current_position means there is no WAL position to
 // check, so condition 1 passes. A nil term_revocation in status means the
 // node has not previously accepted any revocation, so conditions 2 and 3
@@ -52,6 +55,12 @@ import (
 func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if revocation == nil {
 		return errors.New("cannot accept revocation: revocation is nil")
+	}
+	if revocation.GetAcceptedCoordinatorId().GetName() == "" {
+		return errors.New("cannot accept revocation: accepted_coordinator_id is required")
+	}
+	if revocation.GetCoordinatorInitiatedAt() == nil {
+		return errors.New("cannot accept revocation: coordinator_initiated_at is required")
 	}
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 
