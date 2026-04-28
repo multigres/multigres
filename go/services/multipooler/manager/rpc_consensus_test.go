@@ -1344,6 +1344,7 @@ func makeRulePosition(coordinatorTerm int64) *clustermetadatapb.PoolerPosition {
 				CoordinatorTerm: coordinatorTerm,
 			},
 		},
+		Lsn: "16/B374D848",
 	}
 }
 
@@ -1463,8 +1464,8 @@ func TestRecruit(t *testing.T) {
 				TermNumber:                    7,
 				AcceptedTermFromCoordinatorId: coordinatorA,
 			},
-			// nil pos: WAL check passes; rejection is caught by the stored-term check.
-			ruleStore: &fakeRuleStore{},
+			// WAL check passes; rejection is caught by the stored-term check.
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(1)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       7,
@@ -1482,8 +1483,8 @@ func TestRecruit(t *testing.T) {
 		{
 			name:        "StandbyReject_OlderTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
-			// nil pos: WAL check passes; rejection is caught by the stored-term check.
-			ruleStore: &fakeRuleStore{},
+			// WAL check passes; rejection is caught by the stored-term check.
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(2)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       5,
@@ -1501,7 +1502,7 @@ func TestRecruit(t *testing.T) {
 		{
 			name:        "PersistFailure_FilesystemReadOnly",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
-			ruleStore:   &fakeRuleStore{},
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(2)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       7,

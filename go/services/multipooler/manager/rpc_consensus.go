@@ -436,7 +436,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
-	// Step 1: Sanity check — reject immediately if the node's committed WAL
+	// Step 1: State check — reject immediately if the node's committed WAL
 	// rule or stored revocation already conflicts with this request.
 	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
 	preStatus, _ := pm.getConsensusStatus(ctx)
@@ -494,7 +494,9 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
 		// Attempt to restore the node to its prior replication role.
 		if isPrimary {
-			pm.repromoteAfterRecruitFailure(ctx)
+			// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
+			// simpler for now we just keep publishing the signal that this pooler resigned from its term as
+			// leader to allow orch to do a failover.
 		} else if savedConnInfo != "" {
 			if restoreErr := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); restoreErr != nil {
 				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit race", "error", restoreErr)
@@ -523,26 +525,6 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 // recruitDrainTimeout is the drain window when recruiting a primary.
 const recruitDrainTimeout = 5 * time.Second
-
-// repromoteAfterRecruitFailure re-promotes postgres to primary after a recruit race condition
-// caused the revocation to fail post-demote. Logs errors but does not return them since
-// this is already an error path and the original error is returned to the caller.
-func (pm *MultiPoolerManager) repromoteAfterRecruitFailure(ctx context.Context) {
-	pm.logger.WarnContext(ctx, "Recruit race: re-promoting primary after position check failure")
-	state := &promotionState{isPrimaryInPostgres: false}
-	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to re-promote after recruit race", "error", err)
-		return
-	}
-	execCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := pm.exec(execCtx, "CHECKPOINT"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to checkpoint after recruit re-promote", "error", err)
-	}
-	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear resigned status after recruit re-promote", "error", err)
-	}
-}
 
 // setPrimaryConnInfoAndReload sets primary_conninfo and reloads postgres config so the
 // WAL receiver reconnects. Used to restore a standby's replication after a recruit failure.
