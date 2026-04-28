@@ -510,7 +510,6 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary, "Should not report as fully complete since topology wasn't updated")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -555,7 +554,6 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -644,7 +642,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 
 	// PostgreSQL was promoted, so this is not "already primary" case
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -702,7 +699,6 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 
 	// Verify topology was updated
 	pm.mu.Lock()
@@ -933,7 +929,6 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/1234567", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -1130,7 +1125,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Local state should still be updated to PRIMARY

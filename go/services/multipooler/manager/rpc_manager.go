@@ -883,7 +883,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
 		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 			WasAlreadyDemoted:     true,
-			ConsensusTerm:         consensusTerm,
 			LsnPosition:           state.finalLSN,
 			ConnectionsTerminated: 0,
 		}, nil
@@ -950,7 +949,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 		WasAlreadyDemoted:     false,
-		ConsensusTerm:         consensusTerm,
 		LsnPosition:           finalLSN,
 		ConnectionsTerminated: connectionsTerminated,
 	}, nil
@@ -1157,7 +1155,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 			return &multipoolermanagerdatapb.PromoteResponse{
 				LsnPosition:       state.currentLSN,
 				WasAlreadyPrimary: true,
-				ConsensusTerm:     consensusTerm,
 			}, nil
 		}
 
@@ -1257,7 +1254,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	return &multipoolermanagerdatapb.PromoteResponse{
 		LsnPosition:       finalLSN,
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
-		ConsensusTerm:     consensusTerm,
 	}, nil
 }
 

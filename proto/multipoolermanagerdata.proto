@@ -396,9 +396,6 @@ message EmergencyDemoteResponse {
   // Whether the pooler was already demoted (idempotent check)
   bool was_already_demoted = 1;
 
-  // Consensus term at the time of demotion
-  int64 consensus_term = 2;
-
   // LSN position at the time of demotion (final position as primary)
   string lsn_position = 3;
 
@@ -478,9 +475,6 @@ message PromoteResponse {
 
   // Whether the pooler was already promoted (idempotent check)
   bool was_already_primary = 2;
-
-  // Consensus term at the time of promotion
-  int64 consensus_term = 3;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
