@@ -127,6 +127,66 @@ func WriteMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport
 	return suiteutil.WriteMarkdown(outputDir, "benchmark-report.md", sb.String())
 }
 
+// WriteSysBenchMarkdownReport renders a sysbench-shaped markdown report
+// (per-scenario rows with a ps_mode column) under <outputDir>/benchmark-report.md.
+//
+// Kept separate from WriteMarkdownReport because the sysbench harness has a
+// different scenario shape (ps_mode, no churn/protocol axis) and conflating
+// the two renderers obscures both.
+func WriteSysBenchMarkdownReport(t *testing.T, outputDir string, report *BenchmarkReport) (string, error) {
+	t.Helper()
+
+	var sb strings.Builder
+	sb.WriteString("# sysbench oltp_point_select — multigres\n\n")
+	fmt.Fprintf(&sb, "**Timestamp:** %s\n", report.Timestamp)
+	if report.Environment.SysBenchVersion != "" {
+		fmt.Fprintf(&sb, "**sysbench:** %s\n", report.Environment.SysBenchVersion)
+	}
+	if report.Environment.PostgresVersion != "" {
+		fmt.Fprintf(&sb, "**PostgreSQL:** %s\n", report.Environment.PostgresVersion)
+	}
+	if report.Environment.MultigresVersion != "" {
+		fmt.Fprintf(&sb, "**multigres:** %s\n", report.Environment.MultigresVersion)
+	}
+	fmt.Fprintf(&sb, "**OS/Arch:** %s/%s | **GOMAXPROCS:** %d\n",
+		report.Environment.OS, report.Environment.Arch, report.Environment.GOMAXPROCS)
+	if report.Environment.PlanCacheBytes > 0 {
+		fmt.Fprintf(&sb, "**multigateway plan cache:** %d bytes\n", report.Environment.PlanCacheBytes)
+	}
+	sb.WriteString("\n")
+
+	// Render one section per ps_mode, with a row per (target, scenario).
+	psModes := uniquePSModes(report.Results)
+	for _, mode := range psModes {
+		fmt.Fprintf(&sb, "## ps_mode = %s\n\n", mode)
+		sb.WriteString("| target | clients | TPS | avg ms | p99 ms | txns |\n")
+		sb.WriteString("|---|---|---|---|---|---|\n")
+		for _, r := range report.Results {
+			if r.PSMode != mode {
+				continue
+			}
+			fmt.Fprintf(&sb, "| %s | %d | %.0f | %.2f | %.2f | %d |\n",
+				r.Target, r.Clients, r.TPS, r.LatencyAvg, r.LatencyP99, r.Transactions)
+		}
+		sb.WriteString("\n")
+	}
+
+	return suiteutil.WriteMarkdown(outputDir, "benchmark-report.md", sb.String())
+}
+
+// uniquePSModes returns ps_mode values in the order they first appear.
+func uniquePSModes(results []ScenarioResult) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, r := range results {
+		if r.PSMode != "" && !seen[r.PSMode] {
+			seen[r.PSMode] = true
+			out = append(out, r.PSMode)
+		}
+	}
+	return out
+}
+
 // uniqueTargets returns deduplicated target names in the order they first appear.
 func uniqueTargets(results []ScenarioResult) []string {
 	seen := make(map[string]bool)

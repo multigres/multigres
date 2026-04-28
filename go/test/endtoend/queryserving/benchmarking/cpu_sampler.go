@@ -220,3 +220,25 @@ func writeCPUStatsFile(t *testing.T, outputDir, scenario, target string, stats m
 		t.Logf("cpu stats: write %s: %v", path, err)
 	}
 }
+
+// writeSysBenchCPUStatsFile persists per-process CPU stats under
+// <outputDir>/cpu/<scenario>/processes.json. The filename matches the
+// vitess sysbench bundle's layout so cross-stack tools can read either.
+func writeSysBenchCPUStatsFile(t *testing.T, outputDir, scenario string, stats map[string]CPUStats) {
+	t.Helper()
+
+	dir := filepath.Join(outputDir, "cpu", scenario)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Logf("cpu stats: mkdir %s: %v", dir, err)
+		return
+	}
+	path := filepath.Join(dir, "processes.json")
+	body, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		t.Logf("cpu stats: marshal: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Logf("cpu stats: write %s: %v", path, err)
+	}
+}
