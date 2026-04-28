@@ -17,7 +17,6 @@ package recovery
 import (
 	"context"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -28,9 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -310,7 +307,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	)
 	startEngine(t, engine)
 
-	poolerStoreDiscovered := func(val int) func() bool {
+	poolerStoreDiscovered := func(_ int) func() bool {
 		return func() bool {
 			_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 			return ok
@@ -483,11 +480,14 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	poolerStore := store.NewPoolerStore(nil, slog.Default())
-	queue := NewQueue(slog.Default(), cfg)
+
+	// Track new-pooler callbacks via a channel.
+	discovered := make(chan *clustermetadata.ID, 10)
+	onNewPooler := func(id *clustermetadata.ID) { discovered <- id }
+
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, queue, slog.Default())
+	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, onNewPooler, slog.Default())
 	startWatcher(t, poolerWatcher)
 
 	poolerStoreAtLeast := func(val int) func() bool {
@@ -517,172 +517,13 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	_, ok = poolerStore.Get(poolerKey("zone1", "pooler2"))
 	require.False(t, ok, "pooler2 in tg2 should be filtered out by watcher")
 
-	// Verify a new pooler discovered via watcher is queued for immediate health check
+	// Verify a new pooler discovered via watcher triggers the onNewPooler callback.
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
 		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
 		Database: "mydb", TableGroup: "tg1", Shard: "1",
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "expected pooler3 to be discovered")
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return queue.QueueLen() > 0 }), "new pooler should be queued for health check")
-}
-
-// TestForceHealthCheckShardPoolers_ForcesPolls tests that forceHealthCheckShardPoolers
-// forces re-polls for all poolers in the specified shard.
-func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Add poolers to the store (simulating already discovered poolers)
-	mp1 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-	}
-	existingHealth := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: mp1,
-		IsUpToDate:  false,
-	}
-	engine.poolerStore.Set(poolerKey("cell1", "pooler1"), existingHealth)
-
-	mp2 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler2",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "host2",
-	}
-	existingHealth = &multiorchdatapb.PoolerHealthState{
-		MultiPooler: mp2,
-		IsUpToDate:  false,
-	}
-	engine.poolerStore.Set(poolerKey("cell1", "pooler2"), existingHealth)
-
-	// Add a pooler in a different shard (should be ignored)
-	mp3 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler3",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "1",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host3",
-	}
-	existingHealth = &multiorchdatapb.PoolerHealthState{
-		MultiPooler: mp3,
-		IsUpToDate:  false,
-	}
-	engine.poolerStore.Set(poolerKey("cell1", "pooler3"), existingHealth)
-
-	// Force health check for shard 0
-	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
-
-	// Verify all shard 0 poolers had their LastCheckAttempted updated
-	p1, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
-	require.True(t, ok)
-	assert.NotNil(t, p1.LastCheckAttempted, "pooler1 should have been polled")
-
-	p2, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler2"))
-	require.True(t, ok)
-	assert.NotNil(t, p2.LastCheckAttempted, "pooler2 should have been polled")
-
-	// Verify pooler in different shard was NOT polled
-	p3, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler3"))
-	require.True(t, ok)
-	assert.Nil(t, p3.LastCheckAttempted, "pooler3 (different shard) should not have been polled")
-}
-
-// TestForceHealthCheckShardPoolers_RespectsIgnoreList tests that
-// forceHealthCheckShardPoolers respects the poolersToIgnore list.
-func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Add poolers to the store
-	mp1 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "dead-primary",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-	}
-	existingHealth := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: mp1,
-	}
-	engine.poolerStore.Set(poolerKey("cell1", "dead-primary"), existingHealth)
-
-	mp2 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "healthy-replica",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "host2",
-	}
-	existingHealth = &multiorchdatapb.PoolerHealthState{
-		MultiPooler: mp2,
-	}
-	engine.poolerStore.Set(poolerKey("cell1", "healthy-replica"), existingHealth)
-
-	// Force health check, but ignore the dead primary
-	poolersToIgnore := []string{poolerKey("cell1", "dead-primary")}
-	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, poolersToIgnore)
-
-	// Verify only the healthy replica was polled
-	pDead, ok := engine.poolerStore.Get(poolerKey("cell1", "dead-primary"))
-	require.True(t, ok)
-	assert.Nil(t, pDead.LastCheckAttempted, "dead primary should not have been polled")
-
-	pHealthy, ok := engine.poolerStore.Get(poolerKey("cell1", "healthy-replica"))
-	require.True(t, ok)
-	assert.NotNil(t, pHealthy.LastCheckAttempted, "healthy replica should have been polled")
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return len(discovered) > 0 }),
+		"new pooler should trigger onNewPooler callback")
 }

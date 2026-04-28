@@ -359,7 +359,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 	t.Helper()
 	connStr := fmt.Sprintf(
-		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
+		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=30",
 		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
@@ -382,7 +382,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	statusResp, err := primaryClient.Manager.Status(
 		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
-	oldTerm := statusResp.Status.ConsensusTerm.TermNumber
+	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 
 	t.Logf("Triggering failover: BeginTerm on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
 

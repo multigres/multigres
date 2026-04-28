@@ -144,10 +144,11 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
 	pgctldConfig := PgCtldServiceConfig{
-		Port:     s.pgCtlCmd.pgPort.Get(),
-		User:     s.pgCtlCmd.pgUser.Get(),
-		Database: s.pgCtlCmd.pgDatabase.Get(),
-		Password: s.pgCtlCmd.pgPassword.Get(),
+		Port:           s.pgCtlCmd.pgPort.Get(),
+		User:           s.pgCtlCmd.pgUser.Get(),
+		Database:       s.pgCtlCmd.pgDatabase.Get(),
+		Password:       s.pgCtlCmd.pgPassword.Get(),
+		InitDbSQLFiles: s.pgCtlCmd.initDbSQLFiles.Get(),
 	}
 
 	pgctldService, err := NewPgCtldService(
@@ -162,6 +163,30 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Register /ready probe: postgres socket accepting + gRPC accepting.
+	// Replication health is intentionally excluded (see pgctldReadyHandler).
+	pgSocketPath := filepath.Join(
+		pgctld.PostgresSocketDir(poolerDir),
+		fmt.Sprintf(".s.PGSQL.%d", s.pgCtlCmd.pgPort.Get()),
+	)
+	s.senv.RegisterReadyCheck(func() error {
+		if !unixSocketAccepting(pgSocketPath) {
+			return errors.New("postgres socket not accepting")
+		}
+		return nil
+	})
+
+	grpcSocketPath := s.grpcServer.SocketFile()
+	grpcBindAddress := s.grpcServer.BindAddress()
+	grpcPort := s.grpcServer.Port()
+
+	s.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
 
 	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
@@ -215,11 +240,12 @@ func reapOrphanedChildren(logger *slog.Logger) {
 // parameters. These are the most commonly passed parameters and are grouped
 // here to reduce argument lists.
 type PgCtldServiceConfig struct {
-	Port       int
-	User       string
-	Database   string
-	Password   string
-	InitdbArgs string
+	Port           int
+	User           string
+	Database       string
+	Password       string
+	InitdbArgs     string
+	InitDbSQLFiles []string
 }
 
 // PgCtldService implements the pgctld gRPC service
@@ -304,6 +330,7 @@ func NewPgCtldService(
 			Pg1Port:       cfg.Port,
 			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
 			Pg1Path:       pgctld.PostgresDataDir(),
+			Pg1User:       cfg.User,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
@@ -691,7 +718,10 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
-	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres",
+	// connect_timeout ensures pg_rewind fails fast if the source is not yet ready to accept
+	// connections (e.g. newly-promoted primary still in crash recovery), allowing the caller
+	// to retry rather than blocking for the OS TCP timeout.
+	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres connect_timeout=5",
 		req.GetSourceHost(), req.GetSourcePort(), s.ctldConfig.User)
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())

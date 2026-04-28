@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
@@ -80,7 +81,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	logger := slog.Default()
 
 	// Create a real PoolerConnection - this is what we're testing
-	conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
+	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -128,7 +129,7 @@ func TestNewPoolerConnection(t *testing.T) {
 	// Create a new pooler connection
 	// The connection will fail to actually connect (no server), but gRPC uses
 	// non-blocking dial so NewPoolerConnection succeeds.
-	conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
+	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	defer conn.Close()
@@ -157,7 +158,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-			conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
+			conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 			require.NoError(t, err)
 			defer conn.Close()
 

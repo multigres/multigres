@@ -231,4 +231,62 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1, "should trigger failover when postgres has never responded")
 		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
 	})
+
+	t.Run("suppresses PrimaryIsDead while pg_promote() is running", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.PrimaryPoolerReachable = true  // stream is live
+			sa.PrimaryPostgresRunning = true  // process is running
+			sa.PrimaryPostgresReady = false   // not yet accepting connections (promoting)
+			sa.PromotingPrimaryID = primaryID // multipooler flagged promotion in progress
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems, "should suppress PrimaryIsDead while pg_promote() is explicitly in progress")
+	})
+
+	t.Run("does not suppress PrimaryIsDead when postgres crashes during promotion", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.PrimaryPoolerReachable = true  // stream still alive (multipooler survived)
+			sa.PrimaryPostgresRunning = false // postgres process died during promotion
+			sa.PrimaryPostgresReady = false
+			sa.PromotingPrimaryID = primaryID // flag still set before cleared
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should detect dead primary when postgres crashes during promotion")
+		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+	})
+
+	t.Run("does not suppress PrimaryIsDead when multipooler unreachable during promotion", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.PrimaryPoolerReachable = false // stream disconnected (stale flag)
+			sa.PrimaryPostgresRunning = true
+			sa.PrimaryPostgresReady = false
+			sa.PromotingPrimaryID = primaryID // stale flag from last snapshot
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should detect dead primary when multipooler is unreachable even if promotion flag is set")
+		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+	})
+
+	t.Run("triggers failover when primary has resigned even though replicas are still connected", func(t *testing.T) {
+		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
+		// it as a replication source, so ReplicasConnectedToPrimary becomes true.
+		// Without the PrimaryHasResigned bypass, this would suppress failover indefinitely.
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.PrimaryPoolerReachable = false
+			sa.ReplicasConnectedToPrimary = true
+			sa.PrimaryLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
+			sa.PrimaryHasResigned = true
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should not suppress failover when primary has resigned, even if replicas are connected")
+		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+	})
 }

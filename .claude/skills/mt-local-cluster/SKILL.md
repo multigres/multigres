@@ -222,13 +222,29 @@ demo/local/multigres-with-otel.sh cluster start --config-path <config-path>
 
 Run pgbench init synchronously first, then start the workload in a **background Agent** so the user sees the output when it completes (do NOT use `run_in_background` on Bash — that hides output).
 
-```bash
-# Step 1: Init (synchronous)
-PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -i postgres
+The local cluster runs one multigateway per cell (zone1/zone2/zone3 by default), each on its own pg-port (15432/15433/15434). Each gateway maintains independent in-memory state — its own query registry, consolidator, and connection pool.
 
-# Step 2: Workload (run in a background Agent)
-PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -c 4 -j 2 -T 300 -P 5 postgres
+That means a single-port `-h localhost -p 15432` workload only exercises **one** gateway and leaves the other two idle. That hides per-instance bugs and means the per-gateway diagnostic pages on the other gateways stay empty.
+
+To exercise all gateways, pass a libpq multi-host conninfo string with `load_balance_hosts=random` (PostgreSQL 16+; the `pgbench` and `psql` shipped with PG 17 honor it). Each new connection picks a gateway at random; with `-c 9` clients you typically land ~3 connections per gateway. Connections are sticky for their lifetime, so distribution evens out across connections, not within.
+
+Discover the gateway pg-ports from the cluster's cached config (every `multigateway` entry has its own `pg-port`) and build the conninfo string from there.
+
+```bash
+# Conninfo with all multigateway pg-ports — substitute the actual ports
+# from the cluster config (default local layout shown).
+CONNSTR='host=localhost,localhost,localhost port=15432,15433,15434 dbname=postgres user=postgres password=postgres load_balance_hosts=random'
+
+# Step 1: Init (synchronous; init's single connection picks one gateway
+# at random — either route ends up at the same primary postgres).
+PGPASSWORD=postgres pgbench -i "$CONNSTR"
+
+# Step 2: Workload (run in a background Agent). -c is a multiple of the
+# gateway count for even distribution.
+pgbench -c 9 -j 3 -T 300 -P 5 "$CONNSTR"
 ```
+
+If the user only wants to drive a single gateway on purpose (e.g. reproducing a specific instance's bug), fall back to `-h localhost -p <port>` and call out the choice — don't silently single-target.
 
 **View telemetry**:
 
@@ -411,7 +427,9 @@ User: "restart everything" or "full restart"
 
 User: "push traffic" or "generate load"
 
-- Run pgbench init synchronously, then start pgbench workload in a **background Agent** with `-P 5` for progress
+- Build a libpq multi-host conninfo for all gateway pg-ports with `load_balance_hosts=random` so traffic distributes across every multigateway instance — never default to single-port `-h … -p …` (that hides per-instance bugs and leaves the other gateways' diagnostic pages empty)
+- Run pgbench init synchronously, then start the pgbench workload in a **background Agent** with `-P 5` for progress
+- Pick `-c` as a multiple of the gateway count (e.g. `-c 9` for 3 gateways) so each gateway gets at least a few sticky connections
 
 **Individual components:**
 

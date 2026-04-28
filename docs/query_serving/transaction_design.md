@@ -318,17 +318,27 @@ shard:
 
 ```go
 type ShardState struct {
-    Target               *query.Target
-    PoolerID             *clustermetadata.ID
-    ReservedConnectionId int64
-    ReservationReasons   uint32  // Bitmask of Reason* constants
+    // Target stores the information about the shard
+    Target *query.Target
+
+    // ReservedState holds the authoritative reservation state from
+    // the multipooler, including the pooler ID, reserved connection
+    // ID, and reservation reasons bitmask.
+    ReservedState *query.ReservedState
 }
 ```
 
+The bundled `ReservedState` message (from the multipooler RPC
+responses) carries:
+
+- `PoolerId`: the multipooler instance that owns the connection
+- `ReservedConnectionId`: the connection ID on that multipooler
+- `ReservationReasons`: `uint32` bitmask of `Reason*` constants
+
 `SetReservedConnection` stores the authoritative reservation state
 from the multipooler, setting the reasons exactly as returned (not
-OR'd). When a reserved connection is released (ReservedConnectionId
-== 0), the ShardState entry is removed via `ClearReservedConnection`.
+OR'd). `ClearReservedConnection` removes the `ShardState` entry
+when the reserved connection is released.
 
 ## RPCs
 
@@ -391,8 +401,13 @@ When a query fails while in `TxnStatusInBlock`, the connection
 transitions to `TxnStatusFailed`. In this state:
 
 - **HandleQuery**: Rejects all queries unless the first statement
-  is `ROLLBACK`. This allows both single `ROLLBACK` and batches
-  like `ROLLBACK; SELECT 1;` (matching PostgreSQL behavior)
+  is one of the recovery statements PostgreSQL accepts in this
+  state: `ROLLBACK`, `ROLLBACK TO SAVEPOINT`, or `COMMIT`
+  (treated as `ROLLBACK`). Multi-statement batches are permitted
+  as long as the first statement is a recovery statement (e.g.,
+  `ROLLBACK TO sp1; SELECT 1;`). A successful `ROLLBACK TO
+SAVEPOINT` transitions the connection back to `TxnStatusInBlock`
+  so subsequent statements can execute normally.
 - **HandleExecute** (extended query protocol): Rejects all Execute
   messages. In the extended protocol, `ROLLBACK` is typically sent
   via simple query
@@ -409,6 +424,23 @@ State transitions to `TxnStatusFailed` happen in three places:
 Timeouts (context cancellation) flow through the same error paths —
 a timed-out query in a transaction triggers the same aborted state
 transition.
+
+## LISTEN/NOTIFY in Transactions
+
+`LISTEN` and `UNLISTEN` inside an explicit transaction do not take
+effect immediately. The connection state records them in an ordered
+`pendingActions` queue (see `pendingListenAction` in
+`handler/connection_state.go`). At `COMMIT`, the handler drains the
+queue via `CommitPendingListens` and applies the net subscription
+changes against the gateway's `SubscriptionSync` (which talks to the
+`NotificationManager` and, through it, the multipooler
+`PubSubListener`). If the transaction rolls back, the pending
+actions are discarded.
+
+This matches PostgreSQL's behavior of making `LISTEN`/`UNLISTEN`
+visible only on successful commit, and ensures the client does not
+start receiving notifications on channels that its transaction
+never actually committed.
 
 ## Connection Cleanup
 

@@ -24,201 +24,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
-
-// InitializeEmptyPrimary initializes this pooler as an empty primary
-// Used during bootstrap initialization of a new shard
-func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (_ *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, retErr error) {
-	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-
-	// Wait for topology to be loaded (needed for backup location)
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	leaderID := pm.servicePoolerID
-
-	// Acquire action lock
-	var err error
-	lockStart := time.Now()
-	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
-	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Pause monitoring during initialization to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
-
-	// Validate consensus term must be 1 for new primary
-	if req.ConsensusTerm != 1 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
-	}
-
-	// Check if already initialized
-	if pm.isInitialized(ctx) {
-		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
-		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
-		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
-	}
-
-	// Emit Started now that we know we're doing actual initialization work.
-	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PrimaryInit{})
-	defer func() {
-		if retErr == nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PrimaryInit{})
-		} else {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryInit{}, "error", retErr)
-		}
-	}()
-
-	// Initialize data directory via pgctld if needed
-	if !pm.hasDataDirectory() {
-		pm.logger.InfoContext(ctx, "Initializing data directory", "shard", pm.getShardID())
-		if pm.pgctldClient == nil {
-			return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
-		}
-
-		initReq := &pgctldpb.InitDataDirRequest{}
-		if _, err := pm.pgctldClient.InitDataDir(ctx, initReq); err != nil {
-			return nil, mterrors.Wrap(err, "failed to initialize data directory")
-		}
-
-		// Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
-		// This must be done after InitDataDir creates pg_data but before Start
-		pm.logger.InfoContext(ctx, "Configuring archive_mode for pgbackrest", "shard", pm.getShardID())
-		if err := pm.configureArchiveMode(ctx); err != nil {
-			return nil, mterrors.Wrap(err, "failed to configure archive mode")
-		}
-	}
-
-	// Start PostgreSQL if not running
-	if !pm.isPostgresRunning(ctx) {
-		pm.logger.InfoContext(ctx, "Starting PostgreSQL", "shard", pm.getShardID())
-		if pm.pgctldClient == nil {
-			return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
-		}
-
-		startReq := &pgctldpb.StartRequest{}
-		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
-			return nil, mterrors.Wrap(err, "failed to start PostgreSQL")
-		}
-	}
-
-	// Wait for database connection
-	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to connect to database")
-	}
-
-	// Create multigres schema and tables (heartbeat, durability_policy, tablegroup, table, shard)
-	if err := pm.createSidecarSchema(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to initialize multigres schema")
-	}
-
-	// Insert initial multischema data (tablegroup and shard records)
-	if err := pm.initializeMultischemaData(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to initialize multischema data")
-	}
-
-	// Set consensus term
-	if pm.consensusState != nil {
-		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
-			return nil, mterrors.Wrap(err, "failed to set consensus term")
-		}
-	}
-
-	// Initialize pgbackrest stanza (must be done after PostgreSQL is running).
-	pm.logger.InfoContext(ctx, "Initializing pgbackrest stanza", "shard", pm.getShardID())
-	if err := pm.initializePgBackRestStanza(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
-	}
-
-	// Set pooler type to PRIMARY before creating backup so the backup annotation is correct
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set pooler type")
-	}
-
-	// Set primary term during bootstrap initialization
-	if pm.consensusState != nil {
-		if err := pm.consensusState.SetPrimaryTerm(ctx, req.ConsensusTerm, false /* force */); err != nil {
-			return nil, mterrors.Wrap(err, "failed to set primary term")
-		}
-	}
-
-	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-		PrimaryID:   pm.serviceID,
-		PrimaryTerm: req.ConsensusTerm,
-	})
-
-	// Get final LSN position for leadership history
-	finalLSN, err := pm.getPrimaryLSN(ctx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
-		return nil, err
-	}
-
-	// Write leadership history record for bootstrap
-	reason := "ShardNeedsBootstrap"
-	cohortMembers := []poolerID{leaderID} // Only the initial primary during bootstrap
-	acceptedMembers := []poolerID{leaderID}
-
-	if err := pm.insertHistoryRecord(ctx,
-		req.ConsensusTerm,
-		"promotion",
-		leaderID,
-		req.CoordinatorId,
-		finalLSN,
-		"bootstrap", // operation
-		reason,
-		cohortMembers,
-		acceptedMembers,
-		false /* force */); err != nil {
-		// Log but don't fail - history is for audit, not correctness
-		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
-			"term", req.ConsensusTerm,
-			"error", err)
-	}
-
-	// Create initial backup for standby initialization.
-	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	var backupID string
-	if err := pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "initial-backup", pm.logger, func(ctx context.Context) error {
-		var backupErr error
-		backupID, backupErr = pm.backupLocked(ctx, true, "full", "", nil)
-		return backupErr
-	}); err != nil {
-		return nil, mterrors.Wrap(err, "failed to create initial backup")
-	}
-	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
-	// Mark as initialized after successful primary initialization.
-	// This sets the cached boolean and writes the marker file.
-	if err := pm.setInitialized(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
-		Success:  true,
-		BackupId: backupID,
-	}, nil
-}
-
-// Helper methods
 
 // multigresInitMarker is the filename for the initialization marker.
 // This file is created after full initialization completes (schema created, backup done).
@@ -345,17 +156,23 @@ func (pm *MultiPoolerManager) isPostgresReady(ctx context.Context) bool {
 	return statusResp.Status == pgctldpb.ServerStatus_RUNNING && statusResp.Ready
 }
 
-// getRole returns the current role of this pooler ("primary", "standby", or "unknown")
-func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
+// getServerStatus returns the observed state of the PostgreSQL server process.
+// Priority: STARTING (action lock) > PROMOTING (in-flight pg_promote) > PRIMARY/STANDBY (pg_is_in_recovery).
+func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolermanagerdatapb.PostgresStatus {
+	if action, _ := pm.actionLock.ActiveAction(); action == multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING {
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STARTING
+	}
+	if pm.promotionInProgress.Load() {
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+	}
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
-		return "unknown"
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_UNKNOWN
 	}
-
 	if isPrimary {
-		return "primary"
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY
 	}
-	return "standby"
+	return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
 
 // getWALPosition returns the current WAL position and any error encountered
@@ -541,34 +358,4 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 
 	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", pm.stanzaName(), "backup_type", pm.backupConfig.Type())
 	return nil
-}
-
-// initializePgBackRestStanza acquires a distributed backup lease and then runs
-// pgbackrest stanza-create. The lease ensures no other pooler is writing to
-// the same shard's backup repository concurrently.
-// Must be called after PostgreSQL is initialized and running.
-func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
-	return pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "stanza-create", pm.logger, func(ctx context.Context) error {
-		configPath, err := pm.pgBackRestConfig()
-		if err != nil {
-			return mterrors.Wrap(err, "failed to initialize pgbackrest")
-		}
-
-		stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		cmd := executil.Command(stanzaCtx, "pgbackrest",
-			"--stanza="+pm.stanzaName(),
-			"--config="+configPath,
-			"stanza-create")
-
-		output, err := safeCombinedOutput(cmd)
-		if err != nil {
-			return mterrors.New(mtrpcpb.Code_INTERNAL,
-				fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
-		}
-
-		pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
-		return nil
-	})
 }

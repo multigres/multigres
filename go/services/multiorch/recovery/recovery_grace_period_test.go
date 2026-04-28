@@ -596,6 +596,51 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 	assert.False(t, deadline.IsZero(), "deadline should not be zero")
 }
 
+func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
+	cfg := config.NewTestConfig(
+		config.WithPrimaryFailoverGracePeriodBase(10*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0),
+	)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
+
+	action := &mockActionWithGracePeriod{
+		gracePeriod: &types.GracePeriodConfig{
+			BaseDelay: 10 * time.Second,
+		},
+	}
+
+	// Build problems the same way the recovery loop would.
+	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c", Name: "pooler-1"}
+
+	problemA := types.Problem{
+		Code:           types.ProblemPrimaryIsDead,
+		ShardKey:       shardKey,
+		RecoveryAction: action,
+	}
+	problemB := types.Problem{
+		Code:           types.ProblemStalePrimary,
+		Scope:          types.ScopePooler,
+		PoolerID:       poolerID,
+		ShardKey:       shardKey,
+		RecoveryAction: action,
+	}
+
+	// Observe both problems as unhealthy using the same entity IDs as the recovery loop
+	// (shardKey.String() for shard-wide, MultiPoolerIDString for pooler-scoped).
+	tracker.Observe(types.ProblemPrimaryIsDead, problemA.EntityID(), action, false)
+	tracker.Observe(types.ProblemStalePrimary, problemB.EntityID(), action, false)
+
+	// Neither problem should execute yet (deadline is 10s away)
+	require.False(t, tracker.ShouldExecute(problemA), "should not execute before grace period expires")
+	require.False(t, tracker.ShouldExecute(problemB), "should not execute before grace period expires")
+
+	// After ForceExpireAll, both should execute immediately
+	tracker.ForceExpireAll()
+	assert.True(t, tracker.ShouldExecute(problemA), "should execute after ForceExpireAll")
+	assert.True(t, tracker.ShouldExecute(problemB), "should execute after ForceExpireAll")
+}
+
 func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),

@@ -74,10 +74,35 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
+	// Reject unsupported constructs before dispatch: Tier 2 statement types
+	// (LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.) plus any blocklisted
+	// or misplaced FuncCalls in expression trees. Running here (not in the
+	// executor) means the plan cache short-circuits both checks: a cached
+	// plan is by construction safe. The normalizer is configured to
+	// preserve literals inside set_config calls so its args remain A_Const
+	// at this point.
+	exprResult, err := planUnsupportedConstructs(stmt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
+	// before normal dispatch. The wrapper's inner ExecuteStmt references a
+	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
+	// rewrite it to the canonical name (e.g. "stmt42") and attach the
+	// PreparedStatement metadata so the multipooler can ensurePrepared() on
+	// the backend connection before running the query. See execute_unwrap.go.
+	if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
+		return nil, err
+	} else if unwrappedPlan != nil {
+		unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
+		unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
+		return unwrappedPlan, nil
+	}
+
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
 	var plan *engine.Plan
-	var err error
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
@@ -117,29 +142,30 @@ func (p *Planner) Plan(
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	case ast.T_SelectStmt:
-		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		ss := stmt.(*ast.SelectStmt)
+		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planSelectStmt(sql, ss, conn, exprResult.SetConfigs)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 
 	default:
 		// Default: simple route to PostgreSQL
-		plan, err = p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, stmt, conn)
 	}
 
 	if err != nil {
@@ -148,6 +174,7 @@ func (p *Planner) Plan(
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
+
 	return plan, nil
 }
 
@@ -162,8 +189,8 @@ func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.
 
 // planDefault creates a simple route plan for queries without special handling.
 // This is the fallback for most SQL statements.
-func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*engine.Plan, error) {
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 	plan := engine.NewPlan(sql, route)
 
 	p.logger.Debug("created default route plan",
@@ -179,17 +206,25 @@ func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, erro
 // PortalStreamExecute with the portal's bound parameters.
 //
 // Statements that produce a plan are delegated to Plan to reuse existing planning logic.
-//
-// Currently handles:
-//   - Gateway-managed SET/SHOW/RESET (e.g., statement_timeout) — executed locally
-//     without a PostgreSQL round-trip.
-//   - RESET ALL — must be sent to PostgreSQL AND also reset gateway-managed variables.
-//     The returned plan handles both via Sequence[Route, ApplySessionState].
+// This covers any statement whose semantics cannot be preserved by a plain portal
+// execute on a pooled backend connection — for example, gateway-managed session
+// variables, LISTEN/UNLISTEN/NOTIFY, DISCARD, temp-table creation, and
+// BEGIN/COMMIT/ROLLBACK.
 func (p *Planner) PlanPortal(
 	portalInfo *preparedstatement.PortalInfo,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
 	stmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	// Non-cacheable extended-protocol statements reach PlanPortal directly
+	// (cacheable ones go through resolvePortalPlan → Plan, which does the
+	// same checks), so both paths must share the same pre-dispatch rejection.
+	// We throw away the set_config result here: PlanPortal only routes
+	// gateway-local statement types, none of which are SELECTs that could
+	// carry tracked set_configs.
+	if _, err := planUnsupportedConstructs(stmt); err != nil {
+		return nil, err
+	}
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
@@ -242,6 +277,13 @@ func (p *Planner) PlanPortal(
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
+
+	case ast.T_TransactionStmt:
+		// BEGIN/COMMIT/ROLLBACK must run through the gateway's transaction
+		// primitive — executing them as a normal portal on a pooled backend
+		// connection leaks open (or aborted) transactions across clients when
+		// the connection is recycled.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
 	default:
 		return nil, nil
@@ -302,5 +344,5 @@ func (p *Planner) planUnlistenStmt(sql string, stmt *ast.UnlistenStmt) (*engine.
 
 // planNotifyStmt routes NOTIFY to the default table group as a regular query.
 func (p *Planner) planNotifyStmt(sql string) (*engine.Plan, error) {
-	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)), nil
+	return engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)), nil
 }

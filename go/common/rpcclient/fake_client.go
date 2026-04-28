@@ -16,6 +16,7 @@ package rpcclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -56,37 +57,22 @@ type FakeClient struct {
 	// Consensus service responses - keyed by pooler ID
 	BeginTermResponses       map[string]*consensusdatapb.BeginTermResponse
 	ConsensusStatusResponses map[string]*consensusdatapb.StatusResponse
-	LeadershipViewResponses  map[string]*consensusdatapb.LeadershipViewResponse
-	CanReachPrimaryResponses map[string]*consensusdatapb.CanReachPrimaryResponse
+	EmergencyDemoteResponses map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse
+	PromoteResponses         map[string]*multipoolermanagerdatapb.PromoteResponse
 
 	// Manager service responses - keyed by pooler ID
-	InitializeEmptyPrimaryResponses          map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
-	StateResponses                           map[string]*multipoolermanagerdatapb.StateResponse
-	WaitForLSNResponses                      map[string]*multipoolermanagerdatapb.WaitForLSNResponse
-	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
-	StartReplicationResponses                map[string]*multipoolermanagerdatapb.StartReplicationResponse
-	StopReplicationResponses                 map[string]*multipoolermanagerdatapb.StopReplicationResponse
-	StandbyReplicationStatusResponses        map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse
-	StatusResponses                          map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
-	ResetReplicationResponses                map[string]*multipoolermanagerdatapb.ResetReplicationResponse
-	StopReplicationAndGetStatusResponses     map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse
-	ConfigureSynchronousReplicationResponses map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse
-	UpdateSynchronousStandbyListResponses    map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse
-	PrimaryStatusResponses                   map[string]*multipoolermanagerdatapb.PrimaryStatusResponse
-	PrimaryPositionResponses                 map[string]*multipoolermanagerdatapb.PrimaryPositionResponse
-	GetFollowersResponses                    map[string]*multipoolermanagerdatapb.GetFollowersResponse
-	PromoteResponses                         map[string]*multipoolermanagerdatapb.PromoteResponse
-	EmergencyDemoteResponses                 map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse
-	UndoDemoteResponses                      map[string]*multipoolermanagerdatapb.UndoDemoteResponse
-	ChangeTypeResponses                      map[string]*multipoolermanagerdatapb.ChangeTypeResponse
-	GetDurabilityPolicyResponses             map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse
-	CreateDurabilityPolicyResponses          map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse
-	BackupResponses                          map[string]*multipoolermanagerdatapb.BackupResponse
-	RestoreFromBackupResponses               map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
-	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
-	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
-	RewindToSourceResponses                  map[string]*multipoolermanagerdatapb.RewindToSourceResponse
-	SetMonitorResponses                      map[string]*multipoolermanagerdatapb.SetMonitorResponse
+	WaitForLSNResponses                 map[string]*multipoolermanagerdatapb.WaitForLSNResponse
+	SetPrimaryConnInfoResponses         map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
+	StartReplicationResponses           map[string]*multipoolermanagerdatapb.StartReplicationResponse
+	StopReplicationResponses            map[string]*multipoolermanagerdatapb.StopReplicationResponse
+	StatusResponses                     map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
+	UpdateConsensusRuleResponses        map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse
+	BackupResponses                     map[string]*multipoolermanagerdatapb.BackupResponse
+	RestoreFromBackupResponses          map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
+	GetBackupsResponses                 map[string]*multipoolermanagerdatapb.GetBackupsResponse
+	GetBackupByJobIdResponses           map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
+	RewindToSourceResponses             map[string]*multipoolermanagerdatapb.RewindToSourceResponse
+	SetPostgresRestartsEnabledResponses map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
@@ -96,45 +82,34 @@ type FakeClient struct {
 
 	// Request tracking for verification in tests
 	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
+
+	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
+	// is created. Tests use this to capture the stream and inject snapshots.
+	OnManagerHealthStream func(poolerID string, stream *FakeManagerHealthStream)
 }
 
 // NewFakeClient creates a new FakeClient with empty response maps.
 func NewFakeClient() *FakeClient {
 	return &FakeClient{
-		BeginTermResponses:                       make(map[string]*consensusdatapb.BeginTermResponse),
-		ConsensusStatusResponses:                 make(map[string]*consensusdatapb.StatusResponse),
-		LeadershipViewResponses:                  make(map[string]*consensusdatapb.LeadershipViewResponse),
-		CanReachPrimaryResponses:                 make(map[string]*consensusdatapb.CanReachPrimaryResponse),
-		InitializeEmptyPrimaryResponses:          make(map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse),
-		StateResponses:                           make(map[string]*multipoolermanagerdatapb.StateResponse),
-		WaitForLSNResponses:                      make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
-		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
-		StartReplicationResponses:                make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
-		StopReplicationResponses:                 make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
-		StandbyReplicationStatusResponses:        make(map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse),
-		StatusResponses:                          make(map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
-		ResetReplicationResponses:                make(map[string]*multipoolermanagerdatapb.ResetReplicationResponse),
-		StopReplicationAndGetStatusResponses:     make(map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse),
-		ConfigureSynchronousReplicationResponses: make(map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse),
-		UpdateSynchronousStandbyListResponses:    make(map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse),
-		PrimaryStatusResponses:                   make(map[string]*multipoolermanagerdatapb.PrimaryStatusResponse),
-		PrimaryPositionResponses:                 make(map[string]*multipoolermanagerdatapb.PrimaryPositionResponse),
-		GetFollowersResponses:                    make(map[string]*multipoolermanagerdatapb.GetFollowersResponse),
-		PromoteResponses:                         make(map[string]*multipoolermanagerdatapb.PromoteResponse),
-		EmergencyDemoteResponses:                 make(map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse),
-		UndoDemoteResponses:                      make(map[string]*multipoolermanagerdatapb.UndoDemoteResponse),
-		ChangeTypeResponses:                      make(map[string]*multipoolermanagerdatapb.ChangeTypeResponse),
-		GetDurabilityPolicyResponses:             make(map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse),
-		CreateDurabilityPolicyResponses:          make(map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse),
-		BackupResponses:                          make(map[string]*multipoolermanagerdatapb.BackupResponse),
-		RestoreFromBackupResponses:               make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
-		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
-		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
-		RewindToSourceResponses:                  make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
-		SetMonitorResponses:                      make(map[string]*multipoolermanagerdatapb.SetMonitorResponse),
-		Errors:                                   make(map[string]error),
-		CallLog:                                  make([]string, 0),
-		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
+		BeginTermResponses:                  make(map[string]*consensusdatapb.BeginTermResponse),
+		ConsensusStatusResponses:            make(map[string]*consensusdatapb.StatusResponse),
+		EmergencyDemoteResponses:            make(map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse),
+		PromoteResponses:                    make(map[string]*multipoolermanagerdatapb.PromoteResponse),
+		WaitForLSNResponses:                 make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
+		SetPrimaryConnInfoResponses:         make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
+		StartReplicationResponses:           make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
+		StopReplicationResponses:            make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
+		StatusResponses:                     make(map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
+		UpdateConsensusRuleResponses:        make(map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse),
+		BackupResponses:                     make(map[string]*multipoolermanagerdatapb.BackupResponse),
+		RestoreFromBackupResponses:          make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
+		GetBackupsResponses:                 make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
+		GetBackupByJobIdResponses:           make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
+		RewindToSourceResponses:             make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
+		SetPostgresRestartsEnabledResponses: make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
+		Errors:                              make(map[string]error),
+		CallLog:                             make([]string, 0),
+		PromoteRequests:                     make(map[string]*multipoolermanagerdatapb.PromoteRequest),
 	}
 }
 
@@ -199,11 +174,11 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 	}
 }
 
-// SetMonitorResponse sets a SetMonitor response for a pooler.
-func (f *FakeClient) SetMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.SetMonitorResponse) {
+// SetPostgresRestartsEnabledResponse sets a SetPostgresRestartsEnabled response for a pooler.
+func (f *FakeClient) SetPostgresRestartsEnabledResponse(poolerID string, resp *multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.SetMonitorResponses[poolerID] = resp
+	f.SetPostgresRestartsEnabledResponses[poolerID] = resp
 }
 
 //
@@ -242,9 +217,9 @@ func (f *FakeClient) ConsensusStatus(ctx context.Context, pooler *clustermetadat
 	return &consensusdatapb.StatusResponse{}, nil
 }
 
-func (f *FakeClient) GetLeadershipView(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.LeadershipViewRequest) (*consensusdatapb.LeadershipViewResponse, error) {
+func (f *FakeClient) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("GetLeadershipView", poolerID)
+	f.logCall("EmergencyDemote", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
@@ -252,35 +227,35 @@ func (f *FakeClient) GetLeadershipView(ctx context.Context, pooler *clustermetad
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.LeadershipViewResponses[poolerID]; ok {
+	if resp, ok := f.EmergencyDemoteResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &consensusdatapb.LeadershipViewResponse{}, nil
+	return &multipoolermanagerdatapb.EmergencyDemoteResponse{}, nil
 }
 
-func (f *FakeClient) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
+func (f *FakeClient) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("CanReachPrimary", poolerID)
+	f.logCall("DemoteStalePrimary", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
 	}
 
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.CanReachPrimaryResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &consensusdatapb.CanReachPrimaryResponse{}, nil
+	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
+		Success:         true,
+		RewindPerformed: false,
+		LsnPosition:     "0/0",
+	}, nil
 }
 
-//
-// Manager Service Methods - Initialization
-//
-
-func (f *FakeClient) InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("InitializeEmptyPrimary", poolerID)
+	f.logCall("Promote", poolerID)
+
+	// Record the request for test verification
+	f.mu.Lock()
+	f.PromoteRequests[poolerID] = request
+	f.mu.Unlock()
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
@@ -288,30 +263,55 @@ func (f *FakeClient) InitializeEmptyPrimary(ctx context.Context, pooler *cluster
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.InitializeEmptyPrimaryResponses[poolerID]; ok {
+	if resp, ok := f.PromoteResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{}, nil
+	return &multipoolermanagerdatapb.PromoteResponse{}, nil
+}
+
+func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("UpdateConsensusRule", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.UpdateConsensusRuleResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
 }
 
 //
 // Manager Service Methods - Status and Monitoring
 //
 
-func (f *FakeClient) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error) {
+func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("State", poolerID)
+	f.logCall("Status", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
 	}
 
 	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.StateResponses[poolerID]; ok {
-		return resp, nil
+	respWithDelay, ok := f.StatusResponses[poolerID]
+	f.mu.RUnlock()
+
+	if ok {
+		if respWithDelay.Delay > 0 {
+			select {
+			case <-time.After(respWithDelay.Delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return respWithDelay.Response, nil
 	}
-	return &multipoolermanagerdatapb.StateResponse{}, nil
+	return &multipoolermanagerdatapb.StatusResponse{}, nil
 }
 
 //
@@ -380,296 +380,6 @@ func (f *FakeClient) StopReplication(ctx context.Context, pooler *clustermetadat
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.StopReplicationResponse{}, nil
-}
-
-func (f *FakeClient) StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("StandbyReplicationStatus", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.StandbyReplicationStatusResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{}, nil
-}
-
-func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("Status", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	respWithDelay, ok := f.StatusResponses[poolerID]
-	f.mu.RUnlock()
-
-	if ok {
-		if respWithDelay.Delay > 0 {
-			select {
-			case <-time.After(respWithDelay.Delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-		return respWithDelay.Response, nil
-	}
-	return &multipoolermanagerdatapb.StatusResponse{}, nil
-}
-
-func (f *FakeClient) ResetReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResetReplicationRequest) (*multipoolermanagerdatapb.ResetReplicationResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("ResetReplication", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.ResetReplicationResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.ResetReplicationResponse{}, nil
-}
-
-func (f *FakeClient) StopReplicationAndGetStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationAndGetStatusRequest) (*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("StopReplicationAndGetStatus", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.StopReplicationAndGetStatusResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.StopReplicationAndGetStatusResponse{}, nil
-}
-
-//
-// Manager Service Methods - Synchronous Replication
-//
-
-func (f *FakeClient) ConfigureSynchronousReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("ConfigureSynchronousReplication", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.ConfigureSynchronousReplicationResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}, nil
-}
-
-func (f *FakeClient) UpdateSynchronousStandbyList(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("UpdateSynchronousStandbyList", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.UpdateSynchronousStandbyListResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
-}
-
-//
-// Manager Service Methods - Primary Status
-//
-
-func (f *FakeClient) PrimaryStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryStatusRequest) (*multipoolermanagerdatapb.PrimaryStatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("PrimaryStatus", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.PrimaryStatusResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.PrimaryStatusResponse{}, nil
-}
-
-func (f *FakeClient) PrimaryPosition(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryPositionRequest) (*multipoolermanagerdatapb.PrimaryPositionResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("PrimaryPosition", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.PrimaryPositionResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.PrimaryPositionResponse{}, nil
-}
-
-func (f *FakeClient) GetFollowers(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetFollowersRequest) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("GetFollowers", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.GetFollowersResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.GetFollowersResponse{}, nil
-}
-
-//
-// Manager Service Methods - Promotion and Demotion
-//
-
-func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("Promote", poolerID)
-
-	// Record the request for test verification
-	f.mu.Lock()
-	f.PromoteRequests[poolerID] = request
-	f.mu.Unlock()
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.PromoteResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.PromoteResponse{}, nil
-}
-
-func (f *FakeClient) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("EmergencyDemote", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.EmergencyDemoteResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.EmergencyDemoteResponse{}, nil
-}
-
-func (f *FakeClient) UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("UndoDemote", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.UndoDemoteResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
-}
-
-func (f *FakeClient) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("DemoteStalePrimary", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	// Return success by default
-	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
-		Success:         true,
-		RewindPerformed: false,
-		LsnPosition:     "0/0",
-	}, nil
-}
-
-//
-// Manager Service Methods - Type and Term Management
-//
-
-func (f *FakeClient) ChangeType(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ChangeTypeRequest) (*multipoolermanagerdatapb.ChangeTypeResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("ChangeType", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.ChangeTypeResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.ChangeTypeResponse{}, nil
-}
-
-//
-// Manager Service Methods - Durability Policy
-//
-
-func (f *FakeClient) GetDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetDurabilityPolicyRequest) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("GetDurabilityPolicy", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.GetDurabilityPolicyResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.GetDurabilityPolicyResponse{}, nil
-}
-
-func (f *FakeClient) CreateDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("CreateDurabilityPolicy", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.CreateDurabilityPolicyResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
 }
 
 //
@@ -755,7 +465,6 @@ func (f *FakeClient) ExpireBackups(ctx context.Context, pooler *clustermetadatap
 // Manager Service Methods - Timeline Repair
 //
 
-// RewindToSource performs pg_rewind to synchronize a replica with its source.
 func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("RewindToSource", poolerID)
@@ -773,13 +482,12 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 }
 
 //
-// Manager Service Methods - PostgreSQL Monitoring Control
+// Manager Service Methods - PostgreSQL Restart Control
 //
 
-// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
-func (f *FakeClient) SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("SetMonitor", poolerID)
+	f.logCall("SetPostgresRestartsEnabled", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
@@ -787,10 +495,71 @@ func (f *FakeClient) SetMonitor(ctx context.Context, pooler *clustermetadatapb.M
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.SetMonitorResponses[poolerID]; ok {
+	if resp, ok := f.SetPostgresRestartsEnabledResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
+	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+//
+// Manager Service Methods - Health Streaming
+//
+
+// FakeManagerHealthStream implements ManagerHealthStream for testing.
+// Recv blocks until the context is cancelled or a response is injected via Ch.
+// Sent messages (init, poll) are recorded on the Sent channel.
+type FakeManagerHealthStream struct {
+	ctx  context.Context
+	Ch   chan *multipoolermanagerdatapb.ManagerHealthStreamResponse
+	Sent chan *multipoolermanagerdatapb.ManagerHealthStreamClientMessage
+}
+
+// Recv blocks until a response is available or the context is cancelled.
+func (f *FakeManagerHealthStream) Recv() (*multipoolermanagerdatapb.ManagerHealthStreamResponse, error) {
+	select {
+	case <-f.ctx.Done():
+		return nil, f.ctx.Err()
+	case resp, ok := <-f.Ch:
+		if !ok {
+			return nil, errors.New("stream closed")
+		}
+		return resp, nil
+	}
+}
+
+// Send records the outgoing message on the Sent channel.
+// Non-blocking: if Sent is full the message is dropped (tests should drain it).
+func (f *FakeManagerHealthStream) Send(msg *multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error {
+	select {
+	case f.Sent <- msg:
+	default:
+	}
+	return nil
+}
+
+// ManagerHealthStream returns a FakeManagerHealthStream. Tests inject snapshots
+// by sending on stream.Ch or close it to simulate disconnection. Outgoing
+// messages (init/poll) are readable from stream.Sent.
+func (f *FakeClient) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ManagerHealthStream", poolerID)
+
+	f.mu.RLock()
+	err := f.Errors[poolerID]
+	f.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
+	stream := &FakeManagerHealthStream{
+		ctx:  ctx,
+		Ch:   make(chan *multipoolermanagerdatapb.ManagerHealthStreamResponse),
+		Sent: make(chan *multipoolermanagerdatapb.ManagerHealthStreamClientMessage, 16),
+	}
+	if f.OnManagerHealthStream != nil {
+		f.OnManagerHealthStream(poolerID, stream)
+	}
+	return stream, nil
 }
 
 //

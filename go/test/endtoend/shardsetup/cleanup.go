@@ -36,7 +36,7 @@ func GetCurrentTerm(ctx context.Context, client consensuspb.MultiPoolerConsensus
 	if err != nil {
 		return 0, fmt.Errorf("failed to get consensus status: %w", err)
 	}
-	return resp.CurrentTerm, nil
+	return resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), nil
 }
 
 // MustGetCurrentTerm returns the current term or fails the test.
@@ -47,18 +47,6 @@ func MustGetCurrentTerm(t *testing.T, ctx context.Context, client consensuspb.Mu
 		t.Fatalf("failed to get current term: %v", err)
 	}
 	return term
-}
-
-// SetPoolerType sets the pooler type using the provided manager client.
-// Follows the pattern from multipooler/setup_test.go:setPoolerType.
-func SetPoolerType(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, poolerType clustermetadatapb.PoolerType) error {
-	_, err := client.ChangeType(ctx, &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: poolerType,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set pooler type: %w", err)
-	}
-	return nil
 }
 
 // ValidatePoolerType checks that the pooler type in topology matches the expected value.
@@ -88,8 +76,9 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 		return fmt.Errorf("%s failed to get consensus status: %w", nodeName, err)
 	}
 
-	if status.CurrentTerm != expectedTerm {
-		return fmt.Errorf("%s term=%d (expected %d)", nodeName, status.CurrentTerm, expectedTerm)
+	currentTerm := status.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	if currentTerm != expectedTerm {
+		return fmt.Errorf("%s term=%d (expected %d)", nodeName, currentTerm, expectedTerm)
 	}
 
 	return nil
@@ -97,26 +86,38 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
 // Uses Force=true to bypass term validation for simplicity in test cleanup.
-func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) error {
+func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client *MultipoolerClient) error {
 	t.Helper()
 
+	// After EmergencyDemote restarts postgres as standby, the monitor loop reconciles
+	// the stored pooler type from PRIMARY to REPLICA asynchronously. StopReplication
+	// requires type=REPLICA, so wait for convergence before calling it.
+	require.Eventually(t, func() bool {
+		return ValidatePoolerType(context.Background(), client.Manager, clustermetadatapb.PoolerType_REPLICA, "demoted primary") == nil
+	}, 10*time.Second, 100*time.Millisecond, "pooler type should converge to REPLICA after demotion")
+
 	// Stop replication on primary
-	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
+	_, err := client.Manager.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to stop replication on primary: %w", err)
 	}
 
-	// Get current LSN
-	statusResp, err := client.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	// Get current LSN from manager status
+	statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to get primary replication status: %w", err)
+		return fmt.Errorf("failed to get primary status: %w", err)
+	}
+
+	var lastReplayLSN string
+	if statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil {
+		lastReplayLSN = statusResp.Status.ReplicationStatus.LastReplayLsn
 	}
 
 	// Force promote primary back - term value doesn't matter when Force=true
 	// (Force bypasses term validation)
-	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
+	_, err = client.Consensus.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
 		ConsensusTerm: 0, // Ignored when Force=true
-		ExpectedLsn:   statusResp.Status.LastReplayLsn,
+		ExpectedLsn:   lastReplayLSN,
 		Force:         true,
 	})
 	if err != nil {

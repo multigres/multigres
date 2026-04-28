@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -105,6 +106,7 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch p.kind {
@@ -203,6 +205,23 @@ func (p *PreparedStatementPrimitive) executeDeallocateAll(
 		return err
 	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "DEALLOCATE ALL"})
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE statements come in
+// via the simple protocol (PlanPortal returns nil for them); the
+// EXECUTE form has its own internal portal-style flow that already
+// reuses HandleBind / PortalStreamExecute on the backend. Delegate.
+func (p *PreparedStatementPrimitive) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return p.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }

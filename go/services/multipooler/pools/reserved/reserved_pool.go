@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
@@ -152,7 +154,13 @@ func (p *Pool) idleKiller(interval time.Duration) {
 // NewConn acquires a new reserved connection.
 // The connection is assigned a unique ID for client-side tracking.
 // The connection is already authenticated as the pool's configured user.
-func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn, error) {
+//
+// If WithValidate is supplied, the callback runs against the freshly
+// acquired *regular.Conn before the reserved connection is registered.
+// On a connection error from validate (e.g. the pool handed back a socket
+// that PostgreSQL has silently closed), the underlying connection is
+// tainted and a replacement is fetched, up to constants.MaxConnPoolRetryAttempts total.
+func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts ...ReservedConnOption) (*Conn, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -160,10 +168,14 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	}
 	p.mu.Unlock()
 
-	// Get a regular connection from the pool.
-	pooled, err := p.conns.GetWithSettings(ctx, settings)
+	o := reservedConnOpts{}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	pooled, err := p.acquireValidated(ctx, settings, o.validate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
+		return nil, err
 	}
 
 	// Generate unique ID. Since lastID is initialized with Unix nanoseconds,
@@ -189,6 +201,79 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 		"process_id", rc.ProcessID())
 
 	return rc, nil
+}
+
+// acquireValidated borrows a regular connection from the underlying pool
+// and, if validate is non-nil, runs it against the connection. A
+// connection error from validate (stale socket exposed by the first
+// user-issued write) triggers another attempt on a fresh socket, up to
+// constants.MaxConnPoolRetryAttempts.
+//
+// Any non-nil error from validate — connection or otherwise — taints
+// the pooled conn before returning or retrying. Validate hooks perform
+// real state-modifying work on the conn (Parse, BEGIN, COPY initiation),
+// so a failure in one of those steps may leave the conn in a partially
+// modified state (e.g. BEGIN succeeded, then InitiateCopyFromStdin
+// failed — the conn is now stuck in failed-transaction 'E' state).
+// Recycling such a conn back to the pool would poison the next user;
+// discarding it is the safe default and matches the pre-primitive
+// behavior of every caller (Release(ReleaseError) on failure).
+//
+// Connection errors from GetWithSettings itself (stale socket exposed
+// while applying SETs) are handled inside regular.Pool.GetWithSettings,
+// which retries with the same regime; this layer does not double-retry.
+func (p *Pool) acquireValidated(
+	ctx context.Context,
+	settings *connstate.Settings,
+	validate func(context.Context, *regular.Conn) error,
+) (regular.PooledConn, error) {
+	if validate == nil {
+		pooled, err := p.conns.GetWithSettings(ctx, settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+		return pooled, nil
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= constants.MaxConnPoolRetryAttempts; attempt++ {
+		pooled, err := p.conns.GetWithSettings(ctx, settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+
+		validateErr := validate(ctx, pooled.Conn)
+		if validateErr == nil {
+			return pooled, nil
+		}
+
+		// Any validate failure discards the conn. Taint nils out
+		// pooled.pool, so the subsequent Recycle takes the pool==nil
+		// branch and closes the orphaned socket immediately rather than
+		// waiting on the idle killer.
+		pooled.Taint()
+		pooled.Recycle()
+
+		if !mterrors.IsConnectionError(validateErr) {
+			return nil, validateErr
+		}
+		lastErr = validateErr
+
+		if attempt == constants.MaxConnPoolRetryAttempts {
+			break
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		backoffTimer := time.NewTimer(constants.ConnPoolRetryBackoff)
+		select {
+		case <-backoffTimer.C:
+		case <-ctx.Done():
+			backoffTimer.Stop()
+			return nil, context.Cause(ctx)
+		}
+	}
+	return nil, fmt.Errorf("reserved connection validate failed after %d attempts: %w", constants.MaxConnPoolRetryAttempts, lastErr)
 }
 
 // Get retrieves a reserved connection by ID and resets its expiry time.
@@ -351,6 +436,21 @@ func (p *Pool) Requested() int64 {
 // This captures burst demand that point-in-time sampling might miss.
 func (p *Pool) PeakRequestedAndReset() int64 {
 	return p.conns.PeakRequestedAndReset()
+}
+
+// WaitCount returns the total number of times a client had to wait for a connection.
+func (p *Pool) WaitCount() int64 {
+	return p.conns.WaitCount()
+}
+
+// WaitTime returns the total time clients spent waiting for a connection.
+func (p *Pool) WaitTime() time.Duration {
+	return p.conns.WaitTime()
+}
+
+// GetCount returns the total number of Get() calls (connections borrowed).
+func (p *Pool) GetCount() int64 {
+	return p.conns.GetCount()
 }
 
 // PoolStats contains pool statistics for reserved connections.

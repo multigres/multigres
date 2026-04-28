@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
@@ -49,9 +48,9 @@ func waitForReplicationBroken(t *testing.T, inst *shardsetup.MultipoolerInstance
 	shardsetup.EventuallyPoolerCondition(t,
 		[]*shardsetup.MultipoolerInstance{inst},
 		timeout, 500*time.Millisecond,
-		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
-			if s.GetReplicationStatus().GetPrimaryConnInfo().GetHost() != "" {
-				return false, "primary_conninfo host still set: " + s.GetReplicationStatus().GetPrimaryConnInfo().GetHost()
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			if r.Status.GetReplicationStatus().GetPrimaryConnInfo().GetHost() != "" {
+				return false, "primary_conninfo host still set: " + r.Status.GetReplicationStatus().GetPrimaryConnInfo().GetHost()
 			}
 			return true, ""
 		},

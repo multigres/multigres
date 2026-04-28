@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -51,6 +52,7 @@ func (c *CopyStatement) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// For now, use DefaultShard (unsharded). When sharding is supported,
@@ -128,6 +130,24 @@ func (c *CopyStatement) StreamExecute(
 				fmt.Sprintf("unexpected message type during COPY: %c", msgType), "")
 		}
 	}
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. COPY FROM STDIN is simple-protocol only —
+// PlanPortal returns nil for CopyStmt and isCacheable rejects it — so
+// the executor never reaches this method in practice. The delegate to
+// StreamExecute keeps the contract uniform without inventing portal
+// semantics for a primitive that doesn't have any.
+func (c *CopyStatement) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return c.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup implements the Primitive interface.

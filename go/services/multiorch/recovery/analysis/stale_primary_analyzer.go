@@ -20,6 +20,7 @@ import (
 	"slices"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -66,15 +67,14 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
-	// Collect stale primaries: all in sa.Primaries that are not the highest-term primary
-	// and have a valid (non-zero) PrimaryTerm.
+	// Collect stale primaries: every topology-PRIMARY pooler that is not the
+	// highest-term primary is stale. This includes poolers whose own rule has
+	// caught up (PrimaryTerm == 0 because the rule now names a different
+	// primary) — exactly the post-emergency-demotion state we need to repair.
 	mostAdvancedIDStr := topoclient.MultiPoolerIDString(sa.HighestTermReachablePrimary.PoolerID)
 	var stalePrimaries []*PoolerAnalysis
 	for _, p := range sa.Primaries {
 		if topoclient.MultiPoolerIDString(p.PoolerID) == mostAdvancedIDStr {
-			continue
-		}
-		if p.PrimaryTerm == 0 {
 			continue
 		}
 		stalePrimaries = append(stalePrimaries, p)
@@ -84,12 +84,13 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
-	// Sort most stale first (lowest PrimaryTerm first) so the recovery system
-	// processes the most out-of-date primary at highest priority.
+	// Sort most stale first (lowest rule coordinator term first) so the
+	// recovery system processes the most out-of-date primary at highest
+	// priority.
 	slices.SortFunc(stalePrimaries, comparePrimaryTimeline)
 
-	// Assign descending priorities so the most stale primary (lowest PrimaryTerm,
-	// sorted first) gets PriorityEmergency, the next gets PriorityEmergency-1, etc.
+	// Assign descending priorities so the most stale primary (sorted first)
+	// gets PriorityEmergency, the next gets PriorityEmergency-1, etc.
 	problems := make([]types.Problem, 0, len(stalePrimaries))
 	for i, stale := range stalePrimaries {
 		problems = append(problems, types.Problem{
@@ -99,9 +100,9 @@ func (a *StalePrimaryAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 			ShardKey:  sa.ShardKey,
 			Description: fmt.Sprintf("Stale primary detected: %s (stale_primary_term %d) is stale, most advanced primary %s (most_advanced_primary_term %d)",
 				stale.PoolerID.Name,
-				stale.PrimaryTerm,
+				commonconsensus.PrimaryTerm(stale.ConsensusStatus),
 				sa.HighestTermReachablePrimary.PoolerID.Name,
-				sa.HighestTermReachablePrimary.PrimaryTerm),
+				commonconsensus.PrimaryTerm(sa.HighestTermReachablePrimary.ConsensusStatus)),
 			Priority:       types.PriorityEmergency - types.Priority(i),
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),

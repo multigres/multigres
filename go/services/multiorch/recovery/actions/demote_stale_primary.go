@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -29,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -196,23 +196,15 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 			return true // continue
 		}
 
-		// Check if this pooler is a PRIMARY
-		poolerType := pooler.PoolerType
-		if poolerType == clustermetadatapb.PoolerType_UNKNOWN && pooler.MultiPooler != nil {
-			poolerType = pooler.MultiPooler.Type
+		if !commonconsensus.IsPrimary(pooler.GetConsensusStatus()) {
+			return true // continue
 		}
 
-		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Get its PrimaryTerm (not consensus term)
-			var primaryTerm int64
-			if pooler.ConsensusTerm != nil {
-				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
-			}
+		primaryTerm := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus())
 
-			if primaryTerm > maxPrimaryTerm {
-				maxPrimaryTerm = primaryTerm
-				correctPrimary = pooler
-			}
+		if primaryTerm > maxPrimaryTerm {
+			maxPrimaryTerm = primaryTerm
+			correctPrimary = pooler
 		}
 
 		return true // continue
@@ -222,11 +214,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
 	}
 
-	// Return consensus term for the RPC parameter
-	consensusTerm := int64(0)
-	if correctPrimary.ConsensusStatus != nil {
-		consensusTerm = correctPrimary.ConsensusStatus.CurrentTerm
-	}
+	consensusTerm := correctPrimary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 	return correctPrimary, consensusTerm, nil
 }

@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -44,6 +45,12 @@ type IExecute interface {
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
+	//   preparedStatement: Optional gateway-managed prepared statement to ensure
+	//     exists on the backend connection before the query runs. Used for
+	//     wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE)
+	//     where the rewritten SQL references the prepared statement by its
+	//     canonical name. Pass nil for queries that do not reference a
+	//     gateway-managed prepared statement.
 	//   state: Connection state containing session information and reserved connections
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
@@ -54,6 +61,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		sql string,
+		preparedStatement *query.PreparedStatement,
 		state *handler.MultiGatewayConnectionState,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
@@ -211,11 +219,39 @@ type IExecute interface {
 type Primitive interface {
 	// StreamExecute executes the primitive and streams results via callback.
 	// The IExecute interface provides access to execution resources.
+	// bindVars contains literal values extracted during query normalization;
+	// it is nil for non-cached execution paths. Primitives that need it
+	// (e.g., Route) use bindVars to reconstruct the final SQL.
 	StreamExecute(
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
+		bindVars []*ast.A_Const,
+		callback func(context.Context, *sqltypes.Result) error,
+	) error
+
+	// PortalStreamExecute executes the primitive on the extended query
+	// protocol path, where parameter values arrive as wire-format Bind
+	// values inside portalInfo rather than as ast.A_Const literals.
+	//
+	// Primitives that forward the user's SQL to the backend (Route) reissue
+	// the portal so PG receives the original query text plus binds. Primitives
+	// whose effects are local to the gateway (ApplySessionState, transaction
+	// management, LISTEN, etc.) do not consume binds and may simply delegate
+	// to StreamExecute with nil bindVars. Composite primitives (Sequence)
+	// dispatch to the right method on each child.
+	//
+	// Centralizing the dispatch on the primitive — rather than having the
+	// executor introspect plan shapes — keeps the executor generic and lets
+	// each primitive own the question "how do I run under the portal path".
+	PortalStreamExecute(
+		ctx context.Context,
+		exec IExecute,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		portalInfo *preparedstatement.PortalInfo,
+		maxRows int32,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

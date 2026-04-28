@@ -158,10 +158,21 @@ func (mo *MultiOrch) Init() error {
 	)
 
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
-	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
+	mo.senv.RegisterReadyCheck(func() error {
+		mo.serverStatus.mu.Lock()
+		defer mo.serverStatus.mu.Unlock()
+		if len(mo.serverStatus.InitError) > 0 {
+			return errors.New(mo.serverStatus.InitError)
+		}
+		return nil
+	})
 
 	// Create RPC client for recovery engine health checks
-	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections)
+	transportCreds, err := mo.connConfig.TransportCredentials(logger)
+	if err != nil {
+		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+	}
+	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections, transportCreds)
 
 	// Create coordinator for consensus operations
 	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)

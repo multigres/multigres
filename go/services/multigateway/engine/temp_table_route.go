@@ -18,8 +18,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -31,11 +34,24 @@ type TempTableRoute struct {
 	TableGroup string
 	Shard      string
 	Query      string
+
+	// PreparedStatement, if set, is a gateway-managed prepared statement to
+	// ensure on the backend connection before Query runs. This lets
+	// `CREATE TEMP TABLE t AS EXECUTE p` work: the planner rewrites the
+	// inner EXECUTE to the canonical name and attaches the metadata here.
+	PreparedStatement *query.PreparedStatement
 }
 
 // NewTempTableRoute creates a new TempTableRoute primitive.
 func NewTempTableRoute(tableGroup, shard, sql string) *TempTableRoute {
 	return &TempTableRoute{TableGroup: tableGroup, Shard: shard, Query: sql}
+}
+
+// NewTempTableRouteWithPreparedStatement creates a TempTableRoute that
+// carries a gateway-managed prepared statement. See
+// TempTableRoute.PreparedStatement for details.
+func NewTempTableRouteWithPreparedStatement(tableGroup, shard, sql string, ps *query.PreparedStatement) *TempTableRoute {
+	return &TempTableRoute{TableGroup: tableGroup, Shard: shard, Query: sql, PreparedStatement: ps}
 }
 
 // StreamExecute sets the temp table reservation flag and delegates to
@@ -46,13 +62,32 @@ func (t *TempTableRoute) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	state.PendingTempTableReservation = true
-	return exec.StreamExecute(ctx, conn, t.TableGroup, t.Shard, t.Query, state, callback)
+	return exec.StreamExecute(ctx, conn, t.TableGroup, t.Shard, t.Query, t.PreparedStatement, state, callback)
 }
 
 // GetTableGroup returns the target tablegroup.
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. SELECT INTO and CREATE TEMP TABLE are
+// excluded from isCacheable, so the executor never lands here via the
+// cacheable portal branch — but keeping the implementation real (rather
+// than panicking) means a future caller composing TempTableRoute into
+// a Sequence won't silently lose work. Delegate.
+func (t *TempTableRoute) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return t.StreamExecute(ctx, exec, conn, state, nil, callback)
+}
+
 func (t *TempTableRoute) GetTableGroup() string { return t.TableGroup }
 
 // GetQuery returns the SQL query.

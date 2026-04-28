@@ -29,9 +29,6 @@ service MultiPoolerManager {
   // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
   rpc WaitForLSN(multipoolermanagerdata.WaitForLSNRequest) returns (multipoolermanagerdata.WaitForLSNResponse);
 
-  // SetPrimaryConnInfo sets the primary connection info for a standby server
-  rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
-    returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);
 
   // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
   rpc StartReplication(multipoolermanagerdata.StartReplicationRequest)
@@ -41,98 +38,11 @@ service MultiPoolerManager {
   rpc StopReplication(multipoolermanagerdata.StopReplicationRequest)
     returns (multipoolermanagerdata.StopReplicationResponse);
 
-  // StandbyReplicationStatus gets the current replication status of the standby
-  rpc StandbyReplicationStatus(multipoolermanagerdata.StandbyReplicationStatusRequest)
-    returns (multipoolermanagerdata.StandbyReplicationStatusResponse);
-
   // Status gets unified status that works for both PRIMARY and REPLICA poolers
   // The multipooler returns information based on what type it believes itself to be,
   // avoiding disparity between what MultiOrch thinks versus actual state
   rpc Status(multipoolermanagerdata.StatusRequest)
     returns (multipoolermanagerdata.StatusResponse);
-
-  // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
-  // and reloading PostgreSQL configuration. This effectively
-  // disconnects the replica from the primary and prevents it from acknowledging commits, making it
-  // unavailable for synchronous replication until reconfigured.
-  rpc ResetReplication(multipoolermanagerdata.ResetReplicationRequest)
-    returns (multipoolermanagerdata.ResetReplicationResponse);
-
-  // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-  // including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
-  rpc ConfigureSynchronousReplication(multipoolermanagerdata.ConfigureSynchronousReplicationRequest)
-    returns (multipoolermanagerdata.ConfigureSynchronousReplicationResponse);
-
-  // UpdateSynchronousStandbyList updates the synchronous standby list by adding, removing, or replacing members
-  rpc UpdateSynchronousStandbyList(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
-    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
-
-  // PrimaryStatus gets the status of the leader server
-  rpc PrimaryStatus(multipoolermanagerdata.PrimaryStatusRequest)
-    returns (multipoolermanagerdata.PrimaryStatusResponse);
-
-  // PrimaryPosition gets the current LSN position of the leader
-  rpc PrimaryPosition(multipoolermanagerdata.PrimaryPositionRequest)
-    returns (multipoolermanagerdata.PrimaryPositionResponse);
-
-  // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
-  // and returns the status
-  rpc StopReplicationAndGetStatus(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
-    returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
-
-
-  // Multigres HA
-  // The following methods are used by MultiOrch to
-  // perform HA operations (reparents and failovers)
-
-  // GetDurabilityPolicy retrieves the active durability policy from the local database
-  // Used by MultiOrch to query quorum rules via gRPC instead of direct database connection
-  rpc GetDurabilityPolicy(multipoolermanagerdata.GetDurabilityPolicyRequest)
-    returns (multipoolermanagerdata.GetDurabilityPolicyResponse);
-
-  // CreateDurabilityPolicy creates a new durability policy in the local database
-  // Used by MultiOrch to initialize policies via gRPC instead of direct database connection
-  rpc CreateDurabilityPolicy(multipoolermanagerdata.CreateDurabilityPolicyRequest)
-    returns (multipoolermanagerdata.CreateDurabilityPolicyResponse);
-
-  // ChangeType changes the pooler type (LEADER/FOLLOWER)
-  rpc ChangeType(multipoolermanagerdata.ChangeTypeRequest)
-    returns (multipoolermanagerdata.ChangeTypeResponse);
-
-  // GetFollowers gets the list of follower servers
-  rpc GetFollowers(multipoolermanagerdata.GetFollowersRequest)
-    returns (multipoolermanagerdata.GetFollowersResponse);
-
-  // EmergencyDemote demotes the current leader server
-  rpc EmergencyDemote(multipoolermanagerdata.EmergencyDemoteRequest)
-    returns (multipoolermanagerdata.EmergencyDemoteResponse);
-
-  // UndoDemote undoes a demotion
-  rpc UndoDemote(multipoolermanagerdata.UndoDemoteRequest)
-    returns (multipoolermanagerdata.UndoDemoteResponse);
-
-  // DemoteStalePrimary demotes a stale primary that came back after failover
-  // by rewinding to the correct primary and restarting as standby
-  rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
-    returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
-
-  // Promote promotes a replica to leader (Multigres-level operation)
-  rpc Promote(multipoolermanagerdata.PromoteRequest)
-    returns (multipoolermanagerdata.PromoteResponse);
-
-  // State gets the current status of the manager
-  rpc State(multipoolermanagerdata.StateRequest)
-    returns (multipoolermanagerdata.StateResponse);
-
-  //
-  // Shard Initialization APIs
-  // The following methods are used by MultiOrch to bootstrap new shards
-  //
-
-  // InitializeEmptyPrimary initializes this pooler as an empty primary
-  // Used during bootstrap initialization of a new shard
-  rpc InitializeEmptyPrimary(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
-    returns (multipoolermanagerdata.InitializeEmptyPrimaryResponse);
 
   //
   // Backup and Restore
@@ -161,21 +71,32 @@ service MultiPoolerManager {
   rpc ExpireBackups(multipoolermanagerdata.ExpireBackupsRequest)
     returns (multipoolermanagerdata.ExpireBackupsResponse);
 
-  //
-  // PgRewind Operations
-  //
 
-  // RewindToSource performs pg_rewind to synchronize this server with a source.
-  // This is used to repair diverged timelines after failover.
-  // The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
-  rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
-      returns (multipoolermanagerdata.RewindToSourceResponse);
-  
   //
   // PostgreSQL Monitoring Control
   //
-  
-  // SetMonitor enables or disables the PostgreSQL monitoring goroutine
-  rpc SetMonitor(multipoolermanagerdata.SetMonitorRequest)
-        returns (multipoolermanagerdata.SetMonitorResponse);
+
+  // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
+  // When disabled, the monitor continues to run but will not auto-restart a stopped
+  // PostgreSQL instance. Used by tests and demos to prevent premature restarts during
+  // controlled failovers.
+  rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
+      returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
+
+  // ManagerHealthStream is a bidirectional health stream between orchestrator
+  // and pooler.
+  //
+  // The orchestrator sends a start message (ManagerHealthStreamClientMessage
+  // with the start field set) to open the stream, then may send poll requests
+  // at any time to trigger an immediate snapshot.
+  //
+  // The pooler sends a full health snapshot on connection, on every state
+  // change, in response to poll requests, and periodically as a heartbeat.
+  // Every message is a complete snapshot — there are no incremental updates.
+  //
+  // The orchestrator MUST implement a staleness timeout. The recommended
+  // timeout is provided in the timeout field of each snapshot. If no message is
+  // received within this timeout, the pooler should be marked unhealthy.
+  rpc ManagerHealthStream(stream multipoolermanagerdata.ManagerHealthStreamClientMessage)
+      returns (stream multipoolermanagerdata.ManagerHealthStreamResponse);
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -51,6 +52,14 @@ type ApplySessionState struct {
 
 	// Query is the original SQL string.
 	Query string
+
+	// SilentTracking, when true, updates SessionSettings but does NOT invoke
+	// the callback. Used inside a Sequence where a sibling primitive (like
+	// Route) owns the client-facing result — if both called back, the client
+	// would see a stray CommandComplete before the real row data. This is
+	// the shape a `SELECT set_config(...)` plan takes: silent tracking step
+	// first, then a Route that sends the query to PG and streams the result.
+	SilentTracking bool
 }
 
 // NewApplySessionState creates a new ApplySessionState primitive.
@@ -61,12 +70,43 @@ func NewApplySessionState(sql string, stmt *ast.VariableSetStmt) *ApplySessionSt
 	}
 }
 
+// NewApplySessionStateSilent creates an ApplySessionState that updates the
+// tracker without emitting anything to the client. Intended for use inside a
+// Sequence where a Route primitive owns the client-facing response — see
+// planner.planSelectStmt for the `SELECT set_config(...), * FROM t` case.
+func NewApplySessionStateSilent(sql string, stmt *ast.VariableSetStmt) *ApplySessionState {
+	return &ApplySessionState{
+		VariableStmt:   stmt,
+		Query:          sql,
+		SilentTracking: true,
+	}
+}
+
+// PortalStreamExecute handles SET/RESET on the extended-protocol path. The
+// primitive's effect is local to gateway state — it neither reads bind
+// values nor talks to a backend — so we delegate to StreamExecute and
+// ignore portalInfo entirely. This is the right shape for a silent
+// ApplySessionState sitting inside a Sequence whose trailing Route
+// reissues the actual portal.
+func (s *ApplySessionState) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
+}
+
 // StreamExecute handles the SET/RESET command.
 func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {
@@ -79,8 +119,14 @@ func (s *ApplySessionState) StreamExecute(
 	}
 }
 
-// executeSet handles SET commands: update local state and return synthetic response.
-// The value is NOT validated against PostgreSQL — see ApplySessionState doc comment.
+// executeSet handles SET commands: update local state and return a synthetic
+// response. The value is NOT validated against PostgreSQL — see the
+// ApplySessionState doc comment.
+//
+// Two modes:
+//   - SilentTracking: update state, no callback (a sibling primitive in a
+//     Sequence will respond — used for SELECT set_config(...) plans).
+//   - default: update state and emit CommandComplete "SET" (real SET stmt).
 func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	state *handler.MultiGatewayConnectionState,
@@ -88,12 +134,24 @@ func (s *ApplySessionState) executeSet(
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
 	state.SetSessionVariable(s.VariableStmt.Name, value)
+
+	if s.SilentTracking {
+		return nil
+	}
+
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "SET",
 	})
 }
 
 // executeReset handles RESET/RESET ALL: update state, return synthetic response.
+//
+// Two modes (mirrors executeSet):
+//   - SilentTracking: update state, no callback. No current planner path
+//     produces a silent RESET, but gating defensively prevents a future
+//     caller from emitting a stray CommandComplete("RESET") into the
+//     protocol stream ahead of a sibling primitive's real response.
+//   - default: update state and emit CommandComplete "RESET".
 func (s *ApplySessionState) executeReset(
 	ctx context.Context,
 	state *handler.MultiGatewayConnectionState,
@@ -110,6 +168,10 @@ func (s *ApplySessionState) executeReset(
 		state.ResetStatementTimeout()
 	default:
 		return mterrors.NewFeatureNotSupported(fmt.Sprintf("RESET kind %d is not supported", s.VariableStmt.Kind))
+	}
+
+	if s.SilentTracking {
+		return nil
 	}
 
 	// Return synthetic CommandComplete

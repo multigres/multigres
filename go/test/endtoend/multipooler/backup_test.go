@@ -16,7 +16,6 @@ package multipooler
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,12 +29,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	adminserver "github.com/multigres/multigres/go/services/multiadmin"
+	"github.com/multigres/multigres/go/test/utils"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/pb/pgctldservice"
-	adminserver "github.com/multigres/multigres/go/services/multiadmin"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // removeDataDirectory removes the pg_data directory for a given pgctld instance
@@ -98,6 +98,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Create backup client connections
 			backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
 			standbyBackupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+			standbyConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 			// Connect to primary PostgreSQL database using Unix socket
 			var err error
@@ -193,29 +194,20 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 false,
 					}
 					updateTermCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
 					require.NoError(t, err, "Should be able to update term")
 
 					// Verify term was updated
 					statusCtx := utils.WithShortDeadline(t)
 					statusResp, err := standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after term update")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil")
-					assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm.TermNumber, "Term should be updated to higher value")
+					require.NotNil(t, statusResp.ConsensusStatus.GetTermRevocation(), "ConsensusTerm should not be nil")
+					assert.Equal(t, higherTerm, statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Term should be updated to higher value")
 					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
-					// Connect to standby's pgctld to stop PostgreSQL
-					standbyPgctldConn, err := grpc.NewClient(
-						fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
-						grpc.WithTransportCredentials(insecure.NewCredentials()),
-					)
-					require.NoError(t, err)
-					defer standbyPgctldConn.Close()
-					standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
-
-					// Stop PostgreSQL on standby
-					stopCtx := utils.WithTimeout(t, 2*time.Minute)
-					_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
-					require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
+					standbyInst := setup.GetStandbys()
+					require.NotEmpty(t, standbyInst, "expected at least one standby")
+					resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
+					defer resumeStandby()
 
 					// Remove pg_data directory
 					removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
@@ -237,20 +229,17 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						if err != nil {
 							return false
 						}
-						if statusResp.Status.ConsensusTerm != nil {
-							restoredTerm = statusResp.Status.ConsensusTerm.TermNumber
-						}
+						restoredTerm = statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
 					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
 					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
 
-					// Verify primary_term is 0 after restore
+					// Verify primary_term is 0 after restore (never been primary)
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
-					assert.Equal(t, int64(0), statusResp.Status.ConsensusTerm.PrimaryTerm,
+					assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore
@@ -262,7 +251,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 true,         // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 					require.NoError(t, err, "Should be able to configure replication after restore")
 
 					// Connect to the standby database after restore
@@ -459,16 +448,9 @@ func TestBackup_FromStandby(t *testing.T) {
 			// Create backup client connection to standby
 			backupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
 
-			// For local mode (tests without TLS), we need to pass pg2_path override
-			// so pgBackRest can connect to the primary's postgres to get WAL files
-			primaryDataPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data")
-			overrides := map[string]string{
-				"pg2_path": primaryDataPath,
-			}
-
 			t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating full backup from standby...")
-				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, overrides)
+				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
 				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
@@ -477,7 +459,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating incremental backup from standby...")
-				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, overrides)
+				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, nil)
 			})
 		})
 	}
@@ -503,7 +485,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 			// Create a MultiAdminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			t.Run("Backup_CreateAndGetStatus", func(t *testing.T) {
@@ -579,31 +561,17 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				backupID := backupStatus.BackupId
 				t.Logf("Backup completed with ID: %s", backupID)
 
+				standbys := setup.GetStandbys()
+				require.NotEmpty(t, standbys, "Should have at least one standby")
+
 				t.Log("Step 2: Stopping standby PostgreSQL...")
-
-				// Connect to standby's pgctld to stop PostgreSQL
-				standbyPgctldConn, err := grpc.NewClient(
-					fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
-					grpc.WithTransportCredentials(insecure.NewCredentials()),
-				)
-				require.NoError(t, err)
-				defer standbyPgctldConn.Close()
-				standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
-
-				stopCtx, stopCancel := context.WithTimeout(t.Context(), 2*time.Minute)
-				defer stopCancel()
-				_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
-				require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
-				t.Log("PostgreSQL stopped on standby")
+				resumeStandby := setup.StopPostgres(t, standbys[0].Name, "fast")
+				defer resumeStandby()
 
 				t.Log("Step 3: Removing standby pg_data directory...")
 				removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
 
 				t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
-
-				// Create restore request targeting the standby pooler
-				standbys := setup.GetStandbys()
-				require.NotEmpty(t, standbys, "Should have at least one standby")
 				restoreReq := &multiadminpb.RestoreFromBackupRequest{
 					Database:   "postgres",
 					TableGroup: "default",
@@ -624,6 +592,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 				// Configure replication after restore
 				standbyClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+				standbyRestoreConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 				// Wait for PostgreSQL to be ready after restore
 				require.Eventually(t, func() bool {
@@ -651,7 +620,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				}
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
-				_, err = standbyClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+				_, err = standbyRestoreConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 				require.NoError(t, err, "Should be able to configure replication after restore")
 				t.Log("Replication configured after restore")
 
@@ -713,7 +682,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Log("Step 4: Creating fresh MultiAdmin server (simulating restart with no in-memory state)...")
 				// Note: We don't stop the original adminServer since the test infrastructure manages it.
 				// Instead, we create a new server to demonstrate the fallback works without in-memory state.
-				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				defer freshAdminServer.Stop()
 
 				t.Log("Step 5: Verifying job status is NOT available without shard context...")
@@ -786,7 +755,7 @@ func TestExpireAuto(t *testing.T) {
 			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -854,7 +823,7 @@ func TestExpireBackups(t *testing.T) {
 
 			// Create a MultiAdminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -946,7 +915,7 @@ func TestExpireBackups_Differential(t *testing.T) {
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := func(backupType string) *multiadminpb.BackupRequest {

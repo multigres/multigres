@@ -79,17 +79,25 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// Check if a primary already exists and is healthy (problem resolved).
 	// We must verify both that the pooler is reachable (IsLastCheckValid) AND that
 	// PostgreSQL is ready (IsPostgresReady). If the pooler is up but Postgres
-	// is not ready, we still need to trigger failover.
+	// is not ready, or if the primary has signalled it needs replacement, we still
+	// need to trigger failover.
 	for _, pooler := range cohort {
-		if pooler.MultiPooler != nil &&
-			pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
-			pooler.IsLastCheckValid &&
-			pooler.IsPostgresReady {
-			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
+		if pooler.MultiPooler == nil ||
+			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
+			!pooler.IsLastCheckValid ||
+			!pooler.GetStatus().GetPostgresReady() {
+			continue
+		}
+		if types.PrimaryNeedsReplacement(pooler) {
+			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
 				"primary", pooler.MultiPooler.Id.Name,
 				"shard_key", problem.ShardKey.String())
-			return nil
+			continue
 		}
+		a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
+			"primary", pooler.MultiPooler.Id.Name,
+			"shard_key", problem.ShardKey.String())
+		return nil
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",

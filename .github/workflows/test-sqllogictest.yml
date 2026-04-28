@@ -1,0 +1,262 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: SQLLogicTest Differential Suite
+
+on: # yamllint disable-line rule:truthy
+  schedule:
+    - cron: "30 3 * * *" # Nightly at 3:30 AM UTC (offset from pgregress at 3:00)
+    - cron: "30 9 * * 1" # Weekly summary: Monday 9:30 AM UTC
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test-sqllogictest:
+    name: Run sqllogictest differential suite
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev
+
+      - name: Install tools (downloads sqllogictest-bin via pinned SHA)
+        run: make tools
+
+      - name: Build
+        run: make build
+
+      # Only nightly cron runs save to the baseline (see "Save current
+      # results as new baseline" below), so restore only from the
+      # nightly-scoped key prefix. PR-labeled runs, weekly summary runs,
+      # and workflow_dispatch runs all read the latest nightly result
+      # without being able to pollute it.
+      - name: Restore baseline results
+        id: baseline
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/sqllogictest-baseline/results.json
+          key: sqllogictest-baseline-nightly-dummy
+          restore-keys: sqllogictest-baseline-nightly-
+
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
+      - name: Run SQLLogicTest suite
+        env:
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          TEST_PRINT_LOGS: "1"
+        run: |
+          go test -json -v -run TestPostgreSQLSqlLogicTest \
+            ./go/test/endtoend/queryserving/sqllogictest/... \
+            -timeout 170m | tee sqllogictest-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        if: always()
+        run: kill "$PORT_POOL_PID" || true
+
+      - name: Find results.json
+        id: results
+        if: ${{ !cancelled() }}
+        run: |
+          results_file=$(find /tmp/multigres_pg_cache/results -name results.json -type f 2>/dev/null | head -1)
+          if [[ -n "$results_file" ]]; then
+            echo "path=$results_file" >> "$GITHUB_OUTPUT"
+            echo "Found results at: $results_file"
+          else
+            echo "No results.json found"
+          fi
+
+      - name: Detect regressions
+        id: regressions
+        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          exit_code=0
+          .github/scripts/detect-regressions.sh \
+            /tmp/sqllogictest-baseline/results.json \
+            "$RESULTS_PATH" \
+            /tmp/sqllogictest-regressions \
+            || exit_code=$?
+
+          if [[ "$exit_code" -eq 0 ]]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$exit_code" -eq 1 ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Regression detection script failed with exit code $exit_code"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload sqllogictest results
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: sqllogictest-results
+          path: /tmp/multigres_pg_cache/results/**/*
+          if-no-files-found: warn
+
+      - name: Notify Slack on regression
+        if: >-
+          !cancelled() &&
+          steps.regressions.outputs.found == 'true' &&
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          regressions=$(cat /tmp/sqllogictest-regressions/regressions.json)
+          count=$(echo "$regressions" | jq 'length')
+          test_list=$(echo "$regressions" | jq -r '.[] | "- [\(.suite)] \(.test)"' | head -20)
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          payload=$(jq -n \
+            --arg count "$count" \
+            --arg tests "$test_list" \
+            --arg url "$run_url" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " sqllogictest regression(s) detected")}},
+                {type: "section", text: {type: "mrkdwn", text: ("Files that were passing but now fail:\n```\n" + $tests + "\n```")}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack weekly summary
+        if: >-
+          !cancelled() &&
+          (github.event.schedule == '30 9 * * 1' || github.event_name == 'workflow_dispatch') &&
+          steps.results.outputs.path != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          results_file="$RESULTS_PATH"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # results.json is an array of suites (one per protocol). Report
+          # per-suite counts so simple and extended tracking stay distinct.
+          payload=$(jq -n \
+            --slurpfile results "$results_file" \
+            --arg url "$run_url" \
+            '
+            ($results[0] | map({
+              name: .name,
+              total: .total_files,
+              pg: .postgres_passed,
+              mg: .multigateway_passed,
+              mg_rate: (if .total_files > 0 then (.multigateway_passed * 100 / .total_files | floor) else 0 end),
+              divergences: .passed_pg_only
+            })) as $suites |
+
+            [{type: "header", text: {type: "plain_text",
+              text: "Weekly sqllogictest report"}}] +
+
+            ($suites | map(
+              {type: "section", text: {type: "mrkdwn",
+                text: ("*" + .name + "*: " + (.mg | tostring) + "/" + (.total | tostring) +
+                       " multigateway passed (" + (.mg_rate | tostring) + "%)\n" +
+                       "postgres: " + (.pg | tostring) + "/" + (.total | tostring) +
+                       " • proxy divergences: " + (.divergences | tostring))}}
+            )) +
+
+            [{type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}] |
+
+            {blocks: .}
+            ')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack on test infrastructure failure
+        if: >-
+          !cancelled() &&
+          steps.results.outputs.path == '' &&
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          payload=$(jq -n \
+            --arg url "$run_url" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: "sqllogictest suite failed to produce results"}},
+                {type: "section", text: {type: "mrkdwn", text: "The nightly sqllogictest run did not produce a `results.json`. The test infrastructure likely failed (e.g. cluster bootstrap timeout, build failure)."}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Prepare baseline for cache save
+        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        env:
+          RESULTS_PATH: ${{ steps.results.outputs.path }}
+        run: |
+          mkdir -p /tmp/sqllogictest-baseline
+          cp "$RESULTS_PATH" /tmp/sqllogictest-baseline/results.json
+
+      # Only the nightly cron run (`30 3 * * *`) updates the baseline. PR-
+      # labeled runs and workflow_dispatch can read the baseline but never
+      # overwrite it, so a bad PR can't poison the next run's regression
+      # diff. The weekly summary cron is deliberately skipped too — it
+      # runs against the same multigres tree a couple of days later and
+      # shouldn't be treated as a fresher baseline than Monday's.
+      - name: Save current results as new baseline
+        if: ${{ !cancelled() && steps.results.outputs.path != '' && github.event.schedule == '30 3 * * *' }}
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/sqllogictest-baseline/results.json
+          key: sqllogictest-baseline-nightly-${{ github.run_id }}
+
+      # Note: the Go test writes the pass/fail summary (including shields.io
+      # badge) directly to GITHUB_STEP_SUMMARY via report.go.
+      # Full per-file output is in the uploaded artifact.

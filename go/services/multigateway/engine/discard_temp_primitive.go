@@ -18,7 +18,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -52,6 +54,7 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// If the session has a temp table reservation, use the dedicated RPC
@@ -67,6 +70,22 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	// No temp table reservation — return synthetic result.
 	// DISCARD TEMP on a session with no temp tables is a no-op in PG.
 	return callback(ctx, &sqltypes.Result{CommandTag: "DISCARD"})
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. DISCARD TEMP carries no parameter binds — the
+// effect is purely on gateway state and (when a reservation exists) the
+// multipooler-side reservation cleanup. Delegate to StreamExecute.
+func (d *DiscardTempPrimitive) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return d.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

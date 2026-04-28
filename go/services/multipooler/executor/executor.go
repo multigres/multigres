@@ -158,6 +158,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 // When reservationOptions is set on an existing reserved connection, the reasons are
 // OR'd into the reservation (e.g., adding ReasonTransaction to a temp-table-reserved conn).
 //
+// If options.PreparedStatement is set, the statement is parsed on the chosen
+// backend connection via ensurePreparedWithName() before `sql` runs. This is
+// used for wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE)
+// that reference a gateway-managed prepared statement by its canonical name.
+//
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) StreamExecute(
 	ctx context.Context,
@@ -180,6 +185,8 @@ func (e *Executor) StreamExecute(
 		"user", user,
 		"query", sql)
 
+	preparedStmt := options.GetPreparedStatement()
+
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
@@ -195,6 +202,18 @@ func (e *Executor) StreamExecute(
 		if options.SessionSettings != nil {
 			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+			}
+		}
+
+		// If the query references a gateway-managed prepared statement
+		// (wrapped EXECUTE forms), ensure it is parsed on this backend
+		// connection before running the query. We do this before delegating
+		// to streamExecuteOnReservedConn because that helper operates over
+		// the reservedConnAPI interface which does not expose the underlying
+		// *regular.Conn needed by ensurePreparedWithName.
+		if preparedStmt != nil {
+			if err := e.ensurePreparedWithName(ctx, reservedConn.Conn(), preparedStmt); err != nil {
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to ensure prepared statement on reserved connection: %w", err)
 			}
 		}
 
@@ -218,6 +237,22 @@ func (e *Executor) StreamExecute(
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
+
+	// When a PreparedStatement is provided we cannot use the retry-on-connection-error
+	// variant of QueryStreaming: reconnect wipes per-connection prepared-statement state
+	// (regular_conn.go Reconnect: "Prepared statements don't survive reconnection"),
+	// so after a silent reconnect the subsequent query would fail with "prepared
+	// statement does not exist". Skip the retry for this rare path; the caller can
+	// reissue the query at the application level on transient failures.
+	if preparedStmt != nil {
+		if err := e.ensurePreparedWithName(ctx, conn.Conn, preparedStmt); err != nil {
+			return nil, fmt.Errorf("failed to ensure prepared statement: %w", err)
+		}
+		if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
+			return nil, wrapQueryError(err)
+		}
+		return nil, nil
+	}
 
 	// Use streaming query execution with retry since this is a stateless pool query.
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
@@ -252,8 +287,25 @@ func (e *Executor) reserveAndStreamExecute(
 		"begin_tx", beginTx,
 		"query", sql)
 
+	// If the query references a gateway-managed prepared statement (wrapped
+	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), parse it during
+	// reserved-connection acquisition. Doing the Parse via the validate
+	// callback lets the reserved pool transparently swap a stale (silently
+	// closed) socket for a fresh one before we register the connection — the
+	// failure mode that flaked TestWrappedPreparedStatementExecution.
+	//
+	// Parse is a session-level operation in PostgreSQL, so running it before
+	// BEGIN is safe; the prepared statement persists into the transaction.
+	var reservedOpts []reserved.ReservedConnOption
+	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+		validate := func(ctx context.Context, conn *regular.Conn) error {
+			return e.ensurePreparedWithName(ctx, conn, preparedStmt)
+		}
+		reservedOpts = append(reservedOpts, reserved.WithValidate(validate))
+	}
+
 	// Create a reserved connection
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -441,14 +493,25 @@ func (e *Executor) portalExecuteWithReserved(
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 	} else {
-		// Create a new reserved connection
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		// Create a new reserved connection. Wire ensurePrepared as the
+		// validate hook so that the Parse — the first user-issued write
+		// on this freshly acquired socket — triggers a transparent
+		// retry on a fresh socket if the pooled conn has been silently
+		// closed by PostgreSQL. The post-acquire ensurePrepared call
+		// below is a no-op for the new-conn path because connState
+		// dedupes by canonical name.
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
+			return err
+		}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
 	}
 
-	// Ensure the statement is prepared on this connection (with consolidation)
+	// Ensure the statement is prepared on this connection (with consolidation).
+	// For the new-conn branch this is a no-op because the validate hook above
+	// already parsed it; for the existing-conn branch this is the only call.
 	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
@@ -592,6 +655,49 @@ func (e *Executor) Describe(
 	return desc, nil
 }
 
+// ensurePreparedWithName ensures that a prepared statement named `name` with
+// the given body exists on the backend connection, Parsing it if necessary.
+// Unlike ensurePrepared (which derives its own canonical name via the pooler
+// consolidator), this variant uses the caller-supplied name directly. It is
+// used by the wrapped-EXECUTE StreamExecute path where the gateway has
+// already rewritten the SQL to reference a specific name, and the backend
+// must have a prepared statement under exactly that name.
+//
+// The gateway's prepared-statement consolidator assigns globally unique
+// monotonic names ("stmt0", "stmt1", ...) that are deduplicated by
+// (query, paramTypes), so using them as backend-session prepared statement
+// names is safe across multiple gateway client sessions sharing a pool
+// connection.
+func (e *Executor) ensurePreparedWithName(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+	if stmt == nil || stmt.Name == "" {
+		return errors.New("ensurePreparedWithName requires a non-empty statement name")
+	}
+	connState := conn.State()
+	existing := connState.GetPreparedStatement(stmt.Name)
+	if existing != nil && existing.Query == stmt.Query {
+		return nil
+	}
+	// If the name is already taken with a different query (e.g. from a
+	// different gateway instance that reused the same canonical name space),
+	// close the stale statement first — PostgreSQL rejects Parse for an
+	// already-existing prepared statement name.
+	if existing != nil {
+		if err := conn.CloseStatement(ctx, stmt.Name); err != nil {
+			return fmt.Errorf("failed to close stale prepared statement %q: %w", stmt.Name, err)
+		}
+		connState.DeletePreparedStatement(stmt.Name)
+	}
+	if err := conn.Parse(ctx, stmt.Name, stmt.Query, stmt.ParamTypes); err != nil {
+		return fmt.Errorf("failed to parse statement %q: %w", stmt.Name, err)
+	}
+	connState.StorePreparedStatement(&query.PreparedStatement{
+		Name:       stmt.Name,
+		Query:      stmt.Query,
+		ParamTypes: stmt.ParamTypes,
+	})
+	return nil
+}
+
 // ensurePrepared ensures the prepared statement is available on the connection.
 // It uses the PoolerConsolidator to get a canonical name by (query, paramTypes),
 // then checks the connection state to avoid redundant parsing.
@@ -642,8 +748,12 @@ func (e *Executor) CopyReady(
 		"query", copyQuery,
 		"user", user)
 
-	var reservedConn *reserved.Conn
-	var err error
+	var (
+		reservedConn  *reserved.Conn
+		err           error
+		format        int16
+		columnFormats []int16
+	)
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -651,40 +761,57 @@ func (e *Executor) CopyReady(
 		if reservedConn == nil {
 			return 0, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
+
+		// Existing reserved conns are actively held (never idle in the
+		// regular pool), so PostgreSQL's idle timeout cannot have closed
+		// the socket between uses. InitiateCopyFromStdin runs directly
+		// here without a stale-socket retry hop.
+		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
+		if err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+		}
 	} else {
-		// Create a new reserved connection (COPY requires connection affinity)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		// New reserved conn — wire BEGIN-if-needed and InitiateCopyFromStdin
+		// through the validate hook so that the first writes on this
+		// freshly acquired socket can be transparently retried on a fresh
+		// socket if the pooled conn was silently closed by PostgreSQL.
+		// Capture format / columnFormats via closure for use after acquisition.
+		requiresBegin := protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions))
+		beginQuery := "BEGIN"
+		if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+			beginQuery = reservationOptions.BeginQuery
+		}
+
+		validate := func(ctx context.Context, conn *regular.Conn) error {
+			if requiresBegin {
+				if _, err := conn.Query(ctx, beginQuery); err != nil {
+					return fmt.Errorf("failed to begin transaction for COPY: %w", err)
+				}
+			}
+			var initErr error
+			format, columnFormats, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
+			if initErr != nil {
+				return fmt.Errorf("failed to initiate COPY FROM STDIN: %w", initErr)
+			}
+			return nil
+		}
+
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}
 
-		// If this is a transaction reservation, execute BEGIN before COPY.
-		// This handles the deferred-BEGIN case where the client sent BEGIN
-		// but no query has been executed yet to create a reserved connection.
-		if protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions)) {
-			beginQuery := "BEGIN"
-			if reservationOptions != nil && reservationOptions.BeginQuery != "" {
-				beginQuery = reservationOptions.BeginQuery
-			}
-			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
-				reservedConn.Release(reserved.ReleaseError)
-				return 0, nil, nil, fmt.Errorf("failed to begin transaction for COPY: %w", err)
-			}
+		// validate ran BEGIN via the raw *regular.Conn, which bypassed
+		// reserved.Conn.BeginWithQuery's bookkeeping. Mark the
+		// reservation reason explicitly so the txn shows up in
+		// RemainingReasons / RequiresBegin checks.
+		if requiresBegin {
+			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		}
 	}
 
 	connID := reservedConn.ConnID()
-
-	// Get the pooled connection for COPY operations
-	conn := reservedConn.Conn()
-
-	// Send COPY command and read CopyInResponse
-	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
-	if err != nil {
-		// Connection is in bad state after failed COPY initiation - close it instead of recycling
-		reservedConn.Release(reserved.ReleaseError)
-		return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
-	}
 
 	// Mark the connection as reserved for COPY. If the connection is also
 	// reserved for a transaction, this adds the COPY reason alongside it.

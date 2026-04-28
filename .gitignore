@@ -58,6 +58,8 @@ super-linter-output/
 # Claude Code local settings
 .claude/settings.local.json
 .claude/commands/*.local.md
+.claude/scheduled_tasks/
+.claude/worktrees/
 CLAUDE.local.md
 
 # expected results of a test
@@ -78,3 +80,4 @@ demo/k8s/data/
 # Generated PR description
 pr-description.md
 
+docs/query_serving/benchmarking/results/*

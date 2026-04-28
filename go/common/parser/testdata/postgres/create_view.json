@@ -55,8 +55,7 @@
   },
   {
     "comment": "create_view - Statement 13",
-    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) \u003e 0",
-    "expected": "CREATE VIEW key_dependent_view_no_cols AS SELECT * FROM view_base_table GROUP BY key HAVING length(data) \u003e 0"
+    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) \u003e 0"
   },
   {
     "comment": "create_view - Statement 14",

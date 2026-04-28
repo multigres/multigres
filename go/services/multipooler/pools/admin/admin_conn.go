@@ -43,6 +43,16 @@ const DefaultCancelTimeout = 5 * time.Second
 // ErrUserNotFound is returned when a requested PostgreSQL role doesn't exist in pg_authid.
 var ErrUserNotFound = errors.New("user not found in pg_authid")
 
+// ErrLoginDisabled is returned when the role exists in pg_authid but has
+// rolcanlogin=false. PostgreSQL rejects such logins at ClientAuthentication
+// regardless of auth method with SQLSTATE 28000.
+var ErrLoginDisabled = errors.New("role is not permitted to log in")
+
+// ErrPasswordExpired is returned when the role's rolvaliduntil is set and
+// has elapsed. PostgreSQL treats this as a password-authentication failure
+// (SQLSTATE 28P01), indistinguishable from a wrong password at the wire.
+var ErrPasswordExpired = errors.New("role password has expired")
+
 // Conn wraps a client.Conn for administrative operations.
 // It implements connpool.Connection with no settings support.
 //
@@ -92,12 +102,27 @@ func (c *Conn) ResetAllSettings(_ context.Context) error {
 
 // GetRolPassword retrieves the role password hash from pg_authid for a given username.
 // Returns the SCRAM-SHA-256 password hash, or empty string if the user has no password set.
-// Returns an error if the user doesn't exist or if the query fails.
 //
-// This is used during authentication to retrieve password hashes for SCRAM-SHA-256 verification.
+// In addition to fetching the hash, this enforces two native-PG login checks
+// so multigateway reaches parity with PostgreSQL's ClientAuthentication:
+//   - rolcanlogin=false → ErrLoginDisabled (SQLSTATE 28000 at the gateway)
+//   - rolvaliduntil in the past → ErrPasswordExpired (SQLSTATE 28P01)
+//
+// These checks run at the admin layer because the per-user downstream pool
+// connection (local Unix socket, trust auth in pg_hba.conf) bypasses PG's
+// own password-based enforcement of rolvaliduntil, so without filtering here
+// an expired password would authenticate successfully through multigateway.
+//
+// Precedence matches PostgreSQL (src/backend/libpq/auth.c CheckPasswordAuth):
+// login-disabled is checked before password validity.
 func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, error) {
-	// Query pg_authid for the user's password hash.
-	sql := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
+	// Query pg_authid for the password hash plus the two login-time predicates
+	// PG itself evaluates. Expressing validity in SQL avoids timestamp parsing
+	// and matches PG's own `now()` semantics (both are evaluated server-side).
+	sql := fmt.Sprintf(
+		"SELECT rolpassword, rolcanlogin, "+
+			"(rolvaliduntil IS NULL OR rolvaliduntil > now()) AS password_valid "+
+			"FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
 		ast.QuoteStringLiteral(username))
 
 	results, err := c.queryWithRetry(ctx, sql)
@@ -105,18 +130,47 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 		return "", fmt.Errorf("failed to query role password: %w", err)
 	}
 
-	// Check if user exists
+	// Check if user exists.
 	if len(results) == 0 || len(results[0].Rows) == 0 {
 		return "", fmt.Errorf("%w: %q", ErrUserNotFound, username)
 	}
 
-	// Extract the password hash (may be NULL/empty if no password set)
+	row := results[0].Rows[0].Values
+	if len(row) < 3 {
+		return "", fmt.Errorf("unexpected pg_authid result shape: %d columns", len(row))
+	}
+
+	// rolcanlogin takes precedence — PG rejects NOLOGIN roles before looking at
+	// the password, so the error class differs (28000 vs 28P01).
+	if !parsePgBool(row[1]) {
+		return "", fmt.Errorf("%w: %q", ErrLoginDisabled, username)
+	}
+
+	// rolvaliduntil: a non-NULL value in the past invalidates the password for
+	// password-based auth. PG returns the same opaque "password authentication
+	// failed" message as wrong-password in this case.
+	if !parsePgBool(row[2]) {
+		return "", fmt.Errorf("%w: %q", ErrPasswordExpired, username)
+	}
+
+	// Extract the password hash (may be NULL/empty if no password set).
 	var scramHash string
-	if len(results[0].Rows[0].Values) > 0 && !results[0].Rows[0].Values[0].IsNull() {
-		scramHash = string(results[0].Rows[0].Values[0])
+	if !row[0].IsNull() {
+		scramHash = string(row[0])
 	}
 
 	return scramHash, nil
+}
+
+// parsePgBool converts PG's textual boolean representation ("t"/"f") to Go's bool.
+// NULL is treated as false defensively — neither rolcanlogin nor the password_valid
+// expression should ever return NULL, but we don't want a malformed row to appear
+// as "allowed to log in".
+func parsePgBool(v sqltypes.Value) bool {
+	if v.IsNull() {
+		return false
+	}
+	return string(v) == "t"
 }
 
 // QueryWithRetry executes a query with automatic retry and reconnection on

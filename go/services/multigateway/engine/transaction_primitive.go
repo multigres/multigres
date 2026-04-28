@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -71,6 +72,7 @@ func (t *TransactionPrimitive) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch t.Kind {
@@ -88,7 +90,7 @@ func (t *TransactionPrimitive) StreamExecute(
 
 	default:
 		// For other transaction statements (SAVEPOINT, RELEASE SAVEPOINT), pass through to backend
-		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	}
 }
 
@@ -249,7 +251,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 ) error {
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
 
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	if err != nil {
 		return err
 	}
@@ -278,6 +280,23 @@ func (t *TransactionPrimitive) recordTxnMetrics(
 	txnDuration := time.Since(state.TxnStartTime)
 	state.TxnStartTime = time.Time{}
 	t.metrics.RecordCompletion(ctx, txnDuration.Seconds(), conn.Database(), outcome)
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. BEGIN / COMMIT / ROLLBACK / SAVEPOINT carry
+// no parameter binds; PlanPortal explicitly funnels TransactionStmt
+// through Plan() so this primitive runs locally rather than being
+// portal-forwarded. Delegate.
+func (t *TransactionPrimitive) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return t.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

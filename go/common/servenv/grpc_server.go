@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
@@ -230,8 +231,8 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("grpc-cert", g.cert.Default(), "server certificate to use for gRPC connections, requires grpc-key, enables TLS")
 	fs.String("grpc-key", g.key.Default(), "server private key to use for gRPC connections, requires grpc-cert, enables TLS")
 	fs.String("grpc-ca", g.ca.Default(), "server CA to use for gRPC connections, requires TLS, and enforces client certificate check")
-	fs.String("grpc-crl", g.crl.Default(), "path to a certificate revocation list in PEM format, client certificates will be further verified against this file during TLS handshake")
-	fs.Bool("grpc-enable-optional-tls", g.enableOptionalTLS.Default(), "enable optional TLS mode when a server accepts both TLS and plain-text connections on the same port")
+	fs.String("grpc-crl", g.crl.Default(), "path to a certificate revocation list in PEM format (not yet implemented; startup fails if set)")
+	fs.Bool("grpc-enable-optional-tls", g.enableOptionalTLS.Default(), "enable optional TLS mode for mixed TLS/plaintext on one port (not yet implemented; startup fails if enabled)")
 	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
@@ -284,6 +285,11 @@ func (g *GrpcServer) BindAddress() string {
 	return g.bindAddress.Get()
 }
 
+// SocketFile returns the Unix socket file path, or empty string if not configured.
+func (g *GrpcServer) SocketFile() string {
+	return g.socketFile.Get()
+}
+
 // IsEnabled returns true if gRPC server is enabled
 func (g *GrpcServer) IsEnabled() bool {
 	if g.port.Get() != 0 {
@@ -306,10 +312,36 @@ func (g *GrpcServer) Create() error {
 		return nil
 	}
 
-	var opts []grpc.ServerOption
-	if g.cert.Get() != "" && g.key.Get() != "" {
-		return errors.New("TLS is not implemented yet")
+	// Fail-fast on flags that aren't implemented yet, before doing any
+	// further setup work.
+	if g.crl.Get() != "" {
+		return errors.New("--grpc-crl is not implemented yet")
 	}
+	if g.enableOptionalTLS.Get() {
+		return errors.New("--grpc-enable-optional-tls is not implemented yet")
+	}
+
+	var opts []grpc.ServerOption
+
+	// Build TLS config if cert and key files are provided.
+	// When --grpc-ca is also set, mutual TLS is enabled (client certs required).
+	// BuildServerTLSConfig validates the cert/key/ca combinations.
+	tlsConfig, err := grpccommon.BuildServerTLSConfig(
+		g.cert.Get(), g.key.Get(), g.ca.Get(), g.serverCA.Get(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to configure gRPC TLS: %w", err)
+	}
+	if tlsConfig != nil {
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+		slog.Info("gRPC TLS enabled", "cert", g.cert.Get(), "mtls", g.ca.Get() != "")
+	}
+
+	// Validate that mTLS auth mode is not used without transport TLS.
+	if g.auth.Get() == "mtls" && tlsConfig == nil {
+		return errors.New("--grpc-auth-mode=mtls requires --grpc-cert and --grpc-key for transport TLS")
+	}
+
 	// Override the default max message size for both send and receive
 	// (which is 4 MiB in gRPC 1.0.0).
 	// Large messages can occur when users try to insert or fetch very big

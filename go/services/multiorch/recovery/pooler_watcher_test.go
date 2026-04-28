@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func newTestPoolerWatcher(
 	ts topoclient.Store,
 	targets []config.WatchTarget,
 	poolerStore *store.PoolerStore,
-	queue *Queue,
+	onNewPooler func(*clustermetadata.ID),
 	logger *slog.Logger,
 ) *PoolerWatcher {
 	return NewPoolerWatcher(
@@ -45,9 +46,27 @@ func newTestPoolerWatcher(
 		ts,
 		func() []config.WatchTarget { return targets },
 		poolerStore,
-		queue,
+		onNewPooler,
 		logger,
 	)
+}
+
+// newCallbackTracker returns an onNewPooler callback and a Len function for tests
+// that need to assert how many new-pooler notifications were fired.
+func newCallbackTracker() (func(*clustermetadata.ID), func() int) {
+	var mu sync.Mutex
+	var ids []*clustermetadata.ID
+	onNew := func(id *clustermetadata.ID) {
+		mu.Lock()
+		ids = append(ids, id)
+		mu.Unlock()
+	}
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(ids)
+	}
+	return onNew, count
 }
 
 // waitForCondition polls fn until it returns true or the timeout elapses.
@@ -89,11 +108,10 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
+	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -108,8 +126,9 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
 	assert.False(t, p1.IsUpToDate, "new pooler should not be marked up-to-date")
 
-	// Both should be queued for health check
-	assert.Equal(t, 2, queue.QueueLen())
+	// Both should trigger onNewPooler
+	ok = waitForCondition(t, 5*time.Second, func() bool { return countNew() == 2 })
+	assert.True(t, ok, "expected 2 onNewPooler callbacks, got %d", countNew())
 }
 
 func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
@@ -120,11 +139,10 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
+	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -150,7 +168,9 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	p1, exists := poolerStore.Get(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
 	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
-	assert.Equal(t, 1, queue.QueueLen())
+
+	ok = waitForCondition(t, 5*time.Second, func() bool { return countNew() == 1 })
+	assert.True(t, ok, "expected 1 onNewPooler callback, got %d", countNew())
 }
 
 func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
@@ -170,11 +190,10 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
+	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -184,9 +203,10 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	// Record queue length after initial discovery (the new pooler was queued once)
-	queueLenAfterDiscovery := queue.QueueLen()
-	assert.Equal(t, 1, queueLenAfterDiscovery, "new pooler should be queued once on discovery")
+	// Wait for the initial onNewPooler callback
+	ok = waitForCondition(t, 5*time.Second, func() bool { return countNew() == 1 })
+	require.True(t, ok, "new pooler should trigger callback once on discovery")
+	callbacksAfterDiscovery := countNew()
 
 	// Simulate a health-check populating some state
 	pid := poolerKey("zone1", "pooler1")
@@ -216,8 +236,9 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	assert.True(t, updated.IsUpToDate, "IsUpToDate should be preserved")
 	assert.True(t, updated.IsLastCheckValid, "IsLastCheckValid should be preserved")
 
-	// An update to an existing pooler should NOT add more entries to the queue
-	assert.Equal(t, queueLenAfterDiscovery, queue.QueueLen(), "existing pooler should not be re-queued on metadata update")
+	// An update to an existing pooler should NOT trigger another onNewPooler callback
+	require.NoError(t, watcher.Sync(ctx))
+	assert.Equal(t, callbacksAfterDiscovery, countNew(), "existing pooler should not re-trigger callback on metadata update")
 }
 
 func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
@@ -248,12 +269,10 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
 
 	// Only watch mydb/tg1
 	targets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -282,11 +301,9 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -340,11 +357,9 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	poolerStore := store.NewPoolerStore(nil, logger)
-	cfg := config.NewTestConfig()
-	queue := NewQueue(logger, cfg)
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, queue, logger)
+	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
