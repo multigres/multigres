@@ -893,28 +893,21 @@ func (c *Conn) handleDescribe() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
+	if msgLen < 2 {
+		return errors.New("invalid describe message: missing type or name")
+	}
 
-	// Read describe type (1 byte): 'S' for statement, 'P' for portal.
-	typ, err := c.bufferedReader.ReadByte()
+	// Read the full body (type byte + null-terminated name) into a
+	// pooled buffer.
+	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
-		return fmt.Errorf("failed to read describe type: %w", err)
+		return fmt.Errorf("failed to read describe body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
-	// Calculate remaining length for name.
-	// msgLen is already the body length (excluding the 4-byte length field).
-	nameLen := msgLen - 1 // Subtract only the type byte.
-	if nameLen <= 0 {
-		return errors.New("invalid describe message: missing name")
-	}
-
-	// Read name (null-terminated string).
-	nameBuf := make([]byte, nameLen)
-	if _, err := io.ReadFull(c.bufferedReader, nameBuf); err != nil {
-		return fmt.Errorf("failed to read describe name: %w", err)
-	}
-
-	// Remove null terminator.
-	name := string(nameBuf[:len(nameBuf)-1])
+	typ := buf[0]
+	// String() copies, so the body buffer can be returned to the pool.
+	name := string(buf[1 : len(buf)-1])
 
 	c.logger.Debug("describe", "type", string(typ), "name", name)
 
@@ -964,28 +957,21 @@ func (c *Conn) handleClose() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
+	if msgLen < 2 {
+		return errors.New("invalid close message: missing type or name")
+	}
 
-	// Read close type (1 byte): 'S' for statement, 'P' for portal.
-	typ, err := c.bufferedReader.ReadByte()
+	// Read the full body (type byte + null-terminated name) into a
+	// pooled buffer.
+	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
-		return fmt.Errorf("failed to read close type: %w", err)
+		return fmt.Errorf("failed to read close body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
-	// Calculate remaining length for name.
-	// msgLen is already the body length (excluding the 4-byte length field).
-	nameLen := msgLen - 1 // Subtract only the type byte.
-	if nameLen <= 0 {
-		return errors.New("invalid close message: missing name")
-	}
-
-	// Read name (null-terminated string).
-	nameBuf := make([]byte, nameLen)
-	if _, err := io.ReadFull(c.bufferedReader, nameBuf); err != nil {
-		return fmt.Errorf("failed to read close name: %w", err)
-	}
-
-	// Remove null terminator.
-	name := string(nameBuf[:len(nameBuf)-1])
+	typ := buf[0]
+	// String() copies, so the body buffer can be returned to the pool.
+	name := string(buf[1 : len(buf)-1])
 
 	c.logger.Debug("close", "type", string(typ), "name", name)
 

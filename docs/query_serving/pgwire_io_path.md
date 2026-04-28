@@ -94,6 +94,14 @@ unused buckets during quiet periods.
 Server side uses `listener.bufPool`; client side uses a package-level
 `bufPool` (clients have no listener context). Same sizing.
 
+When `writePacket` writes a slow-path buffer through `bufferedWriter`,
+`bufio.Writer.Write` will implicitly flush its current contents and
+write the oversize slice through if it doesn't fit. Wire ordering is
+preserved (already-buffered bytes go out first), but a single
+`writePacket` call on the slow path may issue a syscall even though
+callers usually treat it as "buffer it." Pre-pass arithmetic that
+keeps packets within `connBufferSize` avoids this.
+
 ### Per-connection memory
 
 | state                     | pinned buffer memory                 |

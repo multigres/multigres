@@ -73,6 +73,9 @@ func (s *scramClient) authenticate() error {
 }
 
 // sendClientFirst sends the SASLInitialResponse with client-first message.
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (s *scramClient) sendClientFirst() error {
 	clientFirstMessage, err := s.client.ClientFirstMessage()
 	if err != nil {
@@ -130,6 +133,9 @@ func (s *scramClient) receiveServerFirst() (string, error) {
 }
 
 // sendClientFinal computes the proof and sends the client-final message.
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (s *scramClient) sendClientFinal(serverFirst string) error {
 	clientFinalMessage, err := s.client.ProcessServerFirst(serverFirst)
 	if err != nil {

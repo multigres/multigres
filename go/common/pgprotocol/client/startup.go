@@ -81,6 +81,9 @@ func (c *Conn) negotiateSSL() error {
 // (including itself) followed by the body — so it's encoded inline
 // here instead of through startPacket (which always writes a 5-byte
 // type+length header).
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (c *Conn) sendStartupMessage() error {
 	// Pre-compute body length so we can encode in place.
 	bodyLen := 4 // protocol version
@@ -104,6 +107,11 @@ func (c *Conn) sendStartupMessage() error {
 		poolBuf = bufPool.Get(totalLen)
 		buf = *poolBuf
 	}
+	defer func() {
+		if poolBuf != nil {
+			bufPool.Put(poolBuf)
+		}
+	}()
 
 	pos := 0
 	pos = writeUint32At(buf, pos, uint32(totalLen))
@@ -118,19 +126,11 @@ func (c *Conn) sendStartupMessage() error {
 		pos = writeStringAt(buf, pos, key)
 		pos = writeStringAt(buf, pos, value)
 	}
-	pos = writeByteAt(buf, pos, 0)
-	_ = pos
+	writeByteAt(buf, pos, 0)
 
 	if _, err := c.bufferedWriter.Write(buf); err != nil {
-		if poolBuf != nil {
-			bufPool.Put(poolBuf)
-		}
 		return err
 	}
-	if poolBuf != nil {
-		bufPool.Put(poolBuf)
-	}
-
 	return c.flush()
 }
 
@@ -293,6 +293,9 @@ func (c *Conn) handleReadyForQuery(body []byte) error {
 // SSLRequest has no message type byte — just length (8) +
 // SSLRequestCode. Encoded as a single 8-byte slice into the
 // bufferedWriter's available space so it goes out in one Write.
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (c *Conn) writeSSLRequest() error {
 	avail := c.bufferedWriter.AvailableBuffer()
 	var buf []byte
@@ -303,13 +306,14 @@ func (c *Conn) writeSSLRequest() error {
 		poolBuf = bufPool.Get(8)
 		buf = *poolBuf
 	}
+	defer func() {
+		if poolBuf != nil {
+			bufPool.Put(poolBuf)
+		}
+	}()
 	pos := 0
 	pos = writeUint32At(buf, pos, 8)
-	pos = writeUint32At(buf, pos, protocol.SSLRequestCode)
-	_ = pos
+	writeUint32At(buf, pos, protocol.SSLRequestCode)
 	_, err := c.bufferedWriter.Write(buf)
-	if poolBuf != nil {
-		bufPool.Put(poolBuf)
-	}
 	return err
 }

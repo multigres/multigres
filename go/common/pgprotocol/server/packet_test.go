@@ -143,6 +143,49 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 	assert.Equal(t, body, readBody)
 }
 
+// TestWritePacketSizeMismatchPanics verifies that writePacket panics
+// when the encoded byte count doesn't match the bodyLen passed to
+// startPacket — the safety net that catches sizing-arithmetic bugs in
+// tests instead of producing truncated packets on the wire.
+func TestWritePacketSizeMismatchPanics(t *testing.T) {
+	var netBuf bytes.Buffer
+	conn := &Conn{
+		conn:           &mockNetConn{buf: &netBuf},
+		bufferedWriter: bufio.NewWriter(&netBuf),
+	}
+
+	buf, pos := conn.startPacket(protocol.MsgQuery, 10)
+	// Encode only 1 byte instead of the promised 10.
+	pos = writeByteAt(buf, pos, 'x')
+
+	assert.PanicsWithValue(t,
+		"pgwire: packet size mismatch: encoded 6 bytes, expected 15",
+		func() { _ = conn.writePacket(buf, pos) },
+		"writePacket must panic on bodyLen vs encoded mismatch")
+}
+
+// TestReturnReadBufferIsIdempotent verifies that returnReadBuffer
+// (the defensive cleanup called from Conn.Close to handle handler
+// panics between readMessageBody and its deferred return) clears
+// inboundPoolBuf and is safe to call multiple times — a second Close
+// must not double-Put into the pool.
+func TestReturnReadBufferIsIdempotent(t *testing.T) {
+	l := newBenchListener()
+	conn := &Conn{listener: l}
+
+	// Simulate a stranded inbound buffer.
+	conn.inboundPoolBuf = l.bufPool.Get(1024)
+	require.NotNil(t, conn.inboundPoolBuf)
+
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf,
+		"returnReadBuffer must clear inboundPoolBuf so subsequent calls are no-ops")
+
+	// Second call must be a safe no-op, not a double-Put.
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf)
+}
+
 // mockNetConn is a minimal implementation of net.Conn for testing.
 type mockNetConn struct {
 	buf *bytes.Buffer
