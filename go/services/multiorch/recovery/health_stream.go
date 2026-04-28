@@ -420,11 +420,6 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, pool
 		existing.IsUpToDate = true
 		existing.IsLastCheckValid = true
 		existing.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
-		if snapshot.Status.ConsensusTerm != nil {
-			existing.ConsensusTerm = proto.Clone(snapshot.Status.ConsensusTerm).(*multipoolermanagerdatapb.ConsensusTerm)
-		} else {
-			existing.ConsensusTerm = nil
-		}
 		if snapshot.Status.AvailabilityStatus != nil {
 			existing.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
 		} else {

@@ -119,17 +119,17 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
 
 	// Build ConsensusTerm if term > 0
-	var consensusTerm *multipoolermanagerdatapb.ConsensusTerm
+	var consensusTerm *clustermetadatapb.TermRevocation
 	if term > 0 {
-		consensusTerm = &multipoolermanagerdatapb.ConsensusTerm{
-			TermNumber: term,
+		consensusTerm = &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: term,
 		}
 	}
 
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: healthy,
-		ConsensusTerm:    consensusTerm,
+		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized:   term > 0,
 			PostgresRunning: healthy,
@@ -1579,13 +1579,13 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp1.Status.IsInitialized = true
 		mp1.Status.PostgresReady = true
 		mp1.Status.PostgresRunning = true
-		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp1.ConsensusStatus = &clustermetadatapb.ConsensusStatus{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}}
 
 		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, nil)
 		mp2.Status.IsInitialized = true
 		mp2.Status.PostgresReady = true
 		mp2.Status.PostgresRunning = true
-		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp2.ConsensusStatus = &clustermetadatapb.ConsensusStatus{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}}
 
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp2.MultiPooler))

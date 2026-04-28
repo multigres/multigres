@@ -37,7 +37,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -327,11 +326,11 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 
 			// Set initial consensus term on disk if currentTerm > 0
 			if tt.currentTerm > 0 {
-				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-					TermNumber: tt.currentTerm,
+				initialTerm := &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: tt.currentTerm,
 				}
 				setupCS := NewConsensusState(poolerDir, nil)
-				require.NoError(t, setupCS.setConsensusTerm(initialTerm))
+				require.NoError(t, setupCS.setRevocation(initialTerm))
 			}
 
 			// Create the database in topology with backup location

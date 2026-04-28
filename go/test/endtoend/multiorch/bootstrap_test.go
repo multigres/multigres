@@ -151,11 +151,12 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify primary term is set to 1 (bootstrap term)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get status from primary")
-		require.NotNil(t, status.ConsensusTerm, "Primary should have consensus term")
-		assert.Equal(t, int64(1), status.ConsensusTerm.TermNumber, "Primary should be on term 1 after bootstrap")
+		require.NotNil(t, status.ConsensusStatus.GetTermRevocation(), "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Primary should be on term 1 after bootstrap")
+		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
 		assert.Equal(t, int64(1), commonconsensus.PrimaryTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.ConsensusTerm.TermNumber, commonconsensus.PrimaryTerm(status.ConsensusStatus))
+			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.PrimaryTerm(status.ConsensusStatus))
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -211,10 +212,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
 				}
-				termNum := int64(0)
-				if r.ConsensusTerm != nil {
-					termNum = r.ConsensusTerm.TermNumber
-				}
+				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 				if termNum != 1 {
 					return false, fmt.Sprintf("consensus term is %d, expected 1", termNum)
 				}
@@ -360,7 +358,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				if !r.Status.PostgresReady {
 					return false, "postgres not running"
 				}
-				if r.ConsensusTerm == nil || r.ConsensusTerm.TermNumber == 0 {
+				if r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm() == 0 {
 					return false, "consensus term not yet assigned"
 				}
 				return true, ""
