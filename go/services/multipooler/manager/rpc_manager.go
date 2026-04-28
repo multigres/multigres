@@ -331,12 +331,6 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		Status: poolerStatus,
 	}
 
-	// Consensus metadata travels alongside Status in StatusResponse so that it is
-	// available via both the Status RPC and the ManagerHealthStream without a
-	// separate ConsensusStatus RPC call.
-	if term, err := pm.consensusState.GetInconsistentTerm(); err == nil {
-		resp.ConsensusTerm = term
-	}
 	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
 		resp.ConsensusStatus = cs
 	}
@@ -438,12 +432,12 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	// before this primary can accept ACKs from it.
 	// This is for safe replica joining of the cluster.
 	// It will ensure multiorch can discover the new cohort during a failure.
-	term, err := pm.consensusState.GetTerm(ctx)
+	revocation, err := pm.consensusState.GetRevocation(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus term")
 	}
 	update := newRuleUpdate(
-		term.GetTermNumber(),
+		revocation.GetRevokedBelowTerm(),
 		pm.serviceID,
 		"replication_config",
 		"ConfigureSynchronousReplication called",
@@ -889,7 +883,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
 		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 			WasAlreadyDemoted:     true,
-			ConsensusTerm:         consensusTerm,
 			LsnPosition:           state.finalLSN,
 			ConnectionsTerminated: 0,
 		}, nil
@@ -956,7 +949,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 		WasAlreadyDemoted:     false,
-		ConsensusTerm:         consensusTerm,
 		LsnPosition:           finalLSN,
 		ConnectionsTerminated: connectionsTerminated,
 	}, nil
@@ -1163,7 +1155,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 			return &multipoolermanagerdatapb.PromoteResponse{
 				LsnPosition:       state.currentLSN,
 				WasAlreadyPrimary: true,
-				ConsensusTerm:     consensusTerm,
 			}, nil
 		}
 
@@ -1263,7 +1254,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	return &multipoolermanagerdatapb.PromoteResponse{
 		LsnPosition:       finalLSN,
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
-		ConsensusTerm:     consensusTerm,
 	}, nil
 }
 

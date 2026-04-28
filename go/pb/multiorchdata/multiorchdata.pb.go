@@ -61,10 +61,6 @@ type PoolerHealthState struct {
 	LastSeen            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
 	// Consensus status from ConsensusStatus RPC (for divergence detection)
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,14,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
-	// Consensus term from the most recent StatusResponse. Retains last_acceptance_time
-	// and accepted_term_from_coordinator_id for preVote eligibility checks. These
-	// are not available in ConsensusStatus.term_revocation.
-	ConsensusTerm *multipoolermanagerdata.ConsensusTerm `protobuf:"bytes,15,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Timestamp of the last time PostgreSQL specifically responded as healthy
 	// (i.e. pg_isready passed). Never cleared on failure — callers must compare
 	// against time.Now() to detect staleness.
@@ -165,13 +161,6 @@ func (x *PoolerHealthState) GetConsensusStatus() *clustermetadata.ConsensusStatu
 	return nil
 }
 
-func (x *PoolerHealthState) GetConsensusTerm() *multipoolermanagerdata.ConsensusTerm {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return nil
-}
-
 func (x *PoolerHealthState) GetLastPostgresReadyTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastPostgresReadyTime
@@ -218,7 +207,7 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xeb\b\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x9d\b\n" +
 	"\x11PoolerHealthState\x12?\n" +
 	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12!\n" +
 	"\ris_up_to_date\x18\x02 \x01(\bR\n" +
@@ -227,8 +216,7 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
 	"\x15last_check_successful\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x13lastCheckSuccessful\x127\n" +
 	"\tlast_seen\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12K\n" +
-	"\x10consensus_status\x18\x0e \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12L\n" +
-	"\x0econsensus_term\x18\x0f \x01(\v2%.multipoolermanagerdata.ConsensusTermR\rconsensusTerm\x12S\n" +
+	"\x10consensus_status\x18\x0e \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12S\n" +
 	"\x18last_postgres_ready_time\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\x15lastPostgresReadyTime\x12T\n" +
 	"\x13availability_status\x18\x11 \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\x12)\n" +
 	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x12P\n" +
@@ -252,30 +240,28 @@ func file_multiorchdata_proto_rawDescGZIP() []byte {
 
 var file_multiorchdata_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_multiorchdata_proto_goTypes = []any{
-	(*PoolerHealthState)(nil),                    // 0: multiorchdata.PoolerHealthState
-	(*clustermetadata.MultiPooler)(nil),          // 1: clustermetadata.MultiPooler
-	(*timestamppb.Timestamp)(nil),                // 2: google.protobuf.Timestamp
-	(*clustermetadata.ConsensusStatus)(nil),      // 3: clustermetadata.ConsensusStatus
-	(*multipoolermanagerdata.ConsensusTerm)(nil), // 4: multipoolermanagerdata.ConsensusTerm
-	(*clustermetadata.AvailabilityStatus)(nil),   // 5: clustermetadata.AvailabilityStatus
-	(*multipoolermanagerdata.Status)(nil),        // 6: multipoolermanagerdata.Status
+	(*PoolerHealthState)(nil),                  // 0: multiorchdata.PoolerHealthState
+	(*clustermetadata.MultiPooler)(nil),        // 1: clustermetadata.MultiPooler
+	(*timestamppb.Timestamp)(nil),              // 2: google.protobuf.Timestamp
+	(*clustermetadata.ConsensusStatus)(nil),    // 3: clustermetadata.ConsensusStatus
+	(*clustermetadata.AvailabilityStatus)(nil), // 4: clustermetadata.AvailabilityStatus
+	(*multipoolermanagerdata.Status)(nil),      // 5: multipoolermanagerdata.Status
 }
 var file_multiorchdata_proto_depIdxs = []int32{
-	1,  // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
-	2,  // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
-	2,  // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
-	2,  // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
-	3,  // 4: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	4,  // 5: multiorchdata.PoolerHealthState.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
-	2,  // 6: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
-	5,  // 7: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	2,  // 8: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
-	6,  // 9: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	1, // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
+	2, // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
+	2, // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
+	2, // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
+	3, // 4: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	2, // 5: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
+	4, // 6: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	2, // 7: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
+	5, // 8: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }

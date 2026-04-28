@@ -274,17 +274,13 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	return nil
 }
 
-// buildConsensusStatus constructs a ConsensusStatus from a pre-resolved term and position.
+// buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation and position.
 // Both arguments may be nil; in that case the corresponding fields in the returned status
 // are left unset. Never performs I/O.
-func buildConsensusStatus(id *clustermetadatapb.ID, term *multipoolermanagerdatapb.ConsensusTerm, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
 	status := &clustermetadatapb.ConsensusStatus{Id: id}
-	if term != nil {
-		status.TermRevocation = &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:      term.TermNumber,
-			AcceptedCoordinatorId: term.AcceptedTermFromCoordinatorId,
-			// coordinator_initiated_at: TODO once BeginTermRequest carries this timestamp
-		}
+	if revocation != nil {
+		status.TermRevocation = revocation
 	}
 	if pos != nil {
 		status.CurrentPosition = pos
@@ -300,7 +296,7 @@ func buildConsensusStatus(id *clustermetadatapb.ID, term *multipoolermanagerdata
 // Returns an error if postgres is unreachable, since a partial status (term revocation
 // without current_position) could mislead callers about this pooler's rule position.
 func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	term, err := pm.consensusState.GetTerm(ctx)
+	revocation, err := pm.consensusState.GetRevocation(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read consensus term: %w", err)
 	}
@@ -309,7 +305,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(pm.serviceID, term, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
 }
 
 // getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
@@ -319,7 +315,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 // Returns nil if no position has been cached yet (i.e. observePosition or updateRule
 // has never been called).
 func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.ConsensusStatus, error) {
-	term, err := pm.consensusState.GetInconsistentTerm()
+	revocation, err := pm.consensusState.GetInconsistentRevocation()
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +324,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 	if pos == nil {
 		return nil, nil
 	}
-	return buildConsensusStatus(pm.serviceID, term, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
 }
 
 // getInconsistentConsensusStatus builds a ConsensusStatus without holding the action lock.
@@ -340,7 +336,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 // that callers can still derive the last-known primary term (e.g. for stale-
 // primary detection) after postgres has crashed.
 func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	term, err := pm.consensusState.GetInconsistentTerm()
+	revocation, err := pm.consensusState.GetInconsistentRevocation()
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +349,7 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 		pm.logger.DebugContext(ctx, "observePosition failed; falling back to cached rule position", "error", err)
 		pos = pm.rules.cachedPosition()
 	}
-	return buildConsensusStatus(pm.serviceID, term, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
 }
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.

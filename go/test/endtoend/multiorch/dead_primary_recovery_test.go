@@ -170,7 +170,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryClient.Close()
-		newPrimaryTerm := status.ConsensusTerm.TermNumber
+		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
@@ -208,7 +208,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
-	oldPrimaryTerm := statusResp.ConsensusTerm.TermNumber
+	oldPrimaryTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
 
 	// Call BeginTerm with a higher term to trigger emergency demotion
@@ -249,7 +249,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	newPrimaryClient.Close()
 	require.NoError(t, err, "should be able to get status from new primary")
-	newPrimaryTerm := newStatusResp.ConsensusTerm.TermNumber
+	newPrimaryTerm := newStatusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 	// Verify new primary's term is higher than the old primary's original term
@@ -581,10 +581,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 				if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
 					return false, "replication not configured"
 				}
-				termNum := int64(0)
-				if r.ConsensusTerm != nil {
-					termNum = r.ConsensusTerm.TermNumber
-				}
+				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 				if termNum != expectedTerm {
 					return false, fmt.Sprintf("wrong term %d, expected %d", termNum, expectedTerm)
 				}
