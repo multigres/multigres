@@ -372,8 +372,8 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 	}
 
 	return &multiadminpb.GetPoolerStatusResponse{
-		Status:        statusResp.Status,
-		ConsensusTerm: statusResp.ConsensusTerm,
+		Status:          statusResp.Status,
+		ConsensusStatus: statusResp.ConsensusStatus,
 	}, nil
 }
 

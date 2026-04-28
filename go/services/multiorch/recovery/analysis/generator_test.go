@@ -1555,7 +1555,6 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 				},
 			},
 		},
-		ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: true,
@@ -1577,7 +1576,6 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 				},
 			},
 		},
-		ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: false,
@@ -1833,9 +1831,6 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 						PrimaryId:  id,
 					},
 				},
-			},
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: p.consensusTerm,
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,

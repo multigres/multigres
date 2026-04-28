@@ -272,17 +272,6 @@ message StatusRequest {
 message StatusResponse {
   Status status = 1;
 
-  // Consensus term for this pooler. Moved here from Status (field 9) so that
-  // consensus metadata travels alongside but separate from operational state.
-  // Populated by the multipooler on every Status RPC call and health stream
-  // push.
-  //
-  // This field is needed for now since ConsensusStatus does not contain
-  // all the necessary information, but once ConsenusStatus is update to include
-  // all the necessary consensus metadata, this field can be removed and clients
-  // can derive the term from ConsensusStatus.
-  ConsensusTerm consensus_term = 2;
-
   // Availability status for nodes that are or have been primary. Wraps
   // LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
   // which the signal applies. Used by multiorch to detect voluntary demotions
@@ -407,9 +396,6 @@ message EmergencyDemoteResponse {
   // Whether the pooler was already demoted (idempotent check)
   bool was_already_demoted = 1;
 
-  // Consensus term at the time of demotion
-  int64 consensus_term = 2;
-
   // LSN position at the time of demotion (final position as primary)
   string lsn_position = 3;
 
@@ -489,9 +475,6 @@ message PromoteResponse {
 
   // Whether the pooler was already promoted (idempotent check)
   bool was_already_primary = 2;
-
-  // Consensus term at the time of promotion
-  int64 consensus_term = 3;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
@@ -596,22 +579,6 @@ message UpdateSynchronousStandbyListRequest {
 }
 
 message UpdateSynchronousStandbyListResponse {
-}
-
-// ConsensusTerm represents the consensus term information for the pooler
-// This is persisted to disk at $PGDATA/consensus/consensus_term.json
-message ConsensusTerm {
-  // Term number for this consensus term
-  int64 term_number = 1;
-
-  // ID of the coordinator (multiorch) that this node accepted the term from
-  clustermetadata.ID accepted_term_from_coordinator_id = 2;
-
-  // Timestamp of the last acceptance
-  google.protobuf.Timestamp last_acceptance_time = 3;
-
-  // ID of the leader of the current term
-  clustermetadata.ID leader_id = 4;
 }
 
 // Backup operations

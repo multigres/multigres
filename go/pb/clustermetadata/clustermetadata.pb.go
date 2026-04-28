@@ -209,62 +209,6 @@ func (QuorumType) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
 }
 
-// AsyncReplicationFallbackMode defines the behavior when insufficient standbys are available
-// for synchronous replication to meet the quorum requirement
-type AsyncReplicationFallbackMode int32
-
-const (
-	// ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN represents an unknown or uninitialized mode
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN AsyncReplicationFallbackMode = 0
-	// ASYNC_REPLICATION_FALLBACK_MODE_ALLOW permits falling back to async replication
-	// when no standby servers are available. This is the default behavior.
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW AsyncReplicationFallbackMode = 1
-	// ASYNC_REPLICATION_FALLBACK_MODE_REJECT rejects the leader appointment
-	// if synchronous replication cannot be established to meet quorum requirements
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT AsyncReplicationFallbackMode = 2
-)
-
-// Enum value maps for AsyncReplicationFallbackMode.
-var (
-	AsyncReplicationFallbackMode_name = map[int32]string{
-		0: "ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN",
-		1: "ASYNC_REPLICATION_FALLBACK_MODE_ALLOW",
-		2: "ASYNC_REPLICATION_FALLBACK_MODE_REJECT",
-	}
-	AsyncReplicationFallbackMode_value = map[string]int32{
-		"ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN": 0,
-		"ASYNC_REPLICATION_FALLBACK_MODE_ALLOW":   1,
-		"ASYNC_REPLICATION_FALLBACK_MODE_REJECT":  2,
-	}
-)
-
-func (x AsyncReplicationFallbackMode) Enum() *AsyncReplicationFallbackMode {
-	p := new(AsyncReplicationFallbackMode)
-	*p = x
-	return p
-}
-
-func (x AsyncReplicationFallbackMode) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AsyncReplicationFallbackMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[3].Descriptor()
-}
-
-func (AsyncReplicationFallbackMode) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[3]
-}
-
-func (x AsyncReplicationFallbackMode) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AsyncReplicationFallbackMode.Descriptor instead.
-func (AsyncReplicationFallbackMode) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
-}
-
 // LeadershipSignal describes a leader's self-reported status for its current term.
 // Only published by nodes that are or were primary (primary_term != 0).
 // 0 (UNKNOWN) means the field was not intentionally set.
@@ -311,11 +255,11 @@ func (x LeadershipSignal) String() string {
 }
 
 func (LeadershipSignal) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[4].Descriptor()
+	return file_clustermetadata_proto_enumTypes[3].Descriptor()
 }
 
 func (LeadershipSignal) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[4]
+	return &file_clustermetadata_proto_enumTypes[3]
 }
 
 func (x LeadershipSignal) Number() protoreflect.EnumNumber {
@@ -324,7 +268,7 @@ func (x LeadershipSignal) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LeadershipSignal.Descriptor instead.
 func (LeadershipSignal) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
 }
 
 // ComponentType represents the type of Multigres component
@@ -368,11 +312,11 @@ func (x ID_ComponentType) String() string {
 }
 
 func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[5].Descriptor()
+	return file_clustermetadata_proto_enumTypes[4].Descriptor()
 }
 
 func (ID_ComponentType) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[5]
+	return &file_clustermetadata_proto_enumTypes[4]
 }
 
 func (x ID_ComponentType) Number() protoreflect.EnumNumber {
@@ -1283,10 +1227,7 @@ type DurabilityPolicy struct {
 	//     with at least one node from each cell
 	RequiredCount int32 `protobuf:"varint,4,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
 	// description is a human-readable summary of this policy
-	Description string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
-	// async_fallback defines behavior when insufficient standbys are available
-	// for synchronous replication. Defaults to ALLOW if unset.
-	AsyncFallback AsyncReplicationFallbackMode `protobuf:"varint,6,opt,name=async_fallback,json=asyncFallback,proto3,enum=clustermetadata.AsyncReplicationFallbackMode" json:"async_fallback,omitempty"`
+	Description   string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1354,13 +1295,6 @@ func (x *DurabilityPolicy) GetDescription() string {
 		return x.Description
 	}
 	return ""
-}
-
-func (x *DurabilityPolicy) GetAsyncFallback() AsyncReplicationFallbackMode {
-	if x != nil {
-		return x.AsyncFallback
-	}
-	return AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN
 }
 
 // RuleNumber uniquely identifies a shard rule — the outcome of a coordinator
@@ -2019,7 +1953,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\tMULTIORCH\x10\x03\"2\n" +
 	"\bKeyRange\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\fR\x03end\"\xb7\x02\n" +
+	"\x03end\x18\x02 \x01(\fR\x03end\"\xe1\x01\n" +
 	"\x10DurabilityPolicy\x12\x1f\n" +
 	"\vpolicy_name\x18\x01 \x01(\tR\n" +
 	"policyName\x12%\n" +
@@ -2027,8 +1961,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\vquorum_type\x18\x03 \x01(\x0e2\x1b.clustermetadata.QuorumTypeR\n" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x04 \x01(\x05R\rrequiredCount\x12 \n" +
-	"\vdescription\x18\x05 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x06 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback\"^\n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\"^\n" +
 	"\n" +
 	"RuleNumber\x12)\n" +
 	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12%\n" +
@@ -2077,11 +2010,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16QUORUM_TYPE_AT_LEAST_N\x10\x03\x12%\n" +
-	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*\xa2\x01\n" +
-	"\x1cAsyncReplicationFallbackMode\x12+\n" +
-	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
-	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +
-	"&ASYNC_REPLICATION_FALLBACK_MODE_REJECT\x10\x02*z\n" +
+	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*z\n" +
 	"\x10LeadershipSignal\x12\x1d\n" +
 	"\x19LEADERSHIP_SIGNAL_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18LEADERSHIP_SIGNAL_ACTIVE\x10\x01\x12)\n" +
@@ -2099,81 +2028,79 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 	return file_clustermetadata_proto_rawDescData
 }
 
-var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_clustermetadata_proto_goTypes = []any{
-	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
-	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
-	(QuorumType)(0),                   // 2: clustermetadata.QuorumType
-	(AsyncReplicationFallbackMode)(0), // 3: clustermetadata.AsyncReplicationFallbackMode
-	(LeadershipSignal)(0),             // 4: clustermetadata.LeadershipSignal
-	(ID_ComponentType)(0),             // 5: clustermetadata.ID.ComponentType
-	(*GlobalTopoConfig)(nil),          // 6: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),                      // 7: clustermetadata.Cell
-	(*Database)(nil),                  // 8: clustermetadata.Database
-	(*ShardInitClaim)(nil),            // 9: clustermetadata.ShardInitClaim
-	(*BackupLocation)(nil),            // 10: clustermetadata.BackupLocation
-	(*FilesystemBackup)(nil),          // 11: clustermetadata.FilesystemBackup
-	(*S3Backup)(nil),                  // 12: clustermetadata.S3Backup
-	(*MultiPooler)(nil),               // 13: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),              // 14: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),                 // 15: clustermetadata.MultiOrch
-	(*ID)(nil),                        // 16: clustermetadata.ID
-	(*KeyRange)(nil),                  // 17: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),          // 18: clustermetadata.DurabilityPolicy
-	(*RuleNumber)(nil),                // 19: clustermetadata.RuleNumber
-	(*ShardRule)(nil),                 // 20: clustermetadata.ShardRule
-	(*PoolerPosition)(nil),            // 21: clustermetadata.PoolerPosition
-	(*HighestKnownRule)(nil),          // 22: clustermetadata.HighestKnownRule
-	(*TermRevocation)(nil),            // 23: clustermetadata.TermRevocation
-	(*ConsensusStatus)(nil),           // 24: clustermetadata.ConsensusStatus
-	(*LeadershipStatus)(nil),          // 25: clustermetadata.LeadershipStatus
-	(*AvailabilityStatus)(nil),        // 26: clustermetadata.AvailabilityStatus
-	nil,                               // 27: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 28: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 29: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 30: google.protobuf.Timestamp
+	(PoolerType)(0),               // 0: clustermetadata.PoolerType
+	(PoolerServingStatus)(0),      // 1: clustermetadata.PoolerServingStatus
+	(QuorumType)(0),               // 2: clustermetadata.QuorumType
+	(LeadershipSignal)(0),         // 3: clustermetadata.LeadershipSignal
+	(ID_ComponentType)(0),         // 4: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil),      // 5: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),                  // 6: clustermetadata.Cell
+	(*Database)(nil),              // 7: clustermetadata.Database
+	(*ShardInitClaim)(nil),        // 8: clustermetadata.ShardInitClaim
+	(*BackupLocation)(nil),        // 9: clustermetadata.BackupLocation
+	(*FilesystemBackup)(nil),      // 10: clustermetadata.FilesystemBackup
+	(*S3Backup)(nil),              // 11: clustermetadata.S3Backup
+	(*MultiPooler)(nil),           // 12: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),          // 13: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),             // 14: clustermetadata.MultiOrch
+	(*ID)(nil),                    // 15: clustermetadata.ID
+	(*KeyRange)(nil),              // 16: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),      // 17: clustermetadata.DurabilityPolicy
+	(*RuleNumber)(nil),            // 18: clustermetadata.RuleNumber
+	(*ShardRule)(nil),             // 19: clustermetadata.ShardRule
+	(*PoolerPosition)(nil),        // 20: clustermetadata.PoolerPosition
+	(*HighestKnownRule)(nil),      // 21: clustermetadata.HighestKnownRule
+	(*TermRevocation)(nil),        // 22: clustermetadata.TermRevocation
+	(*ConsensusStatus)(nil),       // 23: clustermetadata.ConsensusStatus
+	(*LeadershipStatus)(nil),      // 24: clustermetadata.LeadershipStatus
+	(*AvailabilityStatus)(nil),    // 25: clustermetadata.AvailabilityStatus
+	nil,                           // 26: clustermetadata.MultiPooler.PortMapEntry
+	nil,                           // 27: clustermetadata.MultiGateway.PortMapEntry
+	nil,                           // 28: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil), // 29: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	10, // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
-	18, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	16, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
-	16, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
-	11, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
-	12, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
-	16, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	17, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	9,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
+	17, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	15, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
+	15, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
+	10, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
+	11, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
+	15, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	16, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 8: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 9: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	27, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	16, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	28, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	16, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	29, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	5,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	26, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	15, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	27, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	15, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	28, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
 	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
-	3,  // 17: clustermetadata.DurabilityPolicy.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	19, // 18: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
-	16, // 19: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
-	16, // 20: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
-	18, // 21: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	16, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
-	30, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
-	20, // 24: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
-	20, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
-	16, // 26: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
-	30, // 27: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
-	23, // 28: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	21, // 29: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	22, // 30: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	16, // 31: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	4,  // 32: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	25, // 33: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	18, // 17: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	15, // 18: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
+	15, // 19: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	17, // 20: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	15, // 21: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	29, // 22: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	19, // 23: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
+	19, // 24: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	15, // 25: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
+	29, // 26: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	22, // 27: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	20, // 28: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	21, // 29: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	15, // 30: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 31: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	24, // 32: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -2190,7 +2117,7 @@ func file_clustermetadata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
-			NumEnums:      6,
+			NumEnums:      5,
 			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,

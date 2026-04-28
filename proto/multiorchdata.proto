@@ -55,11 +55,6 @@ message PoolerHealthState {
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   clustermetadata.ConsensusStatus consensus_status = 14;
 
-  // Consensus term from the most recent StatusResponse. Retains last_acceptance_time
-  // and accepted_term_from_coordinator_id for preVote eligibility checks. These
-  // are not available in ConsensusStatus.term_revocation.
-  multipoolermanagerdata.ConsensusTerm consensus_term = 15;
-
   // Timestamp of the last time PostgreSQL specifically responded as healthy
   // (i.e. pg_isready passed). Never cleared on failure — callers must compare
   // against time.Now() to detect staleness.

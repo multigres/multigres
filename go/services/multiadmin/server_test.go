@@ -608,8 +608,10 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 			ShardId:        "0-inf",
 		}
 		fakeClient.SetStatusResponse(poolerKey, &multipoolermanagerdatapb.StatusResponse{
-			Status:        expectedStatus,
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1},
+			Status: expectedStatus,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			},
 		})
 
 		req := &multiadminpb.GetPoolerStatusRequest{
@@ -625,8 +627,8 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		assert.True(t, resp.Status.PostgresReady)
 		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, resp.Status.PostgresStatus)
 		assert.Equal(t, "0/1000000", resp.Status.WalPosition)
-		require.NotNil(t, resp.ConsensusTerm)
-		assert.Equal(t, int64(1), resp.ConsensusTerm.TermNumber)
+		require.NotNil(t, resp.ConsensusStatus.GetTermRevocation())
+		assert.Equal(t, int64(1), resp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm())
 	})
 
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {

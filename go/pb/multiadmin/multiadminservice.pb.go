@@ -1712,10 +1712,10 @@ type GetPoolerStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// status contains the pooler's unified status from MultiPoolerManager.Status
 	Status *multipoolermanagerdata.Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	// consensus_term is the pooler's current consensus term, forwarded from StatusResponse.
-	ConsensusTerm *multipoolermanagerdata.ConsensusTerm `protobuf:"bytes,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// consensus_status is the pooler's current consensus state, forwarded from StatusResponse.
+	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,2,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetPoolerStatusResponse) Reset() {
@@ -1755,9 +1755,9 @@ func (x *GetPoolerStatusResponse) GetStatus() *multipoolermanagerdata.Status {
 	return nil
 }
 
-func (x *GetPoolerStatusResponse) GetConsensusTerm() *multipoolermanagerdata.ConsensusTerm {
+func (x *GetPoolerStatusResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
 	if x != nil {
-		return x.ConsensusTerm
+		return x.ConsensusStatus
 	}
 	return nil
 }
@@ -1963,10 +1963,10 @@ const file_multiadminservice_proto_rawDesc = "" +
 	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\"J\n" +
 	"\x16GetPoolerStatusRequest\x120\n" +
-	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x9f\x01\n" +
+	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x9e\x01\n" +
 	"\x17GetPoolerStatusResponse\x126\n" +
-	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12L\n" +
-	"\x0econsensus_term\x18\x02 \x01(\v2%.multipoolermanagerdata.ConsensusTermR\rconsensusTerm\"o\n" +
+	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12K\n" +
+	"\x10consensus_status\x18\x02 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"o\n" +
 	"!SetPostgresRestartsEnabledRequest\x120\n" +
 	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"$\n" +
@@ -2051,17 +2051,17 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*GetPoolerStatusResponse)(nil),            // 29: multiadmin.GetPoolerStatusResponse
 	(*SetPostgresRestartsEnabledRequest)(nil),  // 30: multiadmin.SetPostgresRestartsEnabledRequest
 	(*SetPostgresRestartsEnabledResponse)(nil), // 31: multiadmin.SetPostgresRestartsEnabledResponse
-	nil,                                          // 32: multiadmin.ExpireBackupsRequest.OverridesEntry
-	(*clustermetadata.Cell)(nil),                 // 33: clustermetadata.Cell
-	(*clustermetadata.Database)(nil),             // 34: clustermetadata.Database
-	(*clustermetadata.MultiGateway)(nil),         // 35: clustermetadata.MultiGateway
-	(*clustermetadata.MultiPooler)(nil),          // 36: clustermetadata.MultiPooler
-	(*clustermetadata.MultiOrch)(nil),            // 37: clustermetadata.MultiOrch
-	(*clustermetadata.ID)(nil),                   // 38: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),                // 39: google.protobuf.Timestamp
-	(clustermetadata.PoolerType)(0),              // 40: clustermetadata.PoolerType
-	(*multipoolermanagerdata.Status)(nil),        // 41: multipoolermanagerdata.Status
-	(*multipoolermanagerdata.ConsensusTerm)(nil), // 42: multipoolermanagerdata.ConsensusTerm
+	nil,                                     // 32: multiadmin.ExpireBackupsRequest.OverridesEntry
+	(*clustermetadata.Cell)(nil),            // 33: clustermetadata.Cell
+	(*clustermetadata.Database)(nil),        // 34: clustermetadata.Database
+	(*clustermetadata.MultiGateway)(nil),    // 35: clustermetadata.MultiGateway
+	(*clustermetadata.MultiPooler)(nil),     // 36: clustermetadata.MultiPooler
+	(*clustermetadata.MultiOrch)(nil),       // 37: clustermetadata.MultiOrch
+	(*clustermetadata.ID)(nil),              // 38: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),           // 39: google.protobuf.Timestamp
+	(clustermetadata.PoolerType)(0),         // 40: clustermetadata.PoolerType
+	(*multipoolermanagerdata.Status)(nil),   // 41: multipoolermanagerdata.Status
+	(*clustermetadata.ConsensusStatus)(nil), // 42: clustermetadata.ConsensusStatus
 }
 var file_multiadminservice_proto_depIdxs = []int32{
 	33, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
@@ -2079,7 +2079,7 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	40, // 12: multiadmin.BackupInfo.pooler_type:type_name -> clustermetadata.PoolerType
 	38, // 13: multiadmin.GetPoolerStatusRequest.pooler_id:type_name -> clustermetadata.ID
 	41, // 14: multiadmin.GetPoolerStatusResponse.status:type_name -> multipoolermanagerdata.Status
-	42, // 15: multiadmin.GetPoolerStatusResponse.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
+	42, // 15: multiadmin.GetPoolerStatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	38, // 16: multiadmin.SetPostgresRestartsEnabledRequest.pooler_id:type_name -> clustermetadata.ID
 	3,  // 17: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
 	5,  // 18: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest

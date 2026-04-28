@@ -1960,7 +1960,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", pm.consensusState.term.TermNumber)
+		"term", pm.consensusState.revocation.GetRevokedBelowTerm())
 
 	return nil
 }

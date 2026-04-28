@@ -58,10 +58,10 @@ func (f *fakeConnPoolMgr) PgUser() string { return f.user }
 func (f *fakeConnPoolMgr) Close()         {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
-func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
+func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
 	t.Helper()
 	cs := NewConsensusState(poolerDir, nil)
-	require.NoError(t, cs.setConsensusTerm(term), "failed to write term file")
+	require.NoError(t, cs.setRevocation(term), "failed to write term file")
 }
 
 // addDatabaseToTopo creates a database in the topology with a backup location
@@ -457,7 +457,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, 
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 	// Set consensus term to expected value (10) for testing via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	// Initialize consensus state so the manager can read the term
@@ -510,7 +510,6 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary, "Should not report as fully complete since topology wasn't updated")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -555,7 +554,6 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -644,7 +642,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 
 	// PostgreSQL was promoted, so this is not "already primary" case
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -702,7 +699,6 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 
 	// Verify topology was updated
 	pm.mu.Lock()
@@ -750,7 +746,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	pm, tmpDir := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	// Call Promote with wrong term (current term is 10, passing 5)
@@ -933,7 +929,6 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/1234567", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -1111,7 +1106,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	pm.mu.Lock()
@@ -1130,7 +1125,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Local state should still be updated to PRIMARY
@@ -1234,7 +1228,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
 	setTermForTest(t, tmpDir, term)
 	// Reload consensus state to pick up the term from file
 	_, err = pm.consensusState.Load()
@@ -1724,8 +1718,8 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber: 1,
+	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 1,
 	})
 
 	config := &Config{
@@ -1832,8 +1826,8 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber: 5,
+	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 5,
 	})
 
 	config := &Config{

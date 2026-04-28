@@ -214,10 +214,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
 	}
 
-	// Return consensus term for the RPC parameter.
-	// ConsensusTerm is populated from the Status() snapshot and carries the same
-	// TermNumber as the old ConsensusStatus RPC did, without the extra round-trip.
-	consensusTerm := correctPrimary.GetConsensusTerm().GetTermNumber()
+	consensusTerm := correctPrimary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 	return correctPrimary, consensusTerm, nil
 }

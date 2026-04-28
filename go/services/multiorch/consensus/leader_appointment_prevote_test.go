@@ -51,15 +51,15 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 		},
 	}
 
-	var consensusTerm *multipoolermanagerdatapb.ConsensusTerm
+	var consensusTerm *clustermetadatapb.TermRevocation
 	isInitialized := false
 	if termNumber > 0 {
-		consensusTerm = &multipoolermanagerdatapb.ConsensusTerm{
-			TermNumber:                    termNumber,
-			AcceptedTermFromCoordinatorId: acceptedFrom,
+		consensusTerm = &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:      termNumber,
+			AcceptedCoordinatorId: acceptedFrom,
 		}
 		if lastAcceptanceTime != nil {
-			consensusTerm.LastAcceptanceTime = timestamppb.New(*lastAcceptanceTime)
+			consensusTerm.CoordinatorInitiatedAt = timestamppb.New(*lastAcceptanceTime)
 		}
 		isInitialized = true
 	}
@@ -67,7 +67,7 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: isHealthy,
-		ConsensusTerm:    consensusTerm,
+		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized:   isInitialized,
 			PostgresReady:   isHealthy && isInitialized,
