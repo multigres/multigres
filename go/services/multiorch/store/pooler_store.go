@@ -155,6 +155,15 @@ func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb
 // FindHealthyPrimary finds a healthy, initialized primary in the given pooler slice.
 // It verifies health by making an RPC call to each candidate.
 // Returns an error if multiple primaries are found (likely a stale primary that needs to be demoted).
+//
+// Candidate selection uses a union of topology type and live health-stream data because
+// topology (from etcd) can be stale when etcd is unavailable after a failover. A pooler
+// is considered a candidate if either:
+//   - its topology type is PRIMARY (MultiPooler.Type), or
+//   - its most recent health-stream snapshot reports it is running as PRIMARY (Status.PoolerType).
+//
+// Each candidate is then verified via Status RPC; only nodes whose live PoolerType
+// is PRIMARY are accepted, so stale topology entries running as standby are skipped.
 func (s *PoolerStore) FindHealthyPrimary(
 	ctx context.Context,
 	poolers []*multiorchdatapb.PoolerHealthState,
@@ -162,12 +171,21 @@ func (s *PoolerStore) FindHealthyPrimary(
 	var healthyPrimary *multiorchdatapb.PoolerHealthState
 
 	for _, pooler := range poolers {
-		if pooler.MultiPooler == nil ||
-			pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+		if pooler.MultiPooler == nil {
 			continue
 		}
 
-		// Verify it's actually reachable and healthy via RPC
+		// Accept candidates indicated as PRIMARY by topology OR live health data.
+		// Topology can be stale when etcd is unavailable; health data can lag during
+		// role transitions. Using the union avoids missing the actual primary in either case.
+		isTopologyPrimary := pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY
+		isHealthPrimary := pooler.Status != nil && pooler.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY
+		if !isTopologyPrimary && !isHealthPrimary {
+			continue
+		}
+
+		// Verify via Status RPC — check the live PoolerType to skip stale candidates
+		// (e.g. topology says PRIMARY but postgres is running as standby after a failover).
 		statusResp, err := s.rpcClient.Status(ctx, pooler.MultiPooler,
 			&multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
@@ -176,21 +194,19 @@ func (s *PoolerStore) FindHealthyPrimary(
 				"error", err)
 			continue
 		}
-
-		if statusResp == nil || statusResp.Status == nil {
-			s.logger.WarnContext(ctx, "primary returned nil status",
-				"pooler", pooler.MultiPooler.Id.Name)
+		if statusResp.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+			s.logger.WarnContext(ctx, "pooler is not running as primary, skipping",
+				"pooler", pooler.MultiPooler.Id.Name,
+				"pooler_type", statusResp.GetStatus().GetPoolerType())
 			continue
 		}
 
-		if statusResp.Status.IsInitialized {
-			if healthyPrimary != nil {
-				return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-					"multiple primaries found: %s and %s (stale primary needs demotion)",
-					healthyPrimary.MultiPooler.Id.Name, pooler.MultiPooler.Id.Name)
-			}
-			healthyPrimary = pooler
+		if healthyPrimary != nil {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"multiple primaries found: %s and %s (stale primary needs demotion)",
+				healthyPrimary.MultiPooler.Id.Name, pooler.MultiPooler.Id.Name)
 		}
+		healthyPrimary = pooler
 	}
 
 	if healthyPrimary == nil {

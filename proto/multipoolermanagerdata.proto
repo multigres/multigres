@@ -206,15 +206,12 @@ message Status {
   // postgres (SIGKILL) when postgres_ready is false.
   bool postgres_running = 6;
 
-  // Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
-  // This may differ from pooler_type during transitions or failures.
-  string postgres_role = 7;
+  // Observed state of the PostgreSQL server process. This reflects what postgres
+  // actually is right now and may differ from pooler_type during transitions.
+  PostgresStatus postgres_status = 7;
 
   // Current WAL position (empty if db not connected)
   string wal_position = 8;
-
-  // Current consensus term information
-  ConsensusTerm consensus_term = 9;
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;
@@ -237,6 +234,23 @@ message Status {
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
   bool postgres_ready = 14;
+
+}
+
+// PostgresStatus is the observed state of the PostgreSQL server process.
+// This reflects what postgres actually is right now and may differ from
+// PoolerType during transitions (e.g. a REPLICA pooler in PROMOTING state).
+enum PostgresStatus {
+  // Cannot determine state: no data directory, process dead, or pgctld unreachable.
+  POSTGRES_STATUS_UNKNOWN = 0;
+  // Process is alive but not yet accepting connections (startup in progress).
+  POSTGRES_STATUS_STARTING = 1;
+  // pg_is_in_recovery() = true; replicating from primary.
+  POSTGRES_STATUS_STANDBY = 2;
+  // pg_promote() has been issued; postgres has not yet transitioned to primary mode.
+  POSTGRES_STATUS_PROMOTING = 3;
+  // pg_is_in_recovery() = false; accepting read-write connections.
+  POSTGRES_STATUS_PRIMARY = 4;
 }
 
 // PostgresAction identifies a long-running postgres manager operation.
@@ -257,6 +271,32 @@ message StatusRequest {
 
 message StatusResponse {
   Status status = 1;
+
+  // Consensus term for this pooler. Moved here from Status (field 9) so that
+  // consensus metadata travels alongside but separate from operational state.
+  // Populated by the multipooler on every Status RPC call and health stream
+  // push.
+  //
+  // This field is needed for now since ConsensusStatus does not contain
+  // all the necessary information, but once ConsenusStatus is update to include
+  // all the necessary consensus metadata, this field can be removed and clients
+  // can derive the term from ConsensusStatus.
+  ConsensusTerm consensus_term = 2;
+
+  // Availability status for nodes that are or have been primary. Wraps
+  // LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
+  // which the signal applies. Used by multiorch to detect voluntary demotions
+  // (BeginTerm REVOKE) without a separate ConsensusStatus RPC call.
+  // Staleness check: availability_status.leadership_status.primary_term must
+  // equal the coordinator term of the committed rule (via ConsensusStatus)
+  // to ensure signals from previous election cycles are ignored.
+  clustermetadata.AvailabilityStatus availability_status = 3;
+
+  // ConsensusStatus snapshot for this pooler. Used by multiorch to derive the
+  // primary term (via commonconsensus.PrimaryTerm) and to detect divergence
+  // without a separate ConsensusStatus RPC. This is the same data as the
+  // ConsensusStatus RPC response but delivered in-band with the health stream.
+  clustermetadata.ConsensusStatus consensus_status = 4;
 }
 
 // ManagerHealthStreamClientMessage is sent from the orchestrator to the pooler.

@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -272,5 +273,117 @@ func TestMetrics_DetectedProblemsCallback_Nil(t *testing.T) {
 
 	// Nil callback should not error
 	err = metrics.RegisterDetectedProblemsCallback(nil)
+	require.NoError(t, err)
+}
+
+func TestEngine_CollectStreamHealthData(t *testing.T) {
+	ts := newTestTopoStore()
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
+
+	engine := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "testdb"}},
+		&rpcclient.FakeClient{},
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
+	)
+
+	// Empty store returns no data.
+	data := engine.collectStreamHealthData()
+	assert.Empty(t, data)
+
+	// Populate the store with two poolers with different stream states.
+	engine.poolerStore.Set("zone1/pooler1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			Database: "testdb",
+			Shard:    "shard1",
+		},
+		StreamConnected:         true,
+		StreamSnapshotsReceived: 42,
+	})
+	engine.poolerStore.Set("zone1/pooler2", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+			Database: "testdb",
+			Shard:    "shard1",
+		},
+		StreamConnected:         false,
+		StreamSnapshotsReceived: 7,
+	})
+
+	data = engine.collectStreamHealthData()
+	require.Len(t, data, 2)
+
+	byID := make(map[string]StreamHealthData, len(data))
+	for _, d := range data {
+		byID[d.PoolerID] = d
+	}
+
+	p1, ok := byID["multipooler-zone1-pooler1"]
+	require.True(t, ok, "pooler1 should be present")
+	assert.True(t, p1.Connected)
+	assert.Equal(t, int64(42), p1.SnapshotsReceived)
+	assert.Equal(t, "testdb", p1.DBNamespace)
+	assert.Equal(t, "shard1", p1.Shard)
+
+	p2, ok := byID["multipooler-zone1-pooler2"]
+	require.True(t, ok, "pooler2 should be present")
+	assert.False(t, p2.Connected)
+	assert.Equal(t, int64(7), p2.SnapshotsReceived)
+}
+
+func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
+	ts := newTestTopoStore()
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
+
+	engine := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "testdb"}},
+		&rpcclient.FakeClient{},
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
+	)
+
+	// An entry with nil MultiPooler should be silently skipped.
+	engine.poolerStore.Set("zone1/broken", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:     nil,
+		StreamConnected: true,
+	})
+
+	data := engine.collectStreamHealthData()
+	assert.Empty(t, data)
+}
+
+func TestMetrics_StreamHealthCallback(t *testing.T) {
+	metrics, err := NewMetrics()
+	require.NoError(t, err)
+	require.NotNil(t, metrics)
+
+	// Registration with a valid getter should succeed.
+	err = metrics.RegisterStreamHealthCallback(func() []StreamHealthData {
+		return []StreamHealthData{
+			{PoolerID: "zone1_pooler1", DBNamespace: "testdb", Shard: "shard1", Connected: true, SnapshotsReceived: 10},
+			{PoolerID: "zone1_pooler2", DBNamespace: "testdb", Shard: "shard1", Connected: false, SnapshotsReceived: 3},
+		}
+	})
+	require.NoError(t, err)
+}
+
+func TestMetrics_StreamHealthCallback_Nil(t *testing.T) {
+	metrics, err := NewMetrics()
+	require.NoError(t, err)
+	require.NotNil(t, metrics)
+
+	// Nil callback should not error.
+	err = metrics.RegisterStreamHealthCallback(nil)
 	require.NoError(t, err)
 }

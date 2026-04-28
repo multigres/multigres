@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -284,30 +283,18 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"entity_id", entityID,
 	)
 	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess, problem.ShardKey.Database, problem.ShardKey.Shard)
-
-	// Post-recovery refresh
-	// If we ran a shard-wide recovery, force health check all poolers in the shard
-	// to ensure they have up-to-date state. Health check returns PoolerType from
-	// pg_is_in_recovery which is authoritative (topology type is only a fallback).
-	if problem.IsShardWide() {
-		re.logger.InfoContext(ctx, "forcing refresh of all poolers post recovery",
-			"shard_key", problem.ShardKey.String(),
-		)
-		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, nil /* poolersToIgnore */)
-	}
 }
 
-// recheckProblem force re-polls the pooler and re-runs analysis
-// to check if the problem still exists.
+// recheckProblem re-runs analysis on the current store state to confirm the
+// problem still exists before executing a recovery action.
 //
-// The validation strategy depends on the problem scope:
-// - ShardWide: Refresh shard metadata + force poll all poolers in shard (except dead ones)
-// - SinglePooler: Only refresh the affected pooler + primary pooler
+// Under streaming, the store is continuously updated by ManagerHealthStream
+// streams, so no explicit force-poll is needed. We simply re-generate the
+// shard analysis from the current store and re-run the analyzer.
 //
 // Returns (stillExists bool, error).
 func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bool, error) {
 	entityID := problem.EntityID()
-	isShardWide := problem.IsShardWide()
 
 	re.logger.DebugContext(ctx, "validating problem still exists",
 		"entity_id", entityID,
@@ -315,38 +302,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 		"scope", problem.Scope,
 	)
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	// The pooler store is kept up-to-date by the watcher, so no explicit
-	// topology refresh is needed here. Force re-poll poolers based on scope
-	if problem.Code == types.ProblemPrimaryIsDead && problem.PoolerID != nil {
-		// Refresh all poolers in shard except the dead primary itself.
-		deadPrimaryID := topoclient.MultiPoolerIDString(problem.PoolerID)
-		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, []string{deadPrimaryID})
-	} else if isShardWide {
-		// Shard-wide: refresh all poolers
-		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, nil /* poolersToIgnore */)
-	} else {
-		// Single-pooler: only refresh this pooler + primary
-		re.logger.DebugContext(ctx, "refreshing single pooler and primary")
-
-		// Refresh the affected pooler
-		if ph, ok := re.poolerStore.Get(entityID); ok {
-			re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
-		}
-
-		// Find and refresh primary if different
-		primaryID, err := re.findPrimaryInShard(problem.ShardKey)
-		if err == nil && primaryID != entityID {
-			if ph, ok := re.poolerStore.Get(primaryID); ok {
-				re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
-			}
-		}
-	}
-
-	// Re-generate analysis for this shard using updated store data.
-	// A new generator is created to capture the updated store state from the re-poll above.
+	// Re-generate analysis for this shard using current store data.
 	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
 	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
 	generator := analysis.NewAnalysisGenerator(re.poolerStore, re.makePolicyLookup(ctx))
@@ -415,32 +371,4 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 		}
 		return policy
 	}
-}
-
-// findPrimaryInShard finds the primary pooler ID for a given shard.
-func (re *Engine) findPrimaryInShard(shardKey commontypes.ShardKey) (string, error) {
-	var primaryID string
-	var found bool
-
-	re.poolerStore.Range(func(poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
-		if poolerHealth == nil || poolerHealth.MultiPooler == nil || poolerHealth.MultiPooler.Id == nil {
-			return true
-		}
-
-		if poolerHealth.MultiPooler.Database == shardKey.Database &&
-			poolerHealth.MultiPooler.TableGroup == shardKey.TableGroup &&
-			poolerHealth.MultiPooler.Shard == shardKey.Shard &&
-			poolerHealth.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY {
-			primaryID = poolerID
-			found = true
-			return false // stop iteration
-		}
-		return true
-	})
-
-	if !found {
-		return "", fmt.Errorf("no primary found for shard %s", shardKey)
-	}
-
-	return primaryID, nil
 }

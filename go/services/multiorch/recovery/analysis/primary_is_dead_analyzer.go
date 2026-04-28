@@ -88,6 +88,20 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, err
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
+	// Suppress while the topology primary is explicitly mid-promotion.
+	// Three guards are all required:
+	//   - PromotingPrimaryID != nil: multipooler has flagged pg_promote() is running
+	//   - PrimaryPoolerReachable: stream is live, so the flag is current (not stale)
+	//   - PrimaryPostgresRunning: postgres process is still alive
+	// If postgres crashes during promotion, PrimaryPostgresRunning=false and we fall through.
+	// If the multipooler crashes, PrimaryPoolerReachable=false and we fall through.
+	if sa.PromotingPrimaryID != nil && sa.PrimaryPoolerReachable && sa.PrimaryPostgresRunning {
+		a.factory.Logger().Info("primary promotion in progress, suppressing PrimaryIsDead",
+			"shard_key", sa.ShardKey.String(),
+			"promoting_primary", topoclient.MultiPoolerIDString(sa.PromotingPrimaryID))
+		return nil, nil
+	}
+
 	if sa.ReplicasConnectedToPrimary && !sa.PrimaryHasResigned {
 		threshold := a.factory.Config().GetPrimaryPostgresResponseThreshold()
 		lastReadyTime := sa.PrimaryLastPostgresReadyTime

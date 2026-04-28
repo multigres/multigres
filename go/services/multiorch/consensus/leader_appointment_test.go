@@ -43,6 +43,22 @@ func mustPolicy(t *testing.T, p *clustermetadatapb.DurabilityPolicy) commonconse
 	return parsed
 }
 
+// primaryRuleStatus builds a ConsensusStatus where id is the primary with
+// the given coordinator term, so commonconsensus.PrimaryTerm returns term.
+func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				PrimaryId: id,
+				RuleNumber: &clustermetadatapb.RuleNumber{
+					CoordinatorTerm: term,
+				},
+			},
+		},
+	}
+}
+
 // primaryRule returns a ShardRule that designates the named node in zone1 as primary.
 // Passing the same rule to all nodes in a test makes the incumbent primary explicit.
 func primaryRule(name string) *clustermetadatapb.ShardRule {
@@ -113,9 +129,10 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: healthy,
+		ConsensusTerm:    consensusTerm,
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: term > 0,
-			ConsensusTerm: consensusTerm,
+			IsInitialized:   term > 0,
+			PostgresRunning: healthy,
 		},
 	}
 }
@@ -699,23 +716,11 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: resignedPoolerID,
 			},
-			ConsensusStatus: &consensusdatapb.StatusResponse{
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: resignedPoolerID,
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
-							PrimaryId:  resignedPoolerID,
-						},
-					},
-				},
-				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 4,
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-					},
-				},
-			},
+			ConsensusStatus: primaryRuleStatus(resignedPoolerID, 4),
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				PrimaryTerm: 4,
+				Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			}},
 		}
 
 		recruited := []recruitmentResult{
@@ -761,23 +766,11 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: onlyNodeID,
 			},
-			ConsensusStatus: &consensusdatapb.StatusResponse{
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: onlyNodeID,
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
-							PrimaryId:  onlyNodeID,
-						},
-					},
-				},
-				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 3,
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-					},
-				},
-			},
+			ConsensusStatus: primaryRuleStatus(onlyNodeID, 3),
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				PrimaryTerm: 3,
+				Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			}},
 		}
 
 		recruited := []recruitmentResult{
@@ -805,23 +798,11 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: staleSignalID,
 			},
-			ConsensusStatus: &consensusdatapb.StatusResponse{
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: staleSignalID,
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-							PrimaryId:  staleSignalID,
-						},
-					},
-				},
-				AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-					LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-						PrimaryTerm: 3, // signal from an old term — stale
-						Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-					},
-				},
-			},
+			ConsensusStatus: primaryRuleStatus(staleSignalID, 5), // current term is 5
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				PrimaryTerm: 3, // signal from an old term — stale
+				Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			}},
 		}
 
 		recruited := []recruitmentResult{
@@ -1325,21 +1306,11 @@ func TestBeginTerm(t *testing.T) {
 		// Its cached health still shows rule=(primary=mp1, term=4) and the
 		// leadership status carries REQUESTING_DEMOTION at that same term —
 		// the shape types.PrimaryNeedsReplacement looks for.
-		mp1.ConsensusStatus = &consensusdatapb.StatusResponse{
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: mp1.MultiPooler.Id,
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
-						PrimaryId:  mp1.MultiPooler.Id,
-					},
-				},
-			},
-			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					PrimaryTerm: 4,
-					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-				},
+		mp1.ConsensusStatus = primaryRuleStatus(mp1.MultiPooler.Id, 4)
+		mp1.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				PrimaryTerm: 4,
+				Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 			},
 		}
 
@@ -1508,12 +1479,15 @@ func TestAppointLeader(t *testing.T) {
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
 		mp1.Status.PostgresReady = true
+		mp1.Status.PostgresRunning = true
 
 		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil)
 		mp2.Status.PostgresReady = true
+		mp2.Status.PostgresRunning = true
 
 		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, nil)
 		mp3.Status.PostgresReady = true
+		mp3.Status.PostgresRunning = true
 
 		// mp3 rejects the term during BeginTerm
 		mp3Key := topoclient.MultiPoolerIDString(mp3.MultiPooler.Id)
@@ -1604,12 +1578,14 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		mp1.Status.IsInitialized = true
 		mp1.Status.PostgresReady = true
-		mp1.Status.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp1.Status.PostgresRunning = true
+		mp1.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, nil)
 		mp2.Status.IsInitialized = true
 		mp2.Status.PostgresReady = true
-		mp2.Status.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
+		mp2.Status.PostgresRunning = true
+		mp2.ConsensusTerm = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 0}
 
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
 		require.NoError(t, ts.CreateMultiPooler(ctx, mp2.MultiPooler))

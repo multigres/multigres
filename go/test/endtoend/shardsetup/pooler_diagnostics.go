@@ -29,7 +29,7 @@ import (
 // checkPoolerCondition evaluates condition for each pooler once. Returns nil if all
 // poolers satisfy the condition, or a slice of failure lines (one per failing pooler)
 // with the reason and FormatPoolerDiagnostics output.
-func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string)) []string {
+func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, condition func(r PoolerStatusResult) (bool, string)) []string {
 	t.Helper()
 	statuses := fetchPoolerStatuses(t, poolers)
 	var failures []string
@@ -38,9 +38,9 @@ func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, conditio
 			failures = append(failures, fmt.Sprintf("%s: fetch error: %v", r.Name, r.Err))
 			continue
 		}
-		met, reason := condition(r.Name, r.Status)
+		met, reason := condition(r)
 		if !met {
-			failures = append(failures, fmt.Sprintf("%s: %s %s", r.Name, reason, FormatPoolerDiagnostics(r.Status)))
+			failures = append(failures, fmt.Sprintf("%s: %s %s", r.Name, reason, FormatPoolerDiagnostics(r.Status, r.ConsensusTerm)))
 		}
 	}
 	return failures
@@ -49,9 +49,10 @@ func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, conditio
 // PoolerStatusResult holds the fetched status for one pooler instance.
 // Status is nil and Err is non-nil if the fetch failed.
 type PoolerStatusResult struct {
-	Name   string
-	Status *multipoolermanagerdatapb.Status
-	Err    error
+	Name          string
+	Status        *multipoolermanagerdatapb.Status
+	ConsensusTerm *multipoolermanagerdatapb.ConsensusTerm
+	Err           error
 }
 
 // fetchPoolerStatuses fetches the status of each pooler in order, returning a slice
@@ -72,7 +73,7 @@ func fetchPoolerStatuses(t *testing.T, poolers []*MultipoolerInstance) []PoolerS
 			results = append(results, PoolerStatusResult{Name: inst.Name, Err: fmt.Errorf("status RPC: %w", err)})
 			continue
 		}
-		results = append(results, PoolerStatusResult{Name: inst.Name, Status: resp.Status})
+		results = append(results, PoolerStatusResult{Name: inst.Name, Status: resp.Status, ConsensusTerm: resp.ConsensusTerm})
 	}
 	return results
 }
@@ -100,7 +101,7 @@ func EventuallyPoolersCondition[T any](
 				if r.Err != nil {
 					t.Logf("%s: fetch error: %v", r.Name, r.Err)
 				} else {
-					t.Logf("%s: %s", r.Name, FormatPoolerDiagnostics(r.Status))
+					t.Logf("%s: %s", r.Name, FormatPoolerDiagnostics(r.Status, r.ConsensusTerm))
 				}
 			}
 			if reason != "" {
@@ -125,7 +126,7 @@ func EventuallyPoolerCondition(
 	t *testing.T,
 	poolers []*MultipoolerInstance,
 	timeout, tick time.Duration,
-	condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string),
+	condition func(r PoolerStatusResult) (bool, string),
 	msgAndArgs ...any,
 ) {
 	t.Helper()
@@ -145,7 +146,7 @@ func EventuallyPoolerCondition(
 func RequirePoolerCondition(
 	t *testing.T,
 	poolers []*MultipoolerInstance,
-	condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string),
+	condition func(r PoolerStatusResult) (bool, string),
 	msgAndArgs ...any,
 ) {
 	t.Helper()
@@ -157,16 +158,16 @@ func RequirePoolerCondition(
 
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,
 // useful for appending to "not yet ready" log messages to aid flake investigation.
-func FormatPoolerDiagnostics(s *multipoolermanagerdatapb.Status) string {
+func FormatPoolerDiagnostics(s *multipoolermanagerdatapb.Status, term *multipoolermanagerdatapb.ConsensusTerm) string {
 	if s == nil {
 		return "[status=nil]"
 	}
-	term := int64(0)
-	if s.ConsensusTerm != nil {
-		term = s.ConsensusTerm.TermNumber
+	termNumber := int64(0)
+	if term != nil {
+		termNumber = term.TermNumber
 	}
 	result := fmt.Sprintf("[postgres_ready=%v, initialized=%v, pooler_type=%v, term=%d",
-		s.PostgresReady, s.IsInitialized, s.PoolerType, term)
+		s.PostgresReady, s.IsInitialized, s.PoolerType, termNumber)
 	if s.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
 		dur := time.Duration(0)
 		if s.PostgresActionDuration != nil {
