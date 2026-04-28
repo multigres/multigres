@@ -81,6 +81,24 @@ func Normalize(stmt Stmt) *NormalizeResult {
 		bindValues []*A_Const
 	)
 
+	// replaceLiteral converts an A_Const literal into a $N placeholder and
+	// records the original value. Shared between the top-level walker and
+	// the per-arg recursion below so they mint placeholders from the same
+	// counter sequence.
+	replaceLiteral := func(cursor *Cursor) bool {
+		aConst, ok := cursor.Node().(*A_Const)
+		if !ok {
+			return true
+		}
+		if aConst.Isnull {
+			return true
+		}
+		counter++
+		bindValues = append(bindValues, aConst)
+		cursor.Replace(NewParamRef(counter, aConst.Location()))
+		return false
+	}
+
 	normalizedAST := Rewrite(cloned, func(cursor *Cursor) bool {
 		node := cursor.Node()
 
@@ -90,25 +108,23 @@ func Normalize(stmt Stmt) *NormalizeResult {
 		case *VariableSetStmt, *VariableShowStmt, *DefElem:
 			return false
 		case *FuncCall:
-			if isPlannerLiteralFunc(n.Funcname) && !setConfigIsLocalLiteralTrue(n) {
+			if isPlannerLiteralFunc(n.Funcname) {
+				// set_config(name, value, is_local). The planner needs to
+				// read is_local literally to decide whether to track the
+				// call, so args[2] must stay an A_Const regardless. For the
+				// is_local=true case we still want to parameterize name and
+				// value so a hot per-request pattern (PostgREST-style)
+				// collapses into a single plan-cache fingerprint; we walk
+				// only those two arg slots and skip the rest.
+				if setConfigIsLocalLiteralTrue(n) && n.Args != nil && n.Args.Len() == 3 {
+					n.Args.Items[0] = Rewrite(n.Args.Items[0], replaceLiteral, nil)
+					n.Args.Items[1] = Rewrite(n.Args.Items[1], replaceLiteral, nil)
+				}
 				return false
 			}
 		}
 
-		aConst, ok := node.(*A_Const)
-		if !ok {
-			return true
-		}
-
-		// Don't normalize NULL — it's a keyword, not a data literal.
-		if aConst.Isnull {
-			return true
-		}
-
-		counter++
-		bindValues = append(bindValues, aConst)
-		cursor.Replace(NewParamRef(counter, aConst.Location()))
-		return false
+		return replaceLiteral(cursor)
 	}, nil).(Stmt)
 
 	return &NormalizeResult{
