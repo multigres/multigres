@@ -72,14 +72,31 @@ func TestValidateRevocation(t *testing.T) {
 			wantErr: "coordinator_initiated_at is required",
 		},
 		{
-			name:       "NilStatus_Accepted",
+			name:       "NilStatus_Refused",
 			status:     nil,
 			revocation: revocationAt5,
+			wantErr:    "cannot accept revocation: unknown WAL position",
 		},
 		{
-			name:       "NilPosition_Accepted",
+			name:       "NilPosition_Refused",
 			status:     &clustermetadatapb.ConsensusStatus{},
 			revocation: revocationAt5,
+			wantErr:    "cannot accept revocation: unknown WAL position",
+		},
+		{
+			name: "BadLsn_Refused",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{
+							CoordinatorTerm: 4,
+						},
+					},
+					Lsn: "abc",
+				},
+			},
+			revocation: revocationAt5,
+			wantErr:    "cannot accept revocation: failed to parse LSN: unexpected EOF",
 		},
 		{
 			name: "WALSafety_RuleTermBelowRevocation_Accepted",
@@ -111,6 +128,7 @@ func TestValidateRevocation(t *testing.T) {
 					RevokedBelowTerm:      10,
 					AcceptedCoordinatorId: coordA,
 				},
+				CurrentPosition: positionAtCoordTerm(4),
 			},
 			revocation: revocationAt5,
 			wantErr:    "already accepted term 10 > requested 5",
@@ -122,13 +140,15 @@ func TestValidateRevocation(t *testing.T) {
 					RevokedBelowTerm:      3,
 					AcceptedCoordinatorId: coordA,
 				},
+				CurrentPosition: positionAtCoordTerm(2),
 			},
 			revocation: revocationAt5,
 		},
 		{
 			name: "SameTerm_SameCoordinator_SameTimestamp_Idempotent",
 			status: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: revocationAt5,
+				TermRevocation:  revocationAt5,
+				CurrentPosition: positionAtCoordTerm(4),
 			},
 			revocation: revocationAt5,
 		},
@@ -140,6 +160,7 @@ func TestValidateRevocation(t *testing.T) {
 					AcceptedCoordinatorId:  coordA,
 					CoordinatorInitiatedAt: ts1,
 				},
+				CurrentPosition: positionAtCoordTerm(4),
 			},
 			revocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm:       5,
@@ -156,6 +177,7 @@ func TestValidateRevocation(t *testing.T) {
 					AcceptedCoordinatorId:  coordA,
 					CoordinatorInitiatedAt: ts1,
 				},
+				CurrentPosition: positionAtCoordTerm(4),
 			},
 			revocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm:       5,
@@ -200,5 +222,6 @@ func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 				CoordinatorTerm: coordTerm,
 			},
 		},
+		Lsn: "16/B374D848",
 	}
 }

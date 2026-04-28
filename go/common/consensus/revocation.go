@@ -20,8 +20,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // ValidateRevocation reports whether the given revocation is safe for a node
@@ -48,10 +50,8 @@ import (
 // The revocation must have a non-empty accepted_coordinator_id and a non-nil
 // coordinator_initiated_at; both are required fields.
 //
-// A nil status or nil current_position means there is no WAL position to
-// check, so condition 1 passes. A nil term_revocation in status means the
-// node has not previously accepted any revocation, so conditions 2 and 3
-// pass for any incoming revocation.
+// A nil term_revocation in status means the node has not previously accepted
+// any revocation, so conditions 2 and 3 pass for any incoming revocation.
 func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if revocation == nil {
 		return errors.New("cannot accept revocation: revocation is nil")
@@ -65,14 +65,19 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 
 	// Condition 1: WAL position safety.
-	if pos := status.GetCurrentPosition(); pos != nil {
-		ruleCoordTerm := pos.GetRule().GetRuleNumber().GetCoordinatorTerm()
-		if ruleCoordTerm >= revokedBelowTerm {
-			return fmt.Errorf(
-				"cannot accept revocation: committed rule is at coordinator term %d >= revoked_below_term %d",
-				ruleCoordTerm, revokedBelowTerm,
-			)
-		}
+	pos := status.GetCurrentPosition()
+	if pos == nil {
+		return errors.New("cannot accept revocation: unknown WAL position")
+	}
+	if _, err := pgutil.ParseLSN(pos.Lsn); err != nil {
+		return mterrors.Wrap(err, "cannot accept revocation")
+	}
+	ruleCoordTerm := pos.GetRule().GetRuleNumber().GetCoordinatorTerm()
+	if ruleCoordTerm >= revokedBelowTerm {
+		return fmt.Errorf(
+			"cannot accept revocation: committed rule is at coordinator term %d >= revoked_below_term %d",
+			ruleCoordTerm, revokedBelowTerm,
+		)
 	}
 
 	// Conditions 2 and 3: stored-revocation consistency.
