@@ -1,0 +1,24 @@
+--- a
++++ b
+@@ -82,9 +82,7 @@
+ 
+ -- check that tables with oids cannot be created anymore
+ CREATE TABLE withoid() WITH OIDS;
+-ERROR:  syntax error at or near "OIDS"
+-LINE 1: CREATE TABLE withoid() WITH OIDS;
+-                                    ^
++ERROR:  parse error at position 32: syntax error
+ CREATE TABLE withoid() WITH (oids);
+ ERROR:  tables declared WITH OIDS are not supported
+ CREATE TABLE withoid() WITH (oids = true);
+@@ -445,9 +443,7 @@
+                                                              ^
+ -- syntax does not allow empty list of values for list partitions
+ CREATE TABLE fail_part PARTITION OF list_parted FOR VALUES IN ();
+-ERROR:  syntax error at or near ")"
+-LINE 1: ...E TABLE fail_part PARTITION OF list_parted FOR VALUES IN ();
+-                                                                     ^
++ERROR:  parse error at position 64: syntax error
+ -- trying to specify range for list partitioned table
+ CREATE TABLE fail_part PARTITION OF list_parted FOR VALUES FROM (1) TO (2);
+ ERROR:  invalid bound specification for a list partition

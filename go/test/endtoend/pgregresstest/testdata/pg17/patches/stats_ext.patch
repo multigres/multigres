@@ -1,0 +1,78 @@
+--- a
++++ b
+@@ -27,17 +27,11 @@
+ -- Verify failures
+ CREATE TABLE ext_stats_test (x text, y int, z int);
+ CREATE STATISTICS tst;
+-ERROR:  syntax error at or near ";"
+-LINE 1: CREATE STATISTICS tst;
+-                             ^
++ERROR:  parse error at position 22: syntax error
+ CREATE STATISTICS tst ON a, b;
+-ERROR:  syntax error at or near ";"
+-LINE 1: CREATE STATISTICS tst ON a, b;
+-                                     ^
++ERROR:  parse error at position 30: syntax error
+ CREATE STATISTICS tst FROM sometab;
+-ERROR:  syntax error at or near "FROM"
+-LINE 1: CREATE STATISTICS tst FROM sometab;
+-                              ^
++ERROR:  parse error at position 26: syntax error
+ CREATE STATISTICS tst ON a, b FROM nonexistent;
+ ERROR:  relation "nonexistent" does not exist
+ CREATE STATISTICS tst ON a, b FROM ext_stats_test;
+@@ -58,13 +52,9 @@
+ CREATE STATISTICS tst ON (y) FROM ext_stats_test; -- single column reference
+ ERROR:  extended statistics require at least 2 columns
+ CREATE STATISTICS tst ON y + z FROM ext_stats_test; -- missing parentheses
+-ERROR:  syntax error at or near "+"
+-LINE 1: CREATE STATISTICS tst ON y + z FROM ext_stats_test;
+-                                   ^
++ERROR:  parse error at position 28: syntax error
+ CREATE STATISTICS tst ON (x, y) FROM ext_stats_test; -- tuple expression
+-ERROR:  syntax error at or near ","
+-LINE 1: CREATE STATISTICS tst ON (x, y) FROM ext_stats_test;
+-                                   ^
++ERROR:  parse error at position 28: syntax error
+ DROP TABLE ext_stats_test;
+ -- Ensure stats are dropped sanely, and test IF NOT EXISTS while at it
+ CREATE TABLE ab1 (a INTEGER, b INTEGER, c INTEGER);
+@@ -304,8 +294,11 @@
+ CREATE MATERIALIZED VIEW tststats.mv AS SELECT * FROM tststats.t;
+ CREATE TYPE tststats.ty AS (a int, b int, c text);
+ CREATE FOREIGN DATA WRAPPER extstats_dummy_fdw;
++ERROR:  CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ CREATE SERVER extstats_dummy_srv FOREIGN DATA WRAPPER extstats_dummy_fdw;
++ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ CREATE FOREIGN TABLE tststats.f (a int, b int, c text) SERVER extstats_dummy_srv;
++ERROR:  server "extstats_dummy_srv" does not exist
+ CREATE TABLE tststats.pt (a int, b int, c text) PARTITION BY RANGE (a, b);
+ CREATE TABLE tststats.pt1 PARTITION OF tststats.pt FOR VALUES FROM (-10, -10) TO (10, 10);
+ CREATE STATISTICS tststats.s1 ON a, b FROM tststats.t;
+@@ -323,6 +316,7 @@
+ ERROR:  cannot define statistics for relation "ty"
+ DETAIL:  This operation is not supported for composite types.
+ CREATE STATISTICS tststats.s7 ON a, b FROM tststats.f;
++ERROR:  relation "tststats.f" does not exist
+ CREATE STATISTICS tststats.s8 ON a, b FROM tststats.pt;
+ CREATE STATISTICS tststats.s9 ON a, b FROM tststats.pt1;
+ DO $$
+@@ -336,16 +330,15 @@
+ $$;
+ NOTICE:  stats on toast table not created
+ DROP SCHEMA tststats CASCADE;
+-NOTICE:  drop cascades to 7 other objects
++NOTICE:  drop cascades to 6 other objects
+ DETAIL:  drop cascades to table tststats.t
+ drop cascades to sequence tststats.s
+ drop cascades to view tststats.v
+ drop cascades to materialized view tststats.mv
+ drop cascades to type tststats.ty
+-drop cascades to foreign table tststats.f
+ drop cascades to table tststats.pt
+ DROP FOREIGN DATA WRAPPER extstats_dummy_fdw CASCADE;
+-NOTICE:  drop cascades to server extstats_dummy_srv
++ERROR:  foreign-data wrapper "extstats_dummy_fdw" does not exist
+ -- n-distinct tests
+ CREATE TABLE ndistinct (
+     filler1 TEXT,
