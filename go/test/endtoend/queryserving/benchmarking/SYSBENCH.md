@@ -22,8 +22,9 @@ Output bundle:
 /tmp/multigres_sysbench_results/<utc-stamp>/
 ├── benchmark-report.md
 ├── results.json
-├── logs/sysbench-<scenario>.txt
-├── cpu/<scenario>/processes.json
+├── logs/prepare/<target>.txt
+├── logs/<scenario>/<target>.txt
+├── cpu/<scenario>/<target>/processes.json
 └── pprof/<scenario>/<target>/cpu-<service>.pb.gz
 ```
 

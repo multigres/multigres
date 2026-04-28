@@ -45,20 +45,22 @@ type ScenarioConfig struct {
 
 // ScenarioResult holds computed metrics from a pgbench or sysbench run.
 //
-// Protocol/ConnChurn are pgbench-only fields; PSMode is sysbench-only.
-// They're emitted as `omitempty` so each tool's results.json contains only
-// the fields relevant to that tool.
+// Protocol/ConnChurn/LatencyP50 are pgbench-specific but kept non-omitempty
+// so existing downstream tooling (e.g. the weekly pgbench workflow that
+// filters with `select(.connection_churn == false)`) keeps working — their
+// zero values for sysbench rows are harmless. PSMode is sysbench-only and
+// stays `omitempty` so it doesn't pollute pgbench output.
 type ScenarioResult struct {
 	Target       string  `json:"target"`
 	Scenario     string  `json:"scenario"`
 	TPS          float64 `json:"tps"`
 	LatencyAvg   float64 `json:"latency_avg_ms"`
-	LatencyP50   float64 `json:"latency_p50_ms,omitempty"`
+	LatencyP50   float64 `json:"latency_p50_ms"`
 	LatencyP99   float64 `json:"latency_p99_ms"`
 	Clients      int     `json:"clients"`
 	Duration     int     `json:"duration_seconds"`
-	Protocol     string  `json:"protocol,omitempty"`
-	ConnChurn    bool    `json:"connection_churn,omitempty"`
+	Protocol     string  `json:"protocol"`
+	ConnChurn    bool    `json:"connection_churn"`
 	PSMode       string  `json:"ps_mode,omitempty"`
 	Transactions int     `json:"transactions"`
 }

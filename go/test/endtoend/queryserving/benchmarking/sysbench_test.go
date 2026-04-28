@@ -256,8 +256,10 @@ func runSysBenchScenarioOnce(
 		stats[st.Label] = st
 	}
 	// Match the vitess bundle's filename so cross-stack comparison tools can
-	// glob `cpu/<scenario>/processes.json` regardless of which stack wrote it.
-	writeSysBenchCPUStatsFile(t, runner.OutputDir, scenario.Name, stats)
+	// glob `cpu/<scenario>/<target>/processes.json` regardless of which
+	// stack wrote it. Nesting under <target> keeps multi-target runs from
+	// clobbering each other.
+	writeSysBenchCPUStatsFile(t, runner.OutputDir, scenario.Name, target.Name, stats)
 	for label, st := range stats {
 		t.Logf("CPU %s/%s/%s: mean=%.1f%% max=%.1f%% (n=%d)",
 			scenario.Name, target.Name, label,

@@ -145,7 +145,7 @@ func (r *SysBenchRunner) Prepare(ctx context.Context, t *testing.T, target suite
 	args := append(r.pgsqlConnArgs(target), r.commonOltpArgs()...)
 	args = append(args, "prepare")
 
-	logPath := filepath.Join(r.OutputDir, "logs", "sysbench-prepare.txt")
+	logPath := filepath.Join(r.OutputDir, "logs", "prepare", target.Name+".txt")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir logs: %w", err)
 	}
@@ -186,7 +186,7 @@ func (r *SysBenchRunner) RunScenario(ctx context.Context, t *testing.T, target s
 
 	out, err := executil.Command(ctx, r.binary, args...).CombinedOutput()
 
-	logPath := filepath.Join(r.OutputDir, "logs", "sysbench-"+sc.Name+".txt")
+	logPath := filepath.Join(r.OutputDir, "logs", sc.Name, target.Name+".txt")
 	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 	_ = os.WriteFile(logPath, out, 0o644)
 
