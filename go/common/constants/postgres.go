@@ -71,4 +71,14 @@ const (
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
+
+	// CrashRecoveryMaxAttempts bounds the retry window used by pgctld to wait out
+	// the orphan-cleanup race after a postmaster crash. Suggested by MUL-394:
+	// ~5s covers the worst-case worker PostmasterIsAlive() detection latency
+	// observed in practice.
+	CrashRecoveryMaxAttempts = 10
+
+	// CrashRecoveryRetryDelay caps the delay between `postgres --single` retry
+	// attempts during the orphan-cleanup window.
+	CrashRecoveryRetryDelay = 500 * time.Millisecond
 )

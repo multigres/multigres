@@ -36,7 +36,7 @@ func GetCurrentTerm(ctx context.Context, client consensuspb.MultiPoolerConsensus
 	if err != nil {
 		return 0, fmt.Errorf("failed to get consensus status: %w", err)
 	}
-	return resp.CurrentTerm, nil
+	return resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), nil
 }
 
 // MustGetCurrentTerm returns the current term or fails the test.
@@ -76,8 +76,9 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 		return fmt.Errorf("%s failed to get consensus status: %w", nodeName, err)
 	}
 
-	if status.CurrentTerm != expectedTerm {
-		return fmt.Errorf("%s term=%d (expected %d)", nodeName, status.CurrentTerm, expectedTerm)
+	currentTerm := status.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	if currentTerm != expectedTerm {
+		return fmt.Errorf("%s term=%d (expected %d)", nodeName, currentTerm, expectedTerm)
 	}
 
 	return nil

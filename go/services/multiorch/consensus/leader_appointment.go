@@ -410,7 +410,7 @@ func (c *Coordinator) EstablishLeadership(
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
 	term int64,
-	policy *clustermetadatapb.DurabilityPolicy,
+	policy commonconsensus.DurabilityPolicy,
 	reason string,
 	cohort []*multiorchdatapb.PoolerHealthState,
 	recruited []*multiorchdatapb.PoolerHealthState,
@@ -424,30 +424,21 @@ func (c *Coordinator) EstablishLeadership(
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
 
-	expectedLSN := ""
-	if status.WalPosition != nil {
-		if status.Role == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
-			expectedLSN = status.WalPosition.CurrentLsn
-		} else {
-			// For standbys, use receive position (includes unreplayed WAL)
-			expectedLSN = status.WalPosition.LastReceiveLsn
+	expectedLSN := status.GetConsensusStatus().GetCurrentPosition().GetLsn()
+	if expectedLSN != "" && !commonconsensus.IsPrimary(status.GetConsensusStatus()) {
+		// Wait for standby to replay all received WAL before promotion.
+		// This ensures validateExpectedLSN in Promote will pass.
+		c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
+			"pooler", candidate.MultiPooler.Id.Name,
+			"target_lsn", expectedLSN)
 
-			// Wait for standby to replay all received WAL before promotion
-			// This ensures validateExpectedLSN in Promote will pass
-			if expectedLSN != "" {
-				c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
-					"pooler", candidate.MultiPooler.Id.Name,
-					"target_lsn", expectedLSN)
-
-				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
-					TargetLsn: expectedLSN,
-				}
-				waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
-				defer waitCancel()
-				if _, err := c.rpcClient.WaitForLSN(waitCtx, candidate.MultiPooler, waitReq); err != nil {
-					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
-				}
-			}
+		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+			TargetLsn: expectedLSN,
+		}
+		waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+		defer waitCancel()
+		if _, err := c.rpcClient.WaitForLSN(waitCtx, candidate.MultiPooler, waitReq); err != nil {
+			return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 		}
 	}
 
@@ -513,10 +504,31 @@ func (c *Coordinator) EstablishLeadership(
 		c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
 	}
 
-	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := BuildSyncReplicationConfig(c.logger, policy, cohort, candidate)
+	// Build synchronous replication configuration based on quorum policy.
+	// Pass the full cohort; the policy excludes the candidate internally.
+	cohortIDs := make([]*clustermetadatapb.ID, 0, len(cohort))
+	for _, p := range cohort {
+		if p.MultiPooler != nil && p.MultiPooler.Id != nil {
+			cohortIDs = append(cohortIDs, p.MultiPooler.Id)
+		}
+	}
+	leaderCfg, err := policy.BuildLeaderDurabilityPostgresConfig(c.logger, cohortIDs, candidate.MultiPooler.Id)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
+	}
+	// Contract: the policy method must return a non-nil config on success so
+	// every promotion explicitly rewires sync replication. A nil config here
+	// is a bug, not a legitimate "no config needed" signal — refuse to proceed.
+	if leaderCfg == nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			"BuildLeaderDurabilityPostgresConfig returned nil config without error")
+	}
+	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+		SynchronousCommit: leaderCfg.SyncCommit,
+		SynchronousMethod: leaderCfg.SyncMethod,
+		NumSync:           int32(leaderCfg.NumSync),
+		StandbyIds:        leaderCfg.SyncStandbyIDs,
+		ReloadConfig:      true,
 	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{

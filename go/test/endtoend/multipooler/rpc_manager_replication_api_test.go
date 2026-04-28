@@ -75,7 +75,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		primaryPosResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 		require.NoError(t, err)
-		primaryLSN := primaryPosResp.WalPosition.GetCurrentLsn()
+		primaryLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 		// Validate data is NOT in standby yet (no replication configured)
@@ -220,7 +220,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Get current term
 		consensusStatus, err := standbyClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err)
-		currentTerm := consensusStatus.CurrentTerm
+		currentTerm := consensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 		// Call SetPrimaryConnInfo with StopReplicationBefore=true and StartReplicationAfter=false
 		ctx := utils.WithTimeout(t, 1*time.Second)
@@ -348,7 +348,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		primaryPosResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
 		require.NoError(t, err)
-		targetLSN := primaryPosResp.WalPosition.GetCurrentLsn()
+		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("Target LSN from primary: %s", targetLSN)
 
 		// Wait for standby to reach the target LSN

@@ -87,7 +87,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		// Get LSN before demotion
 		primaryStatusBefore, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Status should succeed before demotion")
-		lsnBeforeDemotion := primaryStatusBefore.WalPosition.CurrentLsn
+		lsnBeforeDemotion := primaryStatusBefore.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("LSN before demotion: %s", lsnBeforeDemotion)
 
 		// Perform demotion with Force=true (testing demote functionality, not term validation)
@@ -135,11 +135,15 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		_, statErr := os.Stat(primaryStandbySignalPath)
 		assert.NoError(t, statErr, "standby.signal should exist after demotion")
 
-		// Verify node is now in replica role after demotion
-		primaryStatusAfter, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		// Verify postgres is in recovery (replica) mode after demotion and SetPrimaryConnInfo
+		primaryPoolerTestClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
-		assert.Equal(t, consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA, primaryStatusAfter.Role,
-			"Demoted primary should be in replica role after demotion and SetPrimaryConnInfo")
+		t.Cleanup(func() { primaryPoolerTestClient.Close() })
+		require.Eventually(t, func() bool {
+			inRecovery, err := postgresIsInRecovery(t, primaryPoolerTestClient)
+			return err == nil && inRecovery
+		}, 5*time.Second, 200*time.Millisecond,
+			"Demoted primary should be in recovery mode after demotion and SetPrimaryConnInfo")
 
 		t.Log("Promoting original standby to primary...")
 
@@ -184,7 +188,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		// Verify new primary works
 		standbyNowPrimaryStatus, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Status should work on new primary")
-		assert.NotEmpty(t, standbyNowPrimaryStatus.WalPosition.GetCurrentLsn())
+		assert.NotEmpty(t, standbyNowPrimaryStatus.GetConsensusStatus().GetCurrentPosition().GetLsn())
 
 		t.Log("Original standby is now primary")
 
@@ -247,7 +251,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		// Verify original primary works again
 		restoredPrimaryStatus, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err, "Status should work on restored primary")
-		assert.NotEmpty(t, restoredPrimaryStatus.WalPosition.GetCurrentLsn())
+		assert.NotEmpty(t, restoredPrimaryStatus.GetConsensusStatus().GetCurrentPosition().GetLsn())
 
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})
