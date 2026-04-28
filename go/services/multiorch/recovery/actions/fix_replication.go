@@ -199,7 +199,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus status from primary")
 	}
-	consensusTerm := consensusResp.CurrentTerm
+	consensusTerm := consensusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{

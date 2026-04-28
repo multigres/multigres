@@ -39,7 +39,7 @@ import (
 // given pooler.
 func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *consensusdatapb.StatusResponse {
 	return &consensusdatapb.StatusResponse{
-		CurrentTerm: term,
+		Id: id,
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -1449,9 +1449,10 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus: &consensusdatapb.StatusResponse{
-			CurrentTerm: 11,
+			Id: newPrimaryID,
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: newPrimaryID,
+				Id:             newPrimaryID,
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 11},
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
@@ -1473,9 +1474,10 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus: &consensusdatapb.StatusResponse{
-			CurrentTerm: 10,
+			Id: stalePrimaryID,
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: stalePrimaryID,
+				Id:             stalePrimaryID,
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -1732,9 +1734,10 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 			IsLastCheckValid: p.reachable,
 			IsUpToDate:       true,
 			ConsensusStatus: &consensusdatapb.StatusResponse{
-				CurrentTerm: p.consensusTerm,
+				Id: id,
 				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: id,
+					Id:             id,
+					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: p.consensusTerm},
 					CurrentPosition: &clustermetadatapb.PoolerPosition{
 						Rule: &clustermetadatapb.ShardRule{
 							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.primaryTerm},

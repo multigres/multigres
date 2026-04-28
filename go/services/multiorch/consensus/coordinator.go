@@ -109,8 +109,8 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 // EstablishLeadership.
 func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, policy *clustermetadatapb.DurabilityPolicy, proposedTerm int64, reason string) (retErr error) {
 	// Parse the proto policy once into the typed DurabilityPolicy interface so
-	// preVote and BeginTerm can call its recruitment checks directly. The proto
-	// still flows through EstablishLeadership for synchronous replication setup.
+	// preVote, BeginTerm, and EstablishLeadership can call its quorum,
+	// recruitment, and leader-config methods directly.
 	durabilityPolicy, err := commonconsensus.NewPolicyFromProto(policy)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse durability policy")
@@ -167,7 +167,7 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 	recruited = append(recruited, standbys...)
 
 	// Propagation and Establishment
-	if err := c.EstablishLeadership(ctx, candidate, standbys, term, policy, reason, cohort, recruited); err != nil {
+	if err := c.EstablishLeadership(ctx, candidate, standbys, term, durabilityPolicy, reason, cohort, recruited); err != nil {
 		return mterrors.Wrap(err, "EstablishLeadership failed")
 	}
 
