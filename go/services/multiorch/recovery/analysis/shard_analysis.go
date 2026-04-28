@@ -68,15 +68,16 @@ type ShardAnalysis struct {
 	// Use IsInStandbyList to check membership.
 	LeaderStandbyIDs []*clustermetadatapb.ID
 
-	// HasInitializedReplica is true if at least one non-leader, reachable,
-	// initialized pooler exists in the shard. Used by LeaderIsDeadAnalyzer to
-	// avoid false positives when the shard has no follower that can observe the leader.
+	// HasInitializedReplica is true if at least one non-leader, reachable, initialized pooler exists
+	// in the shard. This is a postgres-layer check (is there a standby that has joined the cluster?),
+	// not a consensus-layer check — it does not require the pooler to be a cohort member. Used by
+	// LeaderIsDeadAnalyzer to avoid false positives when no postgres standby can observe the leader.
 	HasInitializedReplica bool
 
-	// FollowersConnectedToLeader is true only if ALL followers in the shard are still
-	// connected to the leader's Postgres. Used to avoid failover when only the leader
-	// pooler process is down but Postgres is still running.
-	FollowersConnectedToLeader bool
+	// ReplicasConnectedToLeader is true only if ALL postgres standbys in the shard are still
+	// connected to the leader's Postgres via WAL streaming (pg_stat_wal_receiver). Used to avoid
+	// failover when only the leader pooler process is down but Postgres is still running.
+	ReplicasConnectedToLeader bool
 
 	// LeaderPostgresReady is true if the topology leader's Postgres is accepting connections
 	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable

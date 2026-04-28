@@ -809,7 +809,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	})
 }
 
-func TestAllFollowersConnectedToLeader(t *testing.T) {
+func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
@@ -897,7 +897,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, sa.FollowersConnectedToLeader, "should be true when all replicas are connected")
+		assert.True(t, sa.ReplicasConnectedToLeader, "should be true when all replicas are connected")
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
@@ -979,7 +979,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.FollowersConnectedToLeader, "should be false when any replica is disconnected")
+		assert.False(t, sa.ReplicasConnectedToLeader, "should be false when any replica is disconnected")
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
@@ -1030,7 +1030,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.FollowersConnectedToLeader, "should be false when replica is unreachable")
+		assert.False(t, sa.ReplicasConnectedToLeader, "should be false when replica is unreachable")
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
@@ -1063,8 +1063,8 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		// Primary-only shard: FollowersConnectedToLeader should be false (no replicas)
-		assert.False(t, sa.FollowersConnectedToLeader)
+		// Primary-only shard: ReplicasConnectedToLeader should be false (no replicas)
+		assert.False(t, sa.ReplicasConnectedToLeader)
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
@@ -1124,7 +1124,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.FollowersConnectedToLeader, "should be false when replica points to wrong primary")
+		assert.False(t, sa.ReplicasConnectedToLeader, "should be false when replica points to wrong primary")
 	})
 
 	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
@@ -1173,7 +1173,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 			gen := NewAnalysisGenerator(ps, nil)
 			analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 			require.NoError(t, err)
-			assert.False(t, analysis.FollowersConnectedToLeader, "should be false when wal_receiver_status=%q", status)
+			assert.False(t, analysis.ReplicasConnectedToLeader, "should be false when wal_receiver_status=%q", status)
 		}
 	})
 
@@ -1229,7 +1229,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when last_msg_receive_time is stale")
+		assert.False(t, analysis.ReplicasConnectedToLeader, "should be false when last_msg_receive_time is stale")
 	})
 
 	t.Run("returns false when last_msg_receive_time is stale (dynamic threshold)", func(t *testing.T) {
@@ -1286,7 +1286,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when last_msg_receive_time exceeds dynamic threshold")
+		assert.False(t, analysis.ReplicasConnectedToLeader, "should be false when last_msg_receive_time exceeds dynamic threshold")
 	})
 
 	t.Run("returns false when last_msg_receive_time exceeds wal_receiver_timeout", func(t *testing.T) {
@@ -1347,7 +1347,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.FollowersConnectedToLeader, "should be false when delay exceeds wal_receiver_timeout")
+		assert.False(t, analysis.ReplicasConnectedToLeader, "should be false when delay exceeds wal_receiver_timeout")
 	})
 
 	t.Run("returns true when last_msg_receive_time is nil", func(t *testing.T) {
@@ -1399,7 +1399,7 @@ func TestAllFollowersConnectedToLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.True(t, analysis.FollowersConnectedToLeader, "should be true when last_msg_receive_time is nil")
+		assert.True(t, analysis.ReplicasConnectedToLeader, "should be true when last_msg_receive_time is nil")
 	})
 }
 

@@ -50,20 +50,20 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	analyzer := &LeaderIsDeadAnalyzer{factory: factory}
 
-	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "leader-1"}
 	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
-	// deadPrimaryShardAnalysis builds a ShardAnalysis that has a dead primary and an
+	// deadLeaderShardAnalysis builds a ShardAnalysis that has a dead leader and an
 	// initialized replica — the base case for LeaderIsDead detection.
-	deadPrimaryShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
+	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
 		sa := &ShardAnalysis{
 			ShardKey:                      shardKey,
-			HighestTermDiscoveredLeaderID: primaryID,
+			HighestTermDiscoveredLeaderID: leaderID,
 			LeaderReachable:               false,
 			HasInitializedReplica:         true,
 			Analyses: []*PoolerAnalysis{
 				{
-					PoolerID:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+					PoolerID:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
 					ShardKey:      shardKey,
 					IsLeader:      false,
 					IsInitialized: true,
@@ -76,8 +76,8 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		return sa
 	}
 
-	t.Run("detects dead primary (primary exists in topology but unreachable)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis()
+	t.Run("detects dead leader (leader exists in topology but unreachable)", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis()
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -86,12 +86,12 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderIsDead, problem.Code)
 		require.Equal(t, types.ScopeShard, problem.Scope)
 		require.Equal(t, types.PriorityEmergency, problem.Priority)
-		require.Equal(t, primaryID, problem.PoolerID)
+		require.Equal(t, leaderID, problem.PoolerID)
 		require.NotNil(t, problem.RecoveryAction)
 	})
 
-	t.Run("ignores healthy primary (reachable)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("ignores healthy leader (reachable)", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderReachable = true
 		})
 
@@ -100,8 +100,8 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("ignores when no primary exists in topology (future analysis)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.HighestTermDiscoveredLeaderID = nil
 		})
 
@@ -110,8 +110,8 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("ignores when no initialized replica can confirm the primary is dead", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("ignores when no initialized replica can confirm the leader is dead", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.HasInitializedReplica = false
 		})
 
@@ -120,10 +120,10 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("ignores when primary pooler down but all replicas still connected to postgres", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("ignores when leader pooler down but all replicas still connected to postgres", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
-			sa.FollowersConnectedToLeader = true
+			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second) // Responded recently
 		})
 
@@ -132,41 +132,41 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems, "should not trigger failover when pooler is down but replicas are connected")
 	})
 
-	t.Run("triggers failover when primary pooler up but postgres down", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("triggers failover when leader pooler up but postgres down", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = true // Pooler is up
-			// PrimaryReachable remains false (postgres down)
+			// LeaderReachable remains false (postgres down)
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
-		require.Equal(t, primaryID, problems[0].PoolerID)
+		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
-			sa.FollowersConnectedToLeader = false
+			sa.ReplicasConnectedToLeader = false
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
-		require.Equal(t, primaryID, problems[0].PoolerID)
+		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
 		require.Equal(t, types.CheckName("LeaderIsDead"), analyzer.Name())
 	})
 
-	t.Run("ignores when primary pooler down but replicas connected (postgres still running, recent timestamp)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("ignores when leader pooler down but replicas connected (postgres still running, recent timestamp)", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false                                  // Pooler is down
 			sa.LeaderPostgresReady = false                                    // Unknown since pooler is down
-			sa.FollowersConnectedToLeader = true                              // But replicas are still connected to postgres
+			sa.ReplicasConnectedToLeader = true                               // But replicas are still connected to postgres
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second) // Responded recently (within 30s default threshold)
 		})
 
@@ -176,11 +176,11 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores when pooler up, postgres starting (replicas connected, recent timestamp)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true      // Pooler is up
-			sa.LeaderPostgresReady = false       // Postgres not yet accepting connections
-			sa.LeaderPostgresRunning = true      // But process exists (starting up or SIGSTOP'd)
-			sa.FollowersConnectedToLeader = true // Replicas still connected via streaming replication
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true     // Pooler is up
+			sa.LeaderPostgresReady = false      // Postgres not yet accepting connections
+			sa.LeaderPostgresRunning = true     // But process exists (starting up or SIGSTOP'd)
+			sa.ReplicasConnectedToLeader = true // Replicas still connected via streaming replication
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
 		})
 
@@ -190,11 +190,11 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("triggers failover when pooler up but postgres process dead (SIGKILL), replicas still connected", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true      // Pooler is up and reachable
-			sa.LeaderPostgresReady = false       // Postgres not accepting connections
-			sa.LeaderPostgresRunning = false     // Process is dead (SIGKILL)
-			sa.FollowersConnectedToLeader = true // Replicas still appear connected (TCP keepalive not yet fired)
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true     // Pooler is up and reachable
+			sa.LeaderPostgresReady = false      // Postgres not accepting connections
+			sa.LeaderPostgresRunning = false    // Process is dead (SIGKILL)
+			sa.ReplicasConnectedToLeader = true // Replicas still appear connected (TCP keepalive not yet fired)
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
 		})
 
@@ -205,10 +205,10 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("triggers failover when replicas connected but postgres timestamp expired", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
 			sa.LeaderPostgresReady = false
-			sa.FollowersConnectedToLeader = true
+			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-60 * time.Second) // Older than 30s default threshold
 		})
 
@@ -219,11 +219,11 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("triggers failover when replicas connected but postgres never responded (zero timestamp)", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
 			sa.LeaderPostgresReady = false
-			sa.FollowersConnectedToLeader = true
-			sa.LeaderLastPostgresReadyTime = time.Time{} // Zero: postgres never seen healthy on this primary
+			sa.ReplicasConnectedToLeader = true
+			sa.LeaderLastPostgresReadyTime = time.Time{} // Zero: postgres never seen healthy on this leader
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -232,61 +232,61 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
-	t.Run("suppresses PrimaryIsDead while pg_promote() is running", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true   // stream is live
-			sa.LeaderPostgresRunning = true   // process is running
-			sa.LeaderPostgresReady = false    // not yet accepting connections (promoting)
-			sa.PromotingPrimaryID = primaryID // multipooler flagged promotion in progress
+	t.Run("suppresses LeaderIsDead while pg_promote() is running", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true  // stream is live
+			sa.LeaderPostgresRunning = true  // process is running
+			sa.LeaderPostgresReady = false   // not yet accepting connections (promoting)
+			sa.PromotingPrimaryID = leaderID // multipooler flagged promotion in progress
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Empty(t, problems, "should suppress PrimaryIsDead while pg_promote() is explicitly in progress")
+		require.Empty(t, problems, "should suppress LeaderIsDead while pg_promote() is explicitly in progress")
 	})
 
-	t.Run("does not suppress PrimaryIsDead when postgres crashes during promotion", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("does not suppress LeaderIsDead when postgres crashes during promotion", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = true  // stream still alive (multipooler survived)
 			sa.LeaderPostgresRunning = false // postgres process died during promotion
 			sa.LeaderPostgresReady = false
-			sa.PromotingPrimaryID = primaryID // flag still set before cleared
+			sa.PromotingPrimaryID = leaderID // flag still set before cleared
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should detect dead primary when postgres crashes during promotion")
+		require.Len(t, problems, 1, "should detect dead leader when postgres crashes during promotion")
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
-	t.Run("does not suppress PrimaryIsDead when multipooler unreachable during promotion", func(t *testing.T) {
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+	t.Run("does not suppress LeaderIsDead when multipooler unreachable during promotion", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false // stream disconnected (stale flag)
 			sa.LeaderPostgresRunning = true
 			sa.LeaderPostgresReady = false
-			sa.PromotingPrimaryID = primaryID // stale flag from last snapshot
+			sa.PromotingPrimaryID = leaderID // stale flag from last snapshot
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should detect dead primary when multipooler is unreachable even if promotion flag is set")
+		require.Len(t, problems, 1, "should detect dead leader when multipooler is unreachable even if promotion flag is set")
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
-	t.Run("triggers failover when primary has resigned even though replicas are still connected", func(t *testing.T) {
+	t.Run("triggers failover when leader has resigned even though replicas are still connected", func(t *testing.T) {
 		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
-		// it as a replication source, so ReplicasConnectedToPrimary becomes true.
-		// Without the PrimaryHasResigned bypass, this would suppress failover indefinitely.
-		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+		// it as a replication source, so ReplicasConnectedToLeader becomes true.
+		// Without the LeaderHasResigned bypass, this would suppress failover indefinitely.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
-			sa.FollowersConnectedToLeader = true
+			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
 			sa.LeaderHasResigned = true
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should not suppress failover when primary has resigned, even if replicas are connected")
+		require.Len(t, problems, 1, "should not suppress failover when leader has resigned, even if replicas are connected")
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 }

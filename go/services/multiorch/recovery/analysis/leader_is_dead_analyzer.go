@@ -57,8 +57,8 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
-	// No initialized follower to confirm the leader is dead — skip to avoid false positives
-	// when the shard has no follower that has joined the cohort yet.
+	// No initialized replica to confirm the leader is dead — skip to avoid false positives
+	// when the shard has no postgres standby that has joined the cluster yet.
 	if !sa.HasInitializedReplica {
 		return nil, nil
 	}
@@ -102,7 +102,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
-	if sa.FollowersConnectedToLeader && !sa.LeaderHasResigned {
+	if sa.ReplicasConnectedToLeader && !sa.LeaderHasResigned {
 		threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 		lastReadyTime := sa.LeaderLastPostgresReadyTime
 		primaryPostgresUnresponsive := !sa.LeaderPostgresReady &&
@@ -147,7 +147,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		}
 	}
 
-	// Primary is dead — emit one shard-level problem.
+	// Leader is dead — emit one shard-level problem.
 	return []types.Problem{{
 		Code:           types.ProblemLeaderIsDead,
 		CheckName:      "LeaderIsDead",

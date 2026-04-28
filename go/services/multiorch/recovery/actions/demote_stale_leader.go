@@ -37,13 +37,13 @@ import (
 // Compile-time assertion that DemoteStaleLeaderAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*DemoteStaleLeaderAction)(nil)
 
-// StaleLeaderDrainTimeout is a shorter drain timeout for stale primaries.
-// Stale primaries that just came back online typically have no active connections,
+// StaleLeaderDrainTimeout is a shorter drain timeout for stale leaders.
+// Stale leaders that just came back online typically have no active connections,
 // so we use a shorter timeout to speed up demotion.
 const StaleLeaderDrainTimeout = 5 * time.Second
 
 // DemoteStaleLeaderAction demotes a stale leader that was detected after failover.
-// It uses the DemoteStalePrimary RPC with the correct primary's term to force the stale leader
+// It uses the DemoteStalePrimary RPC with the correct leader's term to force the stale leader
 // to accept the term and demote, preventing further writes.
 type DemoteStaleLeaderAction struct {
 	config      *config.Config
@@ -85,7 +85,7 @@ func (a *DemoteStaleLeaderAction) Priority() types.Priority {
 }
 
 func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
-	// We're demoting a primary, so we can't require a healthy primary
+	// We're demoting a stale leader, so we can't require a healthy leader
 	return false
 }
 
@@ -96,11 +96,11 @@ func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	}
 }
 
-// Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct primary's term.
+// Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct leader's term.
 // This is safer than BeginTerm because:
-// 1. We use the correct primary's term (not a new term), avoiding term inconsistency
+// 1. We use the correct leader's term (not a new term), avoiding term inconsistency
 // 2. The stale leader accepts term >= its current term and demotes
-// 3. Both primaries end up with the same term (no term inconsistency)
+// 3. Both leaders end up with the same term (no term inconsistency)
 func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 

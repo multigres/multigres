@@ -738,9 +738,9 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			close(pm.readyChan)
 		}
 
-		// Set initial primary observation from the highest known rule.
+		// Set initial leader observation from the highest known rule.
 		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
-		// primary, so publishing serviceID here is safe.
+		// leader, so publishing serviceID here is safe.
 		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
 			if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
 				pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{

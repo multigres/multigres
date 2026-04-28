@@ -355,7 +355,7 @@ message RuleNumber {
 // them.
 message ShardRule {
   RuleNumber rule_number = 1;
-  // The consensus- leader for this rule, through which all transactions (including rules) are
+  // The consensus leader for this rule, through which all transactions (including rules) are
   // written to the WAL.
   ID leader_id = 2;
   repeated ID cohort_members = 3;

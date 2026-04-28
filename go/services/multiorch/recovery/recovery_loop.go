@@ -138,14 +138,14 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	// Sort by priority and apply filtering logic
 	filteredProblems := re.filterAndPrioritize(problems)
 
-	// Check if there's a primary problem in this shard
-	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
+	// Check if there's a leader problem in this shard
+	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
 
 	// Attempt recoveries in priority order
 	for _, problem := range filteredProblems {
-		// Skip replica recoveries if primary is unhealthy and action requires healthy primary
-		if problem.RecoveryAction.RequiresHealthyLeader() && hasPrimaryProblem {
-			re.logger.InfoContext(ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
+		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
+		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
+			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
 			)
@@ -156,9 +156,9 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	}
 }
 
-// hasPrimaryProblem checks if any of the problems indicate an unhealthy primary.
-// Shard-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
-func (re *Engine) hasPrimaryProblem(problems []types.Problem) bool {
+// hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
+// Shard-wide problems (e.g., LeaderIsDead) imply an unhealthy leader.
+func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 	for _, problem := range problems {
 		if problem.IsShardWide() {
 			return true

@@ -1430,7 +1430,7 @@ func (x *RuleNumber) GetLeaderSubterm() int64 {
 type ShardRule struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	RuleNumber *RuleNumber            `protobuf:"bytes,1,opt,name=rule_number,json=ruleNumber,proto3" json:"rule_number,omitempty"`
-	// The consensus- leader for this rule, through which all transactions (including rules) are
+	// The consensus leader for this rule, through which all transactions (including rules) are
 	// written to the WAL.
 	LeaderId      *ID   `protobuf:"bytes,2,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	CohortMembers []*ID `protobuf:"bytes,3,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`

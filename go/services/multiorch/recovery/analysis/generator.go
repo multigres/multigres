@@ -182,7 +182,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 
 // GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
 // the given pooler ID. Used primarily in tests to inspect shard-level fields like
-// FollowersConnectedToLeader without running the full analysis loop.
+// ReplicasConnectedToLeader without running the full analysis loop.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*ShardAnalysis, error) {
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
@@ -291,7 +291,7 @@ func findHighestTermRawLeader(poolers map[string]*multiorchdatapb.PoolerHealthSt
 	return best
 }
 
-// allFollowersConnectedToLeader checks if ALL replicas in the shard are connected to the leader's postgres.
+// allReplicasConnectedToLeader checks if ALL postgres standbys in the shard are connected to the leader's postgres.
 // A replica is considered connected if:
 // 1. Its health check is valid (IsLastCheckValid)
 // 2. It has PrimaryConnInfo configured pointing to the leader's postgres
@@ -299,7 +299,7 @@ func findHighestTermRawLeader(poolers map[string]*multiorchdatapb.PoolerHealthSt
 //
 // Returns true only if all replicas meet these criteria.
 // Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allFollowersConnectedToLeader(
+func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 	primary *multiorchdatapb.PoolerHealthState,
 	poolers map[string]*multiorchdatapb.PoolerHealthState,
 ) bool {
@@ -487,10 +487,10 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// Determine if all followers are still connected to the leader's postgres.
 	// Use the highest-term discovered leader (which may be unreachable) so we can detect the
-	// "pooler down but postgres still running" scenario that FollowersConnectedToLeader
+	// "pooler down but postgres still running" scenario that ReplicasConnectedToLeader
 	// is designed to catch.
 	if topologyPrimary != nil {
-		sa.FollowersConnectedToLeader = g.allFollowersConnectedToLeader(topologyPrimary, poolers)
+		sa.ReplicasConnectedToLeader = g.allReplicasConnectedToLeader(topologyPrimary, poolers)
 	}
 }
 
