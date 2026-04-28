@@ -804,7 +804,7 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 			}
 
 			// Call UpdateTermAndAcceptCandidate
-			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID, nil)
+			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1418,6 +1418,30 @@ func TestRecruit(t *testing.T) {
 			makeFilesystemReadOnly:     true,
 			expectError:                true,
 			expectErrContains:          "failed to persist term revocation",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+		{
+			// Primary node where emergencyDemoteLocked fails because there are no
+			// postgres mocks for the demotion queries. Exercises the isPrimary=true
+			// branch in Recruit and verifies that nothing is persisted on failure.
+			name:              "PrimaryReject_DemotionFails",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				// isPrimary returns false for pg_is_in_recovery (not in recovery = primary).
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+				// No further mocks — emergencyDemoteLocked fails on its first query.
+			},
+			expectError:                true,
+			expectErrContains:          "failed to demote primary during recruit",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},

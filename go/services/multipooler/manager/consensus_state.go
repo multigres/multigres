@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -142,6 +143,9 @@ func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb
 // This is called when a node accepts the term during BeginTerm.
 // Returns error if already accepted from a different coordinator in this term.
 // Idempotent: succeeds if already accepted from the same coordinator.
+//
+// Deprecated: use AcceptRevocation for new callers. This method remains for BeginTerm()
+// compatibility until the legacy coordinator protocol is retired.
 func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateID *clustermetadatapb.ID) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -179,20 +183,39 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	return cs.saveAndUpdateLocked(newRevocation)
 }
 
+// AcceptRevocation validates and persists a TermRevocation in one atomic step.
+// It builds the validation status from the observed position in status combined
+// with the current in-memory revocation (read under the mutex), so the check
+// reflects the actual locked state rather than a potentially stale snapshot.
+// This is the preferred path for Recruit(); the legacy Update* methods below
+// remain for BeginTerm() until the old coordinator protocol is retired.
+func (cs *ConsensusState) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if !proto.Equal(status.TermRevocation, cs.revocation) {
+		return errors.New("status parameter is out of date")
+	}
+
+	if err := consensus.ValidateRevocation(status, revocation); err != nil {
+		return err
+	}
+
+	return cs.saveAndUpdateLocked(cloneRevocation(revocation))
+}
+
 // UpdateTermAndAcceptCandidate atomically updates the term and accepts a candidate in one file write.
-// This is used by BeginTerm and Recruit to avoid two separate file writes.
+// This is used by BeginTerm to avoid two separate file writes.
+//
+// Deprecated: use AcceptRevocation for new callers. This method remains for BeginTerm()
+// compatibility until the legacy coordinator protocol is retired.
 // If newTerm > currentTerm, updates term and resets acceptance, then sets the candidate.
 // If newTerm == currentTerm, just accepts the candidate (same as AcceptCandidateAndSave).
 // Returns error if newTerm < currentTerm.
-//
-// coordinatorInitiatedAt is the timestamp from the request (non-nil for Recruit; nil for
-// legacy BeginTerm which does not carry one). It is stored in LastAcceptanceTime as a
-// transitional measure until the on-disk format migrates from ConsensusTerm to TermRevocation.
-//
-// TODO(PR #904): Once the on-disk format migrates from ConsensusTerm to TermRevocation,
-// this method should delegate to consensus.ValidateRevocation and then persist the
-// TermRevocation directly, eliminating the duplicated coordinator/term logic here.
-func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID, coordinatorInitiatedAt *timestamppb.Timestamp) error {
+func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -214,11 +237,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 
 	var newRevocation *clustermetadatapb.TermRevocation
 
-	acceptanceTime := coordinatorInitiatedAt
-	if acceptanceTime == nil {
-		// TODO: remove this default acceptance time logic once coordinatorInitiatedAt becomes required
-		acceptanceTime = timestamppb.New(time.Now())
-	}
+	acceptanceTime := timestamppb.New(time.Now())
 
 	if newTerm > currentTerm {
 		// Higher term: create new revocation with the candidate already set

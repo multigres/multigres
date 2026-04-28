@@ -84,7 +84,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	// Atomically update term and accept candidate
 	// This handles all consensus rules: term validation, duplicate check, etc.
-	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId, nil)
+	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId)
 	if err != nil {
 		// Term not accepted - return rejection with consensus status so the coordinator
 		// learns this pooler's current state even from a rejection.
@@ -441,7 +441,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
-	// Step 1: State check — reject immediately if the node's committed WAL
+	// State check — reject immediately if the node's committed WAL
 	// rule or stored revocation already conflicts with this request.
 	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
 	preStatus, _ := pm.getConsensusStatus(ctx)
@@ -457,7 +457,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	termEvent := eventlog.TermBegin{NewTerm: revokedBelowTerm}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
 
-	// Step 2: Stop replication participation.
+	// Stop replication participation.
 	var savedConnInfo string // non-empty if standby; used for recovery on race failure
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Recruiting primary: demoting and restarting as standby",
@@ -485,17 +485,16 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		}
 	}
 
-	// Step 3: Re-check with the stable (post-stop) status.
-	// This catches the rare race where a WAL rule entry arrived between the
-	// sanity check and actually stopping replication.
+	// Re-check against the stable position and persist atomically.
+	// AcceptRevocation combines the observed WAL position with the locked stored
+	// revocation so ValidateRevocation sees authoritative state for both checks.
 	stableStatus, err := pm.getConsensusStatus(ctx)
 	if err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
 	}
-	if err := consensus.ValidateRevocation(stableStatus, revocation); err != nil {
-		raceErr := mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"revocation failed after stopping replication: %s", err.Error())
+	if err := pm.consensusState.AcceptRevocation(ctx, stableStatus, revocation); err != nil {
+		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
 		// Attempt to restore the node to its prior replication role.
 		if isPrimary {
@@ -504,16 +503,10 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 			// leader to allow orch to do a failover.
 		} else if savedConnInfo != "" {
 			if restoreErr := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); restoreErr != nil {
-				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit race", "error", restoreErr)
+				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit failure", "error", restoreErr)
 			}
 		}
 		return nil, raceErr
-	}
-
-	// Step 4: Position is consistent — persist the TermRevocation.
-	if err := pm.consensusState.UpdateTermAndAcceptCandidate(ctx, revokedBelowTerm, coordinatorID, revocation.GetCoordinatorInitiatedAt()); err != nil {
-		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-		return nil, mterrors.Wrap(err, "failed to persist term revocation")
 	}
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
