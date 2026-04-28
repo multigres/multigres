@@ -21,10 +21,11 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // postgresAlreadyRunningPattern matches the postgres error reported when the
@@ -34,14 +35,6 @@ import (
 // detect parent death via PostmasterIsAlive() and exit. The same error is
 // reported during that window even though postgres is not actually running.
 var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already exists`)
-
-// Bounds the retry window used to wait out the orphan-cleanup race after a
-// postmaster crash. Suggested by MUL-394: ~5s covers the worst-case worker
-// PostmasterIsAlive() detection latency observed in practice.
-const (
-	crashRecoveryMaxAttempts = 10
-	crashRecoveryRetryDelay  = 500 * time.Millisecond
-)
 
 // isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
 // Returns true if state is "shut down" or "shut down in recovery", false otherwise.
@@ -79,7 +72,8 @@ func extractClusterState(output string) string {
 // runCrashRecovery performs crash recovery in single-user mode.
 // This runs postgres --single to complete crash recovery, then exits cleanly.
 func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
-	return runCrashRecoveryAttempts(ctx, logger, runSingleUserPostgres, crashRecoveryRetryDelay)
+	r := retry.New(constants.CrashRecoveryRetryDelay, constants.CrashRecoveryRetryDelay)
+	return runCrashRecoveryAttempts(ctx, logger, runSingleUserPostgres, r)
 }
 
 // runCrashRecoveryAttempts retries `postgres --single` while the lock file is held.
@@ -90,12 +84,16 @@ func runCrashRecoveryAttempts(
 	ctx context.Context,
 	logger *slog.Logger,
 	run func(context.Context) ([]byte, error),
-	retryDelay time.Duration,
+	r *retry.Retry,
 ) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
 
 	var lastOutput string
-	for attempt := 1; attempt <= crashRecoveryMaxAttempts; attempt++ {
+	for attempt, rerr := range r.Attempts(ctx) {
+		if rerr != nil {
+			return rerr
+		}
+
 		output, err := run(ctx)
 		if err == nil {
 			return nil
@@ -111,21 +109,18 @@ func runCrashRecoveryAttempts(
 			return fmt.Errorf("crash recovery failed: %w", err)
 		}
 
-		if attempt < crashRecoveryMaxAttempts {
-			logger.InfoContext(ctx, "Single-user crash recovery: lock file held, retrying",
-				"attempt", attempt,
-				"max_attempts", crashRecoveryMaxAttempts,
-				"output", outputStr)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(retryDelay):
-			}
+		if attempt >= constants.CrashRecoveryMaxAttempts {
+			break
 		}
+
+		logger.InfoContext(ctx, "Single-user crash recovery: lock file held, retrying",
+			"attempt", attempt,
+			"max_attempts", constants.CrashRecoveryMaxAttempts,
+			"output", outputStr)
 	}
 
 	logger.InfoContext(ctx, "Single-user crash recovery not needed, postgres is already running",
-		"attempts", crashRecoveryMaxAttempts,
+		"attempts", constants.CrashRecoveryMaxAttempts,
 		"output", lastOutput)
 	return nil
 }

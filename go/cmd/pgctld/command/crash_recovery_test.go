@@ -22,7 +22,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/tools/retry"
 )
+
+// fastRetry returns a retry.Retry whose delays are short enough to make tests
+// effectively instant while still exercising the iterator-driven control flow.
+func fastRetry() *retry.Retry {
+	return retry.New(time.Millisecond, time.Millisecond)
+}
 
 // TestPostgresAlreadyRunningPattern verifies the regex pattern matches the actual error
 func TestPostgresAlreadyRunningPattern(t *testing.T) {
@@ -90,7 +99,7 @@ func TestRunCrashRecovery_RetriesDuringOrphanCleanupWindow(t *testing.T) {
 		return []byte("recovery complete"), nil
 	}
 
-	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, time.Millisecond)
+	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, fastRetry())
 	require.NoError(t, err)
 	assert.Equal(t, holdAttempts+1, calls,
 		"runner should be retried until the lock clears, then succeed")
@@ -106,9 +115,9 @@ func TestRunCrashRecovery_LockNeverClearsReturnsNil(t *testing.T) {
 		return lockHeldOutput, errors.New("exit status 1")
 	}
 
-	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, time.Millisecond)
+	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, fastRetry())
 	require.NoError(t, err)
-	assert.Equal(t, crashRecoveryMaxAttempts, calls,
+	assert.Equal(t, constants.CrashRecoveryMaxAttempts, calls,
 		"runner should be retried up to the max-attempts bound")
 }
 
@@ -121,7 +130,7 @@ func TestRunCrashRecovery_FirstAttemptSucceeds(t *testing.T) {
 		return []byte("recovery complete"), nil
 	}
 
-	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, time.Millisecond)
+	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, fastRetry())
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
 }
@@ -136,7 +145,7 @@ func TestRunCrashRecovery_NonLockErrorReturnsImmediately(t *testing.T) {
 		return []byte("FATAL:  could not access data directory"), errors.New("exit status 1")
 	}
 
-	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, time.Millisecond)
+	err := runCrashRecoveryAttempts(context.Background(), testLogger(), runner, fastRetry())
 	require.Error(t, err)
 	assert.Equal(t, 1, calls, "non-lock errors must not be retried")
 }
@@ -153,7 +162,7 @@ func TestRunCrashRecovery_ContextCancelledDuringBackoff(t *testing.T) {
 		return lockHeldOutput, errors.New("exit status 1")
 	}
 
-	err := runCrashRecoveryAttempts(ctx, testLogger(), runner, time.Hour)
+	err := runCrashRecoveryAttempts(ctx, testLogger(), runner, retry.New(time.Hour, time.Hour))
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, calls)
 }
