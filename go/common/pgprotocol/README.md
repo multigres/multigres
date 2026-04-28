@@ -95,7 +95,7 @@ numParams, err := r.ReadInt16()
 Outbound packets are encoded in place against the bufio writer's
 internal buffer via `startPacket` / `writePacket` and `writeXxxAt`
 helpers, eliminating per-message allocations. See
-[docs/query_serving/pgwire_write_path.md](../../../docs/query_serving/pgwire_write_path.md)
+[docs/query_serving/pgwire_io_path.md](../../../docs/query_serving/pgwire_io_path.md)
 for the full design rationale.
 
 ```go
