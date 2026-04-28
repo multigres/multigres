@@ -352,11 +352,11 @@ func TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCheckSufficientRecruitment_DeadPrimaryRemainsInCohort verifies that a failover
-// can succeed when the dead primary is kept in the new cohort (so it can rejoin as a
+// TestCheckSufficientRecruitment_DeadLeaderRemainsInCohort verifies that a failover
+// can succeed when the dead leader is kept in the new cohort (so it can rejoin as a
 // standby later) but cannot be recruited. B and C are live and cover AT_LEAST_2.
-func TestCheckSufficientRecruitment_DeadPrimaryRemainsInCohort(t *testing.T) {
-	a := makeID("z1", "pooler-a") // dead primary — not recruited
+func TestCheckSufficientRecruitment_DeadLeaderRemainsInCohort(t *testing.T) {
+	a := makeID("z1", "pooler-a") // dead leader — not recruited
 	b := makeID("z1", "pooler-b")
 	c := makeID("z1", "pooler-c")
 	cohort := []*clustermetadatapb.ID{a, b, c}

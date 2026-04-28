@@ -144,7 +144,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	// Attempt recoveries in priority order
 	for _, problem := range filteredProblems {
 		// Skip replica recoveries if primary is unhealthy and action requires healthy primary
-		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
+		if problem.RecoveryAction.RequiresHealthyLeader() && hasPrimaryProblem {
 			re.logger.InfoContext(ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),

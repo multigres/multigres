@@ -46,11 +46,11 @@ func TestFixReplicationAction_Metadata(t *testing.T) {
 	assert.Equal(t, 45*time.Second, metadata.Timeout)
 }
 
-func TestFixReplicationAction_RequiresHealthyPrimary(t *testing.T) {
+func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
 	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
 
 	// FixReplication requires a healthy primary to configure replication
-	assert.True(t, action.RequiresHealthyPrimary())
+	assert.True(t, action.RequiresHealthyLeader())
 }
 
 func TestFixReplicationAction_Priority(t *testing.T) {

@@ -43,9 +43,9 @@ func mustPolicy(t *testing.T, p *clustermetadatapb.DurabilityPolicy) commonconse
 	return parsed
 }
 
-// primaryRuleStatus builds a ConsensusStatus where id is the leader with
+// leaderRuleStatus builds a ConsensusStatus where id is the leader with
 // the given coordinator term, so commonconsensus.LeaderTerm returns term.
-func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+func leaderRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -59,9 +59,9 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 	}
 }
 
-// primaryRule returns a ShardRule that designates the named node in zone1 as leader.
+// leaderRule returns a ShardRule that designates the named node in zone1 as leader.
 // Passing the same rule to all nodes in a test makes the incumbent leader explicit.
-func primaryRule(name string) *clustermetadatapb.ShardRule {
+func leaderRule(name string) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
 		LeaderId: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -716,7 +716,7 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: resignedPoolerID,
 			},
-			ConsensusStatus: primaryRuleStatus(resignedPoolerID, 4),
+			ConsensusStatus: leaderRuleStatus(resignedPoolerID, 4),
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 				LeaderTerm: 4,
 				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
@@ -766,7 +766,7 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: onlyNodeID,
 			},
-			ConsensusStatus: primaryRuleStatus(onlyNodeID, 3),
+			ConsensusStatus: leaderRuleStatus(onlyNodeID, 3),
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 				LeaderTerm: 3,
 				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
@@ -798,7 +798,7 @@ func TestSelectCandidate(t *testing.T) {
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: staleSignalID,
 			},
-			ConsensusStatus: primaryRuleStatus(staleSignalID, 5), // current term is 5
+			ConsensusStatus: leaderRuleStatus(staleSignalID, 5), // current term is 5
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 				LeaderTerm: 3, // signal from an old term — stale
 				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
@@ -843,7 +843,7 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary being revoked
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader being revoked
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -866,7 +866,7 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary being revoked
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader being revoked
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -893,7 +893,7 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary being revoked
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader being revoked
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -930,7 +930,7 @@ func TestBeginTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary being revoked
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader being revoked
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -1120,7 +1120,7 @@ func TestBeginTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary; revoke crashes during demotion
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader; revoke crashes during demotion
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule), // Highest LSN
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -1182,7 +1182,7 @@ func TestBeginTerm(t *testing.T) {
 
 		// mp2 was promoted during the first failover (term=2, timeline=2) and is the current primary.
 		// All nodes share the same rule reflecting mp2's leadership.
-		mp2Rule := primaryRule("mp2")
+		mp2Rule := leaderRule("mp2")
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/5000000", true, mp2Rule)
 		mp2 := createMockNode(fakeClient, "mp2", 5, "0/3000000", true, mp2Rule)
 		mp3 := createMockNode(fakeClient, "mp3", 5, "0/2000000", true, mp2Rule)
@@ -1246,7 +1246,7 @@ func TestBeginTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		mp1Rule := primaryRule("mp1") // mp1 is the incumbent primary being revoked
+		mp1Rule := leaderRule("mp1") // mp1 is the incumbent leader being revoked
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, mp1Rule),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, mp1Rule),
@@ -1306,7 +1306,7 @@ func TestBeginTerm(t *testing.T) {
 		// Its cached health still shows rule=(primary=mp1, term=4) and the
 		// leadership status carries REQUESTING_DEMOTION at that same term —
 		// the shape types.LeaderNeedsReplacement looks for.
-		mp1.ConsensusStatus = primaryRuleStatus(mp1.MultiPooler.Id, 4)
+		mp1.ConsensusStatus = leaderRuleStatus(mp1.MultiPooler.Id, 4)
 		mp1.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 				LeaderTerm: 4,

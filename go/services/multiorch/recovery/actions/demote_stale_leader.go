@@ -84,7 +84,7 @@ func (a *DemoteStaleLeaderAction) Priority() types.Priority {
 	return types.PriorityHigh
 }
 
-func (a *DemoteStaleLeaderAction) RequiresHealthyPrimary() bool {
+func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 	// We're demoting a primary, so we can't require a healthy primary
 	return false
 }

@@ -214,13 +214,13 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  4 * time.Second,
 			FlagName: "leader-failover-grace-period-base",
 			Dynamic:  true,
-			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_BASE"},
+			EnvVars:  []string{"MT_LEADER_FAILOVER_GRACE_PERIOD_BASE"},
 		}),
 		leaderFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "leader-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
 			Default:  8 * time.Second,
 			FlagName: "leader-failover-grace-period-max-jitter",
 			Dynamic:  true,
-			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
+			EnvVars:  []string{"MT_LEADER_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
 		}),
 		verifyReplicationTimeout: viperutil.Configure(reg, "verify-replication-timeout", viperutil.Options[time.Duration]{
 			Default:  5 * time.Second,
@@ -232,7 +232,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  30 * time.Second,
 			FlagName: "leader-postgres-response-threshold",
 			Dynamic:  true,
-			EnvVars:  []string{"MT_PRIMARY_POSTGRES_RESPONSE_THRESHOLD"},
+			EnvVars:  []string{"MT_LEADER_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
 	}
 }
@@ -325,7 +325,7 @@ func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Default()
 }
 
-func (c *Config) DefaultPrimaryPostgresResponseThreshold() time.Duration {
+func (c *Config) DefaultLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Default()
 }
 
@@ -341,7 +341,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("leader-failover-grace-period-base", c.DefaultLeaderFailoverGracePeriodBase(), "base grace period before executing leader failover")
 	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
-	fs.Duration("leader-postgres-response-threshold", c.DefaultPrimaryPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
+	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,

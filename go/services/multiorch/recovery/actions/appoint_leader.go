@@ -150,7 +150,7 @@ func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multio
 
 // RecoveryAction interface implementation
 
-func (a *AppointLeaderAction) RequiresHealthyPrimary() bool {
+func (a *AppointLeaderAction) RequiresHealthyLeader() bool {
 	return false // leader appointment doesn't need existing primary
 }
 

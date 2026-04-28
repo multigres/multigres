@@ -43,7 +43,7 @@ func (m *mockActionWithGracePeriod) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{Name: "MockAction"}
 }
 
-func (m *mockActionWithGracePeriod) RequiresHealthyPrimary() bool {
+func (m *mockActionWithGracePeriod) RequiresHealthyLeader() bool {
 	return false
 }
 
