@@ -559,8 +559,22 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	)
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
-	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
 	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
+
+	// The gateway is ready only when both conditions are met:
+	// 1. No init errors (topology registration succeeded)
+	// 2. At least one pooler has been discovered (can actually serve queries)
+	mg.senv.RegisterReadyCheck(func() error {
+		mg.serverStatus.mu.Lock()
+		defer mg.serverStatus.mu.Unlock()
+		if len(mg.serverStatus.InitError) > 0 {
+			return errors.New(mg.serverStatus.InitError)
+		}
+		if mg.poolerDiscovery.PoolerCount() == 0 {
+			return errors.New("no poolers discovered")
+		}
+		return nil
+	})
 	mg.senv.HTTPHandleFunc("/debug/queries", mg.handleQueriesDebug)
 
 	mg.senv.OnClose(func() {

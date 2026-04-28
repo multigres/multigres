@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -756,7 +755,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			cs := NewConsensusState("", nil)
 			cs.mu.Lock()
-			cs.term = &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+			cs.revocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
 			cs.mu.Unlock()
 			pm.consensusState = cs
 
@@ -904,7 +903,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 	pm.state = ManagerStateStarting
 
 	// Call iteration when not ready - should return early without calling pgctld
-	pm.monitorPostgresIteration(ctx)
+	pm.monitorPostgresIteration(ctx) //nolint:errcheck
 	assert.False(t, mockPgctld.startCalled, "Should not attempt to start when not ready")
 
 	// Set state to ready
@@ -914,7 +913,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 	close(readyChan)
 
 	// Call iteration again when ready - should proceed and attempt to start
-	pm.monitorPostgresIteration(ctx)
+	pm.monitorPostgresIteration(ctx) //nolint:errcheck
 	assert.True(t, mockPgctld.startCalled, "Should attempt to start when ready")
 }
 
@@ -937,7 +936,7 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
 
 	// Call iteration - should discover running state and not call Start
-	pm.monitorPostgresIteration(ctx)
+	pm.monitorPostgresIteration(ctx) //nolint:errcheck
 
 	// Should not have called Start (postgres already running)
 	assert.False(t, mockPgctld.startCalled, "Should not call Start when postgres is already running")
@@ -961,7 +960,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 	pm.state = ManagerStateReady
 
 	// Call iteration - should discover stopped state and attempt to start
-	pm.monitorPostgresIteration(ctx)
+	pm.monitorPostgresIteration(ctx) //nolint:errcheck
 
 	// Should have attempted to start postgres
 	assert.True(t, mockPgctld.startCalled, "Should attempt to start stopped postgres")
@@ -989,11 +988,45 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 
 	// Call iteration multiple times to simulate retry behavior
 	for range 5 {
-		pm.monitorPostgresIteration(ctx)
+		pm.monitorPostgresIteration(ctx) //nolint:errcheck
 	}
 
 	// Should have retried multiple times
 	assert.Equal(t, 5, mockPgctld.startCallCount, "Should attempt to start on each iteration")
+}
+
+func TestPostgresStateEqual(t *testing.T) {
+	base := postgresState{
+		pgctldAvailable:          true,
+		dirInitialized:           true,
+		postgresRunning:          true,
+		backupsAvailable:         true,
+		isPrimary:                true,
+		bootstrapSentinelPresent: true,
+		primaryTerm:              42,
+	}
+
+	t.Run("equal states", func(t *testing.T) {
+		assert.True(t, postgresStateEqual(base, base))
+	})
+
+	tests := []struct {
+		name  string
+		other postgresState
+	}{
+		{"pgctldAvailable", func() postgresState { s := base; s.pgctldAvailable = false; return s }()},
+		{"dirInitialized", func() postgresState { s := base; s.dirInitialized = false; return s }()},
+		{"postgresRunning", func() postgresState { s := base; s.postgresRunning = false; return s }()},
+		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
+		{"isPrimary", func() postgresState { s := base; s.isPrimary = false; return s }()},
+		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
+		{"primaryTerm", func() postgresState { s := base; s.primaryTerm = 99; return s }()},
+	}
+	for _, tc := range tests {
+		t.Run("differs in "+tc.name, func(t *testing.T) {
+			assert.False(t, postgresStateEqual(base, tc.other))
+		})
+	}
 }
 
 // Mock pgctld client for testing

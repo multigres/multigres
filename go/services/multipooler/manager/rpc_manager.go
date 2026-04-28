@@ -300,26 +300,20 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 // This RPC works even when the database connection is unavailable - fields that require
 // database access will be nil/empty in that case. This allows callers to always get
 // initialization status without needing a separate RPC.
-func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
-	// Build status with initialization fields (always available)
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
 	poolerStatus := &multipoolermanagerdatapb.Status{
 		PoolerType:       pm.getPoolerType(),
 		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresReady:    pm.isPostgresReady(ctx),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
-		PostgresRole:     pm.getRole(ctx),
+		PostgresStatus:   pm.getServerStatus(ctx),
 		ShardId:          pm.getShardID(),
 	}
 
 	if action, duration := pm.actionLock.ActiveAction(); action != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
 		poolerStatus.PostgresAction = action
 		poolerStatus.PostgresActionDuration = durationpb.New(duration)
-	}
-
-	// Get consensus term (use inconsistent read for monitoring)
-	if term, err := pm.consensusState.GetInconsistentTerm(); err == nil {
-		poolerStatus.ConsensusTerm = term
 	}
 
 	// Get WAL position (ignore errors, just return empty string)
@@ -333,12 +327,21 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
 	}
 
+	resp := &multipoolermanagerdatapb.StatusResponse{
+		Status: poolerStatus,
+	}
+
+	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
+		resp.ConsensusStatus = cs
+	}
+	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
+
 	// Try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
 		pm.logger.WarnContext(ctx, "Failed to check PostgreSQL role, returning partial status", "error", err)
-		return poolerStatus, nil
+		return resp, nil
 	}
 
 	// Populate role-specific status
@@ -348,20 +351,20 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to get primary status", "error", err)
 			// Return partial status instead of error
-			return poolerStatus, nil
+			return resp, nil
 		}
 		poolerStatus.PrimaryStatus = primaryStatus
-		return poolerStatus, nil
+		return resp, nil
 	}
 	// Acting as standby - get replication status (skip guardrails since we already checked isPrimary)
 	replStatus, err := pm.getStandbyStatusInternal(ctx)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)
 		// Return partial status instead of error
-		return poolerStatus, nil
+		return resp, nil
 	}
 	poolerStatus.ReplicationStatus = replStatus
-	return poolerStatus, nil
+	return resp, nil
 }
 
 // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
@@ -429,12 +432,12 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	// before this primary can accept ACKs from it.
 	// This is for safe replica joining of the cluster.
 	// It will ensure multiorch can discover the new cohort during a failure.
-	term, err := pm.consensusState.GetTerm(ctx)
+	revocation, err := pm.consensusState.GetRevocation(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus term")
 	}
 	update := newRuleUpdate(
-		term.GetTermNumber(),
+		revocation.GetRevokedBelowTerm(),
 		pm.serviceID,
 		"replication_config",
 		"ConfigureSynchronousReplication called",
@@ -880,7 +883,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
 		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 			WasAlreadyDemoted:     true,
-			ConsensusTerm:         consensusTerm,
 			LsnPosition:           state.finalLSN,
 			ConnectionsTerminated: 0,
 		}, nil
@@ -921,6 +923,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		if err := pm.setResignedPrimaryAtTerm(ctx, primaryTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
 		}
+		// Broadcast immediately so multiorch sees leadership_status.REQUESTING_DEMOTION
+		// before the next periodic health stream interval fires, allowing PrimaryIsDead
+		// detection without waiting up to 5s for the next scheduled broadcast.
+		pm.broadcastHealth()
 	}
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
@@ -943,7 +949,6 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 		WasAlreadyDemoted:     false,
-		ConsensusTerm:         consensusTerm,
 		LsnPosition:           finalLSN,
 		ConnectionsTerminated: connectionsTerminated,
 	}, nil
@@ -1150,7 +1155,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 			return &multipoolermanagerdatapb.PromoteResponse{
 				LsnPosition:       state.currentLSN,
 				WasAlreadyPrimary: true,
-				ConsensusTerm:     consensusTerm,
 			}, nil
 		}
 
@@ -1250,7 +1254,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	return &multipoolermanagerdatapb.PromoteResponse{
 		LsnPosition:       finalLSN,
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
-		ConsensusTerm:     consensusTerm,
 	}, nil
 }
 

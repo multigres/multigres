@@ -19,6 +19,7 @@ import (
 	"time"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
@@ -66,6 +67,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 	// Collect entries to delete (can't delete while iterating due to lock)
 	type deleteEntry struct {
 		poolerID  string
+		id        *clustermetadatapb.ID
 		auditType string
 		shardKey  commontypes.ShardKey
 		message   string
@@ -78,6 +80,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 		if poolerInfo == nil || poolerInfo.MultiPooler == nil || poolerInfo.MultiPooler.Id == nil {
 			toDelete = append(toDelete, deleteEntry{
 				poolerID:  poolerID,
+				id:        nil, // broken entry — no valid ID to stop a stream with
 				auditType: "forget-broken-entry",
 				message:   "removing broken pooler entry (nil pointers)",
 			})
@@ -112,6 +115,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 			if lastCheckAttempted.Before(cutoff) {
 				toDelete = append(toDelete, deleteEntry{
 					poolerID:  poolerID,
+					id:        poolerInfo.MultiPooler.Id,
 					auditType: "forget-never-seen",
 					shardKey:  shardKey,
 					message:   "removing pooler that was never successfully health checked after 4 hours",
@@ -122,6 +126,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 			// Case 2: Was previously healthy but not seen in 4+ hours
 			toDelete = append(toDelete, deleteEntry{
 				poolerID:  poolerID,
+				id:        poolerInfo.MultiPooler.Id,
 				auditType: "forget-long-unseen",
 				shardKey:  shardKey,
 				message:   fmt.Sprintf("removing pooler not seen for %s", now.Sub(lastSeen).Round(time.Second)),
@@ -134,6 +139,9 @@ func (re *Engine) forgetLongUnseenInstances() {
 	// Now delete the entries (outside the iteration)
 	for _, entry := range toDelete {
 		re.audit(entry.auditType, entry.poolerID, entry.shardKey, entry.message)
+		if entry.id != nil {
+			re.healthStream.Stop(entry.id)
+		}
 		re.poolerStore.Delete(entry.poolerID)
 	}
 

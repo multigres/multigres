@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -155,17 +156,23 @@ func (pm *MultiPoolerManager) isPostgresReady(ctx context.Context) bool {
 	return statusResp.Status == pgctldpb.ServerStatus_RUNNING && statusResp.Ready
 }
 
-// getRole returns the current role of this pooler ("primary", "standby", or "unknown")
-func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
+// getServerStatus returns the observed state of the PostgreSQL server process.
+// Priority: STARTING (action lock) > PROMOTING (in-flight pg_promote) > PRIMARY/STANDBY (pg_is_in_recovery).
+func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolermanagerdatapb.PostgresStatus {
+	if action, _ := pm.actionLock.ActiveAction(); action == multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING {
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STARTING
+	}
+	if pm.promotionInProgress.Load() {
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+	}
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
-		return "unknown"
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_UNKNOWN
 	}
-
 	if isPrimary {
-		return "primary"
+		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY
 	}
-	return "standby"
+	return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
 
 // getWALPosition returns the current WAL position and any error encountered

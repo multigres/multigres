@@ -382,7 +382,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	statusResp, err := primaryClient.Manager.Status(
 		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
-	oldTerm := statusResp.Status.ConsensusTerm.TermNumber
+	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 
 	t.Logf("Triggering failover: BeginTerm on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
 

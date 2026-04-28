@@ -40,13 +40,15 @@ import (
 //  2. For each cell, a per-cell watcher monitors the poolers/ directory.
 //
 // When a pooler event arrives, it is filtered in-memory against the engine's
-// WatchTargets before the pooler store is updated.
+// WatchTargets before the pooler store is updated. Newly discovered poolers
+// are reported via the onNewPooler callback so the caller can start monitoring
+// them (e.g. open a ManagerHealthStream stream).
 type PoolerWatcher struct {
-	topoStore topoclient.Store
-	targets   func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
-	store     *store.PoolerStore
-	queue     *Queue
-	logger    *slog.Logger
+	topoStore   topoclient.Store
+	targets     func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
+	store       *store.PoolerStore
+	onNewPooler func(id *clustermetadatapb.ID) // called when a new pooler is first discovered
+	logger      *slog.Logger
 
 	// Control
 	ctx    context.Context
@@ -60,12 +62,14 @@ type PoolerWatcher struct {
 
 // NewPoolerWatcher creates a new PoolerWatcher.
 // targets is a function that returns the current WatchTargets (consulted on every event).
+// onNewPooler is called when a new pooler is discovered; the pooler is already present
+// in the store when the callback fires.
 func NewPoolerWatcher(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
 	poolerStore *store.PoolerStore,
-	queue *Queue,
+	onNewPooler func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
 ) *PoolerWatcher {
 	watchCtx, cancel := context.WithCancel(ctx)
@@ -73,7 +77,7 @@ func NewPoolerWatcher(
 		topoStore:    topoStore,
 		targets:      targets,
 		store:        poolerStore,
-		queue:        queue,
+		onNewPooler:  onNewPooler,
 		logger:       logger,
 		ctx:          watchCtx,
 		cancel:       cancel,
@@ -223,7 +227,7 @@ func (pw *PoolerWatcher) processCellEvent(event *topoclient.WatchDataRecursive) 
 
 // startCellWatcher starts a per-cell pooler watcher. Caller must hold pw.mu.
 func (pw *PoolerWatcher) startCellWatcher(cell string) {
-	w := newCellPoolerWatcher(pw.ctx, pw.topoStore, cell, pw.targets, pw.store, pw.queue, pw.logger)
+	w := newCellPoolerWatcher(pw.ctx, pw.topoStore, cell, pw.targets, pw.store, pw.onNewPooler, pw.logger)
 	pw.cellWatchers[cell] = w
 	w.start()
 }
@@ -245,12 +249,12 @@ func extractCellNameFromPath(watchPath string) string {
 // ---------------------------------------------------------------------------
 
 type cellPoolerWatcher struct {
-	topoStore topoclient.Store
-	cell      string
-	targets   func() []config.WatchTarget
-	store     *store.PoolerStore
-	queue     *Queue
-	logger    *slog.Logger
+	topoStore   topoclient.Store
+	cell        string
+	targets     func() []config.WatchTarget
+	store       *store.PoolerStore
+	onNewPooler func(id *clustermetadatapb.ID)
+	logger      *slog.Logger
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -264,20 +268,20 @@ func newCellPoolerWatcher(
 	cell string,
 	targets func() []config.WatchTarget,
 	poolerStore *store.PoolerStore,
-	queue *Queue,
+	onNewPooler func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
 ) *cellPoolerWatcher {
 	watchCtx, cancel := context.WithCancel(ctx)
 	return &cellPoolerWatcher{
-		topoStore: topoStore,
-		cell:      cell,
-		targets:   targets,
-		store:     poolerStore,
-		queue:     queue,
-		logger:    logger.With("cell", cell),
-		ctx:       watchCtx,
-		cancel:    cancel,
-		syncChan:  make(chan chan struct{}, 1),
+		topoStore:   topoStore,
+		cell:        cell,
+		targets:     targets,
+		store:       poolerStore,
+		onNewPooler: onNewPooler,
+		logger:      logger.With("cell", cell),
+		ctx:         watchCtx,
+		cancel:      cancel,
+		syncChan:    make(chan chan struct{}, 1),
 	}
 }
 
@@ -416,7 +420,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 			MultiPooler: pooler,
 			IsUpToDate:  false,
 		})
-		cw.queue.Push(poolerID)
+		cw.onNewPooler(pooler.Id)
 		cw.logger.Info("new pooler discovered via watcher",
 			"pooler_id", poolerID,
 			"database", pooler.Database,

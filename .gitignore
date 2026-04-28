@@ -80,3 +80,4 @@ demo/k8s/data/
 # Generated PR description
 pr-description.md
 
+docs/query_serving/benchmarking/results/*

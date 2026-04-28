@@ -19,6 +19,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -131,4 +132,19 @@ func (l *ListenNotifyPrimitive) GetQuery() string {
 // GetTableGroup returns empty string — LISTEN/UNLISTEN don't target a tablegroup.
 func (l *ListenNotifyPrimitive) GetTableGroup() string {
 	return ""
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. LISTEN/UNLISTEN take no parameters; the
+// channel name is fixed at plan time. Delegate.
+func (l *ListenNotifyPrimitive) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return l.StreamExecute(ctx, exec, conn, state, nil, callback)
 }

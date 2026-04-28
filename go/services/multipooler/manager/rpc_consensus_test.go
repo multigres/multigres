@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -36,7 +35,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -50,11 +48,11 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	cols := []string{
 		"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 		"durability_policy_name", "durability_quorum_type", "durability_required_count",
-		"durability_async_fallback", "current_lsn",
+		"current_lsn",
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		nil, nil, nil, nil, "0/1",
+		nil, nil, nil, "0/1",
 	}}
 	return cols, row
 }
@@ -193,7 +191,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 func TestBeginTerm(t *testing.T) {
 	tests := []struct {
 		name                                string
-		initialTerm                         *multipoolermanagerdatapb.ConsensusTerm
+		initialTerm                         *clustermetadatapb.TermRevocation
 		requestTerm                         int64
 		requestCandidate                    *clustermetadatapb.ID
 		action                              consensusdatapb.BeginTermAction
@@ -207,9 +205,9 @@ func TestBeginTerm(t *testing.T) {
 	}{
 		{
 			name: "AlreadyAcceptedLeaderInOlderTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
+				AcceptedCoordinatorId: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "zone1",
 					Name:      "candidate-A",
@@ -233,9 +231,9 @@ func TestBeginTerm(t *testing.T) {
 		},
 		{
 			name: "AlreadyAcceptedLeaderInSameTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
+				AcceptedCoordinatorId: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "zone1",
 					Name:      "candidate-A",
@@ -259,9 +257,9 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "AlreadyAcceptedSameCandidateInSameTerm",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
+				AcceptedCoordinatorId: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "zone1",
 					Name:      "candidate-A",
@@ -285,8 +283,8 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "PrimaryRejectTermWhenDemotionFails",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -313,8 +311,8 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "PrimaryAcceptsTermAfterSuccessfulDemotion",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -334,8 +332,8 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "StandbyAcceptsTermAndPausesReplication",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -356,8 +354,8 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "StandbyPausesReplicationWhenAcceptingNewTerm",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -376,8 +374,8 @@ func TestBeginTerm(t *testing.T) {
 		},
 		{
 			name: "NoAction_AcceptsTermWithoutRevoke",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -397,8 +395,8 @@ func TestBeginTerm(t *testing.T) {
 		},
 		{
 			name: "NoAction_AcceptsTermEvenWhenPostgresDown",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -418,8 +416,8 @@ func TestBeginTerm(t *testing.T) {
 		},
 		{
 			name: "NoAction_RejectsOutdatedTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 10,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 10,
 			},
 			requestTerm: 5,
 			requestCandidate: &clustermetadatapb.ID{
@@ -440,8 +438,8 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "PostgresDown_AcceptsTermButRevokeFails",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			requestCandidate: &clustermetadatapb.ID{
@@ -464,7 +462,7 @@ func TestBeginTerm(t *testing.T) {
 	// Add tests for save failure scenarios
 	saveFailureTests := []struct {
 		name                   string
-		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
+		initialTerm            *clustermetadatapb.TermRevocation
 		requestTerm            int64
 		requestCandidate       *clustermetadatapb.ID
 		action                 consensusdatapb.BeginTermAction
@@ -481,9 +479,9 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "SaveFailureDuringAcceptance_MemoryUnchanged",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    5,
-				AcceptedTermFromCoordinatorId: nil, // No coordinator accepted yet
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:      5,
+				AcceptedCoordinatorId: nil, // No coordinator accepted yet
 			},
 			requestTerm: 5,
 			requestCandidate: &clustermetadatapb.ID{
@@ -505,9 +503,9 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name:   "NoAction_SaveFailureDuringAcceptance_MemoryUnchanged",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    5,
-				AcceptedTermFromCoordinatorId: nil,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:      5,
+				AcceptedCoordinatorId: nil,
 			},
 			requestTerm: 5,
 			requestCandidate: &clustermetadatapb.ID{
@@ -541,13 +539,13 @@ func TestBeginTerm(t *testing.T) {
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
-			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
+			err := pm.consensusState.setRevocation(tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
 			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
-			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
+			assert.Equal(t, tt.initialTerm.RevokedBelowTerm, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Make request
 			req := &consensusdatapb.BeginTermRequest{
@@ -577,10 +575,10 @@ func TestBeginTerm(t *testing.T) {
 			}
 
 			// Verify persisted state (acceptance should be persisted even if revoke fails)
-			persistedTerm, err := pm.consensusState.getConsensusTerm()
+			persistedTerm, err := pm.consensusState.getRevocation()
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
-			assert.Equal(t, tt.expectedAcceptedTermFromCoordinator, persistedTerm.AcceptedTermFromCoordinatorId.GetName())
+			assert.Equal(t, tt.expectedTerm, persistedTerm.RevokedBelowTerm)
+			assert.Equal(t, tt.expectedAcceptedTermFromCoordinator, persistedTerm.AcceptedCoordinatorId.GetName())
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
@@ -598,13 +596,13 @@ func TestBeginTerm(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
 
 			// Initialize term on disk
-			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
+			err := pm.consensusState.setRevocation(tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
 			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
-			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
+			assert.Equal(t, tt.initialTerm.RevokedBelowTerm, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Make filesystem read-only to simulate save failure
 			if tt.makeFilesystemReadOnly {
@@ -652,11 +650,11 @@ func TestBeginTerm(t *testing.T) {
 				assert.Equal(t, tt.expectedMemoryLeader, memoryLeader, "Memory leader should be unchanged after save failure")
 
 				// Verify disk is unchanged
-				loadedTerm, loadErr := pm.consensusState.getConsensusTerm()
+				loadedTerm, loadErr := pm.consensusState.getRevocation()
 				require.NoError(t, loadErr)
-				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.TermNumber, "Disk term should match initial state after save failure")
+				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.RevokedBelowTerm, "Disk term should match initial state after save failure")
 				if tt.expectedMemoryLeader != "" {
-					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedTermFromCoordinatorId.GetName(), "Disk leader should match initial state after save failure")
+					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedCoordinatorId.GetName(), "Disk leader should match initial state after save failure")
 				}
 			}
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -814,10 +812,10 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			term, err := cs.GetTerm(ctx)
+			revocation, err := cs.GetRevocation(ctx)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, term.TermNumber)
-			assert.Equal(t, tt.expectedAccept, term.AcceptedTermFromCoordinatorId.GetName())
+			assert.Equal(t, tt.expectedTerm, revocation.RevokedBelowTerm)
+			assert.Equal(t, tt.expectedAccept, revocation.AcceptedCoordinatorId.GetName())
 		})
 	}
 }
@@ -829,102 +827,43 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 func TestConsensusStatus(t *testing.T) {
 	tests := []struct {
 		name                string
-		initialTerm         *multipoolermanagerdatapb.ConsensusTerm
-		termInMemory        bool
-		nilQsc              bool
-		setupMock           func(*mock.QueryService)
+		initialTerm         *clustermetadatapb.TermRevocation
+		fakePos             *clustermetadatapb.PoolerPosition
 		expectedCurrentTerm int64
-		expectedIsHealthy   bool
-		expectedRole        consensusdatapb.PostgresRole
 		expectedWALLsn      string
 		description         string
 	}{
 		{
-			name: "HealthyPrimary",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
+			name: "WithTermAndPosition",
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
+				AcceptedCoordinatorId: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "leader-node",
 				},
 			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check SELECT 1
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/4000000"}}))
-			},
+			fakePos:             &clustermetadatapb.PoolerPosition{Lsn: "0/4000000"},
 			expectedCurrentTerm: 5,
-			expectedIsHealthy:   true,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY,
 			expectedWALLsn:      "0/4000000",
-			description:         "Healthy primary should return correct status with WAL position",
+			description:         "Returns term and WAL position from rule store",
 		},
 		{
-			name: "HealthyStandby",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    3,
-				AcceptedTermFromCoordinatorId: nil,
+			name: "WithTermNoPosition",
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 7,
 			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check SELECT 1
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// queryReplicationStatus() expects full replication status query
-				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{
-						"pg_last_wal_replay_lsn",
-						"pg_last_wal_receive_lsn",
-						"pg_is_wal_replay_paused",
-						"pg_get_wal_replay_pause_state",
-						"pg_last_xact_replay_timestamp",
-						"current_setting",
-						"wal_receiver_status",
-						"last_msg_receive_time",
-						"wal_receiver_status_interval",
-						"wal_receiver_timeout",
-					},
-					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming", nil, nil, nil}}))
-			},
-			expectedCurrentTerm: 3,
-			expectedIsHealthy:   true,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA,
-			expectedWALLsn:      "0/5000000", // receive LSN
-			description:         "Healthy standby should return correct status with receive/replay LSNs",
-		},
-		{
-			name: "NoDatabaseConnection",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    7,
-				AcceptedTermFromCoordinatorId: nil,
-			},
-			termInMemory:        true,
-			nilQsc:              true,
-			setupMock:           func(m *mock.QueryService) {},
+			fakePos:             nil,
 			expectedCurrentTerm: 7,
-			expectedIsHealthy:   false,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED, // no database, we can't check the postgres role
-			description:         "Should handle missing database connection gracefully",
+			expectedWALLsn:      "",
+			description:         "Returns term with empty position when rule store has no position",
 		},
 		{
-			name: "DatabaseQueryFailure",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    4,
-				AcceptedTermFromCoordinatorId: nil,
-			},
-			termInMemory: true,
-			setupMock: func(m *mock.QueryService) {
-				// Health check fails
-				m.AddQueryPatternOnceWithError("^SELECT 1$", errors.New("connection refused"))
-			},
-			expectedCurrentTerm: 4,
-			expectedIsHealthy:   false,
-			expectedRole:        consensusdatapb.PostgresRole_POSTGRES_ROLE_UNSPECIFIED,
-			description:         "Should handle database query failure gracefully",
+			name:                "NoTerm",
+			initialTerm:         nil,
+			fakePos:             nil,
+			expectedCurrentTerm: 0,
+			expectedWALLsn:      "",
+			description:         "Returns zero term when no term has been set",
 		},
 	}
 
@@ -932,65 +871,28 @@ func TestConsensusStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Create mock and set ALL expectations BEFORE starting the manager
-			mockQueryService := mock.NewQueryService()
-			tt.setupMock(mockQueryService)
+			frs := &fakeRuleStore{pos: tt.fakePos}
+			pm, _ := setupManagerWithMockDB(t, mock.NewQueryService(), frs)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{})
-
-			// Initialize term on disk
-			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
-			require.NoError(t, err)
-
-			// Load term into consensus state if term should be in memory
-			if tt.termInMemory {
-				loadedTerm, err := pm.consensusState.Load()
+			if tt.initialTerm != nil {
+				err := pm.consensusState.setRevocation(tt.initialTerm)
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedCurrentTerm, loadedTerm, "Loaded term should match expected current term")
+				_, err = pm.consensusState.Load()
+				require.NoError(t, err)
 			}
 
-			// Handle nil qsc case
-			if tt.nilQsc {
-				pm.qsc = nil
-			}
-
-			req := &consensusdatapb.StatusRequest{
-				ShardId: "test-shard",
-			}
-
+			req := &consensusdatapb.StatusRequest{ShardId: "test-shard"}
 			resp, err := pm.ConsensusStatus(ctx, req)
 
-			// Verify response
 			require.NoError(t, err, tt.description)
 			require.NotNil(t, resp)
-			assert.Equal(t, "test-pooler", resp.PoolerId)
-			assert.Equal(t, tt.expectedCurrentTerm, resp.CurrentTerm)
-			assert.Equal(t, tt.expectedIsHealthy, resp.IsHealthy, tt.description)
-			assert.True(t, resp.IsEligible)
-			assert.Equal(t, "zone1", resp.Cell)
-			assert.Equal(t, tt.expectedRole, resp.Role)
 
-			// Verify WAL position if expected
-			require.NotNil(t, resp.WalPosition)
-			if tt.expectedWALLsn != "" {
-				if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_PRIMARY {
-					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.CurrentLsn)
-				} else if tt.expectedRole == consensusdatapb.PostgresRole_POSTGRES_ROLE_REPLICA && tt.expectedIsHealthy {
-					assert.Equal(t, tt.expectedWALLsn, resp.WalPosition.LastReceiveLsn)
-				}
-			}
-
-			// Verify term was loaded if applicable
-			if !tt.termInMemory && !tt.nilQsc {
-				// Acquire action lock to inspect consensus state
-				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
-				require.NoError(t, err)
-				currentTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedCurrentTerm, currentTerm, "Term should be loaded into memory")
-				pm.actionLock.Release(inspectCtx)
-			}
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+			cs := resp.GetConsensusStatus()
+			require.NotNil(t, cs)
+			assert.Equal(t, "test-pooler", cs.GetId().GetName())
+			assert.Equal(t, "zone1", cs.GetId().GetCell())
+			assert.Equal(t, tt.expectedCurrentTerm, cs.GetTermRevocation().GetRevokedBelowTerm())
+			assert.Equal(t, tt.expectedWALLsn, cs.GetCurrentPosition().GetLsn())
 		})
 	}
 }
@@ -1002,7 +904,7 @@ func TestConsensusStatus(t *testing.T) {
 func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 	tests := []struct {
 		name                       string
-		initialTerm                *multipoolermanagerdatapb.ConsensusTerm
+		initialTerm                *clustermetadatapb.TermRevocation
 		requestTerm                int64
 		force                      bool
 		setupPgRewindMock          func(*testutil.MockPgCtldService)
@@ -1015,8 +917,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 	}{
 		{
 			name: "SuccessfulDemotion_UpdatesTermFromLowerToHigher",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 5,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -1056,8 +958,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		},
 		{
 			name: "OutdatedTerm_RejectedWithoutForce",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 15,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 15,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -1081,8 +983,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		},
 		{
 			name: "OutdatedTerm_AcceptedWithForce",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 15,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 15,
 			},
 			requestTerm: 10,
 			force:       true,
@@ -1121,8 +1023,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		},
 		{
 			name: "SameTerm_Idempotent",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 10,
+			initialTerm: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 10,
 			},
 			requestTerm: 10,
 			force:       false,
@@ -1232,7 +1134,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			pm.consensusState = NewConsensusState(tmpDir, serviceID)
 			pm.mu.Unlock()
 
-			err = pm.consensusState.setConsensusTerm(tt.initialTerm)
+			err = pm.consensusState.setRevocation(tt.initialTerm)
 			require.NoError(t, err)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
@@ -1264,10 +1166,10 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			}
 
 			// Verify consensus term was updated correctly
-			persistedTerm, err := pm.consensusState.getConsensusTerm()
+			persistedTerm, err := pm.consensusState.getRevocation()
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedFinalConsensusTerm, persistedTerm.TermNumber,
-				"Consensus term should be %d but got %d", tt.expectedFinalConsensusTerm, persistedTerm.TermNumber)
+			assert.Equal(t, tt.expectedFinalConsensusTerm, persistedTerm.RevokedBelowTerm,
+				"Consensus term should be %d but got %d", tt.expectedFinalConsensusTerm, persistedTerm.RevokedBelowTerm)
 			cs, err := pm.getInconsistentConsensusStatus(ctx)
 			require.NoError(t, err)
 			primaryTerm := commonconsensus.PrimaryTerm(cs)
@@ -1362,7 +1264,7 @@ func TestRecruit(t *testing.T) {
 
 	tests := []struct {
 		name                       string
-		initialTerm                *multipoolermanagerdatapb.ConsensusTerm
+		initialRevocation          *clustermetadatapb.TermRevocation
 		ruleStore                  *fakeRuleStore
 		req                        *consensusdatapb.RecruitRequest
 		setupMocks                 func(*mock.QueryService)
@@ -1374,7 +1276,7 @@ func TestRecruit(t *testing.T) {
 	}{
 		{
 			name:                       "NilTermRevocation",
-			initialTerm:                &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
+			initialRevocation:          &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 			ruleStore:                  &fakeRuleStore{},
 			req:                        &consensusdatapb.RecruitRequest{TermRevocation: nil},
 			setupMocks:                 func(m *mock.QueryService) {},
@@ -1384,9 +1286,9 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			name:        "SanityCheckRejects_EqualCoordinatorTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(5)},
+			name:              "SanityCheckRejects_EqualCoordinatorTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(5)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       5,
@@ -1401,9 +1303,9 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			name:        "SanityCheckRejects_HigherCoordinatorTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(7)},
+			name:              "SanityCheckRejects_HigherCoordinatorTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(7)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       5,
@@ -1418,8 +1320,8 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			name:        "StandbySuccess_NewTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
+			name:              "StandbySuccess_NewTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 			// Non-nil pos so getCachedConsensusStatus returns a populated ConsensusStatus.
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
@@ -1438,10 +1340,10 @@ func TestRecruit(t *testing.T) {
 		},
 		{
 			name: "StandbySuccess_Idempotent",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    7,
-				AcceptedTermFromCoordinatorId: coordinatorA,
-				LastAcceptanceTime:            recruitTS,
+			initialRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
 			},
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
@@ -1460,9 +1362,9 @@ func TestRecruit(t *testing.T) {
 		},
 		{
 			name: "StandbyReject_DifferentCoordinator",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber:                    7,
-				AcceptedTermFromCoordinatorId: coordinatorA,
+			initialRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:      7,
+				AcceptedCoordinatorId: coordinatorA,
 			},
 			// WAL check passes; rejection is caught by the stored-term check.
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(1)},
@@ -1481,8 +1383,8 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "coordinator-a",
 		},
 		{
-			name:        "StandbyReject_OlderTerm",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
+			name:              "StandbyReject_OlderTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
 			// WAL check passes; rejection is caught by the stored-term check.
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(2)},
 			req: &consensusdatapb.RecruitRequest{
@@ -1500,9 +1402,9 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			name:        "PersistFailure_FilesystemReadOnly",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3},
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(2)},
+			name:              "PersistFailure_FilesystemReadOnly",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(2)},
 			req: &consensusdatapb.RecruitRequest{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       7,
@@ -1530,7 +1432,7 @@ func TestRecruit(t *testing.T) {
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
-			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
+			err := pm.consensusState.setRevocation(tt.initialRevocation)
 			require.NoError(t, err)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
@@ -1558,10 +1460,10 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persistedTerm, err := pm.consensusState.getConsensusTerm()
+			persisted, err := pm.consensusState.getRevocation()
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectPersistedTerm, persistedTerm.TermNumber)
-			assert.Equal(t, tt.expectPersistedCoordinator, persistedTerm.AcceptedTermFromCoordinatorId.GetName())
+			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
+			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})

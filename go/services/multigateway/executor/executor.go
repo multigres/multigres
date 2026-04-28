@@ -234,8 +234,13 @@ func (e *Executor) PortalStreamExecute(
 			}, err
 		}
 
-		tg, sh := extractRouting(plan, e.planner.GetDefaultTableGroup(), constants.DefaultShard)
-		err = e.exec.PortalStreamExecute(ctx, tg, sh, conn, state, portalInfo, maxRows, callback)
+		// Hand off to the plan, which delegates to its root primitive's
+		// PortalStreamExecute. Each primitive owns its portal-mode behavior:
+		// Route reissues the portal to the multipooler, Sequence iterates
+		// children (so any silent ApplySessionState prefix runs before the
+		// trailing Route forwards), gateway-local primitives ignore
+		// portalInfo and run their StreamExecute logic.
+		err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, callback)
 		return &handler.ExecuteResult{
 			TablesUsed:    plan.TablesUsed,
 			PlanType:      plan.Type,
@@ -313,15 +318,6 @@ func (e *Executor) resolvePortalPlan(
 // be included in the cache key as well, since it affects table name resolution.
 func buildCacheKey(database, normalizedSQL string) string {
 	return database + "\x00" + normalizedSQL
-}
-
-// extractRouting returns the tablegroup and shard from a plan's Route primitive,
-// falling back to the provided defaults if the primitive is not a Route.
-func extractRouting(plan *engine.Plan, defaultTableGroup, defaultShard string) (string, string) {
-	if route, ok := plan.Primitive.(*engine.Route); ok {
-		return route.TableGroup, route.Shard
-	}
-	return defaultTableGroup, defaultShard
 }
 
 // Describe returns metadata about a prepared statement or portal.

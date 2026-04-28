@@ -148,6 +148,11 @@ type MultiPoolerManager struct {
 	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
 	rewindPending atomic.Bool
 
+	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
+	// transitioned to primary mode. Cleared when promotion completes (success or failure).
+	// Reported in the health status so multiorch can suppress spurious PrimaryIsDead detection.
+	promotionInProgress atomic.Bool
+
 	// postgresRestartsDisabled suppresses auto-restart of a stopped PostgreSQL instance.
 	// When set, the monitor continues to run and detect problems but skips the start action.
 	// False by default (restarts enabled); tests and demos set it during controlled failovers.
@@ -367,8 +372,25 @@ func (pm *MultiPoolerManager) Open() {
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultiPoolerManager opened database connection")
 
-	// Start background PostgreSQL monitoring and auto-recovery
-	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
+	// Start background PostgreSQL monitoring and auto-recovery. prevState
+	// persists between ticks so that broadcastHealth fires only on transitions
+	// in postgres running state, not every tick.
+	prevState := postgresState{}
+	pm.pgMonitor.Start(func(ctx context.Context) {
+		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
+			// Broadcast postgres health transitions so orchestrators learn
+			// about changes immediately without waiting for the next 30-second
+			// heartbeat. This is especially important for:
+			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
+			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
+			if !postgresStateEqual(newState, prevState) {
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
+					"postgres_running", newState.postgresRunning)
+				pm.broadcastHealth()
+			}
+			prevState = newState
+		}
+	}, nil)
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
@@ -1270,12 +1292,35 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// Call pg_promote() to promote standby to primary
 	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed")
 	pm.logger.InfoContext(ctx, "Calling pg_promote() to promote standby to primary")
+	pm.promotionInProgress.Store(true)
+
+	// Broadcast immediately so subscribers (multiorch) see PROMOTING server
+	// status before the periodic health stream interval fires. Without this,
+	// the flag may be set and cleared within a single interval, making it
+	// invisible to subscribers. We reset the promotionInProgress flag and
+	// broadcast again after promotion completes to ensure the full window is
+	// visible.
+	pm.broadcastHealth()
+
+	// TODO: this defer fires before configureReplicationAfterPromotion and
+	// rules.updateRule in the caller, so multiorch sees PRIMARY status while sync
+	// replication is not yet configured and rule history has not been written. If
+	// we want the PROMOTING window to cover the full Promote RPC (including the
+	// sync standby ack gate), the defer should move to the caller instead.
+	defer func() {
+		pm.promotionInProgress.Store(false)
+		pm.broadcastHealth()
+	}()
+
 	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to call pg_promote()", "error", err)
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
 
-	// Wait for promotion to complete by polling pg_is_in_recovery()
+	// Wait for promotion to complete: pg_is_in_recovery()=false AND postgres_ready=true.
+	// Keeping promotionInProgress set until postgres_ready ensures multiorch suppresses
+	// PrimaryIsDead for the full window — including the gap between pg_is_in_recovery()=false
+	// and postgres actually accepting connections.
 	pm.logger.InfoContext(ctx, "Waiting for promotion to complete")
 	if err := pm.waitForPromotionComplete(ctx); err != nil {
 		return err
@@ -1290,7 +1335,11 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	return nil
 }
 
-// waitForPromotionComplete polls pg_is_in_recovery() until promotion is complete
+// waitForPromotionComplete polls until the node has left recovery mode AND postgres
+// is accepting connections. Both conditions are required: pg_is_in_recovery()=false
+// confirms the WAL-level promotion, and postgres_ready=true confirms clients can
+// connect. Clearing promotionInProgress only when both are true ensures multiorch's
+// PrimaryIsDeadAnalyzer suppression window matches the full visibility gap.
 func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -1299,6 +1348,7 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
 	defer cancel()
 
+	promotedFromRecovery := false
 	for {
 		select {
 		case <-promotionCtx.Done():
@@ -1307,14 +1357,20 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
 
 		case <-ticker.C:
-			isInRecovery, err := pm.isInRecovery(promotionCtx)
-			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
-				return mterrors.Wrap(err, "failed to check recovery status")
+			if !promotedFromRecovery {
+				isInRecovery, err := pm.isInRecovery(promotionCtx)
+				if err != nil {
+					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
+					return mterrors.Wrap(err, "failed to check recovery status")
+				}
+				if !isInRecovery {
+					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+					promotedFromRecovery = true
+				}
 			}
 
-			if !isInRecovery {
-				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary")
+			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
+				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
 				return nil
 			}
 		}
@@ -1468,6 +1524,17 @@ type postgresState struct {
 	primaryTerm int64
 }
 
+// postgresStateEqual reports whether two postgresState values are identical.
+func postgresStateEqual(a, b postgresState) bool {
+	return a.pgctldAvailable == b.pgctldAvailable &&
+		a.dirInitialized == b.dirInitialized &&
+		a.postgresRunning == b.postgresRunning &&
+		a.backupsAvailable == b.backupsAvailable &&
+		a.isPrimary == b.isPrimary &&
+		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
+		a.primaryTerm == b.primaryTerm
+}
+
 // remedialAction represents actions the postgres monitor can take
 type remedialAction int
 
@@ -1481,8 +1548,10 @@ const (
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
-// This is called periodically by the monitor runner.
-func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
+// Returns the discovered postgres state on success, or an error if the state
+// could not be determined. The caller is responsible for transition detection
+// and broadcasting health updates.
+func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (postgresState, error) {
 	const (
 		reasonPgctldUnavailable = "pgctld_unavailable"
 		reasonPostgresRunning   = "postgres_running"
@@ -1491,13 +1560,13 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
 		pm.logger.InfoContext(pm.ctx, "MonitorPostgres: manager not ready yet")
-		return
+		return postgresState{}, err
 	}
 
 	// Skip all action while awaiting a rewind after emergency demotion.
 	if pm.rewindPending.Load() {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping, awaiting rewind after demotion")
-		return
+		return postgresState{}, nil
 	}
 
 	// Discover current state
@@ -1513,7 +1582,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		} else {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err)
 		}
-		return
+		return postgresState{}, err
 	}
 
 	// Determine what remediation is needed
@@ -1523,14 +1592,14 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		}
-		return
+		return currentState, nil
 	}
 
 	// Acquire action lock before taking remedial action
 	lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
 	if err != nil {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: failed to acquire action lock", "error", err)
-		return
+		return postgresState{}, err
 	}
 	defer pm.actionLock.Release(lockCtx)
 
@@ -1538,7 +1607,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 	// while holding the lock, so we may have been waiting while it demoted the node.
 	if pm.rewindPending.Load() {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
-		return
+		return postgresState{}, nil
 	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
@@ -1550,7 +1619,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 		} else {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err)
 		}
-		return
+		return postgresState{}, err
 	}
 
 	// Re-determine action based on current state
@@ -1558,6 +1627,8 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
 
 	// Take remedial action with lock held
 	pm.takeRemedialAction(lockCtx, action, currentState)
+
+	return currentState, nil
 }
 
 // discoverPostgresState discovers the current state of PostgreSQL. Returns an
@@ -1889,7 +1960,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", pm.consensusState.term.TermNumber)
+		"term", pm.consensusState.revocation.GetRevokedBelowTerm())
 
 	return nil
 }

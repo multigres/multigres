@@ -385,6 +385,8 @@ message GetPoolerStatusRequest {
 message GetPoolerStatusResponse {
   // status contains the pooler's unified status from MultiPoolerManager.Status
   multipoolermanagerdata.Status status = 1;
+  // consensus_status is the pooler's current consensus state, forwarded from StatusResponse.
+  clustermetadata.ConsensusStatus consensus_status = 2;
 }
 
 // PostgreSQL Monitoring Control operation messages

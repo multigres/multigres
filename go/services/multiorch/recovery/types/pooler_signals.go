@@ -39,7 +39,7 @@ import (
 // coordinator-synthesized signals (e.g. TEMPORARILY_UNAVAILABLE for unreachable
 // nodes) are handled here too.
 func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
-	leadershipStatus := p.ConsensusStatus.GetAvailabilityStatus().GetLeadershipStatus()
+	leadershipStatus := p.GetAvailabilityStatus().GetLeadershipStatus()
 	if leadershipStatus == nil {
 		return false
 	}
@@ -47,6 +47,6 @@ func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	primaryTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus().GetConsensusStatus())
+	primaryTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus())
 	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == primaryTerm
 }

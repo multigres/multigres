@@ -231,6 +231,30 @@ type Primitive interface {
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
+	// PortalStreamExecute executes the primitive on the extended query
+	// protocol path, where parameter values arrive as wire-format Bind
+	// values inside portalInfo rather than as ast.A_Const literals.
+	//
+	// Primitives that forward the user's SQL to the backend (Route) reissue
+	// the portal so PG receives the original query text plus binds. Primitives
+	// whose effects are local to the gateway (ApplySessionState, transaction
+	// management, LISTEN, etc.) do not consume binds and may simply delegate
+	// to StreamExecute with nil bindVars. Composite primitives (Sequence)
+	// dispatch to the right method on each child.
+	//
+	// Centralizing the dispatch on the primitive — rather than having the
+	// executor introspect plan shapes — keeps the executor generic and lets
+	// each primitive own the question "how do I run under the portal path".
+	PortalStreamExecute(
+		ctx context.Context,
+		exec IExecute,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		portalInfo *preparedstatement.PortalInfo,
+		maxRows int32,
+		callback func(context.Context, *sqltypes.Result) error,
+	) error
+
 	// GetTableGroup returns the target tablegroup for this primitive.
 	// Returns empty string if primitive doesn't target a specific tablegroup.
 	GetTableGroup() string

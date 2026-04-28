@@ -285,6 +285,11 @@ func (g *GrpcServer) BindAddress() string {
 	return g.bindAddress.Get()
 }
 
+// SocketFile returns the Unix socket file path, or empty string if not configured.
+func (g *GrpcServer) SocketFile() string {
+	return g.socketFile.Get()
+}
+
 // IsEnabled returns true if gRPC server is enabled
 func (g *GrpcServer) IsEnabled() bool {
 	if g.port.Get() != 0 {

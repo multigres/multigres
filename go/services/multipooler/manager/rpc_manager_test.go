@@ -58,10 +58,10 @@ func (f *fakeConnPoolMgr) PgUser() string { return f.user }
 func (f *fakeConnPoolMgr) Close()         {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
-func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
+func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
 	t.Helper()
 	cs := NewConsensusState(poolerDir, nil)
-	require.NoError(t, cs.setConsensusTerm(term), "failed to write term file")
+	require.NoError(t, cs.setRevocation(term), "failed to write term file")
 }
 
 // addDatabaseToTopo creates a database in the topology with a backup location
@@ -457,7 +457,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, 
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 	// Set consensus term to expected value (10) for testing via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	// Initialize consensus state so the manager can read the term
@@ -510,7 +510,6 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary, "Should not report as fully complete since topology wasn't updated")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -555,7 +554,6 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -644,7 +642,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 
 	// PostgreSQL was promoted, so this is not "already primary" case
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
@@ -702,7 +699,6 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 
 	// Verify topology was updated
 	pm.mu.Lock()
@@ -750,7 +746,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	pm, tmpDir := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	// Call Promote with wrong term (current term is 10, passing 5)
@@ -933,7 +929,6 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/1234567", resp.LsnPosition)
 
 	// Verify topology was updated
@@ -1111,7 +1106,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
 	setTermForTest(t, tmpDir, term)
 
 	pm.mu.Lock()
@@ -1130,7 +1125,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
 
 	// Local state should still be updated to PRIMARY
@@ -1234,7 +1228,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
-	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
 	setTermForTest(t, tmpDir, term)
 	// Reload consensus state to pick up the term from file
 	_, err = pm.consensusState.Load()
@@ -1355,10 +1349,10 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// Verify response structure
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
-		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated")
-		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
-		assert.Equal(t, "0/12345678", status.PrimaryStatus.Lsn)
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.Status.PoolerType)
+		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated")
+		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
+		assert.Equal(t, "0/12345678", status.Status.PrimaryStatus.Lsn)
 	})
 
 	t.Run("REPLICA_pooler_returns_replication_status", func(t *testing.T) {
@@ -1444,10 +1438,10 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// Verify response structure
-		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
-		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
-		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated")
-		assert.Equal(t, "0/12345600", status.ReplicationStatus.LastReplayLsn)
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.Status.PoolerType)
+		assert.Nil(t, status.Status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
+		assert.NotNil(t, status.Status.ReplicationStatus, "ReplicationStatus should be populated")
+		assert.Equal(t, "0/12345600", status.Status.ReplicationStatus.LastReplayLsn)
 	})
 
 	t.Run("Mismatch_PRIMARY_topology_but_standby_postgres", func(t *testing.T) {
@@ -1528,9 +1522,9 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// PoolerType from topology says PRIMARY, but status shows standby state
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
-		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
-		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.Status.PoolerType)
+		assert.Nil(t, status.Status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
+		assert.NotNil(t, status.Status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
 	})
 
 	t.Run("Status_returns_cohort_members_from_leadership_history", func(t *testing.T) {
@@ -1597,12 +1591,12 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
-		require.Len(t, status.CohortMembers, 2)
-		assert.Equal(t, "zone1", status.CohortMembers[0].Cell)
-		assert.Equal(t, "pooler-a", status.CohortMembers[0].Name)
-		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.CohortMembers[0].Component)
-		assert.Equal(t, "zone1", status.CohortMembers[1].Cell)
-		assert.Equal(t, "pooler-b", status.CohortMembers[1].Name)
+		require.Len(t, status.Status.CohortMembers, 2)
+		assert.Equal(t, "zone1", status.Status.CohortMembers[0].Cell)
+		assert.Equal(t, "pooler-a", status.Status.CohortMembers[0].Name)
+		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.Status.CohortMembers[0].Component)
+		assert.Equal(t, "zone1", status.Status.CohortMembers[1].Cell)
+		assert.Equal(t, "pooler-b", status.Status.CohortMembers[1].Name)
 	})
 
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
@@ -1680,9 +1674,9 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// PoolerType from topology says REPLICA, but status shows primary state
-		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
-		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
-		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.Status.PoolerType)
+		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
+		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
 	})
 }
 
@@ -1724,8 +1718,8 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber: 1,
+	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 1,
 	})
 
 	config := &Config{
@@ -1832,8 +1826,8 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber: 5,
+	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 5,
 	})
 
 	config := &Config{

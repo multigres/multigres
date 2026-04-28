@@ -98,6 +98,13 @@ type ShardAnalysis struct {
 	// because the resignation is an explicit and intentional signal, not an ambiguous
 	// network/process failure.
 	PrimaryHasResigned bool
+
+	// PromotingPrimaryID is the ID of the topology primary that is currently running
+	// pg_promote() but has not yet transitioned to accepting connections. Nil when no
+	// promotion is in progress.
+	// Used by PrimaryIsDeadAnalyzer to suppress spurious failover detection during the
+	// brief window (~5–10s) when the newly promoted node's postgres is not yet ready.
+	PromotingPrimaryID *clustermetadatapb.ID
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the primary's
@@ -150,19 +157,19 @@ type PoolerAnalysis struct {
 	ReplicationStopped  bool
 	PrimaryConnInfoHost string
 
+	// This is no longer needed and can be derived from ConsensusStatus, but is
+	// left here for now.
 	ConsensusTerm int64 // This node's consensus term (from health check)
-	// ConsensusStatus is the pooler's authoritative consensus state as of the last
-	// ConsensusStatus RPC.
-	// Nil if the ConsensusStatus RPC failed or has not yet been called.
+
+	// ConsensusStatus from the pooler's most recent StatusResponse snapshot.
+	// Used to derive the primary term via commonconsensus.PrimaryTerm(ConsensusStatus).
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
 }
 
-// comparePrimaryTimeline compares two primary PoolerAnalysis entries by the
-// coordinator term of each pooler's current rule (via commonconsensus.PrimaryTerm).
-// Returns negative if a is less advanced than b, 0 if equal, positive if a is
-// more advanced. LSN is intentionally excluded: for primaries, the coordinator
-// term must be unique per promotion, so equal terms indicate a consensus bug
-// rather than a resolvable tie.
+// comparePrimaryTimeline compares two primary PoolerAnalysis entries by primary term only.
+// Returns negative if a is less advanced than b, 0 if equal, positive if a is more advanced.
+// LSN is intentionally excluded: primary terms must be unique per promotion, so equal terms
+// indicate a consensus bug rather than a resolvable tie.
 func comparePrimaryTimeline(a, b *PoolerAnalysis) int {
 	return cmp.Compare(
 		commonconsensus.PrimaryTerm(a.ConsensusStatus),

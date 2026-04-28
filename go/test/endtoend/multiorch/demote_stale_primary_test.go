@@ -265,11 +265,11 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 
 	// Verify old primary is now a replica with replication configured
 	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},
-		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
-			if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
-				return false, fmt.Sprintf("type=%v, waiting for REPLICA", s.PoolerType)
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			if r.Status.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+				return false, fmt.Sprintf("type=%v, waiting for REPLICA", r.Status.PoolerType)
 			}
-			if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
+			if r.Status.ReplicationStatus == nil || r.Status.ReplicationStatus.PrimaryConnInfo == nil {
 				return false, "replication not yet configured"
 			}
 			return true, ""
@@ -326,15 +326,12 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
 
-	// Verify primary_term was cleared after DemoteStalePrimary
+	// Verify primary_term is 0 after DemoteStalePrimary (demoted node is no longer primary)
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.NotNil(t, status.Status.ConsensusTerm, "Replica should have consensus term")
-	consensusResp, err := client.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
-	require.NoError(t, err, "Should be able to get consensus status from demoted replica")
-	require.Equal(t, int64(0), commonconsensus.PrimaryTerm(consensusResp.ConsensusStatus),
-		"Demoted stale primary %s should have primary_term=0 (cleared during DemoteStalePrimary)", replicaName)
+	require.Equal(t, int64(0), commonconsensus.PrimaryTerm(status.ConsensusStatus),
+		"Demoted stale primary %s should have primary_term=0 after DemoteStalePrimary", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }
 
@@ -367,7 +364,7 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	// Get primary's current LSN
 	consensusStatusResp, err := primaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary LSN position")
-	primaryLSN := consensusStatusResp.WalPosition.CurrentLsn
+	primaryLSN := consensusStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 	// Wait for replica PostgreSQL to be ready after pg_rewind and restart

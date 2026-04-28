@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -77,6 +78,22 @@ func (p *Plan) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, callback)
+}
+
+// PortalStreamExecute executes the plan on the extended-protocol portal path.
+// Delegates to the root primitive so each primitive owns its own portal-mode
+// behavior — Route forwards the portal to the backend, Sequence iterates,
+// gateway-local primitives just delegate to StreamExecute with no binds.
+func (p *Plan) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return p.Primitive.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

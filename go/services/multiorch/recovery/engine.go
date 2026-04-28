@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -67,7 +68,7 @@ import (
 //	Topology Discovery (event-driven via PoolerWatcher):
 //	- Watches the etcd cells/ directory to detect cell additions/removals
 //	- For each cell, watches the poolers/ directory for pooler changes
-//	- New poolers are added to the store and queued for immediate health check
+//	- New poolers are added to the store and a ManagerHealthStream stream is opened
 //	- Updated poolers have their MultiPooler metadata refreshed in the store
 //	- In-memory WatchTarget filtering (database/tablegroup/shard) is applied per event
 //
@@ -75,55 +76,22 @@ import (
 //	- Forget unseen poolers (remove stale entries)
 //	- Clean up stale data from the in memory state store
 //
-// Healthcheck Loop:
+// HealthStream (per-pooler health streams):
 //
-//	Continuously monitors the health of all poolers by polling their status.
-//	This loop maintains an up-to-date health snapshot in the state store.
+//	Each pooler maintains a long-lived ManagerHealthStream gRPC stream to multiorch.
+//	Poolers push full health snapshots on every state change and on a periodic
+//	heartbeat (every 5s). On disconnect, the stream reconnects with exponential
+//	backoff (1s → 2s → … → 30s cap).
 //
-//	The health check system uses a queue-based architecture with worker pools:
-//
-//	1. Discovery Phase (driven by PoolerWatcher):
-//	   - When the watcher detects a new pooler in topology
-//	   - Newly discovered poolers are immediately queued for health check
-//	   - This ensures fast initial health check after discovery
-//
-//	2. Worker Pool (always running):
-//	   - N concurrent worker goroutines (configurable via health-check-workers)
-//	   - Workers consume from the health check queue (blocking)
-//	   - Each worker calls pollPooler() to perform the actual health check
-//	   - Updates LastCheckAttempted, LastSeen, IsUpToDate in the store
-//
-//	3. Health Check Ticker (periodic re-queueing):
-//	   - Runs every pooler-health-check-interval (e.g., 5s)
-//	   - Scans all poolers in the store
-//	   - Queues poolers with outdated checks (LastCheckAttempted older than interval)
-//	   - Ensures continuous health monitoring even if checks fail
-//
-//	The queue deduplicates entries, so a pooler can only be queued once at a time.
-//
-//	Health Check Queue Flow:
-//
-//	  ┌──────────────────────┐                  ┌──────────────────────┐
-//	  │  PoolerWatcher       │──new poolers  ─> │                      │
-//	  │  (event-driven)      │                  │   Health Check       │
-//	  └──────────────────────┘                  │   Queue              │
-//	                                            │   (deduplicates)     │
-//	  ┌──────────────────────┐                  │                      │
-//	  │  Health Check Ticker │──stale checks -> │                      │
-//	  │  (periodic: 5s)      │                  └──────────┬───────────┘
-//	  └──────────────────────┘                             │
-//	                                                       │ consume
-//	                                                       ▼
-//	                                            ┌─────────────────────┐
-//	                                            │   Worker Pool       │
-//	                                            │   (N workers)       │
-//	                                            └──────────┬──────────┘
-//	                                                       │
-//	                                                       │ updates
-//	                                                       ▼
-//	                                            ┌──────────────────────┐
-//	                                            │   Pooler Store       │
-//	                                            └──────────────────────┘
+//	  ┌──────────────────────┐   ManagerHealthStream   ┌──────────────────────┐
+//	  │    Multipooler       │ ──── snapshot ────────> │   HealthStream      │
+//	  │  (state change or    │                         │   (per pooler)       │
+//	  │   5s poll ticker)    │                         └──────────┬───────────┘
+//	  └──────────────────────┘                                    │ applySnapshot
+//	                                                              ▼
+//	                                                   ┌──────────────────────┐
+//	                                                   │    Pooler Store      │
+//	                                                   └──────────────────────┘
 //
 // Recovery Loop:
 //
@@ -222,8 +190,8 @@ type Engine struct {
 	// In-memory state store
 	poolerStore *store.PoolerStore
 
-	// Health check queue for concurrent pooler polling
-	healthCheckQueue *Queue
+	// Health stream manager — one stream per pooler.
+	healthStream *HealthStream
 
 	// Current configuration values
 	mu                sync.Mutex // protects shardWatchTargets
@@ -233,16 +201,11 @@ type Engine struct {
 	reloadConfig func() []string
 
 	// Periodic runners for background tasks
-	bookkeepingRunner      *timer.PeriodicRunner
-	recoveryRunner         *timer.PeriodicRunner
-	healthCheckQueueRunner *timer.PeriodicRunner
+	bookkeepingRunner *timer.PeriodicRunner
+	recoveryRunner    *timer.PeriodicRunner
 
 	// Watcher-based topology discovery
 	poolerWatcher *PoolerWatcher
-
-	// Cache for deduplication (prevents redundant health checks)
-	recentPollCache   map[string]time.Time
-	recentPollCacheMu sync.Mutex
 
 	// Detected problems tracking (replaced each cycle)
 	detectedProblemsMu sync.Mutex
@@ -262,9 +225,6 @@ type Engine struct {
 	// Context for shutting down loops
 	shutdownCtx context.Context
 	cancel      context.CancelFunc
-
-	// WaitGroup to track goroutines for graceful shutdown
-	wg sync.WaitGroup
 }
 
 // NewEngine creates a new RecoveryEngine instance.
@@ -279,22 +239,21 @@ func NewEngine(
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	poolerStore := store.NewPoolerStore(rpcClient, logger)
+	healthStream := NewHealthStream(ctx, rpcClient, poolerStore, logger)
 
 	engine := &Engine{
-		ts:                     ts,
-		logger:                 logger,
-		config:                 config,
-		rpcClient:              rpcClient,
-		poolerStore:            poolerStore,
-		healthCheckQueue:       NewQueue(logger, config),
-		shardWatchTargets:      shardWatchTargets,
-		recentPollCache:        make(map[string]time.Time),
-		coordinator:            coordinator,
-		shutdownCtx:            ctx,
-		cancel:                 cancel,
-		bookkeepingRunner:      timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
-		recoveryRunner:         timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
-		healthCheckQueueRunner: timer.NewPeriodicRunner(ctx, config.GetPoolerHealthCheckInterval()),
+		ts:                ts,
+		logger:            logger,
+		config:            config,
+		rpcClient:         rpcClient,
+		poolerStore:       poolerStore,
+		healthStream:      healthStream,
+		shardWatchTargets: shardWatchTargets,
+		coordinator:       coordinator,
+		shutdownCtx:       ctx,
+		cancel:            cancel,
+		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
 	// Initialize metrics
@@ -320,6 +279,14 @@ func NewEngine(
 		logger.Error("failed to register detected problems callback", "error", err)
 	}
 
+	// Register callback for stream health gauges (connected, snapshots_received)
+	err = engine.metrics.RegisterStreamHealthCallback(func() []StreamHealthData {
+		return engine.collectStreamHealthData()
+	})
+	if err != nil {
+		logger.Error("failed to register stream health callback", "error", err)
+	}
+
 	// Create action factory for recovery actions
 	engine.actionFactory = analysis.NewRecoveryActionFactory(
 		config,
@@ -335,12 +302,13 @@ func NewEngine(
 		WithLogger(logger))
 
 	// Create the watcher-based topology discovery.
+	// When a new pooler is discovered, start a health stream for it.
 	engine.poolerWatcher = NewPoolerWatcher(
 		ctx,
 		ts,
 		engine.getWatchTargets,
 		poolerStore,
-		engine.healthCheckQueue,
+		healthStream.Start,
 		logger,
 	)
 
@@ -360,12 +328,7 @@ func (re *Engine) Start() error {
 		"cell", re.config.GetCell(),
 		"watch_targets", re.shardWatchTargets,
 		"bookkeeping_interval", re.config.GetBookkeepingInterval(),
-		"pooler_health_check_interval", re.config.GetPoolerHealthCheckInterval(),
-		"health_check_workers", re.config.GetHealthCheckWorkers(),
 	)
-
-	// Start health check worker pool
-	re.startHealthCheckWorkers()
 
 	// Start bookkeeping runner
 	re.bookkeepingRunner.Start(func(ctx context.Context) {
@@ -382,18 +345,9 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle(ctx)
 	}, nil)
 
-	// Start health check ticker runner
-	re.healthCheckQueueRunner.Start(func(ctx context.Context) {
-		newInterval := re.config.GetPoolerHealthCheckInterval()
-		if re.healthCheckQueueRunner.UpdateInterval(newInterval) {
-			re.logger.InfoContext(re.shutdownCtx, "pooler health check interval changed", "interval", newInterval)
-		}
-		re.queuePoolersHealthCheck()
-	}, func() { // OnStart callback
-		re.logger.Info("health check ticker loop started")
-	})
-
 	// Start watcher-based topology discovery.
+	// New poolers discovered by the watcher will have a stream started via the
+	// healthStream.Start callback registered in NewEngine.
 	re.poolerWatcher.Start()
 
 	re.logger.Info("recovery engine started successfully")
@@ -407,22 +361,9 @@ func (re *Engine) Stop() {
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
-	re.healthCheckQueueRunner.Stop()
 	re.poolerWatcher.Stop()
-	re.wg.Wait()
+	re.healthStream.Shutdown()
 	re.logger.Info("recovery engine stopped")
-}
-
-// startHealthCheckWorkers starts the worker pool that consumes from the health check queue.
-// Each worker runs in its own goroutine and processes health checks concurrently.
-func (re *Engine) startHealthCheckWorkers() {
-	numWorkers := re.config.GetHealthCheckWorkers()
-	for range numWorkers {
-		re.wg.Go(func() {
-			re.handlePoolerHealthChecks()
-		})
-	}
-	re.logger.Info("health check worker pool started", "workers", numWorkers)
 }
 
 // reloadConfigs checks for configuration changes and reloads if necessary.
@@ -499,6 +440,26 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 			EntityID:     p.EntityID(),
 		})
 	}
+	return data
+}
+
+// collectStreamHealthData reads stream connection state from the pooler store
+// for all tracked poolers. Called by the observable gauge callback.
+func (re *Engine) collectStreamHealthData() []StreamHealthData {
+	var data []StreamHealthData
+	re.poolerStore.Range(func(_ string, state *multiorchdatapb.PoolerHealthState) bool {
+		if state.MultiPooler == nil {
+			return true
+		}
+		data = append(data, StreamHealthData{
+			PoolerID:          topoclient.MultiPoolerIDString(state.MultiPooler.Id),
+			DBNamespace:       state.MultiPooler.Database,
+			Shard:             state.MultiPooler.Shard,
+			Connected:         state.StreamConnected,
+			SnapshotsReceived: state.StreamSnapshotsReceived,
+		})
+		return true
+	})
 	return data
 }
 
@@ -587,9 +548,11 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution",
 		"max_cycles", maxCycles)
 
-	// Force health check all poolers to get fresh state
-	re.logger.DebugContext(ctx, "TriggerRecoveryNow: forcing health checks on all poolers")
-	re.forceHealthCheckAllShardPoolers(ctx)
+	// Poll all poolers via stream and wait for fresh snapshots before the first
+	// recovery cycle. Without the wait, the cycle would run against stale store
+	// data because Poll() is asynchronous — snapshots arrive after the RPC returns.
+	re.logger.DebugContext(ctx, "TriggerRecoveryNow: polling all poolers and waiting for snapshots")
+	re.pollAndWaitForNewSnapshots(ctx)
 
 	// Expire all grace period deadlines so the next recovery cycle acts on
 	// detected problems immediately instead of waiting. This matches the
@@ -649,29 +612,69 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	}
 }
 
-// forceHealthCheckAllShardPoolers forces health checks on all poolers across all shards.
-func (re *Engine) forceHealthCheckAllShardPoolers(ctx context.Context) {
-	// Collect unique shards from pooler store
-	shards := make(map[commontypes.ShardKey]bool)
+// pollAllPoolers sends a poll request on the active health stream for every
+// tracked pooler. Requests are fire-and-forget; the resulting snapshots will
+// be applied to the store asynchronously as they arrive.
+func (re *Engine) pollAllPoolers() {
 	re.poolerStore.Range(func(_ string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
-		if poolerHealth != nil && poolerHealth.MultiPooler != nil {
-			shards[commontypes.ShardKey{
-				Database:   poolerHealth.MultiPooler.Database,
-				TableGroup: poolerHealth.MultiPooler.TableGroup,
-				Shard:      poolerHealth.MultiPooler.Shard,
-			}] = true
+		if poolerHealth != nil && poolerHealth.MultiPooler != nil && poolerHealth.MultiPooler.Id != nil {
+			_ = re.healthStream.Poll(poolerHealth.MultiPooler.Id)
+		}
+		return true
+	})
+}
+
+// pollAndWaitForNewSnapshots sends poll requests to all poolers and blocks
+// until each pooler that had an active stream delivers at least one new
+// snapshot, or until pollResponseWait elapses or the context is cancelled.
+//
+// This bridges the gap between the asynchronous Poll() call and the recovery
+// cycle that follows: without the wait, the cycle would run against store data
+// that predates the poll.
+func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
+	type poolerBaseline struct {
+		id       string
+		baseline int64
+	}
+
+	// Capture snapshot counters for poolers with active streams before polling.
+	var baselines []poolerBaseline
+	re.poolerStore.Range(func(poolerID string, ph *multiorchdatapb.PoolerHealthState) bool {
+		if ph != nil && ph.StreamConnected {
+			baselines = append(baselines, poolerBaseline{poolerID, ph.StreamSnapshotsReceived})
 		}
 		return true
 	})
 
-	// Force health check each shard in parallel
-	var wg sync.WaitGroup
-	for shardKey := range shards {
-		wg.Add(1)
-		go func(key commontypes.ShardKey) {
-			defer wg.Done()
-			re.forceHealthCheckShardPoolers(ctx, key, nil /* poolersToIgnore */)
-		}(shardKey)
+	re.pollAllPoolers()
+
+	if len(baselines) == 0 {
+		return
 	}
-	wg.Wait()
+
+	start := time.Now()
+	deadline := start.Add(timeouts.PollResponseWait)
+	for _, pb := range baselines {
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				re.logger.WarnContext(ctx, "poll snapshot not received within deadline",
+					"pooler_id", pb.id,
+					"wait", time.Since(start).Round(time.Millisecond),
+					"deadline", timeouts.PollResponseWait,
+				)
+				return
+			}
+			if ph, ok := re.poolerStore.Get(pb.id); ok && ph.StreamSnapshotsReceived > pb.baseline {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
 }
