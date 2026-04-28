@@ -27,26 +27,21 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// primaryConsensusStatus builds a consensusdata.StatusResponse that names id as
-// the primary in its current rule with the given coordinator term. This is the
-// minimal fixture required for commonconsensus.IsPrimary to return true for a
-// given pooler.
-func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *consensusdatapb.StatusResponse {
-	return &consensusdatapb.StatusResponse{
+// primaryConsensusStatus builds a ConsensusStatus that names id as the primary
+// in its current rule with the given coordinator term. This is the minimal
+// fixture required for commonconsensus.IsPrimary to return true for a given pooler.
+func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
-		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-			Id: id,
-			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-					PrimaryId:  id,
-				},
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				PrimaryId:  id,
 			},
 		},
 	}
@@ -473,6 +468,108 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID)
 	// But PrimaryReachable should be false because postgres is down
 	assert.False(t, sa.PrimaryReachable, "primary should NOT be reachable when postgres is down")
+}
+
+// TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke covers the scenario where a primary is
+// demoted via BeginTerm REVOKE and restarted as a standby (emergencyDemoteLocked behavior).
+// After restart, PoolerType=REPLICA in the health snapshot and primary_term stays > 0
+// (only DemoteStalePrimary clears it). PrimaryReachable must be false so PrimaryIsDead
+// triggers and a new primary can be elected.
+func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
+	replica := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "replica",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+		},
+	}
+
+	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+
+	t.Run("topology type PRIMARY, PoolerType REPLICA, primary term > 0 via ConsensusStatus", func(t *testing.T) {
+		// Former primary promoted at term 4; etcd topology updated to PRIMARY.
+		// After REVOKE, postgres restarts as standby → PoolerType=REPLICA.
+		// The committed rule still names this node as primary (before new rule replicates),
+		// so IsPrimary(ConsensusStatus) remains true and term > 0.
+		ps := store.NewPoolerStore(nil, slog.Default())
+		formerPrimaryID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "primary",
+		}
+		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         formerPrimaryID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Type:       clustermetadatapb.PoolerType_PRIMARY, // etcd updated when promoted
+			},
+			IsLastCheckValid: true,
+			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType:      clustermetadatapb.PoolerType_REPLICA, // running as standby after REVOKE
+				PostgresReady:   true,
+				PostgresRunning: true,
+			},
+		})
+		ps.Set("multipooler-cell1-replica", replica)
+
+		gen := NewAnalysisGenerator(ps, nil)
+		sa, err := gen.GenerateShardAnalysis(shardKey)
+		require.NoError(t, err)
+		assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID, "demoted primary should still be tracked (primary term > 0)")
+		assert.Equal(t, "primary", sa.HighestTermDiscoveredPrimaryID.Name)
+		assert.False(t, sa.PrimaryReachable, "demoted primary reporting REPLICA should not be PrimaryReachable")
+		assert.True(t, sa.PrimaryPoolerReachable)
+	})
+
+	t.Run("topology type REPLICA, PoolerType REPLICA, primary term > 0 via ConsensusStatus (stale etcd)", func(t *testing.T) {
+		// Simulates etcd being stopped before the promotion: topology still shows this node
+		// as REPLICA (initial assignment), but it was promoted later (term=4) and then
+		// revoked. HighestTermDiscoveredPrimaryID must still be found via ConsensusStatus.
+		ps := store.NewPoolerStore(nil, slog.Default())
+		formerPrimaryID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "former-primary",
+		}
+		ps.Set("multipooler-cell1-former-primary", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         formerPrimaryID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Type:       clustermetadatapb.PoolerType_REPLICA, // stale etcd: never updated
+			},
+			IsLastCheckValid: true,
+			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType:      clustermetadatapb.PoolerType_REPLICA, // running as standby after REVOKE
+				PostgresReady:   true,
+				PostgresRunning: true,
+			},
+		})
+		ps.Set("multipooler-cell1-replica", replica)
+
+		gen := NewAnalysisGenerator(ps, nil)
+		sa, err := gen.GenerateShardAnalysis(shardKey)
+		require.NoError(t, err)
+		assert.NotNil(t, sa.HighestTermDiscoveredPrimaryID, "stale-topology former primary should be found via ConsensusStatus")
+		assert.Equal(t, "former-primary", sa.HighestTermDiscoveredPrimaryID.Name)
+		assert.False(t, sa.PrimaryReachable, "demoted primary reporting REPLICA should not be PrimaryReachable")
+		assert.True(t, sa.PrimaryPoolerReachable)
+	})
 }
 
 func TestIsInStandbyList(t *testing.T) {
@@ -1448,48 +1545,42 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		MultiPooler:      shardConfig(newPrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
-		ConsensusStatus: &consensusdatapb.StatusResponse{
-			Id: newPrimaryID,
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:             newPrimaryID,
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 11},
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
-						PrimaryId:  newPrimaryID,
-					},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:             newPrimaryID,
+			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 11},
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+					PrimaryId:  newPrimaryID,
 				},
 			},
 		},
+		ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: true,
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11},
 		},
 	})
 
-	// Stale primary: lower PrimaryTerm, postgres NOT running (just came back after being killed).
+	// Stale primary: lower primary term, postgres NOT running (just came back after being killed).
 	ps.Set("multipooler-cell1-stale-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      shardConfig(stalePrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
-		ConsensusStatus: &consensusdatapb.StatusResponse{
-			Id: stalePrimaryID,
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:             stalePrimaryID,
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-						PrimaryId:  stalePrimaryID,
-					},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:             stalePrimaryID,
+			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					PrimaryId:  stalePrimaryID,
 				},
 			},
 		},
+		ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: false,
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10},
 		},
 	})
 
@@ -1733,22 +1824,21 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 			},
 			IsLastCheckValid: p.reachable,
 			IsUpToDate:       true,
-			ConsensusStatus: &consensusdatapb.StatusResponse{
-				Id: id,
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id:             id,
-					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: p.consensusTerm},
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.primaryTerm},
-							PrimaryId:  id,
-						},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:             id,
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: p.consensusTerm},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.primaryTerm},
+						PrimaryId:  id,
 					},
 				},
 			},
+			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: p.consensusTerm,
+			},
 			Status: &multipoolermanagerdatapb.Status{
-				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
-				ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: p.consensusTerm},
+				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 			},
 		}
 		ps.Set(poolerID, poolerState)

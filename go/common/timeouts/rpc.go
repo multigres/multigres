@@ -35,3 +35,15 @@ const DefaultHealthHeartbeatInterval = 30 * time.Second
 // This guarantees that postgres state changes (e.g. process death) reach the
 // orchestrator within this interval even when the local monitor is disabled.
 const DefaultSnapshotInterval = 5 * time.Second
+
+// PollResponseWait is the maximum time pollAndWaitForNewSnapshots spends
+// waiting for poll responses from connected poolers. A connected pooler should
+// respond within one network round-trip; this cap covers slow nodes and avoids
+// blocking TriggerRecoveryNow indefinitely.
+//
+// This value was picked to be long enough to allow a round-trip to a slow node,
+// but is shorter than the snapshot interval to ensure that we don't wait too
+// long for a response before triggering recovery. In practice, this should be
+// sufficient for most network conditions and allows for some variability in
+// response times without causing undue delays in recovery.
+const PollResponseWait = 500 * time.Millisecond

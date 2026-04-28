@@ -360,6 +360,17 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 // Leaders always publish a LeadershipStatus. Returns nil if no signals are set
 // and no leadership context exists.
 func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
+	ls := pm.buildLeadershipStatus()
+	if ls == nil {
+		return nil
+	}
+	return &clustermetadatapb.AvailabilityStatus{LeadershipStatus: ls}
+}
+
+// buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
+// when resignedPrimaryAtTerm is set (i.e. after a BeginTerm REVOKE). Nil means
+// this node has not recently held or resigned from primary leadership.
+func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
 	pm.mu.Lock()
 	resignedTerm := pm.resignedPrimaryAtTerm
 	pm.mu.Unlock()
@@ -368,11 +379,9 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 		return nil
 	}
 
-	return &clustermetadatapb.AvailabilityStatus{
-		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-			PrimaryTerm: resignedTerm,
-			Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-		},
+	return &clustermetadatapb.LeadershipStatus{
+		PrimaryTerm: resignedTerm,
+		Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 	}
 }
 

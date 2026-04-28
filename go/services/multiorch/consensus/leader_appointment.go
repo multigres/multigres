@@ -123,13 +123,13 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 
 	for _, pooler := range cohort {
 		// Invariant: poolers in the cohort with successful health checks must have ConsensusTerm populated
-		if pooler.IsLastCheckValid && pooler.GetStatus().GetConsensusTerm() == nil {
+		if pooler.IsLastCheckValid && pooler.GetConsensusTerm() == nil {
 			return 0, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 				"healthy pooler %s in cohort missing consensus term data - health check invariant violated",
 				pooler.MultiPooler.Id.Name)
 		}
 
-		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.TermNumber > maxTerm {
+		if ct := pooler.GetConsensusTerm(); ct != nil && ct.TermNumber > maxTerm {
 			maxTerm = ct.TermNumber
 		}
 	}
@@ -566,13 +566,19 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 
 	// Filter cohort to poolers eligible to participate in recruitment right now.
 	// A pooler is eligible only if we can reach it, it's initialized with
-	// consensus-term data, and its postgres is running. Without consensus-term
+	// consensus-term data, and its postgres process is running. Without consensus-term
 	// info we can't reason about election safety; without postgres the pooler
 	// can't participate.
+	//
+	// We use postgres_running (process alive) rather than postgres_ready (pg_isready
+	// succeeds) so that standbys that are briefly unresponsive to pg_isready during
+	// WAL receiver reconnection after primary failure are still counted as eligible.
+	// A running multipooler process can accept BeginTerm RPCs regardless of whether
+	// pg_isready is momentarily failing.
 	var eligiblePoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
 		status := pooler.GetStatus()
-		if pooler.IsLastCheckValid && status.GetIsInitialized() && status.GetConsensusTerm() != nil && status.GetPostgresReady() {
+		if pooler.IsLastCheckValid && status.GetIsInitialized() && pooler.GetConsensusTerm() != nil && status.GetPostgresRunning() {
 			eligiblePoolers = append(eligiblePoolers, pooler)
 		}
 	}
@@ -599,7 +605,7 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// to give the other coordinator a chance to complete their election.
 	for _, pooler := range eligiblePoolers {
 		// Check if this pooler recently accepted a term from another coordinator
-		if ct := pooler.GetStatus().GetConsensusTerm(); ct != nil && ct.LastAcceptanceTime != nil {
+		if ct := pooler.GetConsensusTerm(); ct != nil && ct.LastAcceptanceTime != nil {
 			lastAcceptanceTime := ct.LastAcceptanceTime.AsTime()
 			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
 

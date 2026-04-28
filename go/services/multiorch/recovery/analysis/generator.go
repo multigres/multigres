@@ -24,6 +24,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -221,7 +222,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		PoolerID:         pooler.MultiPooler.Id,
 		ShardKey:         shardKey,
 		PoolerType:       poolerType,
-		IsPrimary:        commonconsensus.IsPrimary(pooler.GetConsensusStatus().GetConsensusStatus()),
+		IsPrimary:        commonconsensus.IsPrimary(pooler.GetConsensusStatus()),
 		LastCheckValid:   pooler.IsLastCheckValid,
 		IsInitialized:    store.IsInitialized(pooler),
 		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
@@ -233,10 +234,8 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	analysis.IsStale = !pooler.IsUpToDate
 
 	// Store consensus status.
-	if pooler.ConsensusStatus != nil {
-		analysis.ConsensusTerm = pooler.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-		analysis.ConsensusStatus = pooler.ConsensusStatus.ConsensusStatus
-	}
+	analysis.ConsensusTerm = pooler.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	analysis.ConsensusStatus = pooler.GetConsensusStatus()
 
 	// If this is a REPLICA, populate replica-specific fields
 	if !analysis.IsPrimary {
@@ -253,8 +252,18 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	return analysis
 }
 
-// findHighestTermRawPooler returns the raw PoolerHealthState with the highest PrimaryTerm
-// among all PRIMARY-typed poolers, regardless of reachability. Returns nil if none found.
+// findHighestTermRawPooler returns the raw PoolerHealthState with the highest primary term
+// among all known primary poolers, regardless of reachability. Returns nil if none found.
+//
+// A pooler is a candidate if:
+//   - its ConsensusStatus names it as primary (IsPrimary), OR
+//   - its health status reports PoolerType=PRIMARY (fallback when ConsensusStatus is absent,
+//     e.g. before the first streaming snapshot populates it, or after a BeginTerm REVOKE
+//     where the node still reports PRIMARY while postgres restarts as standby).
+//
+// Note: we do NOT use MultiPooler.Type (topology type) because topology can be stale when
+// etcd is unavailable — topology type reflects the last etcd write, which may be the initial
+// assignment rather than the current primary's type.
 func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 	// TODO: If multiple poolers claim to be primary at the same term, we should surface an error that
 	// manual intervention is needed.
@@ -265,10 +274,15 @@ func findHighestTermRawPooler(poolers map[string]*multiorchdatapb.PoolerHealthSt
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
 		}
-		if pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+
+		cs := pooler.GetConsensusStatus()
+		isConsensusPrimary := commonconsensus.IsPrimary(cs)
+		isHealthPrimary := pooler.GetStatus().GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+		if !isConsensusPrimary && !isHealthPrimary {
 			continue
 		}
-		term := commonconsensus.PrimaryTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+
+		term := commonconsensus.PrimaryTerm(cs)
 		if best == nil || term > bestTerm {
 			best = pooler
 			bestTerm = term
@@ -433,8 +447,18 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		sa.PrimaryPoolerReachable = topologyPrimary.IsLastCheckValid
 		sa.PrimaryPostgresReady = topologyPrimary.GetStatus().GetPostgresReady()
 		sa.PrimaryPostgresRunning = topologyPrimary.GetStatus().GetPostgresRunning()
+		// PrimaryHasResigned: AvailabilityStatus and ConsensusTerm are populated from
+		// StatusResponse on every health stream snapshot, so PrimaryNeedsReplacement
+		// correctly detects BeginTerm REVOKE demotions without a separate RPC.
 		sa.PrimaryHasResigned = types.PrimaryNeedsReplacement(topologyPrimary)
-		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid && topologyPrimary.GetStatus().GetPostgresReady() && !sa.PrimaryHasResigned
+		// PrimaryReachable requires the topology primary to be serving as PRIMARY and
+		// not have resigned. A resigned primary has voluntarily stepped down via
+		// BeginTerm REVOKE; treating it as reachable would prevent PrimaryIsDead
+		// detection even when postgres is still running on the demoted node.
+		sa.PrimaryReachable = topologyPrimary.IsLastCheckValid &&
+			topologyPrimary.GetStatus().GetPostgresReady() &&
+			!sa.PrimaryHasResigned &&
+			topologyPrimary.GetStatus().GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY
 		if topologyPrimary.LastPostgresReadyTime != nil {
 			sa.PrimaryLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
 		}
@@ -442,6 +466,11 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		// Populate the standby list from the topology primary (used by IsInStandbyList).
 		if ps := topologyPrimary.GetStatus().GetPrimaryStatus(); ps != nil && ps.SyncReplicationConfig != nil {
 			sa.PrimaryStandbyIDs = ps.SyncReplicationConfig.StandbyIds
+		}
+
+		// Detect pg_promote transition: multipooler explicitly signals promotion is running.
+		if topologyPrimary.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
+			sa.PromotingPrimaryID = topologyPrimary.MultiPooler.Id
 		}
 	}
 
@@ -462,13 +491,12 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	}
 }
 
-// findHighestTermPooler returns the primary PoolerAnalysis with the highest PrimaryTerm.
-// Returns nil if primaries is empty, all have PrimaryTerm=0, or there is a tie.
+// findHighestTermPooler returns the primary PoolerAnalysis with the highest primary term.
+// Returns nil if primaries is empty, all have primary term 0, or there is a tie.
 //
-// Invariant: In a properly initialized shard, PrimaryTerm is always >0 for PRIMARY poolers.
-// PrimaryTerm is set during promotion and only cleared during demotion. This function
-// is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
-// never happen in a properly initialized shard.
+// Invariant: In a properly initialized shard, the primary term is always >0 for PRIMARY
+// poolers (derived from the coordinator term in the committed rule). This function is
+// defensive and returns nil if all primaries have term 0.
 func findHighestTermPooler(primaries []*PoolerAnalysis) *PoolerAnalysis {
 	if len(primaries) == 0 {
 		return nil
@@ -481,15 +509,13 @@ func findHighestTermPooler(primaries []*PoolerAnalysis) *PoolerAnalysis {
 		return nil
 	}
 
-	// Tie detection: multiple primaries with the same PrimaryTerm indicates a consensus bug.
-	// PrimaryTerm should be unique per primary and monotonically increasing. If two primaries
-	// claim the same PrimaryTerm, something went wrong in the consensus protocol (bug in
-	// promotion logic, data corruption, or split-brain).
+	// Tie detection: multiple primaries with the same term indicates a consensus bug.
+	// Primary terms must be unique per promotion and monotonically increasing. If two
+	// primaries claim the same term, something went wrong in the consensus protocol.
 	//
 	// TODO: Rather than requiring manual intervention, multiorch could automatically resolve
-	// this by starting a new term and reappointing one of the primaries, which would update
-	// its primary_term and make the others stale. For now, we skip automatic demotion to
-	// avoid making the situation worse without understanding the root cause.
+	// this by starting a new term and reappointing one of the primaries. For now, we skip
+	// automatic demotion to avoid making the situation worse without understanding the root cause.
 	for _, p := range primaries {
 		if p != mostAdvanced && comparePrimaryTimeline(p, mostAdvanced) == 0 {
 			return nil
