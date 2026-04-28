@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Loader2, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useApi } from "@/lib/api/context";
 import type { MultiGateway } from "@/lib/api/types";
 
@@ -123,6 +124,7 @@ export function MultiGatewaysTable() {
                 <TableHead className="text-right">gRPC Port</TableHead>
                 <TableHead className="text-right">HTTP Port</TableHead>
                 <TableHead className="text-right">Postgres Port</TableHead>
+                <TableHead>Diagnostics</TableHead>
                 <TableHead className="pr-6">Dashboard</TableHead>
               </TableRow>
             </TableHeader>
@@ -149,6 +151,26 @@ export function MultiGatewaysTable() {
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
                       {gateway.port_map?.postgres || "-"}
+                    </TableCell>
+                    <TableCell className="py-3">
+                      {gateway.id ? (
+                        <div className="flex items-center gap-3 text-xs">
+                          <Link
+                            href={`/dashboard/multigateways/${encodeURIComponent(gateway.id.cell)}/${encodeURIComponent(gateway.id.name)}/queries`}
+                            className="text-primary hover:underline"
+                          >
+                            Queries
+                          </Link>
+                          <Link
+                            href={`/dashboard/multigateways/${encodeURIComponent(gateway.id.cell)}/${encodeURIComponent(gateway.id.name)}/consolidator`}
+                            className="text-primary hover:underline"
+                          >
+                            Consolidator
+                          </Link>
+                        </div>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell className="pr-6 py-3">
                       <a

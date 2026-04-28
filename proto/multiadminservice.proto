@@ -19,6 +19,7 @@ package multiadmin;
 import "clustermetadata.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
@@ -115,6 +116,24 @@ service MultiAdminService {
       post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"
       body: "*"
     };
+  }
+
+  //
+  // Gateway diagnostics (proxy methods)
+  //
+
+  // GetGatewayQueries retrieves the per-fingerprint query registry of a
+  // specific multigateway. This proxies the request to the target gateway's
+  // MultiGatewayManager.GetQueryRegistry RPC.
+  rpc GetGatewayQueries(GetGatewayQueriesRequest) returns (GetGatewayQueriesResponse) {
+    option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"};
+  }
+
+  // GetGatewayConsolidator retrieves the prepared-statement consolidator
+  // snapshot of a specific multigateway. This proxies the request to the
+  // target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+  rpc GetGatewayConsolidator(GetGatewayConsolidatorRequest) returns (GetGatewayConsolidatorResponse) {
+    option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"};
   }
 }
 
@@ -402,4 +421,39 @@ message SetPostgresRestartsEnabledRequest {
 // Errors are returned via gRPC status codes, not in the response body
 message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
+}
+
+// Gateway diagnostics operation messages
+
+// GetGatewayQueriesRequest specifies which gateway to query and how to bound
+// the response.
+message GetGatewayQueriesRequest {
+  // gateway_id identifies which gateway to query (required)
+  clustermetadata.ID gateway_id = 1;
+
+  // limit caps the number of fingerprints returned, sorted by call count
+  // descending. 0 means no limit.
+  uint32 limit = 2;
+
+  // min_calls drops fingerprints whose total call count is below this
+  // threshold. 0 means no threshold.
+  uint64 min_calls = 3;
+}
+
+// GetGatewayQueriesResponse contains the gateway's per-fingerprint query registry snapshot.
+message GetGatewayQueriesResponse {
+  // snapshot contains the registry data from MultiGatewayManager.GetQueryRegistry
+  multigatewaymanagerdata.QueryRegistrySnapshot snapshot = 1;
+}
+
+// GetGatewayConsolidatorRequest specifies which gateway to query.
+message GetGatewayConsolidatorRequest {
+  // gateway_id identifies which gateway to query (required)
+  clustermetadata.ID gateway_id = 1;
+}
+
+// GetGatewayConsolidatorResponse contains the gateway's consolidator snapshot.
+message GetGatewayConsolidatorResponse {
+  // stats contains the consolidator data from MultiGatewayManager.GetConsolidatorStats
+  multigatewaymanagerdata.ConsolidatorStats stats = 1;
 }
