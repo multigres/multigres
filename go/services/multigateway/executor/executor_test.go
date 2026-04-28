@@ -435,6 +435,38 @@ func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
 	assert.False(t, res2.CacheHit, "different databases must not share cached plans via portal")
 }
 
+// TestPortalStreamExecute_RunsCacheableSequencePlan verifies that the
+// cacheable extended-protocol path actually runs the planned primitive —
+// not just its routing — so a Sequence built for SELECT set_config(..., false)
+// has both effects: the silent ApplySessionState updates the gateway
+// tracker, and the trailing Route still forwards the portal. Earlier
+// the executor short-circuited to extractRouting + exec.PortalStreamExecute
+// directly, dropping the silent prefix entirely; the redesign delegates
+// to plan.PortalStreamExecute so each primitive owns its portal-mode
+// behavior.
+func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+	state := handler.NewMultiGatewayConnectionState()
+
+	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
+
+	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, noopCallback)
+	require.NoError(t, err)
+
+	// Silent prefix must have written the tracker.
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok, "silent ApplySessionState prefix should have updated SessionSettings")
+	assert.Equal(t, "256MB", got)
+
+	// And the portal forward to the backend must still have happened.
+	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
+		"portal must still be forwarded to the backend after silent prefix")
+}
+
 func TestCrossProtocol_CasingNormalization(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)

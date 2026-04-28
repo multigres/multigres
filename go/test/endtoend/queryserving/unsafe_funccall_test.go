@@ -276,7 +276,7 @@ func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
 		{
 			"non-literal set_config value",
 			"SELECT set_config('work_mem', name, false) FROM (SELECT 'x' AS name) s",
-			"non-literal arguments",
+			"set_config value argument must be a literal constant",
 		},
 	}
 

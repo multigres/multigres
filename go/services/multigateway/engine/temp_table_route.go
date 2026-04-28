@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -69,6 +70,24 @@ func (t *TempTableRoute) StreamExecute(
 }
 
 // GetTableGroup returns the target tablegroup.
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. SELECT INTO and CREATE TEMP TABLE are
+// excluded from isCacheable, so the executor never lands here via the
+// cacheable portal branch — but keeping the implementation real (rather
+// than panicking) means a future caller composing TempTableRoute into
+// a Sequence won't silently lose work. Delegate.
+func (t *TempTableRoute) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return t.StreamExecute(ctx, exec, conn, state, nil, callback)
+}
+
 func (t *TempTableRoute) GetTableGroup() string { return t.TableGroup }
 
 // GetQuery returns the SQL query.

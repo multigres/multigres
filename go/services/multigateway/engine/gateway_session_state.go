@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -88,6 +89,22 @@ func (g *GatewaySessionState) StreamExecute(
 	}
 
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. Gateway-managed SET/RESET targets carry no
+// parameter binds — the variable name and value are baked into the plan
+// at planning time. Delegate to StreamExecute.
+func (g *GatewaySessionState) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return g.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.

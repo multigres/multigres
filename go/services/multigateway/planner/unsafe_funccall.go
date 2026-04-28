@@ -31,11 +31,19 @@ import (
 // Keys are lowercased unqualified function names. Schema-qualified calls
 // (e.g. pg_catalog.dblink) resolve to the same entry via resolveFuncName.
 var funcBlocklist = map[string]string{
-	// Outbound database connections.
-	"dblink":           "dblink is not supported: outbound database connections are not permitted through the connection pooler",
-	"dblink_exec":      "dblink_exec is not supported: outbound database connections are not permitted through the connection pooler",
-	"dblink_connect":   "dblink_connect is not supported: outbound database connections are not permitted through the connection pooler",
-	"dblink_connect_u": "dblink_connect_u is not supported: outbound database connections are not permitted through the connection pooler",
+	// Outbound database connections. Cover the full dblink async-cursor
+	// surface (dblink_open/_fetch/_close/_send_query/_get_result) as well as
+	// the synchronous entry points so a caller cannot smuggle remote queries
+	// through the asynchronous variant.
+	"dblink":            "dblink is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_exec":       "dblink_exec is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_connect":    "dblink_connect is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_connect_u":  "dblink_connect_u is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_open":       "dblink_open is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_fetch":      "dblink_fetch is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_close":      "dblink_close is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_send_query": "dblink_send_query is not supported: outbound database connections are not permitted through the connection pooler",
+	"dblink_get_result": "dblink_get_result is not supported: outbound database connections are not permitted through the connection pooler",
 
 	// Server filesystem read.
 	"pg_read_file":        "pg_read_file is not supported: server filesystem access is not permitted through the connection pooler",

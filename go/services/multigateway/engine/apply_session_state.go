@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -81,6 +82,24 @@ func NewApplySessionStateSilent(sql string, stmt *ast.VariableSetStmt) *ApplySes
 	}
 }
 
+// PortalStreamExecute handles SET/RESET on the extended-protocol path. The
+// primitive's effect is local to gateway state — it neither reads bind
+// values nor talks to a backend — so we delegate to StreamExecute and
+// ignore portalInfo entirely. This is the right shape for a silent
+// ApplySessionState sitting inside a Sequence whose trailing Route
+// reissues the actual portal.
+func (s *ApplySessionState) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
+}
+
 // StreamExecute handles the SET/RESET command.
 func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
@@ -126,6 +145,13 @@ func (s *ApplySessionState) executeSet(
 }
 
 // executeReset handles RESET/RESET ALL: update state, return synthetic response.
+//
+// Two modes (mirrors executeSet):
+//   - SilentTracking: update state, no callback. No current planner path
+//     produces a silent RESET, but gating defensively prevents a future
+//     caller from emitting a stray CommandComplete("RESET") into the
+//     protocol stream ahead of a sibling primitive's real response.
+//   - default: update state and emit CommandComplete "RESET".
 func (s *ApplySessionState) executeReset(
 	ctx context.Context,
 	state *handler.MultiGatewayConnectionState,
@@ -142,6 +168,10 @@ func (s *ApplySessionState) executeReset(
 		state.ResetStatementTimeout()
 	default:
 		return mterrors.NewFeatureNotSupported(fmt.Sprintf("RESET kind %d is not supported", s.VariableStmt.Kind))
+	}
+
+	if s.SilentTracking {
+		return nil
 	}
 
 	// Return synthetic CommandComplete

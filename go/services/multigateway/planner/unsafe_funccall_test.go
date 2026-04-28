@@ -52,6 +52,11 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 		{"dblink in WHERE", "SELECT 1 FROM t WHERE (dblink_exec('x','y')) = 0", "dblink_exec is not supported"},
 		{"dblink_connect", "SELECT dblink_connect('host=example.com')", "dblink_connect is not supported"},
 		{"dblink_connect_u", "SELECT dblink_connect_u('host=example.com')", "dblink_connect_u is not supported"},
+		{"dblink_open", "SELECT dblink_open('cur', 'SELECT 1')", "dblink_open is not supported"},
+		{"dblink_fetch", "SELECT * FROM dblink_fetch('cur', 1) AS t(c int)", "dblink_fetch is not supported"},
+		{"dblink_close", "SELECT dblink_close('cur')", "dblink_close is not supported"},
+		{"dblink_send_query", "SELECT dblink_send_query('conn', 'SELECT 1')", "dblink_send_query is not supported"},
+		{"dblink_get_result", "SELECT * FROM dblink_get_result('conn') AS t(c int)", "dblink_get_result is not supported"},
 
 		{"pg_read_file", "SELECT pg_read_file('/etc/passwd')", "pg_read_file is not supported"},
 		{"pg_read_binary_file", "SELECT pg_read_binary_file('/etc/passwd')", "pg_read_binary_file is not supported"},

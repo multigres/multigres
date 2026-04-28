@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -111,6 +112,22 @@ func (r *Route) StreamExecute(
 		state,
 		callback,
 	)
+}
+
+// PortalStreamExecute reissues the portal against the route's tablegroup/shard
+// so the multipooler receives the original query text (with $N placeholders)
+// alongside the wire-format Bind values. The bindVars slice from
+// StreamExecute is unused here — the portal carries its own binds.
+func (r *Route) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, callback)
 }
 
 // GetTableGroup returns the target tablegroup.
