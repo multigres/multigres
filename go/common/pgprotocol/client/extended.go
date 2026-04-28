@@ -534,8 +534,7 @@ func (c *Conn) writeParse(name, queryStr string, paramTypes []uint32) error {
 	for _, oid := range paramTypes {
 		pos = writeUint32At(buf, pos, oid)
 	}
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // writeBind writes a Bind message.
@@ -569,8 +568,7 @@ func (c *Conn) writeBind(portalName, stmtName string, params [][]byte, paramForm
 	for _, f := range resultFormats {
 		pos = writeInt16At(buf, pos, f)
 	}
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // writeExecute writes an Execute message.
@@ -579,8 +577,7 @@ func (c *Conn) writeExecute(portalName string, maxRows int32) error {
 	buf, pos := c.startPacket(protocol.MsgExecute, bodyLen)
 	pos = writeStringAt(buf, pos, portalName)
 	pos = writeInt32At(buf, pos, maxRows)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // writeDescribe writes a Describe message.
@@ -589,8 +586,7 @@ func (c *Conn) writeDescribe(typ byte, name string) error {
 	buf, pos := c.startPacket(protocol.MsgDescribe, bodyLen)
 	pos = writeByteAt(buf, pos, typ)
 	pos = writeStringAt(buf, pos, name)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // writeClose writes a Close message.
@@ -599,20 +595,19 @@ func (c *Conn) writeClose(typ byte, name string) error {
 	buf, pos := c.startPacket(protocol.MsgClose, bodyLen)
 	pos = writeByteAt(buf, pos, typ)
 	pos = writeStringAt(buf, pos, name)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // writeSync writes a Sync message.
 func (c *Conn) writeSync() error {
-	buf, _ := c.startPacket(protocol.MsgSync, 0)
-	return c.writePacket(buf)
+	buf, pos := c.startPacket(protocol.MsgSync, 0)
+	return c.writePacket(buf, pos)
 }
 
 // writeFlush writes a Flush message.
 func (c *Conn) writeFlush() error {
-	buf, _ := c.startPacket(protocol.MsgFlush, 0)
-	return c.writePacket(buf)
+	buf, pos := c.startPacket(protocol.MsgFlush, 0)
+	return c.writePacket(buf, pos)
 }
 
 // Response processing methods.

@@ -88,8 +88,7 @@ func (s *scramClient) sendClientFirst() error {
 	pos = writeStringAt(buf, pos, scram.ScramSHA256Mechanism)
 	pos = writeInt32At(buf, pos, int32(len(clientFirstMessage)))
 	pos = writeBytesAt(buf, pos, []byte(clientFirstMessage))
-	_ = pos
-	if err := s.conn.writePacket(buf); err != nil {
+	if err := s.conn.writePacket(buf, pos); err != nil {
 		return err
 	}
 	return s.conn.flush()
@@ -141,8 +140,7 @@ func (s *scramClient) sendClientFinal(serverFirst string) error {
 	bodyLen := len(clientFinalMessage)
 	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
 	pos = writeBytesAt(buf, pos, []byte(clientFinalMessage))
-	_ = pos
-	if err := s.conn.writePacket(buf); err != nil {
+	if err := s.conn.writePacket(buf, pos); err != nil {
 		return err
 	}
 	return s.conn.flush()

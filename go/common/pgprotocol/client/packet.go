@@ -165,16 +165,32 @@ func (c *Conn) startPacket(msgType byte, bodyLen int) ([]byte, int) {
 // at the end of the request/response cycle (or for not flushing at
 // all in the extended-protocol pipelined case, where Sync triggers
 // the flush).
-func (c *Conn) writePacket(buf []byte) error {
+//
+// pos is the cursor returned by the final writeXxxAt encoder; it must
+// equal len(buf), i.e. the bodyLen passed to startPacket must exactly
+// match the bytes encoded. A mismatch panics — sizing bugs surface
+// loudly in tests instead of producing truncated/garbage packets on
+// the wire.
+//
+// Cleanup runs via defer so a panic during body encoding still returns
+// the pool buffer.
+func (c *Conn) writePacket(buf []byte, pos int) error {
+	defer func() {
+		if c.outboundPoolBuf != nil {
+			bufPool.Put(c.outboundPoolBuf)
+			c.outboundPoolBuf = nil
+		}
+	}()
+
+	if pos != len(buf) {
+		panic(fmt.Sprintf("pgwire: packet size mismatch: encoded %d bytes, expected %d", pos, len(buf)))
+	}
+
 	var err error
 	if c.bufferedWriter != nil {
 		_, err = c.bufferedWriter.Write(buf)
 	} else {
 		_, err = c.conn.Write(buf)
-	}
-	if c.outboundPoolBuf != nil {
-		bufPool.Put(c.outboundPoolBuf)
-		c.outboundPoolBuf = nil
 	}
 	return err
 }
@@ -228,8 +244,8 @@ func writeByteStringAt(buf []byte, pos int, b []byte) int {
 
 // writeTerminate writes a Terminate message.
 func (c *Conn) writeTerminate() error {
-	buf, _ := c.startPacket(protocol.MsgTerminate, 0)
-	return c.writePacket(buf)
+	buf, pos := c.startPacket(protocol.MsgTerminate, 0)
+	return c.writePacket(buf, pos)
 }
 
 // MessageReader provides helper methods for reading message fields.

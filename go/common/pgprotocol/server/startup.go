@@ -474,8 +474,7 @@ func (c *Conn) sendAuthenticationSASL(mechanisms []string) error {
 		pos = writeStringAt(buf, pos, mech)
 	}
 	pos = writeByteAt(buf, pos, 0)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // sendAuthenticationSASLContinue sends AuthenticationSASLContinue with server data.
@@ -484,8 +483,7 @@ func (c *Conn) sendAuthenticationSASLContinue(data string) error {
 	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
 	pos = writeInt32At(buf, pos, protocol.AuthSASLContinue)
 	pos = writeBytesAt(buf, pos, []byte(data))
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // sendAuthenticationSASLFinal sends AuthenticationSASLFinal with server signature.
@@ -494,8 +492,7 @@ func (c *Conn) sendAuthenticationSASLFinal(data string) error {
 	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
 	pos = writeInt32At(buf, pos, protocol.AuthSASLFinal)
 	pos = writeBytesAt(buf, pos, []byte(data))
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // readSASLInitialResponse reads SASLInitialResponse from the client.
@@ -591,8 +588,7 @@ func (c *Conn) sendAuthError(message string) error {
 func (c *Conn) sendAuthenticationOk() error {
 	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, 4)
 	pos = writeInt32At(buf, pos, protocol.AuthOk)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // sendBackendKeyData sends the BackendKeyData message.
@@ -601,8 +597,7 @@ func (c *Conn) sendBackendKeyData() error {
 	buf, pos := c.startPacket(protocol.MsgBackendKeyData, 8)
 	pos = writeUint32At(buf, pos, c.connectionID)
 	pos = writeUint32At(buf, pos, c.backendKeyData)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // sendParameterStatuses sends initial ParameterStatus messages to the client.
@@ -634,8 +629,7 @@ func (c *Conn) sendParameterStatus(name, value string) error {
 	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.

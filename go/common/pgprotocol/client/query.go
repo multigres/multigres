@@ -192,8 +192,7 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 	bodyLen := len(queryStr) + 1 // null terminator
 	buf, pos := c.startPacket(protocol.MsgQuery, bodyLen)
 	pos = writeStringAt(buf, pos, queryStr)
-	_ = pos
-	if err := c.writePacket(buf); err != nil {
+	if err := c.writePacket(buf, pos); err != nil {
 		return err
 	}
 	return c.flush()

@@ -49,8 +49,9 @@ func (w *MessageWriter) Reset() {
 	w.buf = w.buf[:0]
 }
 
-// WriteByte writes a single byte.
-func (w *MessageWriter) WriteByte(b byte) {
+// AppendByte writes a single byte. Named AppendByte (not WriteByte) to
+// avoid shadowing io.ByteWriter's signature, which go vet flags.
+func (w *MessageWriter) AppendByte(b byte) {
 	w.buf = append(w.buf, b)
 }
 

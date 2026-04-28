@@ -1118,6 +1118,5 @@ func (c *Conn) writeNotificationResponseMsg(pid int32, channel, payload string) 
 	pos = writeInt32At(buf, pos, pid)
 	pos = writeStringAt(buf, pos, channel)
 	pos = writeStringAt(buf, pos, payload)
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }

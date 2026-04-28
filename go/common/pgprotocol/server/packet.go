@@ -128,8 +128,7 @@ func (c *Conn) writeMessage(msgType byte, body []byte) error {
 	if len(body) > 0 {
 		pos = writeBytesAt(buf, pos, body)
 	}
-	_ = pos
-	return c.writePacket(buf)
+	return c.writePacket(buf, pos)
 }
 
 // startPacket reserves space for a single pgwire packet of the given
@@ -196,18 +195,34 @@ func (c *Conn) startPacket(msgType byte, bodyLen int) ([]byte, int) {
 // op and just advances the internal write cursor. On the slow path,
 // this is a normal Write of the pool-backed slice; afterwards the
 // pool buffer is returned to listener.bufPool for reuse.
-func (c *Conn) writePacket(buf []byte) error {
+//
+// pos is the cursor returned by the final writeXxxAt encoder; it must
+// equal len(buf), i.e. the bodyLen passed to startPacket must exactly
+// match the bytes encoded. A mismatch panics — sizing bugs surface
+// loudly in tests instead of producing truncated/garbage packets on
+// the wire.
+//
+// Cleanup runs via defer so a panic during body encoding still releases
+// bufMu and returns the pool buffer.
+func (c *Conn) writePacket(buf []byte, pos int) error {
+	defer func() {
+		if c.outboundPoolBuf != nil {
+			c.listener.bufPool.Put(c.outboundPoolBuf)
+			c.outboundPoolBuf = nil
+		}
+		c.bufMu.Unlock()
+	}()
+
+	if pos != len(buf) {
+		panic(fmt.Sprintf("pgwire: packet size mismatch: encoded %d bytes, expected %d", pos, len(buf)))
+	}
+
 	var err error
 	if c.bufferedWriter != nil {
 		_, err = c.bufferedWriter.Write(buf)
 	} else {
 		_, err = c.conn.Write(buf)
 	}
-	if c.outboundPoolBuf != nil {
-		c.listener.bufPool.Put(c.outboundPoolBuf)
-		c.outboundPoolBuf = nil
-	}
-	c.bufMu.Unlock()
 	return err
 }
 

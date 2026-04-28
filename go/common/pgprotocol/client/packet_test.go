@@ -142,10 +142,10 @@ func TestMessageReaderEOF(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 }
 
-func TestMessageWriterWriteByte(t *testing.T) {
+func TestMessageWriterAppendByte(t *testing.T) {
 	w := NewMessageWriter()
-	w.WriteByte(0x01)
-	w.WriteByte(0x02)
+	w.AppendByte(0x01)
+	w.AppendByte(0x02)
 
 	buf := w.Bytes()
 	assert.Equal(t, []byte{0x01, 0x02}, buf)
@@ -246,8 +246,7 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 	body := []byte("test message")
 	pktBuf, pos := conn.startPacket(protocol.MsgQuery, len(body))
 	pos = writeBytesAt(pktBuf, pos, body)
-	_ = pos
-	err := conn.writePacket(pktBuf)
+	err := conn.writePacket(pktBuf, pos)
 	require.NoError(t, err)
 
 	// Flush to the buffer.

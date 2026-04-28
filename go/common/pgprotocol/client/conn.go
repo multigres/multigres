@@ -337,8 +337,7 @@ func (c *Conn) WriteCopyData(data []byte) error {
 
 	buf, pos := c.startPacket(protocol.MsgCopyData, len(data))
 	pos = writeBytesAt(buf, pos, data)
-	_ = pos
-	if err := c.writePacket(buf); err != nil {
+	if err := c.writePacket(buf, pos); err != nil {
 		return fmt.Errorf("failed to write CopyData: %w", err)
 	}
 	return c.flush()
@@ -350,8 +349,8 @@ func (c *Conn) WriteCopyDone() error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	buf, _ := c.startPacket(protocol.MsgCopyDone, 0)
-	if err := c.writePacket(buf); err != nil {
+	buf, pos := c.startPacket(protocol.MsgCopyDone, 0)
+	if err := c.writePacket(buf, pos); err != nil {
 		return fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 	return c.flush()
@@ -366,8 +365,7 @@ func (c *Conn) WriteCopyFail(errorMsg string) error {
 	bodyLen := len(errorMsg) + 1 // null terminator
 	buf, pos := c.startPacket(protocol.MsgCopyFail, bodyLen)
 	pos = writeStringAt(buf, pos, errorMsg)
-	_ = pos
-	if err := c.writePacket(buf); err != nil {
+	if err := c.writePacket(buf, pos); err != nil {
 		return fmt.Errorf("failed to write CopyFail: %w", err)
 	}
 	return c.flush()
