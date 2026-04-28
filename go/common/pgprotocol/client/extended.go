@@ -33,8 +33,8 @@ import (
 // queryStr is the SQL query.
 // paramTypes are the OIDs of parameter types (0 for unspecified).
 func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeParse(name, queryStr, paramTypes); err != nil {
 		return fmt.Errorf("failed to write Parse: %w", err)
@@ -64,8 +64,8 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		return false, fmt.Errorf("failed to write Bind: %w", err)
@@ -94,8 +94,8 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 // paramFormats are format codes for parameters (0=text, 1=binary).
 // resultFormats are format codes for result columns (0=text, 1=binary).
 func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (*query.StatementDescription, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Use the same name for portal as the statement for consistency.
 	if err := c.writeBind(stmtName, stmtName, params, paramFormats, resultFormats); err != nil {
@@ -122,8 +122,8 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 // This sends Describe('S') → Sync.
 // name is the prepared statement name (empty for unnamed statement).
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeDescribe('S', name); err != nil {
 		return nil, fmt.Errorf("failed to write Describe: %w", err)
@@ -153,8 +153,8 @@ func (c *Conn) ClosePortal(ctx context.Context, name string) error {
 
 // closeTarget sends a Close message for a statement or portal.
 func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeClose(typ, name); err != nil {
 		return fmt.Errorf("failed to write Close: %w", err)
@@ -175,8 +175,8 @@ func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
 
 // Sync sends a Sync message to synchronize the extended query protocol.
 func (c *Conn) Sync(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeSync(); err != nil {
 		return fmt.Errorf("failed to write Sync: %w", err)
@@ -192,8 +192,8 @@ func (c *Conn) Sync(ctx context.Context) error {
 
 // Flush sends a Flush message to request the server to flush its output buffer.
 func (c *Conn) Flush(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeFlush(); err != nil {
 		return fmt.Errorf("failed to write Flush: %w", err)
@@ -207,8 +207,8 @@ func (c *Conn) Flush(ctx context.Context) error {
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
 // A named statement persists until explicitly closed or the session ends.
 func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Write all messages without flushing.
 	if err := c.writeParse(name, queryStr, nil); err != nil {
@@ -290,8 +290,8 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeExecute(portalName, maxRows); err != nil {
 		return false, fmt.Errorf("failed to write Execute: %w", err)

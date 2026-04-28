@@ -571,6 +571,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read message body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
 	// The entire body is the SASL data.
 	return string(body), nil

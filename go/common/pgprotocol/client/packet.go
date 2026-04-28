@@ -120,7 +120,7 @@ func (c *Conn) ReadRawMessage() (byte, []byte, error) {
 // the first body byte. Callers encode the body in-place via writeXxxAt
 // then call writePacket exactly once.
 //
-// Unlike the server-side equivalent, this does NOT acquire bufmu —
+// Unlike the server-side equivalent, this does NOT acquire bufMu —
 // the high-level caller (Query, Bind, Execute, …) already holds it
 // across the full request/response cycle. There is no concurrent
 // writer on a client Conn (no async notification pusher analog), so

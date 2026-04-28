@@ -207,6 +207,10 @@ func (c *Conn) Close() error {
 
 	// Return pooled resources.
 	c.returnReader()
+	// Defensive cleanup: if a handler panicked between readMessageBody
+	// and its returnReadBuffer call, the inbound pool buffer is still
+	// stashed on the Conn — release it now so the pool can recycle it.
+	c.returnReadBuffer()
 	// End writer buffering (flushes and returns to pool).
 	c.endWriterBuffering()
 
@@ -899,10 +903,13 @@ func (c *Conn) handleDescribe() error {
 	// Calculate remaining length for name.
 	// msgLen is already the body length (excluding the 4-byte length field).
 	nameLen := msgLen - 1 // Subtract only the type byte.
+	if nameLen <= 0 {
+		return errors.New("invalid describe message: missing name")
+	}
 
 	// Read name (null-terminated string).
 	nameBuf := make([]byte, nameLen)
-	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
+	if _, err := io.ReadFull(c.bufferedReader, nameBuf); err != nil {
 		return fmt.Errorf("failed to read describe name: %w", err)
 	}
 
@@ -967,10 +974,13 @@ func (c *Conn) handleClose() error {
 	// Calculate remaining length for name.
 	// msgLen is already the body length (excluding the 4-byte length field).
 	nameLen := msgLen - 1 // Subtract only the type byte.
+	if nameLen <= 0 {
+		return errors.New("invalid close message: missing name")
+	}
 
 	// Read name (null-terminated string).
 	nameBuf := make([]byte, nameLen)
-	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
+	if _, err := io.ReadFull(c.bufferedReader, nameBuf); err != nil {
 		return fmt.Errorf("failed to read close name: %w", err)
 	}
 

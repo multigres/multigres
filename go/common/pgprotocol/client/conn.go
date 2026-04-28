@@ -84,14 +84,18 @@ type Conn struct {
 	// bufferedWriter is used for writing to the connection.
 	bufferedWriter *bufio.Writer
 
-	// bufmu protects bufferedReader and bufferedWriter during concurrent access.
-	bufmu sync.Mutex
+	// bufMu serializes the multi-step request/response sequences that
+	// write through bufferedWriter and read from bufferedReader. The
+	// client side is single-owner, so this is about ensuring whole
+	// extended-protocol pipelines (Parse+Bind+Describe+Execute+Sync)
+	// land contiguously rather than guarding against concurrent I/O.
+	bufMu sync.Mutex
 
 	// outboundPoolBuf holds the package-level bufpool buffer that
 	// startPacket grabbed for an oversize (slow-path) packet. Non-nil
 	// only between startPacket and writePacket, and only on the slow
 	// path. writePacket returns it to the pool. Protected by the
-	// caller-held bufmu.
+	// caller-held bufMu.
 	//
 	// Stored as the original *[]byte the pool returned (rather than
 	// taking &buf inside writePacket) because passing the address of a
@@ -332,8 +336,8 @@ func (c *Conn) flush() error {
 // The data should already be appropriately sized by upstream layers
 // (client chunking, gRPC message limits, protocol reading).
 func (c *Conn) WriteCopyData(data []byte) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	buf, pos := c.startPacket(protocol.MsgCopyData, len(data))
 	pos = writeBytesAt(buf, pos, data)
@@ -346,8 +350,8 @@ func (c *Conn) WriteCopyData(data []byte) error {
 // WriteCopyDone sends a CopyDone ('c') message to PostgreSQL
 // This signals that all COPY data has been sent
 func (c *Conn) WriteCopyDone() error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	buf, pos := c.startPacket(protocol.MsgCopyDone, 0)
 	if err := c.writePacket(buf, pos); err != nil {
@@ -359,8 +363,8 @@ func (c *Conn) WriteCopyDone() error {
 // WriteCopyFail sends a CopyFail ('f') message to PostgreSQL
 // This aborts the COPY operation with the given error message
 func (c *Conn) WriteCopyFail(errorMsg string) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	bodyLen := len(errorMsg) + 1 // null terminator
 	buf, pos := c.startPacket(protocol.MsgCopyFail, bodyLen)
@@ -376,8 +380,8 @@ func (c *Conn) WriteCopyFail(errorMsg string) error {
 // Note: In simple query protocol, PostgreSQL sends CommandComplete followed by ReadyForQuery
 // We need to consume both messages to clear the buffer
 func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	var commandTag string
 	var rowsAffected uint64
@@ -450,8 +454,8 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 // as the expected (normal) response and continues reading until ReadyForQuery,
 // leaving the connection in a clean protocol state.
 func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	gotError := false
 
@@ -496,8 +500,8 @@ func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
 // This message is sent in response to a COPY FROM STDIN command
 // Returns the overall format and per-column formats
 func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {
@@ -545,8 +549,8 @@ func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err er
 // This is a special operation that doesn't follow the normal query flow.
 // Returns the COPY format and column formats from the CopyInResponse.
 func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Send the COPY query (simple-protocol Q message + flush).
 	if err := c.writeQueryMessage(copyQuery); err != nil {
@@ -635,8 +639,8 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 // This message is sent in response to a COPY TO STDOUT command
 // Returns the overall format and per-column formats
 func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {
@@ -684,8 +688,8 @@ func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err e
 // This is used during COPY TO STDOUT to receive data rows.
 // Returns the data bytes, or io.EOF when CopyDone is received to signal end of stream.
 func (c *Conn) ReadCopyData() ([]byte, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {

@@ -168,8 +168,8 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 	ctx, span := telemetry.Tracer().Start(ctx, opName+" postgresql", attrs...)
 	defer span.End()
 
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Send the Query message.
 	if err := c.writeQueryMessage(queryStr); err != nil {
