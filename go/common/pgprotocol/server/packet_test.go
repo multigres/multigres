@@ -186,6 +186,24 @@ func TestReturnReadBufferIsIdempotent(t *testing.T) {
 	assert.Nil(t, conn.inboundPoolBuf)
 }
 
+// TestReturnOutboundBufferIsIdempotent verifies that returnOutboundBuffer
+// (the defensive Close()-time cleanup for a panic between startPacket
+// and writePacket) clears outboundPoolBuf and is safe to call twice.
+func TestReturnOutboundBufferIsIdempotent(t *testing.T) {
+	l := newBenchListener()
+	conn := &Conn{listener: l}
+
+	conn.outboundPoolBuf = l.bufPool.Get(1024)
+	require.NotNil(t, conn.outboundPoolBuf)
+
+	conn.returnOutboundBuffer()
+	assert.Nil(t, conn.outboundPoolBuf,
+		"returnOutboundBuffer must clear outboundPoolBuf so subsequent calls are no-ops")
+
+	conn.returnOutboundBuffer()
+	assert.Nil(t, conn.outboundPoolBuf)
+}
+
 // mockNetConn is a minimal implementation of net.Conn for testing.
 type mockNetConn struct {
 	buf *bytes.Buffer
