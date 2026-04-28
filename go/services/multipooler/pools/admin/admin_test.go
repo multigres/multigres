@@ -17,6 +17,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -243,15 +244,28 @@ func TestConn_ResetAllSettings_Noop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// queryPattern is the regex every GetRolPassword test registers against the
+// fake PG. Kept once so updates to the SQL only need to land in one place.
+const getRolPasswordQueryPattern = `SELECT rolpassword, rolcanlogin, ` +
+	`\(rolvaliduntil IS NULL OR rolvaliduntil > now\(\)\) AS password_valid ` +
+	`FROM pg_catalog\.pg_authid WHERE rolname = '%s' LIMIT 1`
+
+// rolpassword / rolcanlogin / password_valid row shape returned by pg_authid
+// in the updated query. Helpers below wrap MakeResult to keep tests readable.
+func authRow(pw any, canLogin, pwValid string) [][]any {
+	return [][]any{{pw, canLogin, pwValid}}
+}
+
 func TestConn_GetRolPassword(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	// Set up expected response with SCRAM password hash.
-	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'testuser' LIMIT 1`, fakepgserver.MakeResult(
-		[]string{"rolpassword"},
-		[][]any{{"SCRAM-SHA-256$4096:salt$hash"}},
-	))
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "testuser"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t"),
+		))
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -262,12 +276,10 @@ func TestConn_GetRolPassword(t *testing.T) {
 	require.NoError(t, err)
 	defer pooled.Recycle()
 
-	// Get role password.
 	hash, err := pooled.Conn.GetRolPassword(ctx, "testuser")
 	require.NoError(t, err)
 	assert.Equal(t, "SCRAM-SHA-256$4096:salt$hash", hash)
 
-	// Verify the query was actually executed.
 	server.VerifyAllPatternsUsedOrFail()
 }
 
@@ -275,11 +287,12 @@ func TestConn_GetRolPassword_UserNotFound(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	// Set up expected response with no rows (user doesn't exist).
-	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'nonexistent' LIMIT 1`, fakepgserver.MakeResult(
-		[]string{"rolpassword"},
-		[][]any{}, // No rows
-	))
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "nonexistent"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			[][]any{}, // No rows
+		))
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -290,12 +303,10 @@ func TestConn_GetRolPassword_UserNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer pooled.Recycle()
 
-	// Get role password for non-existent user.
 	_, err = pooled.Conn.GetRolPassword(ctx, "nonexistent")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotFound)
 
-	// Verify the query was actually executed.
 	server.VerifyAllPatternsUsedOrFail()
 }
 
@@ -303,11 +314,12 @@ func TestConn_GetRolPassword_NullPassword(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	// Set up expected response with NULL password (user has no password set).
-	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'nopasswd' LIMIT 1`, fakepgserver.MakeResult(
-		[]string{"rolpassword"},
-		[][]any{{nil}}, // NULL password
-	))
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "nopasswd"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow(nil, "t", "t"),
+		))
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -318,12 +330,94 @@ func TestConn_GetRolPassword_NullPassword(t *testing.T) {
 	require.NoError(t, err)
 	defer pooled.Recycle()
 
-	// Get role password for user with NULL password.
 	hash, err := pooled.Conn.GetRolPassword(ctx, "nopasswd")
 	require.NoError(t, err)
-	assert.Equal(t, "", hash) // Empty string for NULL password
+	assert.Equal(t, "", hash)
 
-	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_LoginDisabled(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// rolcanlogin=false — PG rejects independent of password, even with a
+	// usable hash.
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "nologin_user"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "t"),
+		))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	pooled, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	_, err = pooled.Conn.GetRolPassword(context.Background(), "nologin_user")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLoginDisabled)
+
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_PasswordExpired(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// rolvaliduntil in the past (password_valid=false) — password-based auth
+	// must be rejected. PG returns the same 28P01 as wrong-password.
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "expired_user"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "f"),
+		))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	pooled, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	_, err = pooled.Conn.GetRolPassword(context.Background(), "expired_user")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPasswordExpired)
+
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_LoginDisabledBeatsPasswordExpired(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// A role that is both NOLOGIN and has an expired password: PG reports the
+	// login-disabled error (28000) — it's checked first. Multigateway must
+	// match that precedence or operators see inconsistent error codes when
+	// disabling a role via either mechanism.
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "double_disabled"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "f"),
+		))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	pooled, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	_, err = pooled.Conn.GetRolPassword(context.Background(), "double_disabled")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLoginDisabled)
+	assert.NotErrorIs(t, err, ErrPasswordExpired)
+
 	server.VerifyAllPatternsUsedOrFail()
 }
 
@@ -331,12 +425,14 @@ func TestConn_GetRolPassword_SQLInjection(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	// Set up expected response for username with single quote.
-	// The single quote should be properly escaped.
-	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'user''s' LIMIT 1`, fakepgserver.MakeResult(
-		[]string{"rolpassword"},
-		[][]any{{"SCRAM-SHA-256$4096:salt$hash"}},
-	))
+	// The single quote must be properly escaped; the rest of the SQL shape
+	// must stay intact.
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "user''s"),
+		fakepgserver.MakeResult(
+			[]string{"rolpassword", "rolcanlogin", "password_valid"},
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t"),
+		))
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -347,12 +443,10 @@ func TestConn_GetRolPassword_SQLInjection(t *testing.T) {
 	require.NoError(t, err)
 	defer pooled.Recycle()
 
-	// Get role password for username with single quote (tests SQL escaping).
 	hash, err := pooled.Conn.GetRolPassword(ctx, "user's")
 	require.NoError(t, err)
 	assert.Equal(t, "SCRAM-SHA-256$4096:salt$hash", hash)
 
-	// Verify the query was actually executed.
 	server.VerifyAllPatternsUsedOrFail()
 }
 

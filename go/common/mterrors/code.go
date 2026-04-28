@@ -30,7 +30,8 @@ const (
 	PgSSActiveTransaction       = "25001" // active_sql_transaction
 	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
 	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
-	PgSSAuthFailed              = "28P01" // invalid_authorization_specification
+	PgSSAuthFailed              = "28P01" // invalid_password
+	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
