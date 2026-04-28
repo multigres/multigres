@@ -98,6 +98,8 @@ type ServEnv struct {
 	mu           sync.Mutex
 	inited       bool
 	listeningURL url.URL
+	readyMu      sync.RWMutex
+	readyChecks  []func() error
 
 	mux          *http.ServeMux
 	onCloseHooks event.Hooks
@@ -207,6 +209,13 @@ func (se *ServEnv) PopulateListeningURL(port int32) {
 		Host:   netutil.JoinHostPort(hostname, port),
 		Path:   "/",
 	})
+}
+
+// RegisterReadyCheck adds a function called on each /ready request.
+func (se *ServEnv) RegisterReadyCheck(f func() error) {
+	se.readyMu.Lock()
+	defer se.readyMu.Unlock()
+	se.readyChecks = append(se.readyChecks, f)
 }
 
 // GetHTTPPort returns the HTTP port value

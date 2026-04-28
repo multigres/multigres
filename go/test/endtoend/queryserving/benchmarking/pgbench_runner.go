@@ -288,10 +288,26 @@ func CaptureEnvironment(t *testing.T, pgbenchBinary string) EnvironmentInfo {
 }
 
 // DefaultScenarios generates the cross-product of benchmark scenarios.
+//
+// PGBENCH_PROTOCOLS (comma-separated subset of "simple,extended", default
+// both) restricts which protocols are exercised. PGBENCH_NO_CHURN=1 skips
+// the churn variants — useful for scaling sweeps where churn is noise.
 func DefaultScenarios(duration int, clientCounts []int) []ScenarioConfig {
 	var scenarios []ScenarioConfig
 
-	for _, protocol := range []string{"simple", "extended"} {
+	protocols := []string{"simple", "extended"}
+	if raw := strings.TrimSpace(os.Getenv("PGBENCH_PROTOCOLS")); raw != "" {
+		protocols = nil
+		for s := range strings.SplitSeq(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s == "simple" || s == "extended" {
+				protocols = append(protocols, s)
+			}
+		}
+	}
+	includeChurn := os.Getenv("PGBENCH_NO_CHURN") != "1"
+
+	for _, protocol := range protocols {
 		// Sustained load scenarios (all client counts)
 		for _, clients := range clientCounts {
 			scenarios = append(scenarios, ScenarioConfig{
@@ -302,6 +318,9 @@ func DefaultScenarios(duration int, clientCounts []int) []ScenarioConfig {
 			})
 		}
 
+		if !includeChurn {
+			continue
+		}
 		// Connection churn scenarios (limited client counts — churn with many clients is very slow)
 		for _, clients := range clientCounts {
 			if clients > 10 {

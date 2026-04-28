@@ -196,11 +196,11 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKe
 			return true // continue
 		}
 
-		if !commonconsensus.IsLeader(pooler.GetConsensusStatus().GetConsensusStatus()) {
+		if !commonconsensus.IsLeader(pooler.GetConsensusStatus()) {
 			return true // continue
 		}
 
-		leaderTerm := commonconsensus.LeaderTerm(pooler.GetConsensusStatus().GetConsensusStatus())
+		leaderTerm := commonconsensus.LeaderTerm(pooler.GetConsensusStatus())
 
 		if leaderTerm > maxLeaderTerm {
 			maxLeaderTerm = leaderTerm
@@ -214,11 +214,10 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKe
 		return nil, 0, fmt.Errorf("no current leader found in shard %s", shardKey.String())
 	}
 
-	// Return consensus term for the RPC parameter
-	consensusTerm := int64(0)
-	if correctLeader.ConsensusStatus != nil {
-		consensusTerm = correctLeader.ConsensusStatus.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	}
+	// Return consensus term for the RPC parameter.
+	// ConsensusTerm is populated from the Status() snapshot and carries the same
+	// TermNumber as the old ConsensusStatus RPC did, without the extra round-trip.
+	consensusTerm := correctLeader.GetConsensusTerm().GetTermNumber()
 
 	return correctLeader, consensusTerm, nil
 }

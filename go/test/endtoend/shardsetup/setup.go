@@ -705,7 +705,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 			if r.Err != nil {
 				t.Logf("RequireRecovery: %s: fetch error: %v", r.Name, r.Err)
 			} else {
-				t.Logf("RequireRecovery: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status))
+				t.Logf("RequireRecovery: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status, r.ConsensusTerm))
 			}
 		}
 		logMultiOrchStatus(utils.WithShortDeadline(t), t, s, "RequireRecovery")
@@ -981,7 +981,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		}
 
 		isFullyInitialized := false
-		diag := FormatPoolerDiagnostics(status)
+		diag := FormatPoolerDiagnostics(status, statusResp.GetConsensusTerm())
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:

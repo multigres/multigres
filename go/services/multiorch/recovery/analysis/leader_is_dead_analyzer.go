@@ -63,6 +63,20 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
+	// Suppress failover during a known pg_promote() window. The multipooler explicitly
+	// signals promotion is in progress via PromotingPrimaryID. The conditions:
+	//   - PromotingPrimaryID != nil: multipooler has flagged pg_promote() is running
+	//   - LeaderPoolerReachable: stream is live, so the flag is current (not stale)
+	//   - LeaderPostgresRunning: postgres process is still alive
+	// If postgres crashes during promotion, LeaderPostgresRunning=false and we fall through.
+	// If the multipooler crashes, LeaderPoolerReachable=false and we fall through.
+	if sa.PromotingPrimaryID != nil && sa.LeaderPoolerReachable && sa.LeaderPostgresRunning {
+		a.factory.Logger().Info("primary promotion in progress, suppressing LeaderIsDead",
+			"shard_key", sa.ShardKey.String(),
+			"promoting_primary", topoclient.MultiPoolerIDString(sa.PromotingPrimaryID))
+		return nil, nil
+	}
+
 	// At this point, LeaderReachable is false. This can happen in three cases:
 	//
 	// 1. Leader pooler is unreachable (e.g. pooler process crashed).

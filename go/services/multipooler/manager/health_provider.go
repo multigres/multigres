@@ -165,9 +165,15 @@ func (hs *healthStreamer) broadcastLocked() {
 		select {
 		case ch <- state:
 		default:
-			// Buffer full - close the channel to force client reconnect.
-			// This ensures clients don't operate on stale state indefinitely.
-			// See Vitess healthStreamer for rationale.
+			// If the buffer is full, the channel is closed to force client
+			// reconnect. This ensures clients don't operate on stale state
+			// indefinitely. This can happen if the client is too slow to
+			// process updates or if there are too many updates in a short time
+			// (e.g. due to flapping). The client should reconnect and receive
+			// the latest state.
+			//
+			// TODO: consider adding a metric for this to detect if clients are
+			// falling behind frequently.
 			hs.logger.Warn("Health stream buffer full, closing channel to force reconnect")
 			close(ch)
 			delete(hs.clients, ch)
@@ -254,14 +260,14 @@ func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Refresh replication lag before broadcasting so clients see
+			// up-to-date lag without requiring a separate state-change event.
 			if pm.healthStreamer != nil {
-				// Refresh replication lag before broadcasting so clients see
-				// up-to-date lag without requiring a separate state-change event.
 				if lag, err := pm.ReplicationLag(ctx); err == nil {
 					pm.healthStreamer.SetReplicationLag(lag.Nanoseconds())
 				}
-				pm.healthStreamer.Broadcast()
 			}
+			pm.broadcastHealth()
 		}
 	}
 }

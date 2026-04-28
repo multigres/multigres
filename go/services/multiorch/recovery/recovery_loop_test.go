@@ -40,7 +40,6 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -734,14 +733,12 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			IsLastCheckValid: false,
 			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
-			ConsensusStatus: &consensusdatapb.StatusResponse{
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: primaryID,
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-							LeaderId:   primaryID,
-						},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: primaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						LeaderId:   primaryID,
 					},
 				},
 			},
@@ -925,27 +922,26 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	problems := detectProblems(t, engine)
 	require.Len(t, problems, 1, "should detect replica not replicating problem")
 
-	// NOW: Fix the problem in the fake client BEFORE validation
-	// This simulates the problem being transient or fixed by external means
-	fakeClient.SetStatusResponse("multipooler-cell1-replica-pooler", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{
-			PoolerType: clustermetadatapb.PoolerType_REPLICA,
-			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReplayLsn:           "0/DEADBEEF",
-				LastReceiveLsn:          "0/DEADBEEF",
-				IsWalReplayPaused:       false, // NOW FIXED!
-				WalReplayPauseState:     "not paused",
-				Lag:                     durationpb.New(0),
-				LastXactReplayTimestamp: "",
-				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-					Host: "primary-host",
-					Port: 5432,
-				},
-			},
+	// NOW: Fix the problem in the store BEFORE validation.
+	// Under streaming, the store is kept current by stream snapshots, not by RPC
+	// force-polls. Simulate a stream snapshot arriving that shows the problem is fixed.
+	fixed, _ := engine.poolerStore.Get("multipooler-cell1-replica-pooler")
+	fixed.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+		LastReplayLsn:           "0/DEADBEEF",
+		LastReceiveLsn:          "0/DEADBEEF",
+		IsWalReplayPaused:       false, // NOW FIXED!
+		WalReplayPauseState:     "not paused",
+		Lag:                     durationpb.New(0),
+		LastXactReplayTimestamp: "",
+		PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+			Host: "primary-host",
+			Port: 5432,
 		},
-	})
+	}
+	engine.poolerStore.Set("multipooler-cell1-replica-pooler", fixed)
 
-	// Attempt recovery - validation should detect problem no longer exists
+	// Attempt recovery - recheckProblem re-runs analyzers on current store state;
+	// since the store now shows healthy replication, the problem no longer exists.
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should NOT be executed because validation failed
@@ -1065,14 +1061,12 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		IsUpToDate:         true,
 		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
-		ConsensusStatus: &consensusdatapb.StatusResponse{
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: primaryID,
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-						LeaderId:   primaryID,
-					},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: primaryID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   primaryID,
 				},
 			},
 		},
@@ -1132,15 +1126,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	// ASSERTION: Recovery should be executed
 	assert.True(t, primaryRecovery.executed, "recovery should be executed")
 
-	// ASSERTION: All poolers in the shard should have been refreshed (LastCheckAttempted updated)
-	// Note: The dead primary won't be refreshed (it's in the ignore list), but replicas should be
-	r1, _ := engine.poolerStore.Get("multipooler-cell1-replica1-pooler")
-	assert.True(t, r1.LastCheckAttempted.AsTime().After(initialReplica1Check),
-		"replica1 should be refreshed after shard-wide recovery")
-
-	r2, _ := engine.poolerStore.Get("multipooler-cell1-replica2-pooler")
-	assert.True(t, r2.LastCheckAttempted.AsTime().After(initialReplica2Check),
-		"replica2 should be refreshed after shard-wide recovery")
+	// Poolers push their own updated state via ManagerHealthStream after a role
+	// change, so there is no need to force-poll them post-recovery.
+	_ = initialReplica1Check
+	_ = initialReplica2Check
 }
 
 // TestRecoveryLoop_FullCycle tests the complete recovery cycle end-to-end:

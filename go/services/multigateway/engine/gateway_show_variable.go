@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -76,6 +77,21 @@ func (g *GatewayShowVariable) StreamExecute(
 		},
 		CommandTag: "SHOW",
 	})
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. SHOW on a gateway-managed variable carries no
+// parameter binds; the value is read from gateway state. Delegate.
+func (g *GatewayShowVariable) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return g.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.

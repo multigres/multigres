@@ -34,7 +34,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -202,8 +201,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusCtx := utils.WithShortDeadline(t)
 					statusResp, err := standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after term update")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil")
-					assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm.TermNumber, "Term should be updated to higher value")
+					require.NotNil(t, statusResp.ConsensusTerm, "ConsensusTerm should not be nil")
+					assert.Equal(t, higherTerm, statusResp.ConsensusTerm.TermNumber, "Term should be updated to higher value")
 					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
 					standbyInst := setup.GetStandbys()
 					require.NotEmpty(t, standbyInst, "expected at least one standby")
@@ -230,23 +229,19 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						if err != nil {
 							return false
 						}
-						if statusResp.Status.ConsensusTerm != nil {
-							restoredTerm = statusResp.Status.ConsensusTerm.TermNumber
+						if statusResp.ConsensusTerm != nil {
+							restoredTerm = statusResp.ConsensusTerm.TermNumber
 						}
 						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
 					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
 					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
 
-					// Verify primary_term is 0 after restore
+					// Verify primary_term is 0 after restore (never been primary)
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
-					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
-					consensusStatusCtx := utils.WithShortDeadline(t)
-					consensusResp, err := standbyConsensusClient.Status(consensusStatusCtx, &consensusdatapb.StatusRequest{})
-					require.NoError(t, err, "Should be able to get consensus status after restore")
-					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(consensusResp.ConsensusStatus),
+					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore

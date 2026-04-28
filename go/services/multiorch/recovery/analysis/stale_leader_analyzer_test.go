@@ -118,7 +118,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not demote when primary_terms are equal (consensus bug)", func(t *testing.T) {
-		// When primary_terms are equal, this indicates a consensus bug (PrimaryTerm should be
+		// When primary_terms are equal, this indicates a consensus bug (primary term should be
 		// unique per primary). We skip automatic demotion to avoid making the situation worse.
 		// See generator.go findMostAdvancedPrimary() for details and potential future solutions.
 		analyzer := &StaleLeaderAnalyzer{factory: factory}

@@ -1355,10 +1355,10 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// Verify response structure
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
-		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated")
-		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
-		assert.Equal(t, "0/12345678", status.PrimaryStatus.Lsn)
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.Status.PoolerType)
+		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated")
+		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
+		assert.Equal(t, "0/12345678", status.Status.PrimaryStatus.Lsn)
 	})
 
 	t.Run("REPLICA_pooler_returns_replication_status", func(t *testing.T) {
@@ -1444,10 +1444,10 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// Verify response structure
-		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
-		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
-		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated")
-		assert.Equal(t, "0/12345600", status.ReplicationStatus.LastReplayLsn)
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.Status.PoolerType)
+		assert.Nil(t, status.Status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
+		assert.NotNil(t, status.Status.ReplicationStatus, "ReplicationStatus should be populated")
+		assert.Equal(t, "0/12345600", status.Status.ReplicationStatus.LastReplayLsn)
 	})
 
 	t.Run("Mismatch_PRIMARY_topology_but_standby_postgres", func(t *testing.T) {
@@ -1528,9 +1528,9 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// PoolerType from topology says PRIMARY, but status shows standby state
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
-		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
-		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.Status.PoolerType)
+		assert.Nil(t, status.Status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
+		assert.NotNil(t, status.Status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
 	})
 
 	t.Run("Status_returns_cohort_members_from_leadership_history", func(t *testing.T) {
@@ -1597,12 +1597,12 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
-		require.Len(t, status.CohortMembers, 2)
-		assert.Equal(t, "zone1", status.CohortMembers[0].Cell)
-		assert.Equal(t, "pooler-a", status.CohortMembers[0].Name)
-		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.CohortMembers[0].Component)
-		assert.Equal(t, "zone1", status.CohortMembers[1].Cell)
-		assert.Equal(t, "pooler-b", status.CohortMembers[1].Name)
+		require.Len(t, status.Status.CohortMembers, 2)
+		assert.Equal(t, "zone1", status.Status.CohortMembers[0].Cell)
+		assert.Equal(t, "pooler-a", status.Status.CohortMembers[0].Name)
+		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.Status.CohortMembers[0].Component)
+		assert.Equal(t, "zone1", status.Status.CohortMembers[1].Cell)
+		assert.Equal(t, "pooler-b", status.Status.CohortMembers[1].Name)
 	})
 
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
@@ -1680,9 +1680,9 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, status)
 
 		// PoolerType from topology says REPLICA, but status shows primary state
-		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
-		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
-		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.Status.PoolerType)
+		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
+		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
 	})
 }
 

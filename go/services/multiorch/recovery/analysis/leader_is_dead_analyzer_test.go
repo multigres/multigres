@@ -232,6 +232,47 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
+	t.Run("suppresses PrimaryIsDead while pg_promote() is running", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true   // stream is live
+			sa.LeaderPostgresRunning = true   // process is running
+			sa.LeaderPostgresReady = false    // not yet accepting connections (promoting)
+			sa.PromotingPrimaryID = primaryID // multipooler flagged promotion in progress
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems, "should suppress PrimaryIsDead while pg_promote() is explicitly in progress")
+	})
+
+	t.Run("does not suppress PrimaryIsDead when postgres crashes during promotion", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true  // stream still alive (multipooler survived)
+			sa.LeaderPostgresRunning = false // postgres process died during promotion
+			sa.LeaderPostgresReady = false
+			sa.PromotingPrimaryID = primaryID // flag still set before cleared
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should detect dead primary when postgres crashes during promotion")
+		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+	})
+
+	t.Run("does not suppress PrimaryIsDead when multipooler unreachable during promotion", func(t *testing.T) {
+		sa := deadPrimaryShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = false // stream disconnected (stale flag)
+			sa.LeaderPostgresRunning = true
+			sa.LeaderPostgresReady = false
+			sa.PromotingPrimaryID = primaryID // stale flag from last snapshot
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should detect dead primary when multipooler is unreachable even if promotion flag is set")
+		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+	})
+
 	t.Run("triggers failover when primary has resigned even though replicas are still connected", func(t *testing.T) {
 		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
 		// it as a replication source, so ReplicasConnectedToPrimary becomes true.

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
@@ -217,4 +218,132 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
+	logger := testLogger()
+
+	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
+		leader := id("primary", "cell-a")
+		p := MultiCellPolicy{N: 1}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "cell-b"),
+			id("mp2", "cell-c"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+		require.Equal(t, 1, cfg.NumSync, "NumSync must be a valid positive value; the empty standby list is what disables sync")
+		require.Empty(t, cfg.SyncStandbyIDs)
+	})
+
+	t.Run("excludes same-cell standbys", func(t *testing.T) {
+		leader := id("primary", "us-west-1a")
+		p := MultiCellPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "us-west-1a"), // same cell — excluded
+			id("mp2", "us-west-1b"),
+			id("mp3", "us-west-1c"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 1, cfg.NumSync)
+		require.ElementsMatch(t,
+			[]string{"us-west-1b_mp2", "us-west-1c_mp3"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
+
+	t.Run("only different-cell standbys with mixed cells", func(t *testing.T) {
+		leader := id("primary", "cell-a")
+		p := MultiCellPolicy{N: 3}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "cell-a"), // same cell — excluded
+			id("mp2", "cell-a"), // same cell — excluded
+			id("mp3", "cell-b"),
+			id("mp4", "cell-c"),
+			id("mp5", "cell-d"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 2, cfg.NumSync)
+		require.ElementsMatch(t,
+			[]string{"cell-b_mp3", "cell-c_mp4", "cell-d_mp5"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
+
+	t.Run("all standbys in leader's cell returns error", func(t *testing.T) {
+		leader := id("primary", "us-west-1a")
+		p := MultiCellPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "us-west-1a"),
+			id("mp2", "us-west-1a"),
+			id("mp3", "us-west-1a"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "no eligible standbys in different cells")
+		require.Contains(t, err.Error(), "leader_cell=us-west-1a")
+	})
+
+	t.Run("insufficient different-cell standbys returns error", func(t *testing.T) {
+		leader := id("primary", "cell-a")
+		p := MultiCellPolicy{N: 4} // wants 3 different-cell standbys
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "cell-a"), // excluded
+			id("mp2", "cell-a"), // excluded
+			id("mp3", "cell-b"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "insufficient different-cell standbys")
+		require.Contains(t, err.Error(), "required 3 standbys")
+		require.Contains(t, err.Error(), "available 1")
+	})
+
+	t.Run("N=2 with 3 different-cell standbys includes all", func(t *testing.T) {
+		leader := id("primary", "cell-primary")
+		p := MultiCellPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "us-west-1a"),
+			id("mp2", "us-west-1b"),
+			id("mp3", "us-west-1c"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, 1, cfg.NumSync, "num_sync should be N-1")
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+		require.ElementsMatch(t,
+			[]string{"us-west-1a_mp1", "us-west-1b_mp2", "us-west-1c_mp3"},
+			clusterIDStrings(cfg.SyncStandbyIDs),
+		)
+	})
+
+	t.Run("uses ON commit and ANY method", func(t *testing.T) {
+		leader := id("primary", "cell-a")
+		p := MultiCellPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{
+			leader,
+			id("mp1", "cell-b"),
+		}
+		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
+	})
 }

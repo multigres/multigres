@@ -1711,7 +1711,9 @@ func (x *GetPoolerStatusRequest) GetPoolerId() *clustermetadata.ID {
 type GetPoolerStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// status contains the pooler's unified status from MultiPoolerManager.Status
-	Status        *multipoolermanagerdata.Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Status *multipoolermanagerdata.Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// consensus_term is the pooler's current consensus term, forwarded from StatusResponse.
+	ConsensusTerm *multipoolermanagerdata.ConsensusTerm `protobuf:"bytes,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1749,6 +1751,13 @@ func (*GetPoolerStatusResponse) Descriptor() ([]byte, []int) {
 func (x *GetPoolerStatusResponse) GetStatus() *multipoolermanagerdata.Status {
 	if x != nil {
 		return x.Status
+	}
+	return nil
+}
+
+func (x *GetPoolerStatusResponse) GetConsensusTerm() *multipoolermanagerdata.ConsensusTerm {
+	if x != nil {
+		return x.ConsensusTerm
 	}
 	return nil
 }
@@ -1954,9 +1963,10 @@ const file_multiadminservice_proto_rawDesc = "" +
 	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\"J\n" +
 	"\x16GetPoolerStatusRequest\x120\n" +
-	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"Q\n" +
+	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x9f\x01\n" +
 	"\x17GetPoolerStatusResponse\x126\n" +
-	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\"o\n" +
+	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12L\n" +
+	"\x0econsensus_term\x18\x02 \x01(\v2%.multipoolermanagerdata.ConsensusTermR\rconsensusTerm\"o\n" +
 	"!SetPostgresRestartsEnabledRequest\x120\n" +
 	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"$\n" +
@@ -2041,16 +2051,17 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*GetPoolerStatusResponse)(nil),            // 29: multiadmin.GetPoolerStatusResponse
 	(*SetPostgresRestartsEnabledRequest)(nil),  // 30: multiadmin.SetPostgresRestartsEnabledRequest
 	(*SetPostgresRestartsEnabledResponse)(nil), // 31: multiadmin.SetPostgresRestartsEnabledResponse
-	nil,                                   // 32: multiadmin.ExpireBackupsRequest.OverridesEntry
-	(*clustermetadata.Cell)(nil),          // 33: clustermetadata.Cell
-	(*clustermetadata.Database)(nil),      // 34: clustermetadata.Database
-	(*clustermetadata.MultiGateway)(nil),  // 35: clustermetadata.MultiGateway
-	(*clustermetadata.MultiPooler)(nil),   // 36: clustermetadata.MultiPooler
-	(*clustermetadata.MultiOrch)(nil),     // 37: clustermetadata.MultiOrch
-	(*clustermetadata.ID)(nil),            // 38: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),         // 39: google.protobuf.Timestamp
-	(clustermetadata.PoolerType)(0),       // 40: clustermetadata.PoolerType
-	(*multipoolermanagerdata.Status)(nil), // 41: multipoolermanagerdata.Status
+	nil,                                          // 32: multiadmin.ExpireBackupsRequest.OverridesEntry
+	(*clustermetadata.Cell)(nil),                 // 33: clustermetadata.Cell
+	(*clustermetadata.Database)(nil),             // 34: clustermetadata.Database
+	(*clustermetadata.MultiGateway)(nil),         // 35: clustermetadata.MultiGateway
+	(*clustermetadata.MultiPooler)(nil),          // 36: clustermetadata.MultiPooler
+	(*clustermetadata.MultiOrch)(nil),            // 37: clustermetadata.MultiOrch
+	(*clustermetadata.ID)(nil),                   // 38: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),                // 39: google.protobuf.Timestamp
+	(clustermetadata.PoolerType)(0),              // 40: clustermetadata.PoolerType
+	(*multipoolermanagerdata.Status)(nil),        // 41: multipoolermanagerdata.Status
+	(*multipoolermanagerdata.ConsensusTerm)(nil), // 42: multipoolermanagerdata.ConsensusTerm
 }
 var file_multiadminservice_proto_depIdxs = []int32{
 	33, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
@@ -2068,40 +2079,41 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	40, // 12: multiadmin.BackupInfo.pooler_type:type_name -> clustermetadata.PoolerType
 	38, // 13: multiadmin.GetPoolerStatusRequest.pooler_id:type_name -> clustermetadata.ID
 	41, // 14: multiadmin.GetPoolerStatusResponse.status:type_name -> multipoolermanagerdata.Status
-	38, // 15: multiadmin.SetPostgresRestartsEnabledRequest.pooler_id:type_name -> clustermetadata.ID
-	3,  // 16: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
-	5,  // 17: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
-	7,  // 18: multiadmin.MultiAdminService.GetCellNames:input_type -> multiadmin.GetCellNamesRequest
-	9,  // 19: multiadmin.MultiAdminService.GetDatabaseNames:input_type -> multiadmin.GetDatabaseNamesRequest
-	11, // 20: multiadmin.MultiAdminService.GetGateways:input_type -> multiadmin.GetGatewaysRequest
-	13, // 21: multiadmin.MultiAdminService.GetPoolers:input_type -> multiadmin.GetPoolersRequest
-	15, // 22: multiadmin.MultiAdminService.GetOrchs:input_type -> multiadmin.GetOrchsRequest
-	17, // 23: multiadmin.MultiAdminService.Backup:input_type -> multiadmin.BackupRequest
-	19, // 24: multiadmin.MultiAdminService.RestoreFromBackup:input_type -> multiadmin.RestoreFromBackupRequest
-	21, // 25: multiadmin.MultiAdminService.GetBackupJobStatus:input_type -> multiadmin.GetBackupJobStatusRequest
-	23, // 26: multiadmin.MultiAdminService.GetBackups:input_type -> multiadmin.GetBackupsRequest
-	25, // 27: multiadmin.MultiAdminService.ExpireBackups:input_type -> multiadmin.ExpireBackupsRequest
-	28, // 28: multiadmin.MultiAdminService.GetPoolerStatus:input_type -> multiadmin.GetPoolerStatusRequest
-	30, // 29: multiadmin.MultiAdminService.SetPostgresRestartsEnabled:input_type -> multiadmin.SetPostgresRestartsEnabledRequest
-	4,  // 30: multiadmin.MultiAdminService.GetCell:output_type -> multiadmin.GetCellResponse
-	6,  // 31: multiadmin.MultiAdminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
-	8,  // 32: multiadmin.MultiAdminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
-	10, // 33: multiadmin.MultiAdminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
-	12, // 34: multiadmin.MultiAdminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
-	14, // 35: multiadmin.MultiAdminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
-	16, // 36: multiadmin.MultiAdminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
-	18, // 37: multiadmin.MultiAdminService.Backup:output_type -> multiadmin.BackupResponse
-	20, // 38: multiadmin.MultiAdminService.RestoreFromBackup:output_type -> multiadmin.RestoreFromBackupResponse
-	22, // 39: multiadmin.MultiAdminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
-	24, // 40: multiadmin.MultiAdminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
-	26, // 41: multiadmin.MultiAdminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
-	29, // 42: multiadmin.MultiAdminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
-	31, // 43: multiadmin.MultiAdminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
-	30, // [30:44] is the sub-list for method output_type
-	16, // [16:30] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	42, // 15: multiadmin.GetPoolerStatusResponse.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
+	38, // 16: multiadmin.SetPostgresRestartsEnabledRequest.pooler_id:type_name -> clustermetadata.ID
+	3,  // 17: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
+	5,  // 18: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
+	7,  // 19: multiadmin.MultiAdminService.GetCellNames:input_type -> multiadmin.GetCellNamesRequest
+	9,  // 20: multiadmin.MultiAdminService.GetDatabaseNames:input_type -> multiadmin.GetDatabaseNamesRequest
+	11, // 21: multiadmin.MultiAdminService.GetGateways:input_type -> multiadmin.GetGatewaysRequest
+	13, // 22: multiadmin.MultiAdminService.GetPoolers:input_type -> multiadmin.GetPoolersRequest
+	15, // 23: multiadmin.MultiAdminService.GetOrchs:input_type -> multiadmin.GetOrchsRequest
+	17, // 24: multiadmin.MultiAdminService.Backup:input_type -> multiadmin.BackupRequest
+	19, // 25: multiadmin.MultiAdminService.RestoreFromBackup:input_type -> multiadmin.RestoreFromBackupRequest
+	21, // 26: multiadmin.MultiAdminService.GetBackupJobStatus:input_type -> multiadmin.GetBackupJobStatusRequest
+	23, // 27: multiadmin.MultiAdminService.GetBackups:input_type -> multiadmin.GetBackupsRequest
+	25, // 28: multiadmin.MultiAdminService.ExpireBackups:input_type -> multiadmin.ExpireBackupsRequest
+	28, // 29: multiadmin.MultiAdminService.GetPoolerStatus:input_type -> multiadmin.GetPoolerStatusRequest
+	30, // 30: multiadmin.MultiAdminService.SetPostgresRestartsEnabled:input_type -> multiadmin.SetPostgresRestartsEnabledRequest
+	4,  // 31: multiadmin.MultiAdminService.GetCell:output_type -> multiadmin.GetCellResponse
+	6,  // 32: multiadmin.MultiAdminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
+	8,  // 33: multiadmin.MultiAdminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
+	10, // 34: multiadmin.MultiAdminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
+	12, // 35: multiadmin.MultiAdminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
+	14, // 36: multiadmin.MultiAdminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
+	16, // 37: multiadmin.MultiAdminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
+	18, // 38: multiadmin.MultiAdminService.Backup:output_type -> multiadmin.BackupResponse
+	20, // 39: multiadmin.MultiAdminService.RestoreFromBackup:output_type -> multiadmin.RestoreFromBackupResponse
+	22, // 40: multiadmin.MultiAdminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
+	24, // 41: multiadmin.MultiAdminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
+	26, // 42: multiadmin.MultiAdminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
+	29, // 43: multiadmin.MultiAdminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
+	31, // 44: multiadmin.MultiAdminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
+	31, // [31:45] is the sub-list for method output_type
+	17, // [17:31] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_multiadminservice_proto_init() }
