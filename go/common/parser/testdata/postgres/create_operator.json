@@ -87,7 +87,7 @@
   {
     "comment": "create_operator - Statement 22",
     "query": "SELECT true\u003c\u003e-1 BETWEEN 1 AND 1",
-    "expected": "SELECT TRUE \u003c\u003e- 1 BETWEEN 1 AND 1"
+    "expected": "SELECT TRUE \u003c\u003e -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 23",
@@ -97,12 +97,12 @@
   {
     "comment": "create_operator - Statement 24",
     "query": "SELECT false\u003c=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003c=- 1 BETWEEN 1 AND 1"
+    "expected": "SELECT FALSE \u003c= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 25",
     "query": "SELECT false\u003e=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003e=- 1 BETWEEN 1 AND 1"
+    "expected": "SELECT FALSE \u003e= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 26",
