@@ -3,8 +3,8 @@
 ## Overview
 
 The multigateway inspects every SQL statement at plan time and
-classifies it into one of two tiers based on the kind of risk it
-presents to a hosted connection pooler:
+classifies it into one of two statement-level tiers, plus an
+expression-level filter that runs across all tiers:
 
 - **Tier 1 — statements embedding procedural code** (DO, CREATE
   FUNCTION / PROCEDURE, CREATE TRIGGER, CREATE RULE, CREATE EVENT
@@ -13,12 +13,18 @@ presents to a hosted connection pooler:
   SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
   CREATE FDW, CREATE SERVER). Risk is modifying the shared server
   process or crossing tenant boundaries.
+- **Expression-level filter — dangerous built-in function calls**
+  (`set_config`, `dblink*`, `pg_read_file*`, `lo_import/export`,
+  `pg_execute_server_program`, `{query,table,cursor}_to_xml*`).
+  Risk is reaching the same Tier 2 capabilities (filesystem, outbound
+  connections, shell, arbitrary SQL) or bypassing the pooler's
+  session-state tracker (set_config).
 
-The two tiers are handled differently because the mitigations are
+The tiers are handled differently because the mitigations are
 different (see [Handling](#handling) below). In the current
-implementation, **Tier 2 is blocked at plan time and Tier 1 is allowed
-through pending deeper analysis**; the two tiers will continue to
-diverge as follow-up layers land.
+implementation, **Tier 2 and the expression-level filter block at plan
+time; Tier 1 is allowed through pending deeper analysis**; the tiers
+will continue to diverge as follow-up layers land.
 
 Blocked statements return a PostgreSQL `feature_not_supported` error
 (SQLSTATE `0A000`) with a descriptive message.
@@ -123,43 +129,134 @@ environment the control plane owns these, not tenant users.
 change is a configurable allowlist for self-hosted deployments where
 the operator explicitly opts into these.
 
+### Expression-level filter — dangerous built-in function calls
+
+The statement-level tiers above block whole statements. A second layer
+walks every `FuncCall` in a statement's expression trees (SELECT target
+list, WHERE, JOIN, INSERT values, DEFAULT expressions, CTEs, subqueries)
+and enforces rules on specific built-ins. Schema-qualified variants
+(`pg_catalog.dblink`, etc.) resolve to the same entry.
+
+| Function(s)                                                        | Category                                | Action                                                                                                                                                                           |
+| ------------------------------------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_config(name, value, is_local)`                                | Session state                           | Bare `SELECT set_config(lit, lit, false)` rewrites to `SET`. Non-literal args rejected. `is_local=true` passes through (transaction-scoped). Embedded `is_local=false` rejected. |
+| `dblink`, `dblink_exec`, `dblink_connect`, `dblink_connect_u`      | Outbound connections                    | Reject                                                                                                                                                                           |
+| `pg_read_file`, `pg_read_binary_file`, `pg_ls_dir`, `pg_stat_file` | Filesystem read                         | Reject                                                                                                                                                                           |
+| `lo_import`, `lo_export`                                           | Filesystem read/write via large objects | Reject                                                                                                                                                                           |
+| `pg_execute_server_program`                                        | Shell execution                         | Reject                                                                                                                                                                           |
+| `query_to_xml`, `query_to_xmlschema`, `query_to_xml_and_xmlschema` | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
+| `table_to_xml`, `table_to_xmlschema`, `table_to_xml_and_xmlschema` | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
+| `cursor_to_xml`, `cursor_to_xmlschema`                             | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
+
+**Why these specific functions:** each one is a callable equivalent of
+a Tier 2 operation or a session-state bypass. `dblink` opens outbound
+connections (same as CREATE SERVER / SUBSCRIPTION). `pg_read_file`,
+`lo_import`, and `pg_execute_server_program` reach the server
+filesystem or shell. `query_to_xml` executes arbitrary SQL strings
+inside the engine. `set_config(name, value, false)` is functionally
+equivalent to `SET name = value` but goes through the expression path,
+so the gateway's `SessionSettings` tracker never sees it — on the next
+query the pool picks a different backend connection and the state is
+gone.
+
+**How `set_config` is handled.** The walker accepts
+`set_config(literal, literal, false)` only when it sits directly as a
+top-level SELECT target-list entry (possibly alongside other entries
+or a FROM). Every accepted shape plans the same way:
+
+```text
+Sequence[silent ApplySessionState per call, Route(original SQL)]
+```
+
+The silent primitives update the tracker without emitting anything to
+the client; the Route sends the unmodified query to PG, which executes
+set_config normally and streams the result back (set_config column plus
+any sibling target-list entries and table rows). This costs one PG
+round-trip even for bare `SELECT set_config(...)`, which is a deliberate
+simplicity choice over a fast-path that would bypass PG.
+
+`set_config(..., true)` — transaction-scoped — is accepted in any
+position but never tracked: it doesn't outlive the transaction, so
+there's nothing for the pool to carry forward.
+
+Anything else is rejected: `set_config` in a WHERE clause, nested inside
+another function's arguments, inside a CTE, in a DEFAULT expression, in
+INSERT/UPDATE — evaluation semantics in those positions (conditional,
+per-row, or hidden in a subquery) can't be faithfully represented by a
+SessionSettings update. Non-literal arguments are always rejected,
+because the value we would need to track is unknown at plan time.
+
+**Where it runs.** Inside the planner, in a single walk at the top of
+`Plan()` that also covers the statement-level Tier 2 check. Running here
+means the plan cache short-circuits the walk: a cached plan is by
+construction safe. The normalizer is configured to preserve literals
+inside `set_config(...)` calls (see `go/common/parser/ast/normalizer.go`)
+so the walker still sees the original A_Const arguments despite
+normalization happening earlier in the pipeline for caching.
+
+**Out of scope for this layer.**
+
+- Calls from inside PL/pgSQL bodies (DO, CREATE FUNCTION LANGUAGE
+  plpgsql) — covered by Tier 1 body-analysis work, since our SQL
+  parser doesn't see the body.
+- Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
+  parse time.
+
 ## Other Allowed Statements With Known Risk
 
 Beyond Tier 1 (allowed pending body analysis), a few more statements
 execute opaque server-side code and cannot be usefully blocked.
 
-| Statement                                          | AST Node                | Risk                                                                                      |
-| -------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
-| `CALL proc()`                                      | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.      |
-| `CREATE EXTENSION`                                 | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS). |
-| Function calls in expressions (`SELECT my_func()`) | N/A (expression-level)  | Opaque function bodies; also the bypass for session-state changes via `set_config()`.     |
+| Statement                                                  | AST Node                | Risk                                                                                                                                                      |
+| ---------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CALL proc()`                                              | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.                                                                      |
+| `CREATE EXTENSION`                                         | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).                                                                 |
+| User-defined functions in expressions (`SELECT my_func()`) | N/A (expression-level)  | Opaque function bodies. The expression-level filter only blocks built-ins known to breach the pooler boundary; arbitrary user functions are out of scope. |
 
 ## Implementation
 
 ### Architecture
 
-Rejection is implemented as a single check at the top of the planning
-pipeline, before the main statement dispatch:
+Both the statement-level Tier 2 filter and the expression-level walker
+run at the top of `Planner.Plan()`, before dispatch. Running in the
+planner (rather than in the executor) means a plan cache hit
+short-circuits both checks: a cached plan is by construction safe.
 
 ```text
 Client SQL
   |
   v
-Parser (ParseSQL) --> AST
+Parser (ParseSQL) --> AST (with A_Const literals)
   |
   v
-Planner.Plan() / Planner.PlanPortal()
+Executor.StreamExecute / PortalStreamExecute
   |
-  +-- planUnsupportedStmt(stmt)     <-- Tier 2 rejection check
+  v
+Executor normalizes literals (A_Const -> $N) for plan cache
+  (skips inside set_config() calls so the planner still sees its literals)
+  |
+  v
+Planner.Plan()
+  |
+  +-- planUnsupportedStmt(stmt)          <-- Tier 2 rejection check
   |     |
-  |     +-- blocked (Tier 2)? --> return feature_not_supported error
-  |     +-- allowed?            --> continue
+  |     +-- blocked? --> return feature_not_supported error
+  |
+  +-- inspectExpressionFuncCalls(stmt)   <-- expression-level filter
+  |     |
+  |     +-- blocklisted func?            --> return feature_not_supported
+  |     +-- rogue set_config?            --> return feature_not_supported
+  |     +-- tracked set_configs found    --> returned to dispatch
   |
   v
 Statement-specific planning (switch on NodeTag)
   |
+  +-- SelectStmt with tracked set_configs?
+  |     +-- any shape   --> Sequence[silent ApplySessionState..., Route]
+  |     +-- none        --> Route
+  |
   v
-Execution primitive (Route, Transaction, etc.)
+Execution primitive (Route, Transaction, ApplySessionState, Sequence, etc.)
 ```
 
 Tier 1 statements fall through to the default routing path today. When
@@ -168,11 +265,17 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 ### Key Files
 
-| File                                                   | Purpose                                                                                              |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`      | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements |
-| `go/services/multigateway/planner/planner.go`          | Calls `planUnsupportedStmt()` at the top of `Plan()` and `PlanPortal()`                              |
-| `go/services/multigateway/planner/unsafe_stmt_test.go` | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                            |
+| File                                                       | Purpose                                                                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements        |
+| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls  |
+| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                  |
+| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                     |
+| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching      |
+| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                            |
+| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                   |
+| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction |
 
 ### Error Format
 
@@ -202,30 +305,8 @@ Both query protocols are covered:
 
 ## Future Work
 
-Two follow-up layers harden against session-state and code-execution
-vectors that the current Tier 2 filter does not catch. Both are
-tracked as separate tickets.
-
-### Expression-level function walking
-
-Walk the AST of every statement's expression trees and reject / route
-calls to known-dangerous built-in functions. Examples:
-
-- `set_config(name, value, is_local=false)` — changes session-level
-  GUCs without going through a `VariableSetStmt`. The pooler's session
-  state tracker never sees these today. Treat a literal call with
-  `is_local=false` as equivalent to a `SET` statement (update tracked
-  state), or reject calls with non-literal arguments.
-- `dblink`, `dblink_exec`, `dblink_connect` — opens connections to
-  external databases.
-- `lo_import`, `lo_export`, `pg_read_file`, `pg_read_binary_file` —
-  read/write server filesystem.
-- `pg_execute_server_program` — runs shell commands on the server.
-- `query_to_xml`, `query_to_json` — execute arbitrary SQL strings.
-
-Implementation: a walker over `FuncCall` nodes in the expression tree,
-checking the qualified name against a blocklist. Integrates with the
-existing planner pipeline.
+One follow-up layer remains to harden against session-state and
+code-execution vectors that the current filters do not catch.
 
 ### PL/pgSQL body analysis (closes Tier 1)
 

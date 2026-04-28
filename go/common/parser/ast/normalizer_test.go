@@ -20,6 +20,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// selectSetConfig builds the AST for SELECT set_config(<name>, <value>, <isLocal>)
+// — used to verify the normalizer's gating on the literal is_local arg.
+func selectSetConfig(name, value string, isLocal bool) Stmt {
+	args := &NodeList{Items: []Node{
+		NewA_Const(NewString(name), 0),
+		NewA_Const(NewString(value), 0),
+		NewA_Const(NewBoolean(isLocal), 0),
+	}}
+	fc := NewFuncCall(&NodeList{Items: []Node{NewString("set_config")}}, args, 0)
+	return &SelectStmt{
+		TargetList: &NodeList{Items: []Node{NewResTarget("", fc)}},
+		Op:         SETOP_NONE,
+	}
+}
+
 // Helper to build a simple SELECT * FROM users WHERE id = <int> AST.
 func selectWhereInt(val int) Stmt {
 	return &SelectStmt{
@@ -144,6 +159,43 @@ func TestNormalize(t *testing.T) {
 			assert.Equal(t, tt.wantNormSQL, result.NormalizedSQL)
 		})
 	}
+}
+
+// TestNormalize_SetConfigIsLocalGating verifies the planner-literal skip
+// fires for set_config(..., false) — preserving literals so the planner can
+// validate them — but lets set_config(..., true) be parameterized so PG
+// REST-style "set_config('request.jwt.claims', '<dynamic JSON>', true)"
+// per-request calls collapse into a single plan-cache fingerprint.
+func TestNormalize_SetConfigIsLocalGating(t *testing.T) {
+	tests := []struct {
+		name              string
+		stmt              Stmt
+		wantWasNormalized bool
+	}{
+		{
+			name:              "is_local=false preserves literals (skips subtree)",
+			stmt:              selectSetConfig("work_mem", "256MB", false),
+			wantWasNormalized: false,
+		},
+		{
+			name:              "is_local=true allows literals to be parameterized",
+			stmt:              selectSetConfig("request.jwt.claims", `{"sub":"alice"}`, true),
+			wantWasNormalized: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Normalize(tt.stmt)
+			assert.Equal(t, tt.wantWasNormalized, result.WasNormalized(),
+				"normalized SQL: %s", result.NormalizedSQL)
+		})
+	}
+
+	t.Run("is_local=true produces stable fingerprint across distinct values", func(t *testing.T) {
+		fp1 := Normalize(selectSetConfig("request.jwt.claims", `{"sub":"alice"}`, true)).Fingerprint()
+		fp2 := Normalize(selectSetConfig("request.jwt.claims", `{"sub":"bob"}`, true)).Fingerprint()
+		assert.Equal(t, fp1, fp2, "is_local=true set_config calls must share a fingerprint")
+	})
 }
 
 func TestNormalizeDoesNotMutateOriginal(t *testing.T) {

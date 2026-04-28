@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -279,6 +280,23 @@ func (t *TransactionPrimitive) recordTxnMetrics(
 	txnDuration := time.Since(state.TxnStartTime)
 	state.TxnStartTime = time.Time{}
 	t.metrics.RecordCompletion(ctx, txnDuration.Seconds(), conn.Database(), outcome)
+}
+
+// PortalStreamExecute satisfies the Primitive interface for the
+// extended-protocol path. BEGIN / COMMIT / ROLLBACK / SAVEPOINT carry
+// no parameter binds; PlanPortal explicitly funnels TransactionStmt
+// through Plan() so this primitive runs locally rather than being
+// portal-forwarded. Delegate.
+func (t *TransactionPrimitive) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return t.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
 // GetTableGroup returns the target tablegroup.
