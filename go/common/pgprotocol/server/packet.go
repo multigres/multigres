@@ -99,6 +99,20 @@ func (c *Conn) returnReadBuffer() {
 	}
 }
 
+// returnOutboundBuffer releases the buffer held by outboundPoolBuf
+// back to the listener bufpool. Normally writePacket releases it via
+// defer; this method exists for defensive cleanup on Conn.Close so a
+// panic during body encoding (between startPacket and writePacket)
+// doesn't strand the pool buffer. Does NOT touch bufMu — Close runs
+// after concurrent access has stopped, and the panicking goroutine
+// still holds bufMu unrelinquished, so re-locking would deadlock.
+func (c *Conn) returnOutboundBuffer() {
+	if c.outboundPoolBuf != nil {
+		c.listener.bufPool.Put(c.outboundPoolBuf)
+		c.outboundPoolBuf = nil
+	}
+}
+
 // readStartupPacket reads a startup packet (no message type byte).
 // Startup packets only have a length field followed by the body.
 func (c *Conn) readStartupPacket() ([]byte, error) {
@@ -251,6 +265,13 @@ func writeUint32At(buf []byte, pos int, v uint32) int {
 }
 
 // writeStringAt writes s followed by a single null terminator.
+//
+// Caller is responsible for ensuring s contains no embedded NULs.
+// pgwire strings are NUL-terminated, so an embedded NUL would
+// truncate the field on the receiver and the bodyLen pre-pass would
+// silently mis-frame the packet on the wire. Inputs that come from
+// untrusted sources (query text, identifiers) should be validated by
+// the caller.
 func writeStringAt(buf []byte, pos int, s string) int {
 	n := copy(buf[pos:], s)
 	buf[pos+n] = 0

@@ -211,6 +211,12 @@ func (c *Conn) Close() error {
 	// and its returnReadBuffer call, the inbound pool buffer is still
 	// stashed on the Conn — release it now so the pool can recycle it.
 	c.returnReadBuffer()
+	// Same defense for the write side: a panic between startPacket and
+	// writePacket leaves outboundPoolBuf set (writePacket's defer never
+	// fires) and bufMu held. We can't re-lock here without deadlocking
+	// our own goroutine, but Close runs after concurrent access has
+	// stopped so an unlocked Put is safe.
+	c.returnOutboundBuffer()
 	// End writer buffering (flushes and returns to pool).
 	c.endWriterBuffering()
 
@@ -905,6 +911,9 @@ func (c *Conn) handleDescribe() error {
 	}
 	defer c.returnReadBuffer()
 
+	if buf[len(buf)-1] != 0 {
+		return errors.New("invalid describe message: name missing null terminator")
+	}
 	typ := buf[0]
 	// String() copies, so the body buffer can be returned to the pool.
 	name := string(buf[1 : len(buf)-1])
@@ -969,6 +978,9 @@ func (c *Conn) handleClose() error {
 	}
 	defer c.returnReadBuffer()
 
+	if buf[len(buf)-1] != 0 {
+		return errors.New("invalid close message: name missing null terminator")
+	}
 	typ := buf[0]
 	// String() copies, so the body buffer can be returned to the pool.
 	name := string(buf[1 : len(buf)-1])

@@ -242,6 +242,12 @@ func (c *Conn) Close() error {
 	_ = c.writeTerminate()
 	_ = c.flush()
 
+	// Defensive cleanup: if a writer panicked between startPacket and
+	// writePacket, the slow-path pool buffer is still stashed on the
+	// Conn (writePacket's defer never fired). Close runs after
+	// concurrent access has stopped, so an unlocked Put is safe.
+	c.returnOutboundBuffer()
+
 	return c.conn.Close()
 }
 

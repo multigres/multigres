@@ -98,20 +98,16 @@ func (c *Conn) sendStartupMessage() error {
 
 	totalLen := 4 + bodyLen // length field includes itself
 
-	// Reserve a buffer: AvailableBuffer fast path, bufpool slow path.
+	// Reserve a buffer: AvailableBuffer fast path, plain make slow path.
+	// We don't borrow from bufPool here because startup messages are
+	// small and one-shot per connection — pinning a 16 KB pool bucket
+	// for a few hundred bytes wastes memory.
 	var buf []byte
-	var poolBuf *[]byte
 	if avail := c.bufferedWriter.AvailableBuffer(); cap(avail) >= totalLen {
 		buf = avail[:totalLen]
 	} else {
-		poolBuf = bufPool.Get(totalLen)
-		buf = *poolBuf
+		buf = make([]byte, totalLen)
 	}
-	defer func() {
-		if poolBuf != nil {
-			bufPool.Put(poolBuf)
-		}
-	}()
 
 	pos := 0
 	pos = writeUint32At(buf, pos, uint32(totalLen))
@@ -297,20 +293,18 @@ func (c *Conn) handleReadyForQuery(body []byte) error {
 // Called only during single-threaded connection setup, so it does not
 // acquire bufMu (no other writer can race on this connection yet).
 func (c *Conn) writeSSLRequest() error {
+	// 8-byte request: AvailableBuffer fast path, stack-local fallback.
+	// bufPool's smallest bucket is 16 KB — vastly oversized for an
+	// 8-byte one-shot request — so we use a fixed-size array on the
+	// slow path instead of borrowing from the pool.
+	var stack [8]byte
 	avail := c.bufferedWriter.AvailableBuffer()
 	var buf []byte
-	var poolBuf *[]byte
 	if cap(avail) >= 8 {
 		buf = avail[:8]
 	} else {
-		poolBuf = bufPool.Get(8)
-		buf = *poolBuf
+		buf = stack[:]
 	}
-	defer func() {
-		if poolBuf != nil {
-			bufPool.Put(poolBuf)
-		}
-	}()
 	pos := 0
 	pos = writeUint32At(buf, pos, 8)
 	writeUint32At(buf, pos, protocol.SSLRequestCode)

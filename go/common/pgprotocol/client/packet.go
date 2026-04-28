@@ -84,6 +84,18 @@ func (c *Conn) readMessageBody(length int) ([]byte, error) {
 	return buf, nil
 }
 
+// returnOutboundBuffer releases the buffer held by outboundPoolBuf
+// back to the package-level bufpool. Normally writePacket releases
+// it via defer; this method exists for defensive cleanup on
+// Conn.Close so a panic during body encoding (between startPacket
+// and writePacket) doesn't strand the pool buffer.
+func (c *Conn) returnOutboundBuffer() {
+	if c.outboundPoolBuf != nil {
+		bufPool.Put(c.outboundPoolBuf)
+		c.outboundPoolBuf = nil
+	}
+}
+
 // readMessage reads a complete message (type, length, body).
 func (c *Conn) readMessage() (byte, []byte, error) {
 	msgType, err := c.readMessageType()
@@ -220,6 +232,13 @@ func writeUint32At(buf []byte, pos int, v uint32) int {
 }
 
 // writeStringAt writes s followed by a single null terminator.
+//
+// Caller is responsible for ensuring s contains no embedded NULs.
+// pgwire strings are NUL-terminated, so an embedded NUL would
+// truncate the field on the receiver and the bodyLen pre-pass would
+// silently mis-frame the packet on the wire. Inputs that come from
+// untrusted sources (query text, identifiers) should be validated by
+// the caller.
 func writeStringAt(buf []byte, pos int, s string) int {
 	n := copy(buf[pos:], s)
 	buf[pos+n] = 0
