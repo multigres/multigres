@@ -91,3 +91,65 @@ func TestIsPrimary(t *testing.T) {
 		})
 	}
 }
+
+func TestPrimaryTerm(t *testing.T) {
+	id := func(cell, name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{Cell: cell, Name: name}
+	}
+
+	tests := []struct {
+		name string
+		cs   *clustermetadatapb.ConsensusStatus
+		want int64
+	}{
+		{
+			name: "nil status",
+			cs:   nil,
+			want: 0,
+		},
+		{
+			name: "not primary",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("z1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						PrimaryId:  id("z1", "pooler-2"),
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+					},
+				},
+			},
+			want: 0,
+		},
+		{
+			name: "is primary with term",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("z1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						PrimaryId:  id("z1", "pooler-1"),
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+					},
+				},
+			},
+			want: 7,
+		},
+		{
+			name: "is primary with no rule number",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("z1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						PrimaryId: id("z1", "pooler-1"),
+					},
+				},
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, PrimaryTerm(tt.cs))
+		})
+	}
+}
