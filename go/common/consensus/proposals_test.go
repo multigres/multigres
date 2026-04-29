@@ -467,7 +467,7 @@ func TestCheckSufficientRecruitment_BuildProposalError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no suitable candidate")
 }
 
-func TestCheckSufficientRecruitment_BestRuleSelected(t *testing.T) {
+func TestCheckSufficientRecruitment_OutgoingRuleSelected(t *testing.T) {
 	// One node is behind; the others are at the higher rule.
 	// The higher rule's cohort and policy must govern quorum.
 	a := makeID("z1", "pooler-a")
@@ -483,7 +483,7 @@ func TestCheckSufficientRecruitment_BestRuleSelected(t *testing.T) {
 		makeStatus(c, oldRule, testRevocation), // behind
 	}
 
-	// Only a and b are eligible (at bestRule); callback picks a.
+	// Only a and b are eligible (at outgoingRule); callback picks a.
 	var gotResult RecruitmentResult
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
@@ -498,8 +498,8 @@ func TestCheckSufficientRecruitment_BestRuleSelected(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, proposal)
-	assert.Equal(t, int64(3), gotResult.BestRule.GetRuleNumber().GetCoordinatorTerm())
-	assert.Len(t, gotResult.EligibleLeaders, 2, "only nodes at bestRule are eligible")
+	assert.Equal(t, int64(3), gotResult.OutgoingRule.GetRuleNumber().GetCoordinatorTerm())
+	assert.Len(t, gotResult.EligibleLeaders, 2, "only nodes at outgoingRule are eligible")
 	// Leader must be a or b (both at newRule), not c.
 	leaderName := proposal.GetProposalLeader().GetId().GetName()
 	assert.NotEqual(t, "pooler-c", leaderName)
@@ -663,7 +663,7 @@ func TestCheckSufficientRecruitment_EligibleLeadersOrderDeterministic(t *testing
 }
 
 func TestCheckSufficientRecruitment_ExtraNodeOutsideCohortIgnored(t *testing.T) {
-	// An extra node that is not in the bestRule cohort was also recruited
+	// An extra node that is not in the outgoingRule cohort was also recruited
 	// (e.g. a node being removed from the cohort). It must not inflate the
 	// quorum count for the current cohort's policy.
 	a := makeID("z1", "pooler-a")
@@ -747,8 +747,8 @@ func TestCheckSufficientRecruitment_LSNTiedAtMax(t *testing.T) {
 }
 
 func TestCheckSufficientRecruitment_NodeWithHigherRuleButLowerLSNNotEligible(t *testing.T) {
-	// Node a is at bestRule with a high LSN.
-	// Node b is at bestRule with a lower LSN — should be ineligible as leader
+	// Node a is at outgoingRule with a high LSN.
+	// Node b is at outgoingRule with a lower LSN — should be ineligible as leader
 	// even though it is at the correct rule number.
 	// Node c is at an older rule — also ineligible.
 	// Quorum is satisfied (all 3 recruited from a 3-node cohort).
@@ -875,7 +875,7 @@ func TestCheckSufficientRecruitment_CohortExpansionNewMembersOnly(t *testing.T) 
 	//
 	// The coordinator wants to stabilize by promoting D with a new cohort [D, E].
 	//
-	// This correctly fails: AT_LEAST_2 with the 5-node bestRule cohort requires
+	// This correctly fails: AT_LEAST_2 with the 5-node outgoingRule cohort requires
 	// recruiting at least 4 nodes (revocation: 5-2+1=4, majority: 3 — max=4).
 	// Only 2 are recruited, so quorum is rejected.
 	//
@@ -934,17 +934,17 @@ func TestCheckSufficientRecruitment_CohortReplacementSplitBrain(t *testing.T) {
 	// Two coordinators now independently recruit disjoint sets of nodes:
 	//
 	//   Coordinator 1 sees B and C (both at old rule, cohort [A,B,C]):
-	//     - bestRule = old rule, cohort = [A,B,C], recruited 2 of 3 → AT_LEAST_2 ✓
+	//     - outgoingRule = old rule, cohort = [A,B,C], recruited 2 of 3 → AT_LEAST_2 ✓
 	//     - promotes B with cohort [B,C]
 	//
 	//   Coordinator 2 sees D and E (both at new rule, cohort [D,E,F]):
-	//     - bestRule = new rule (phantom), cohort = [D,E,F], recruited 2 of 3 → AT_LEAST_2 ✓
+	//     - outgoingRule = new rule (phantom), cohort = [D,E,F], recruited 2 of 3 → AT_LEAST_2 ✓
 	//     - promotes D with cohort [D,E]
 	//
 	// The two recruited sets share no nodes. Both promotions succeed, yielding
 	// two independent primaries — split brain.
 	//
-	// A correct implementation would reject the new rule as bestRule when it has
+	// A correct implementation would reject the new rule as outgoingRule when it has
 	// not achieved quorum under the outgoing cohort's policy. We don't yet have
 	// enough information from Recruit responses to enforce this. When the TODO is
 	// resolved, at least one of the two calls below should return an error.
@@ -1163,7 +1163,7 @@ func TestBuildForcedProposal(t *testing.T) {
 				makeStatusWithLSN(a, nil, testRevocation, "0/1000000"),
 			},
 			buildProposal: bootstrapProposal,
-			wantErr:       "insufficient proposed cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+			wantErr:       "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
 		},
 		{
 			name: "invalid durability policy in proposed rule",
@@ -1184,7 +1184,7 @@ func TestBuildForcedProposal(t *testing.T) {
 					},
 				}, nil
 			},
-			wantErr: "invalid durability policy in proposed rule: unsupported quorum type: QUORUM_TYPE_UNKNOWN",
+			wantErr: "proposal validation: invalid durability policy in proposal: unsupported quorum type: QUORUM_TYPE_UNKNOWN",
 		},
 	}
 	for _, tt := range tests {
@@ -1199,6 +1199,26 @@ func TestBuildForcedProposal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildSafeProposal_InvalidOutgoingPolicy(t *testing.T) {
+	a, b, c := makeID("z1", "a"), makeID("z1", "b"), makeID("z1", "c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+
+	// All recruited nodes share a committed rule with an unrecognized quorum type.
+	badRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+		CohortMembers:    cohort,
+		DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN},
+	}
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, badRule, testRevocation),
+		makeStatus(b, badRule, testRevocation),
+		makeStatus(c, badRule, testRevocation),
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(badRule))
+	assert.EqualError(t, err, "failed to parse durability policy from rule: unsupported quorum type: QUORUM_TYPE_UNKNOWN")
 }
 
 func TestBuildSafeProposal_NoCommittedRule(t *testing.T) {

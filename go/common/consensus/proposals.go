@@ -37,14 +37,14 @@ type RecruitmentResult struct {
 	// been filtered by whether they could accept it via ValidateRevocation.
 	TermRevocation *clustermetadatapb.TermRevocation
 
-	// BestRule is the highest committed ShardRule across all recruited nodes,
+	// OutgoingRule is the highest committed ShardRule across all recruited nodes,
 	// determined from current_position.rule (WAL-backed, authoritative).
 	// May be nil for BuildForcedProposal when nodes have no committed rule
 	// (e.g. fresh bootstrap before any rule has been written).
-	BestRule *clustermetadatapb.ShardRule
+	OutgoingRule *clustermetadatapb.ShardRule
 
 	// EligibleLeaders are the recruited nodes with the best WAL position.
-	// For nodes with a committed rule, this is those matching BestRule's rule
+	// For nodes with a committed rule, this is those matching OutgoingRule's rule
 	// number with the highest LSN. For bootstrap (no rule), this is all nodes
 	// tied at the highest LSN. The buildProposal callback must choose its
 	// leader from this set.
@@ -88,8 +88,8 @@ const (
 // The INCOMING cohort (proposed in the returned proposal) is additionally
 // validated by validateProposal.
 //
-// TODO: This assumes BestRule is already durably committed. If a cohort change
-// was in progress when the primary failed, some nodes may hold BestRule in WAL
+// TODO: This assumes OutgoingRule is already durably committed. If a cohort change
+// was in progress when the primary failed, some nodes may hold OutgoingRule in WAL
 // while others do not, and the previous cohort's policy may apply instead. We
 // don't yet have enough information from the Recruit responses alone to detect
 // this safely, so for now we proceed optimistically.
@@ -132,7 +132,7 @@ func CheckProposalPossible(
 // possible given the current observed statuses, without requiring nodes to have
 // already accepted the revocation. It is the forced-recovery counterpart of
 // CheckProposalPossible: it uses incomingCohortMode so that bootstrap scenarios
-// with no committed rule (no BestRule) are handled correctly.
+// with no committed rule (no OutgoingRule) are handled correctly.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
 // returned since nodes have not yet committed to the revocation.
@@ -182,43 +182,43 @@ func BuildForcedProposal(
 // verify the proposed (incoming) cohort has sufficient recruited members.
 func buildProposalCore(
 	revocation *clustermetadatapb.TermRevocation,
-	statuses []*clustermetadatapb.ConsensusStatus,
+	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
 	mode cohortQuorumMode,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	if len(statuses) == 0 {
+	if len(recruitedStatuses) == 0 {
 		return nil, errors.New("empty list of statuses")
 	}
 
-	statuses = filterByValidPosition(statuses)
-	if len(statuses) == 0 {
+	recruitedStatuses = filterByValidPosition(recruitedStatuses)
+	if len(recruitedStatuses) == 0 {
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
 	}
 
 	// Find the best committed rule (highest RuleNumber) across all statuses,
 	// from their WAL-backed current_position.rule.
-	var bestRule *clustermetadatapb.ShardRule
-	for _, cs := range statuses {
+	var outgoingRule *clustermetadatapb.ShardRule
+	for _, cs := range recruitedStatuses {
 		rule := cs.GetCurrentPosition().GetRule()
-		if rule != nil && (bestRule == nil || CompareRuleNumbers(rule.GetRuleNumber(), bestRule.GetRuleNumber()) > 0) {
-			bestRule = rule
+		if rule != nil && (outgoingRule == nil || CompareRuleNumbers(rule.GetRuleNumber(), outgoingRule.GetRuleNumber()) > 0) {
+			outgoingRule = rule
 		}
 	}
 
 	switch mode {
 	case outgoingCohortMode:
 		// Validate revocation of the outgoing cohort: no parallel quorum can still
-		// form among the non-recruited nodes. bestRule must be known to identify
+		// form among the non-recruited nodes. outgoingRule must be known to identify
 		// the cohort.
-		if bestRule == nil {
+		if outgoingRule == nil {
 			return nil, errors.New("no committed rule found among recruited nodes; cannot determine cohort for quorum check")
 		}
-		outgoingPolicy, err := NewPolicyFromProto(bestRule.GetDurabilityPolicy())
+		outgoingPolicy, err := NewPolicyFromProto(outgoingRule.GetDurabilityPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 		}
-		cohort := bestRule.GetCohortMembers()
-		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, cohortIntersect(cohort, statuses)); err != nil {
+		cohort := outgoingRule.GetCohortMembers()
+		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
 	case incomingCohortMode:
@@ -228,23 +228,25 @@ func buildProposalCore(
 
 	// Build the eligible leader set.
 	//
-	// When a bestRule is known: prefer nodes at bestRule's rule number (highest
+	// When an outgoingRule is known: prefer nodes at outgoingRule's rule number (highest
 	// committed WAL), then break ties by LSN.
-	// When no bestRule exists (fresh bootstrap): all nodes are candidates;
+	// When no outgoingRule exists (fresh bootstrap): all nodes are candidates;
 	// highest LSN wins.
 	//
 	// Nodes with unparsable LSNs are excluded — we cannot verify their position.
 	var bestLSN pgutil.LSN
 	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
-	for _, cs := range statuses {
-		if bestRule != nil {
+	for _, cs := range recruitedStatuses {
+		if outgoingRule != nil {
 			ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
-			if CompareRuleNumbers(ruleNum, bestRule.GetRuleNumber()) != 0 {
+			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
 				continue
 			}
 		}
 		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
 		if err != nil {
+			// filterByValidPosition above guarantees all surviving statuses have
+			// parseable LSNs, so this branch is unreachable in practice.
 			continue
 		}
 		if lsn > bestLSN {
@@ -256,12 +258,15 @@ func buildProposalCore(
 		}
 	}
 	if len(eligibleLeaders) == 0 {
+		// Unreachable: filterByValidPosition ensures at least one status survives
+		// with a parseable LSN, and outgoingRule (if set) is always derived from one of
+		// those statuses, so eligibleLeaders is always non-empty here.
 		return nil, errors.New("no eligible leaders found among recruited nodes")
 	}
 
 	result := RecruitmentResult{
 		TermRevocation:  revocation,
-		BestRule:        bestRule,
+		OutgoingRule:    outgoingRule,
 		EligibleLeaders: eligibleLeaders,
 	}
 
@@ -273,44 +278,23 @@ func buildProposalCore(
 		return nil, errors.New("buildProposal returned nil proposal")
 	}
 
-	// Validate the proposed (incoming) cohort.
-	if r := proposal.GetProposedRule(); r != nil && r.GetDurabilityPolicy() != nil {
-		incomingPolicy, err := NewPolicyFromProto(r.GetDurabilityPolicy())
-		if err != nil {
-			return nil, fmt.Errorf("invalid durability policy in proposed rule: %w", err)
-		}
-		recruitedInProposedCohort := cohortIntersect(r.GetCohortMembers(), statuses)
-		if mode == incomingCohortMode {
-			// Coordinator-retry safety: multiple coordinators may attempt forced
-			// proposals (e.g. repeated bootstrap attempts with different proposed
-			// leaders). Sufficient recruitment (majority overlap) ensures any two
-			// concurrent recruitments of the same cohort and durability policy must
-			// overlap therefore cannot both independently succeed or have split brain.
-			if err := incomingPolicy.CheckSufficientRecruitment(r.GetCohortMembers(), recruitedInProposedCohort); err != nil {
-				return nil, fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
-			}
-		}
-		// Candidacy: the recruited set must be able to form a quorum so the new
-		// leader can immediately make durable writes.
-		if err := incomingPolicy.CheckAchievable(recruitedInProposedCohort); err != nil {
-			return nil, fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
-		}
-	}
-
-	if err := validateProposal(proposal, result); err != nil {
+	recruitedIncomingCohortMembers := statusesToIDs(filterCohortStatuses(proposal.GetProposedRule().GetCohortMembers(), recruitedStatuses))
+	if err := validateProposal(proposal, result, recruitedIncomingCohortMembers, mode); err != nil {
 		return nil, fmt.Errorf("proposal validation: %w", err)
 	}
 
 	return proposal, nil
 }
 
-// validateProposal checks that the returned proposal is structurally consistent
-// with the recruitment result: the proposed leader must be among the eligible
-// leaders, and the proposed cohort must be achievable under its durability policy.
-// Recruited-subset quorum checks are handled in buildProposalCore.
+// validateProposal checks structural validity and cohort quorum for the proposal.
+// The proposed leader must be among the eligible leaders, the proposed rule and
+// durability policy must be valid, and the cohort must satisfy achievability and
+// (in incomingCohortMode) sufficient-recruitment constraints.
 func validateProposal(
 	proposal *consensusdatapb.CoordinatorProposal,
 	result RecruitmentResult,
+	recruitedInProposedCohort []*clustermetadatapb.ID,
+	mode cohortQuorumMode,
 ) error {
 	leaderID := proposal.GetProposalLeader().GetId()
 	if leaderID == nil {
@@ -336,9 +320,19 @@ func validateProposal(
 	if err != nil {
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
 	}
-	// The full proposed cohort must be large enough to ever satisfy the policy.
-	if err := p.CheckAchievable(r.GetCohortMembers()); err != nil {
-		return fmt.Errorf("proposed durability policy not achievable with proposed cohort: %w", err)
+
+	if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
+		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
+	}
+	if mode == incomingCohortMode {
+		// Coordinator-retry safety: multiple coordinators may attempt forced
+		// proposals (e.g. repeated bootstrap attempts with different proposed
+		// leaders). Sufficient recruitment (majority overlap) ensures any two
+		// concurrent recruitments of the same cohort and durability policy must
+		// overlap and therefore cannot both independently succeed or cause split brain.
+		if err := p.CheckSufficientRecruitment(r.GetCohortMembers(), recruitedInProposedCohort); err != nil {
+			return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
+		}
 	}
 
 	return nil
@@ -407,4 +401,30 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 		return topoclient.ClusterIDString(result[i].GetId()) < topoclient.ClusterIDString(result[j].GetId())
 	})
 	return result
+}
+
+// filterCohortStatuses returns the subset of statuses whose node ID is a
+// member of cohort.
+func filterCohortStatuses(cohort []*clustermetadatapb.ID, statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ConsensusStatus {
+	cohortKeys := poolerKeysOf(cohort)
+	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(cohort))
+	for _, cs := range statuses {
+		id := cs.GetId()
+		if id == nil {
+			continue
+		}
+		if _, inCohort := cohortKeys[topoclient.ClusterIDString(id)]; inCohort {
+			result = append(result, cs)
+		}
+	}
+	return result
+}
+
+// statusesToIDs extracts the ID from each status.
+func statusesToIDs(statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ID {
+	ids := make([]*clustermetadatapb.ID, 0, len(statuses))
+	for _, cs := range statuses {
+		ids = append(ids, cs.GetId())
+	}
+	return ids
 }
