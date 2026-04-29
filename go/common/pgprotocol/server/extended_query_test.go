@@ -690,6 +690,13 @@ func TestHandleDescribe(t *testing.T) {
 			err := conn.handleDescribe()
 			require.NoError(t, err) // handleDescribe writes errors to client, doesn't return them
 
+			// Describe('P') is held by handleDescribe and resolved on the next
+			// non-Execute message. Drive that resolution directly so the test
+			// observes the same wire bytes a real client would.
+			if tt.describeType == 'P' {
+				require.NoError(t, conn.resolveDeferredPortalDescribe())
+			}
+
 			if tt.expectError {
 				// Should have sent an ErrorResponse message.
 				msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
