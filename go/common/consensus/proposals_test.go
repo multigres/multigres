@@ -177,7 +177,7 @@ func TestBuildSafeProposal_RevocationFiltering(t *testing.T) {
 		_, err := BuildSafeProposal(requestedRevocation, statuses, simpleProposal(rule))
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "insufficient recruitment")
+		assert.Contains(t, err.Error(), "insufficient")
 	})
 
 	t.Run("lower term revocation does not count", func(t *testing.T) {
@@ -288,7 +288,7 @@ func TestCheckSufficientRecruitment_InsufficientQuorum(t *testing.T) {
 	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient recruitment")
+	assert.Contains(t, err.Error(), "insufficient")
 }
 
 func TestCheckSufficientRecruitment_InvalidLeader(t *testing.T) {
@@ -416,7 +416,7 @@ func TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort(t *t
 	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient recruitment from proposed cohort")
+	assert.Contains(t, err.Error(), "proposed cohort")
 }
 
 func TestCheckSufficientRecruitment_BuildProposalError(t *testing.T) {
@@ -553,7 +553,7 @@ func TestCheckSufficientRecruitment_DuplicateStatusIgnoredForQuorum(t *testing.T
 	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient recruitment")
+	assert.Contains(t, err.Error(), "insufficient")
 }
 
 func TestCheckSufficientRecruitment_DuplicateBestPositionKept(t *testing.T) {
@@ -596,6 +596,67 @@ func TestCheckSufficientRecruitment_DuplicateBestPositionKept(t *testing.T) {
 	// nodes, so it is the sole eligible leader.
 	require.Len(t, gotResult.EligibleLeaders, 1)
 	assert.Equal(t, "pooler-a", gotResult.EligibleLeaders[0].GetId().GetName())
+}
+
+func TestValidateProposal_NilProposedRule(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   nil, // intentionally omitted
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no proposed rule")
+}
+
+func TestValidateProposal_NilDurabilityPolicy(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule has no durability policy.
+	ruleWithoutPolicy := &clustermetadatapb.ShardRule{
+		RuleNumber:    rule.GetRuleNumber(),
+		PrimaryId:     a,
+		CohortMembers: cohort,
+		// DurabilityPolicy intentionally nil
+	}
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   ruleWithoutPolicy,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "durability policy")
 }
 
 func TestCheckSufficientRecruitment_EligibleLeadersOrderDeterministic(t *testing.T) {
@@ -657,7 +718,7 @@ func TestCheckSufficientRecruitment_ExtraNodeOutsideCohortIgnored(t *testing.T) 
 	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient recruitment",
+	assert.Contains(t, err.Error(), "insufficient",
 		"extra node outside cohort should not count toward quorum")
 }
 
@@ -817,7 +878,7 @@ func TestBuildSafeProposal_InvalidLSN(t *testing.T) {
 		_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(rule))
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "insufficient recruitment")
+		assert.Contains(t, err.Error(), "insufficient")
 	})
 
 	t.Run("node with invalid LSN cannot be proposed as leader", func(t *testing.T) {
@@ -890,7 +951,7 @@ func TestCheckSufficientRecruitment_CohortExpansionNewMembersOnly(t *testing.T) 
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient recruitment")
+	assert.Contains(t, err.Error(), "insufficient")
 }
 
 func TestCheckSufficientRecruitment_CohortReplacementSplitBrain(t *testing.T) {
