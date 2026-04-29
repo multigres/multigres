@@ -95,6 +95,19 @@ func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 	return conn.consensusClient.Recruit(ctx, request)
 }
 
+// Propose sends a role assignment to a recruited pooler.
+func (c *Client) Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.Propose(ctx, request)
+}
+
 // ConsensusStatus gets the consensus status of the multipooler.
 func (c *Client) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)

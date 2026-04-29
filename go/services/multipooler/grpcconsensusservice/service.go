@@ -45,6 +45,15 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	})
 }
 
+// Propose sends a role assignment to this pooler: promote to primary or point replication at the new primary.
+func (s *consensusService) Propose(ctx context.Context, req *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error) {
+	resp, err := s.manager.Propose(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // Recruit stops this pooler's replication participation and records a TermRevocation.
 func (s *consensusService) Recruit(ctx context.Context, req *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error) {
 	resp, err := s.manager.Recruit(ctx, req)
