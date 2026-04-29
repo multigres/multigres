@@ -131,18 +131,27 @@ func TestSysBench(t *testing.T) {
 	if capturePprof {
 		t.Logf("CAPTURE_PPROF=1: CPU profiles will be captured during each scenario")
 	}
+	if captureHeap {
+		t.Logf("CAPTURE_HEAP=1: heap/allocs/goroutine profiles will be captured before+after each scenario")
+	}
 
 	mgwPid := setup.Multigateway.Process.Process.Pid
 	pgPidEnum := postgresPidEnumerator(setup.GetPrimary(t).Pgctld.PoolerDir + "/pg_data")
 
+	// Quiesce between every (scenario, target) run, not just between
+	// scenarios — back-to-back targets within a scenario can otherwise
+	// inherit warm buffer cache, replication lag, or autovacuum activity
+	// from the previous run and bias later targets.
 	var allResults []ScenarioResult
-	for i, scenario := range scenarios {
-		if i > 0 && quiesce > 0 {
-			t.Logf("Quiesce %ds before next scenario", quiesce)
-			time.Sleep(time.Duration(quiesce) * time.Second)
-		}
+	first := true
+	for _, scenario := range scenarios {
 		t.Run(scenario.Name, func(t *testing.T) {
 			for _, target := range targets {
+				if !first && quiesce > 0 {
+					t.Logf("Quiesce %ds before %s/%s", quiesce, scenario.Name, target.Name)
+					time.Sleep(time.Duration(quiesce) * time.Second)
+				}
+				first = false
 				t.Run(target.Name, func(t *testing.T) {
 					runSysBenchScenarioOnce(ctx, t, setup, runner, scenario, target,
 						mgwPid, pgPidEnum, capturePprof, captureHeap, &allResults)
