@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -36,6 +37,9 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
+
+// recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
+var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 
 // observePositionRow builds a mock result row for the observePosition query
 // where the rule names primaryAppName (e.g. "zone1_stale-primary") as the
@@ -1189,6 +1193,301 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				assert.Equal(t, tt.requestTerm, healthState.PrimaryObservation.PrimaryTerm,
 					"primary observation term should match the consensus term from the request")
 			}
+
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+// ============================================================================
+// Recruit Tests
+// ============================================================================
+
+// expectStandbyRecruitMocks sets up mock expectations for the standby Recruit path:
+// saves primary_conninfo, disconnects receiver, and waits for replay to stabilize.
+func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo string) {
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil, nil, nil, nil}}
+
+	replayStateCols := []string{"replay_lsn", "is_paused"}
+	replayStateRow := [][]any{{lsn, false}}
+
+	// isPrimary check
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// readPrimaryConnInfo: return nil (NULL) when no conninfo saved, or the value when set
+	var connInfoRow [][]any
+	if savedConnInfo == "" {
+		connInfoRow = [][]any{{nil}}
+	} else {
+		connInfoRow = [][]any{{savedConnInfo}}
+	}
+	m.AddQueryPatternOnce("current_setting.*primary_conninfo", mock.MakeQueryResult([]string{"current_setting"}, connInfoRow))
+	// pauseReplication: resetPrimaryConnInfo
+	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	// waitForReceiverDisconnect
+	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
+	// queryReplicationStatus (from waitForReceiverDisconnect)
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	// Final queryReplicationStatus after stability confirmed
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+}
+
+// makeRulePosition builds a minimal PoolerPosition with the given coordinator term,
+// used to control what fakeRuleStore returns without running postgres queries.
+func makeRulePosition(coordinatorTerm int64) *clustermetadatapb.PoolerPosition {
+	return &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{
+				CoordinatorTerm: coordinatorTerm,
+			},
+		},
+		Lsn: "16/B374D848",
+	}
+}
+
+func TestRecruit(t *testing.T) {
+	coordinatorA := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "coordinator-a",
+	}
+	coordinatorB := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "coordinator-b",
+	}
+
+	tests := []struct {
+		name                       string
+		initialRevocation          *clustermetadatapb.TermRevocation
+		ruleStore                  *fakeRuleStore
+		req                        *consensusdatapb.RecruitRequest
+		setupMocks                 func(*mock.QueryService)
+		makeFilesystemReadOnly     bool
+		expectError                bool
+		expectErrContains          string
+		expectPersistedTerm        int64
+		expectPersistedCoordinator string
+	}{
+		{
+			name:                       "NilTermRevocation",
+			initialRevocation:          &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:                  &fakeRuleStore{},
+			req:                        &consensusdatapb.RecruitRequest{TermRevocation: nil},
+			setupMocks:                 func(m *mock.QueryService) {},
+			expectError:                true,
+			expectErrContains:          "term_revocation is required",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+		{
+			name:              "SanityCheckRejects_EqualCoordinatorTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(5)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks:                 func(m *mock.QueryService) {},
+			expectError:                true,
+			expectErrContains:          "coordinator term 5 >= revoked_below_term 5",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+		{
+			name:              "SanityCheckRejects_HigherCoordinatorTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(7)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks:                 func(m *mock.QueryService) {},
+			expectError:                true,
+			expectErrContains:          "coordinator term 7 >= revoked_below_term 5",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+		{
+			name:              "StandbySuccess_NewTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			// Non-nil pos so getCachedConsensusStatus returns a populated ConsensusStatus.
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyRecruitMocks(m, "0/2000000", "")
+			},
+			expectError:                false,
+			expectPersistedTerm:        7,
+			expectPersistedCoordinator: "coordinator-a",
+		},
+		{
+			name: "StandbySuccess_Idempotent",
+			initialRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+			},
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyRecruitMocks(m, "0/3000000", "")
+			},
+			expectError:                false,
+			expectPersistedTerm:        7,
+			expectPersistedCoordinator: "coordinator-a",
+		},
+		{
+			name: "StandbyReject_DifferentCoordinator",
+			initialRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:      7,
+				AcceptedCoordinatorId: coordinatorA,
+			},
+			// WAL check passes; rejection is caught by the stored-term check.
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(1)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorB,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			// ValidateRevocation rejects at step 1 — postgres is never touched.
+			setupMocks:                 func(m *mock.QueryService) {},
+			expectError:                true,
+			expectErrContains:          "already accepted term 7 from coordinator",
+			expectPersistedTerm:        7,
+			expectPersistedCoordinator: "coordinator-a",
+		},
+		{
+			name:              "StandbyReject_OlderTerm",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
+			// WAL check passes; rejection is caught by the stored-term check.
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(2)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			// ValidateRevocation rejects at step 1 — postgres is never touched.
+			setupMocks:                 func(m *mock.QueryService) {},
+			expectError:                true,
+			expectErrContains:          "already accepted term 10 > requested 5",
+			expectPersistedTerm:        10,
+			expectPersistedCoordinator: "",
+		},
+		{
+			name:              "PersistFailure_FilesystemReadOnly",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(2)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyRecruitMocks(m, "0/7000000", "")
+			},
+			makeFilesystemReadOnly:     true,
+			expectError:                true,
+			expectErrContains:          "failed to persist term revocation",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+		{
+			// Primary node where emergencyDemoteLocked fails because there are no
+			// postgres mocks for the demotion queries. Exercises the isPrimary=true
+			// branch in Recruit and verifies that nothing is persisted on failure.
+			name:              "PrimaryReject_DemotionFails",
+			initialRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.RecruitRequest{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       7,
+					AcceptedCoordinatorId:  coordinatorA,
+					CoordinatorInitiatedAt: recruitTS,
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				// isPrimary returns false for pg_is_in_recovery (not in recovery = primary).
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+				// No further mocks — emergencyDemoteLocked fails on its first query.
+			},
+			expectError:                true,
+			expectErrContains:          "failed to demote primary during recruit",
+			expectPersistedTerm:        3,
+			expectPersistedCoordinator: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			mockQueryService := mock.NewQueryService()
+			tt.setupMocks(mockQueryService)
+
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
+
+			err := pm.consensusState.setRevocation(tt.initialRevocation)
+			require.NoError(t, err)
+			_, err = pm.consensusState.Load()
+			require.NoError(t, err)
+
+			if tt.makeFilesystemReadOnly {
+				require.NoError(t, os.Chmod(tmpDir, 0o555))
+				t.Cleanup(func() { _ = os.Chmod(tmpDir, 0o755) })
+			}
+
+			resp, err := pm.Recruit(ctx, tt.req)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.expectErrContains != "" {
+					assert.Contains(t, err.Error(), tt.expectErrContains)
+				}
+				assert.Nil(t, resp)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				// ConsensusStatus should reflect the newly persisted revocation.
+				require.NotNil(t, resp.ConsensusStatus)
+				require.NotNil(t, resp.ConsensusStatus.TermRevocation)
+				assert.Equal(t, tt.expectPersistedTerm, resp.ConsensusStatus.TermRevocation.GetRevokedBelowTerm())
+			}
+
+			// Verify persisted state matches expectations regardless of success/failure.
+			persisted, err := pm.consensusState.getRevocation()
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
+			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
