@@ -416,3 +416,8 @@ func TestAtLeastNPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 		)
 	})
 }
+
+func TestAtLeastNPolicy_Description(t *testing.T) {
+	require.Equal(t, "AT_LEAST_N(N=2)", AtLeastNPolicy{N: 2}.Description())
+	require.Equal(t, "AT_LEAST_N(N=3)", AtLeastNPolicy{N: 3}.Description())
+}

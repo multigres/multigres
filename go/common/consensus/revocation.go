@@ -19,12 +19,36 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
+
+// NewTermRevocation constructs a TermRevocation for a new coordinator-led rule
+// change. The revocation term is derived from the highest term observed across
+// the provided ConsensusStatus values — the maximum of each node's accepted
+// revocation term and its committed rule's coordinator term — incremented by
+// one. If no non-zero terms are found (fresh cluster, no prior elections), term
+// 1 is used.
+func NewTermRevocation(statuses []*clustermetadatapb.ConsensusStatus, coordinatorID *clustermetadatapb.ID) *clustermetadatapb.TermRevocation {
+	var maxTerm int64
+	for _, cs := range statuses {
+		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
+			maxTerm = t
+		}
+		if t := cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm(); t > maxTerm {
+			maxTerm = t
+		}
+	}
+	return &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       maxTerm + 1,
+		AcceptedCoordinatorId:  coordinatorID,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
+}
 
 // ValidateRevocation reports whether the given revocation is safe for a node
 // with the provided status to honor. It returns nil if the revocation should be
