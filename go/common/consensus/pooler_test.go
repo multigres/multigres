@@ -22,7 +22,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-func TestIsPrimary(t *testing.T) {
+func TestIsLeader(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
 	}
@@ -30,7 +30,7 @@ func TestIsPrimary(t *testing.T) {
 		return &clustermetadatapb.ConsensusStatus{
 			Id: self,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{PrimaryId: primary},
+				Rule: &clustermetadatapb.ShardRule{LeaderId: primary},
 			},
 		}
 	}
@@ -87,7 +87,7 @@ func TestIsPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsPrimary(tt.cs))
+			assert.Equal(t, tt.want, IsLeader(tt.cs))
 		})
 	}
 }

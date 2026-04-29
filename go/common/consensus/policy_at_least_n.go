@@ -85,11 +85,11 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 	return nil
 }
 
-// BuildPrimaryDurabilityPostgresConfig returns the Postgres-level config the
-// new primary must apply to satisfy AT_LEAST_N. The standby list is the full
-// cohort — AT_LEAST_N is cell-agnostic and including the primary is harmless
+// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
+// new leader must apply to satisfy AT_LEAST_N. The standby list is the full
+// cohort — AT_LEAST_N is cell-agnostic and including the leader is harmless
 // (Postgres ignores its own entry; num_sync = N-1 already accounts for the
-// primary's local write counting as 1).
+// leader's local write counting as 1).
 //
 // Errors when the cohort is too small to satisfy num_sync.
 func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(

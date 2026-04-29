@@ -210,23 +210,23 @@ func (QuorumType) EnumDescriptor() ([]byte, []int) {
 }
 
 // LeadershipSignal describes a leader's self-reported status for its current term.
-// Only published by nodes that are or were primary (primary_term != 0).
+// Only published by nodes that are or were the consensus leader (leader_term != 0).
 // 0 (UNKNOWN) means the field was not intentionally set.
 type LeadershipSignal int32
 
 const (
 	LeadershipSignal_LEADERSHIP_SIGNAL_UNKNOWN LeadershipSignal = 0
-	// Node is actively and healthily serving as primary for primary_term.
+	// Node is actively and healthily serving as leader for leader_term.
 	// Published each poll cycle so the coordinator can distinguish a confirmed
-	// healthy primary from one that restarted and hasn't re-published yet.
+	// healthy leader from one that restarted and hasn't re-published yet.
 	LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE LeadershipSignal = 1
-	// Node is requesting demotion from leadership for primary_term. Coordinator
-	// should trigger an immediate election rather than waiting for a heartbeat
-	// timeout. The node may continue as a replica after demotion.
+	// Node is requesting demotion from leadership for leader_term. Coordinator
+	// should trigger an immediate failover rather than waiting for a heartbeat
+	// timeout. The node may continue as a follower after demotion.
 	//
-	// Staleness check: coordinator verifies leadership_status.primary_term matches
-	// the node's known primary_term before acting, to ignore signals left over from
-	// a previous election cycle.
+	// Staleness check: coordinator verifies leadership_status.leader_term matches
+	// the node's known leader_term before acting, to ignore signals left over from
+	// a previous failover cycle.
 	LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION LeadershipSignal = 2
 )
 
@@ -1358,15 +1358,15 @@ func (x *RuleNumber) GetLeaderSubterm() int64 {
 }
 
 // ShardRule is the complete, authoritative description of shard state at a
-// specific rule number. Primary identity, cohort membership, and durability
+// specific rule number. Leader identity, cohort membership, and durability
 // policy are only meaningful together and relative to the rule that established
 // them.
 type ShardRule struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	RuleNumber *RuleNumber            `protobuf:"bytes,1,opt,name=rule_number,json=ruleNumber,proto3" json:"rule_number,omitempty"`
-	// The postgres primary for this rule, through which all transactions (including rules) are
+	// The consensus leader for this rule, through which all transactions (including rules) are
 	// written to the WAL.
-	PrimaryId     *ID   `protobuf:"bytes,2,opt,name=primary_id,json=primaryId,proto3" json:"primary_id,omitempty"`
+	LeaderId      *ID   `protobuf:"bytes,2,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	CohortMembers []*ID `protobuf:"bytes,3,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
 	// What nodes need to acknowledge a write before it's considered durable.
 	DurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
@@ -1416,9 +1416,9 @@ func (x *ShardRule) GetRuleNumber() *RuleNumber {
 	return nil
 }
 
-func (x *ShardRule) GetPrimaryId() *ID {
+func (x *ShardRule) GetLeaderId() *ID {
 	if x != nil {
-		return x.PrimaryId
+		return x.LeaderId
 	}
 	return nil
 }
@@ -1453,7 +1453,7 @@ func (x *ShardRule) GetCreationTime() *timestamppb.Timestamp {
 
 // PoolerPosition describes a pooler's committed position in logical and physical
 // time. It captures the highest ShardRule this pooler has replicated (or written,
-// for a primary) and the latest WAL position.
+// for a leader) and the latest WAL position.
 //
 // Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
 // coordinator can determine which pooler is most advanced when selecting a
@@ -1754,14 +1754,14 @@ func (x *ConsensusStatus) GetId() *ID {
 	return nil
 }
 
-// LeadershipStatus is published only by nodes that are or have been primary.
-// It lets the coordinator distinguish an actively healthy primary, a primary
+// LeadershipStatus is published only by nodes that are or have been the consensus leader.
+// It lets the coordinator distinguish an actively healthy leader, a leader
 // requesting demotion, and a node that has never held leadership.
 type LeadershipStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The primary_term at which this node was most recently elected.
-	// Non-zero only on nodes that have been elected primary.
-	PrimaryTerm   int64            `protobuf:"varint,1,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	// The leader_term at which this node was most recently appointed.
+	// Non-zero only on nodes that have been appointed as leader.
+	LeaderTerm    int64            `protobuf:"varint,1,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	Signal        LeadershipSignal `protobuf:"varint,2,opt,name=signal,proto3,enum=clustermetadata.LeadershipSignal" json:"signal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1797,9 +1797,9 @@ func (*LeadershipStatus) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *LeadershipStatus) GetPrimaryTerm() int64 {
+func (x *LeadershipStatus) GetLeaderTerm() int64 {
 	if x != nil {
-		return x.PrimaryTerm
+		return x.LeaderTerm
 	}
 	return 0
 }
@@ -1827,7 +1827,7 @@ func (x *LeadershipStatus) GetSignal() LeadershipSignal {
 // regardless of source.
 type AvailabilityStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// leadership_status is only set by poolers that are or have been primary.
+	// leadership_status is only set by poolers that are or have been the consensus leader.
 	LeadershipStatus *LeadershipStatus `protobuf:"bytes,1,opt,name=leadership_status,json=leadershipStatus,proto3" json:"leadership_status,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1965,12 +1965,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"RuleNumber\x12)\n" +
 	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12%\n" +
-	"\x0eleader_subterm\x18\x02 \x01(\x03R\rleaderSubterm\"\x86\x03\n" +
+	"\x0eleader_subterm\x18\x02 \x01(\x03R\rleaderSubterm\"\x84\x03\n" +
 	"\tShardRule\x12<\n" +
 	"\vrule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\n" +
-	"ruleNumber\x122\n" +
-	"\n" +
-	"primary_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12:\n" +
+	"ruleNumber\x120\n" +
+	"\tleader_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12:\n" +
 	"\x0ecohort_members\x18\x03 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\x12N\n" +
 	"\x11durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x10durabilityPolicy\x12:\n" +
 	"\x0ecoordinator_id\x18\x05 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\x12?\n" +
@@ -1988,9 +1987,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
 	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12O\n" +
 	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule\x12#\n" +
-	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"p\n" +
-	"\x10LeadershipStatus\x12!\n" +
-	"\fprimary_term\x18\x01 \x01(\x03R\vprimaryTerm\x129\n" +
+	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"n\n" +
+	"\x10LeadershipStatus\x12\x1f\n" +
+	"\vleader_term\x18\x01 \x01(\x03R\n" +
+	"leaderTerm\x129\n" +
 	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"d\n" +
 	"\x12AvailabilityStatus\x12N\n" +
 	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus*@\n" +
@@ -2081,7 +2081,7 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	4,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
 	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
 	18, // 17: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
-	15, // 18: clustermetadata.ShardRule.primary_id:type_name -> clustermetadata.ID
+	15, // 18: clustermetadata.ShardRule.leader_id:type_name -> clustermetadata.ID
 	15, // 19: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
 	17, // 20: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
 	15, // 21: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID

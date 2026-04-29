@@ -611,7 +611,7 @@ func buildPoolerPosition(
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse leader_id %q", *leaderIDStr)
 		}
-		rule.PrimaryId = id
+		rule.LeaderId = id
 	}
 
 	if coordinatorIDStr != "" {

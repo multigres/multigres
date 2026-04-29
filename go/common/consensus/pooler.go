@@ -16,27 +16,27 @@ package consensus
 
 import clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
-// IsPrimary reports whether the pooler identified by cs is the designated
-// primary according to its highest committed rule. Returns false when cs, its
+// IsLeader reports whether the pooler identified by cs is the consensus-elected
+// leader according to its highest committed rule. Returns false when cs, its
 // ID, or the current rule is absent.
-func IsPrimary(cs *clustermetadatapb.ConsensusStatus) bool {
+func IsLeader(cs *clustermetadatapb.ConsensusStatus) bool {
 	if cs == nil {
 		return false
 	}
 	self := cs.GetId()
-	primary := cs.GetCurrentPosition().GetRule().GetPrimaryId()
-	if self == nil || primary == nil {
+	leader := cs.GetCurrentPosition().GetRule().GetLeaderId()
+	if self == nil || leader == nil {
 		return false
 	}
-	return self.Cell == primary.Cell && self.Name == primary.Name
+	return self.Cell == leader.Cell && self.Name == leader.Name
 }
 
-// PrimaryTerm returns the coordinator term of the pooler's current committed
-// rule if the pooler holds the primary role (per IsPrimary). Returns 0 when
-// the pooler is not the primary, when the consensus status is nil/empty, or
+// LeaderTerm returns the coordinator term of the pooler's current committed
+// rule if the pooler holds the leader role (per IsLeader). Returns 0 when
+// the pooler is not the leader, when the consensus status is nil/empty, or
 // when the rule has no coordinator term.
-func PrimaryTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
-	if !IsPrimary(cs) {
+func LeaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
+	if !IsLeader(cs) {
 		return 0
 	}
 	return cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm()

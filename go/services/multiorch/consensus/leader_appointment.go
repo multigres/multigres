@@ -105,7 +105,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 		if pooler.MultiPooler.Id.Name == candidate.MultiPooler.Id.Name {
 			continue
 		}
-		if types.PrimaryNeedsReplacement(pooler) {
+		if types.LeaderNeedsReplacement(pooler) {
 			c.logger.InfoContext(ctx, "Skipping resigned pooler from standbys",
 				"pooler", pooler.MultiPooler.Id.Name)
 			continue
@@ -236,7 +236,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitme
 		// unconditionally avoids confusing re-elections of a node that just
 		// stepped down. If all candidates are resigned the election is deferred
 		// until a non-resigned candidate is available.
-		if types.PrimaryNeedsReplacement(r.pooler) {
+		if types.LeaderNeedsReplacement(r.pooler) {
 			c.logger.InfoContext(ctx, "Skipping resigned candidate during selection",
 				"pooler", r.pooler.MultiPooler.Id.Name)
 			continue
@@ -425,7 +425,7 @@ func (c *Coordinator) EstablishLeadership(
 	}
 
 	expectedLSN := status.GetConsensusStatus().GetCurrentPosition().GetLsn()
-	if expectedLSN != "" && !commonconsensus.IsPrimary(status.GetConsensusStatus()) {
+	if expectedLSN != "" && !commonconsensus.IsLeader(status.GetConsensusStatus()) {
 		// Wait for standby to replay all received WAL before promotion.
 		// This ensures validateExpectedLSN in Promote will pass.
 		c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
@@ -471,7 +471,7 @@ func (c *Coordinator) EstablishLeadership(
 			defer wg.Done()
 			c.logger.InfoContext(ctx, "Configuring standby replication before promotion",
 				"standby", s.MultiPooler.Id.Name,
-				"primary", candidate.MultiPooler.Id.Name)
+				"leader", candidate.MultiPooler.Id.Name)
 
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 			defer cancel()

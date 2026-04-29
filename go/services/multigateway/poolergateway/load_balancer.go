@@ -68,7 +68,7 @@ type LoadBalancer struct {
 	connections map[string]*PoolerConnection
 
 	// cachedPrimaries maps shard key to the cached primary connection.
-	// Updated by onPoolerHealthUpdate when health streams report PrimaryObservation.
+	// Updated by onPoolerHealthUpdate when health streams report LeaderObservation.
 	cachedPrimaries map[shardKey]*cachedPrimary
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
@@ -233,8 +233,8 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 
 	if targetType == clustermetadatapb.PoolerType_PRIMARY {
 		// Use cached primary (populated by health stream callbacks).
-		// The health stream's PrimaryObservation is the authoritative source
-		// for primary identity — no type-based fallback.
+		// The health stream's LeaderObservation is the authoritative source
+		// for leader identity — no type-based fallback.
 		key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
 		if cached, ok := lb.cachedPrimaries[key]; ok {
 			return cached.conn, nil
@@ -396,13 +396,13 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 
 // onPoolerHealthUpdate is the callback invoked by PoolerConnection when health
 // state changes. It updates the cached primary for the connection's shard
-// based on PrimaryObservation term reconciliation.
+// based on LeaderObservation term reconciliation.
 //
 // This is safe to call concurrently: both processHealthResponse and setHealthError
 // release healthMu before invoking this callback.
 func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	health := conn.Health()
-	if health == nil || health.PrimaryObservation == nil {
+	if health == nil || health.LeaderObservation == nil {
 		return
 	}
 
@@ -410,8 +410,8 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 		tableGroup: health.Target.GetTableGroup(),
 		shard:      health.Target.GetShard(),
 	}
-	term := health.PrimaryObservation.PrimaryTerm
-	primaryID := poolerIDString(health.PrimaryObservation.PrimaryId)
+	term := health.LeaderObservation.LeaderTerm
+	primaryID := poolerIDString(health.LeaderObservation.LeaderId)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -433,9 +433,9 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 			"term", term)
 
 		// Only stop failover buffering when the primary is confirmed to be
-		// PRIMARY type and SERVING. The PrimaryObservation can arrive before
+		// PRIMARY type and SERVING. The LeaderObservation can arrive before
 		// the pooler has transitioned its query server to PRIMARY/SERVING
-		// (e.g., during Promote, UpdatePrimaryObservation fires before
+		// (e.g., during Promote, UpdateLeaderObservation fires before
 		// changeTypeLocked). Draining buffered requests too early would send
 		// them to a pooler that still rejects PRIMARY traffic.
 		lb.notifyIfPrimaryServingLocked(key, primaryConn)

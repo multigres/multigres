@@ -54,7 +54,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(sa *ShardAnalysis, poole
 	}
 
 	// Only analyze replicas
-	if poolerAnalysis.IsPrimary {
+	if poolerAnalysis.IsLeader {
 		return nil, nil
 	}
 
@@ -64,7 +64,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) analyzePooler(sa *ShardAnalysis, poole
 	}
 
 	// Skip if primary is unreachable (can't update standby list anyway)
-	if sa.HighestTermDiscoveredPrimaryID != nil && !sa.PrimaryReachable {
+	if sa.HighestTermDiscoveredLeaderID != nil && !sa.LeaderReachable {
 		return nil, nil
 	}
 

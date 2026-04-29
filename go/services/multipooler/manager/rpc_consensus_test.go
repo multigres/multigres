@@ -906,7 +906,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 		setupPgRewindMock          func(*testutil.MockPgCtldService)
 		setupQueryMock             func(*mock.QueryService)
 		expectedFinalConsensusTerm int64
-		expectedPrimaryTerm        int64
+		expectedLeaderTerm         int64
 		expectedError              bool
 		expectedErrorContains      string
 		description                string
@@ -948,7 +948,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
-			expectedPrimaryTerm:        0, // Primary term cleared after demotion
+			expectedLeaderTerm:         0, // Primary term cleared after demotion
 			expectedError:              false,
 			description:                "Successful demotion should update consensus term from 5 to 10 and clear primary_term",
 		},
@@ -972,7 +972,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				expectObservePositionAsStalePrimary(m, "zone1_stale-primary", 15)
 			},
 			expectedFinalConsensusTerm: 15, // Term should remain unchanged
-			expectedPrimaryTerm:        15, // Primary term should remain unchanged
+			expectedLeaderTerm:         15, // Primary term should remain unchanged
 			expectedError:              true,
 			expectedErrorContains:      "consensus term too old",
 			description:                "Should reject outdated term without force flag",
@@ -1013,7 +1013,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 15, // With force, term is NOT updated when older
-			expectedPrimaryTerm:        0,  // Primary term is cleared
+			expectedLeaderTerm:         0,  // Primary term is cleared
 			expectedError:              false,
 			description:                "With force=true, should accept outdated term but not update it (term stays at 15)",
 		},
@@ -1053,7 +1053,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
-			expectedPrimaryTerm:        0, // Primary term cleared
+			expectedLeaderTerm:         0, // Primary term cleared
 			expectedError:              false,
 			description:                "Idempotent: same term should succeed and clear primary_term",
 		},
@@ -1168,9 +1168,9 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				"Consensus term should be %d but got %d", tt.expectedFinalConsensusTerm, persistedTerm.RevokedBelowTerm)
 			cs, err := pm.getInconsistentConsensusStatus(ctx)
 			require.NoError(t, err)
-			primaryTerm := commonconsensus.PrimaryTerm(cs)
-			assert.Equal(t, tt.expectedPrimaryTerm, primaryTerm,
-				"Primary term should be %d but got %d", tt.expectedPrimaryTerm, primaryTerm)
+			primaryTerm := commonconsensus.LeaderTerm(cs)
+			assert.Equal(t, tt.expectedLeaderTerm, primaryTerm,
+				"Primary term should be %d but got %d", tt.expectedLeaderTerm, primaryTerm)
 
 			// Verify topology was updated to REPLICA (only on success).
 			// The write is asynchronous so we poll until the publisher catches up.
@@ -1182,11 +1182,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 				// Verify health streamer reports the new primary (source)
 				healthState := pm.healthStreamer.getState()
-				require.NotNil(t, healthState.PrimaryObservation,
+				require.NotNil(t, healthState.LeaderObservation,
 					"health streamer should have primary observation pointing to new primary after DemoteStalePrimary")
-				assert.Equal(t, sourcePooler.Id, healthState.PrimaryObservation.PrimaryID,
+				assert.Equal(t, sourcePooler.Id, healthState.LeaderObservation.LeaderID,
 					"primary observation should point to the source (new primary)")
-				assert.Equal(t, tt.requestTerm, healthState.PrimaryObservation.PrimaryTerm,
+				assert.Equal(t, tt.requestTerm, healthState.LeaderObservation.LeaderTerm,
 					"primary observation term should match the consensus term from the request")
 			}
 
@@ -1201,20 +1201,20 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Nil(t, pm.buildAvailabilityStatus())
 	})
 
-	t.Run("resignedPrimaryAtTerm set makes buildAvailabilityStatus return the term", func(t *testing.T) {
+	t.Run("resignedLeaderAtTerm set makes buildAvailabilityStatus return the term", func(t *testing.T) {
 		pm := &MultiPoolerManager{}
-		pm.resignedPrimaryAtTerm = 7
+		pm.resignedLeaderAtTerm = 7
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
-		assert.Equal(t, int64(7), av.LeadershipStatus.PrimaryTerm)
+		assert.Equal(t, int64(7), av.LeadershipStatus.LeaderTerm)
 		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 	})
 
-	t.Run("resignedPrimaryAtTerm cleared makes buildAvailabilityStatus return nil", func(t *testing.T) {
+	t.Run("resignedLeaderAtTerm cleared makes buildAvailabilityStatus return nil", func(t *testing.T) {
 		pm := &MultiPoolerManager{}
-		pm.resignedPrimaryAtTerm = 3
-		pm.resignedPrimaryAtTerm = 0
+		pm.resignedLeaderAtTerm = 3
+		pm.resignedLeaderAtTerm = 0
 		assert.Nil(t, pm.buildAvailabilityStatus())
 	})
 }

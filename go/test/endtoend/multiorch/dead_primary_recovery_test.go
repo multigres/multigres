@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -116,7 +116,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
 	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
-	// and multigateway learns the new primary via PrimaryObservation health streams,
+	// and multigateway learns the new primary via LeaderObservation health streams,
 	// so neither component requires etcd during or after failover.
 	t.Log("Stopping etcd to verify etcd-independent failover...")
 	setup.StopEtcd(t)
@@ -173,7 +173,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryClient.Close()
 		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-		newPrimaryTermActual := commonconsensus.PrimaryTerm(status.ConsensusStatus)
+		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -309,7 +309,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-			assert.Zero(t, commonconsensus.PrimaryTerm(status.ConsensusStatus),
+			assert.Zero(t, commonconsensus.LeaderTerm(status.ConsensusStatus),
 				"Replica %s should have primary_term=0 (never been primary)", name)
 		}
 		client.Close()
