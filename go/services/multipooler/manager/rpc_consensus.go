@@ -614,22 +614,31 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		}
 		// Pre-configure synchronous_standby_names before pg_promote() so the primary
 		// enforces sync replication from the moment it starts accepting connections.
+		// TODO: Eventually updateRule() should own this GUC update so that the ordering
+		// of WAL writes and GUC changes is managed in one place, ensuring the durability
+		// configuration is always consistent with what is recorded in the rule history.
 		syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to compute sync config from proposal", "error", err)
 		} else if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to pre-configure sync replication before promote", "error", err)
 		}
+		// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
+		// postgres becomes a writable primary after pg_promote(), but this pooler's
+		// type remains REPLICA until updateTopologyAfterPromotion() below. While type
+		// is REPLICA, the query server returns MTF01 for any PRIMARY (write) request,
+		// causing the gateway to buffer — so no client write transactions can be served.
+		//
+		// DO NOT call updateTopologyAfterPromotion() before updateRule() succeeds.
+		// The rule commit is the durability gate: it waits for sync-standby
+		// acknowledgment, proving the new primary position is replicated. Only after
+		// that gate closes is it safe to advertise PRIMARY + SERVING to the gateway.
 		if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
 			return nil, err
 		}
 		if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
 			return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 		}
-		pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-			PrimaryID:   pm.serviceID,
-			PrimaryTerm: revokedBelowTerm,
-		})
 		// checkPromotionState already fetched the LSN when postgres was primary;
 		// only query again after a fresh pg_promote() call.
 		var finalLSN string
@@ -661,6 +670,14 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 			withWALPosition(finalLSN)); err != nil {
 			return nil, mterrors.Wrap(err, "propose failed: could not write rule")
 		}
+		// ---- END CRITICAL ORDERING SECTION ------------------------------------------
+		// Rule committed and replicated. Safe to open write traffic.
+		// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
+		// ends the write-buffering window and lets the gateway route writes here.
+		pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+			PrimaryID:   pm.serviceID,
+			PrimaryTerm: revokedBelowTerm,
+		})
 		if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
 		}
