@@ -49,7 +49,7 @@ func (c *Conn) readAndDispatchStartup() error {
 	if err != nil {
 		return fmt.Errorf("failed to read startup packet: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	reader := NewMessageReader(buf)
 	protocolCode, err := reader.ReadUint32()
@@ -71,10 +71,10 @@ func (c *Conn) readAndDispatchStartup() error {
 		return c.handleGSSENCRequest()
 
 	case protocol.CancelRequestCode:
-		return c.handleCancelRequest(reader)
+		return c.handleCancelRequest(&reader)
 
 	case protocol.ProtocolVersionNumber:
-		return c.handleStartupMessage(protocolCode, reader)
+		return c.handleStartupMessage(protocolCode, &reader)
 
 	default:
 		return fmt.Errorf("unsupported protocol version: %d", protocolCode)
@@ -92,8 +92,7 @@ func (c *Conn) handleSSLRequest() error {
 	if c.tlsConfig == nil {
 		// No TLS configured, decline SSL.
 		c.logger.Debug("client requested SSL, declining (no TLS config)")
-		writer := c.getWriter()
-		if err := c.writeByte(writer, 'N'); err != nil {
+		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
 		if err := c.flush(); err != nil {
@@ -105,8 +104,7 @@ func (c *Conn) handleSSLRequest() error {
 
 	// Accept SSL and upgrade to TLS.
 	c.logger.Debug("client requested SSL, accepting")
-	writer := c.getWriter()
-	if err := c.writeByte(writer, 'S'); err != nil {
+	if err := c.writeRawByte('S'); err != nil {
 		return fmt.Errorf("failed to send SSL response: %w", err)
 	}
 	if err := c.flush(); err != nil {
@@ -128,8 +126,9 @@ func (c *Conn) handleSSLRequest() error {
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
-	// startup (lazy init via startWriterBuffering), so getWriter() falls
-	// back to c.conn directly — after this swap, writes go through TLS.
+	// startup (lazy init via startWriterBuffering), so writeRawByte
+	// falls back to c.conn directly — after this swap, writes go
+	// through TLS.
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
 
@@ -149,8 +148,7 @@ func (c *Conn) handleGSSENCRequest() error {
 	c.gssDone = true
 
 	c.logger.Debug("client requested GSSAPI encryption, declining")
-	writer := c.getWriter()
-	if err := c.writeByte(writer, 'N'); err != nil {
+	if err := c.writeRawByte('N'); err != nil {
 		return fmt.Errorf("failed to send GSSENC response: %w", err)
 	}
 	if err := c.flush(); err != nil {
@@ -478,29 +476,36 @@ func (c *Conn) authenticateSCRAM() error {
 
 // sendAuthenticationSASL sends AuthenticationSASL message with supported mechanisms.
 func (c *Conn) sendAuthenticationSASL(mechanisms []string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASL)
+	bodyLen := 4 // AuthSASL int32
 	for _, mech := range mechanisms {
-		w.WriteString(mech)
+		bodyLen += len(mech) + 1
 	}
-	w.WriteByte(0) // Terminator
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen++ // Trailing null terminator for the mechanism list.
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASL)
+	for _, mech := range mechanisms {
+		pos = writeStringAt(buf, pos, mech)
+	}
+	pos = writeByteAt(buf, pos, 0)
+	return c.writePacket(buf, pos)
 }
 
 // sendAuthenticationSASLContinue sends AuthenticationSASLContinue with server data.
 func (c *Conn) sendAuthenticationSASLContinue(data string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASLContinue)
-	w.WriteBytes([]byte(data))
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen := 4 + len(data)
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASLContinue)
+	pos = writeBytesAt(buf, pos, []byte(data))
+	return c.writePacket(buf, pos)
 }
 
 // sendAuthenticationSASLFinal sends AuthenticationSASLFinal with server signature.
 func (c *Conn) sendAuthenticationSASLFinal(data string) error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthSASLFinal)
-	w.WriteBytes([]byte(data))
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	bodyLen := 4 + len(data)
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, bodyLen)
+	pos = writeInt32At(buf, pos, protocol.AuthSASLFinal)
+	pos = writeBytesAt(buf, pos, []byte(data))
+	return c.writePacket(buf, pos)
 }
 
 // readSASLInitialResponse reads SASLInitialResponse from the client.
@@ -523,6 +528,7 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read message body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
 	reader := NewMessageReader(body)
 
@@ -579,6 +585,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read message body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
 	// The entire body is the SASL data.
 	return string(body), nil
@@ -606,18 +613,18 @@ func (c *Conn) sendLoginDisabledError() error {
 
 // sendAuthenticationOk sends an AuthenticationOk message to the client.
 func (c *Conn) sendAuthenticationOk() error {
-	w := NewMessageWriter()
-	w.WriteInt32(protocol.AuthOk)
-	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+	buf, pos := c.startPacket(protocol.MsgAuthenticationRequest, 4)
+	pos = writeInt32At(buf, pos, protocol.AuthOk)
+	return c.writePacket(buf, pos)
 }
 
 // sendBackendKeyData sends the BackendKeyData message.
 // This contains the process ID (connection ID) and secret key for query cancellation.
 func (c *Conn) sendBackendKeyData() error {
-	w := NewMessageWriter()
-	w.WriteUint32(c.connectionID)   // Process ID
-	w.WriteUint32(c.backendKeyData) // Secret key
-	return c.writeMessage(protocol.MsgBackendKeyData, w.Bytes())
+	buf, pos := c.startPacket(protocol.MsgBackendKeyData, 8)
+	pos = writeUint32At(buf, pos, c.connectionID)
+	pos = writeUint32At(buf, pos, c.backendKeyData)
+	return c.writePacket(buf, pos)
 }
 
 // sendParameterStatuses sends initial ParameterStatus messages to the client.
@@ -645,17 +652,16 @@ func (c *Conn) sendParameterStatuses() error {
 
 // sendParameterStatus sends a single ParameterStatus message.
 func (c *Conn) sendParameterStatus(name, value string) error {
-	w := NewMessageWriter()
-	w.WriteString(name)
-	w.WriteString(value)
-	return c.writeMessage(protocol.MsgParameterStatus, w.Bytes())
+	bodyLen := len(name) + 1 + len(value) + 1
+	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
+	pos = writeStringAt(buf, pos, name)
+	pos = writeStringAt(buf, pos, value)
+	return c.writePacket(buf, pos)
 }
 
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.
 func (c *Conn) sendReadyForQuery() error {
-	w := NewMessageWriter()
-	w.WriteByte(byte(c.txnStatus))
-	if err := c.writeMessage(protocol.MsgReadyForQuery, w.Bytes()); err != nil {
+	if err := c.writeReadyForQuery(); err != nil {
 		return err
 	}
 	// Flush to ensure the client receives the message immediately.

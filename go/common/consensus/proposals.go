@@ -322,7 +322,7 @@ func validateProposal(
 		return errors.New("no proposed rule")
 	}
 
-	// TODO: relax this to support re-proposing/propagatin stuck rule changes.
+	// TODO: relax this to support re-proposing/propagating stuck rule changes.
 	// In that case a coordinator must recruit at a higher term and re-propagate
 	// a potentially lower-numbered pre-existing rule.
 	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
