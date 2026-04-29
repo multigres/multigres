@@ -98,7 +98,7 @@ func BuildSafeProposal(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	recruited := deduplicateStatuses(filterByRevocation(revocation, statuses))
+	recruited := filterByRevocation(revocation, statuses)
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
@@ -120,7 +120,7 @@ func CheckProposalPossible(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) error {
-	candidates := deduplicateStatuses(filterByPotentialRevocation(revocation, statuses))
+	candidates := filterByPotentialRevocation(revocation, statuses)
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
@@ -143,7 +143,7 @@ func CheckForcedProposalPossible(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) error {
-	candidates := deduplicateStatuses(filterByPotentialRevocation(revocation, statuses))
+	candidates := filterByPotentialRevocation(revocation, statuses)
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
@@ -165,7 +165,7 @@ func BuildForcedProposal(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	recruited := deduplicateStatuses(filterByRevocation(revocation, statuses))
+	recruited := filterByRevocation(revocation, statuses)
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
@@ -190,6 +190,7 @@ func buildProposalCore(
 		return nil, errors.New("empty list of statuses")
 	}
 
+	recruitedStatuses = deduplicateStatuses(recruitedStatuses)
 	recruitedStatuses = filterByValidPosition(recruitedStatuses)
 	if len(recruitedStatuses) == 0 {
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
@@ -296,6 +297,10 @@ func validateProposal(
 	recruitedInProposedCohort []*clustermetadatapb.ID,
 	mode cohortQuorumMode,
 ) error {
+	if !proto.Equal(proposal.GetTermRevocation(), result.TermRevocation) {
+		return errors.New("proposal term revocation does not match the recruitment revocation")
+	}
+
 	leaderID := proposal.GetProposalLeader().GetId()
 	if leaderID == nil {
 		return errors.New("proposal has no leader ID")
@@ -316,6 +321,19 @@ func validateProposal(
 	if r == nil {
 		return errors.New("no proposed rule")
 	}
+
+	// TODO: relax this to support re-proposing/propagatin stuck rule changes.
+	// In that case a coordinator must recruit at a higher term and re-propagate
+	// a potentially lower-numbered pre-existing rule.
+	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
+		return fmt.Errorf("proposed rule term %d is below the recruitment revocation term %d",
+			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
+	}
+	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm > result.TermRevocation.GetRevokedBelowTerm() {
+		return fmt.Errorf("proposed rule term %d is above the recruitment revocation term %d",
+			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
+	}
+
 	p, err := NewPolicyFromProto(r.GetDurabilityPolicy())
 	if err != nil {
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
