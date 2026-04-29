@@ -845,6 +845,42 @@ func TestHandleClose(t *testing.T) {
 	}
 }
 
+// TestHandleDescribeMissingNullTerminator verifies that handleDescribe
+// rejects a body whose name field doesn't end in NUL, instead of
+// silently slicing off the trailing byte.
+func TestHandleDescribeMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Body: 'S' + "stmt" with NO null terminator. Length = 4 (length
+	// field) + 1 (type byte) + 4 (name bytes) = 9.
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleDescribe()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
+}
+
+// TestHandleCloseMissingNullTerminator verifies the same for handleClose.
+func TestHandleCloseMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleClose()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
+}
+
 // TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
 func TestExtendedQueryProtocolWithParameters(t *testing.T) {
 	var readBuf bytes.Buffer

@@ -467,6 +467,39 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 		"portal must still be forwarded to the backend after silent prefix")
 }
 
+// TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol
+// shape `SELECT set_config(literal, literal, false), <other-literal>`. The
+// normalizer skips the set_config subtree but still parameterizes the
+// sibling literal; the planner emits a Sequence whose trailing Route holds
+// the normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
+// bindVars on its way to children, Route can't reconstruct and the
+// `$N` placeholder reaches PG unbound — which surfaces as
+// `there is no parameter $1`. Verify the backend receives the literal,
+// not the placeholder.
+func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+	state := handler.NewMultiGatewayConnectionState()
+
+	sql := "SELECT set_config('work_mem', '256MB', false), 42 AS num"
+	_, err := exec.StreamExecute(ctx, conn, state, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+
+	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
+	assert.Contains(t, backendSQL, "42",
+		"sibling literal must be substituted back; backend SQL was %q", backendSQL)
+	assert.NotContains(t, backendSQL, "$1",
+		"normalized placeholder must not reach the backend; backend SQL was %q", backendSQL)
+
+	// Silent ApplySessionState prefix must still have updated the tracker.
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	assert.Equal(t, "256MB", got)
+}
+
 func TestCrossProtocol_CasingNormalization(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
