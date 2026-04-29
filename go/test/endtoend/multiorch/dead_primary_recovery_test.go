@@ -160,7 +160,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
 		// before the next iteration begins — otherwise the grace period would carry over.
-		setup.RequireRecovery(t, "multiorch", 20*time.Second)
+		// 45s budget: DemoteStalePrimary is synchronous and includes a 5s drain +
+		// up to ~15s pg_rewind + ~5s postgres restart on slow CI.
+		setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
 		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
