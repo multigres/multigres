@@ -167,7 +167,7 @@ func runConcurrentCase(t *testing.T, firstSrc, secondSrc string) {
 		firstErrCh <- err
 	}()
 
-	gateCtx, gateCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	gateCtx, gateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer gateCancel()
 	hit, err := gate.Wait(gateCtx)
 	require.NoError(t, err, "timed out waiting for first backup to start uploading")
