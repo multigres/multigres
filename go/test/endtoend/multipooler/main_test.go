@@ -89,6 +89,13 @@ var s3SetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shards
 
 // TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
+	// Set dummy AWS credentials process-wide so parallel s3mock-backed tests
+	// (which can't use t.Setenv inside t.Parallel sub-tests) all see them.
+	// s3mock does not validate credentials.
+	os.Setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+	os.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+	os.Unsetenv("AWS_SESSION_TOKEN")
+
 	exitCode := shardsetup.RunTestMain(m)
 	if exitCode != 0 {
 		filesystemSetupManager.DumpLogs()
