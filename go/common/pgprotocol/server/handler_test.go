@@ -115,7 +115,7 @@ func (h *testHandlerWithState) HandleBind(ctx context.Context, conn *Conn, porta
 	return nil
 }
 
-func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	state := h.getConnectionState(conn)
 
 	state.mu.Lock()

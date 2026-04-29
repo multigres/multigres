@@ -168,6 +168,23 @@ message PortalStreamExecuteRequest {
 
   // options contains execution options including max rows and reserved connection ID
   query.ExecuteOptions options = 5;
+
+  // portal_options contains portal-specific knobs that don't apply to plain
+  // StreamExecute. Kept on PortalStreamExecuteRequest (rather than
+  // ExecuteOptions) so the portal-only fields don't leak into every other
+  // request type that carries ExecuteOptions.
+  PortalExecuteOptions portal_options = 6;
+}
+
+// PortalExecuteOptions carries knobs that only make sense on the portal
+// (extended-protocol) execution path.
+message PortalExecuteOptions {
+  // include_describe asks the multipooler to fuse a portal Describe('P')
+  // into the same backend round trip as Execute, so the gateway can resolve
+  // libpq-style Bind+Describe(P)+Execute+Sync batches without two RPCs.
+  // The portal RowDescription rides back on the streaming response Fields
+  // of the first chunk; for DML (NoData) the Fields stay nil.
+  bool include_describe = 1;
 }
 
 // PortalStreamExecuteResponse represents a response in the portal execution stream

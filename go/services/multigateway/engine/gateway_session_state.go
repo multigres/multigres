@@ -102,6 +102,7 @@ func (g *GatewaySessionState) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return g.StreamExecute(ctx, exec, conn, state, nil, callback)

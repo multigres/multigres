@@ -60,7 +60,7 @@ func (m *mockExec) StreamExecute(
 func (m *mockExec) PortalStreamExecute(
 	_ context.Context, _, _ string, _ *server.Conn,
 	_ *handler.MultiGatewayConnectionState,
-	portalInfo *preparedstatement.PortalInfo, _ int32,
+	portalInfo *preparedstatement.PortalInfo, _ int32, _ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.portalStreamExecuteCalls.Add(1)
@@ -222,14 +222,14 @@ func TestPortalStreamExecute_CacheHitOnRepeatedPortal(t *testing.T) {
 	portal := makePortalInfo(t, "SELECT * FROM users WHERE id = $1")
 
 	// First portal execution — cache miss
-	res1, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res1, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.False(t, res1.CacheHit)
 
 	time.Sleep(50 * time.Millisecond)
 
 	// Second portal execution — cache hit (same query string)
-	res2, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res2, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res2.CacheHit, "repeated portal should hit cache")
 
@@ -257,7 +257,7 @@ func TestCrossProtocol_SimpleProtocolCachesForPortal(t *testing.T) {
 	// Extended protocol: query is already "SELECT * FROM users WHERE id = $1"
 	// This should hit the cache populated by the simple protocol execution.
 	portal := makePortalInfo(t, "SELECT * FROM users WHERE id = $1")
-	res2, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res2, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res2.CacheHit, "portal should hit plan cached by simple protocol")
 }
@@ -271,7 +271,7 @@ func TestCrossProtocol_PortalCachesForSimpleProtocol(t *testing.T) {
 
 	// Extended protocol first — caches plan for "SELECT * FROM orders WHERE id = $1"
 	portal := makePortalInfo(t, "SELECT * FROM orders WHERE id = $1")
-	res1, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res1, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.False(t, res1.CacheHit)
 
@@ -294,7 +294,7 @@ func TestCrossProtocol_PortalCachedPlanReconstructsSQL(t *testing.T) {
 
 	// Extended protocol first — caches plan for "SELECT * FROM orders WHERE id = $1"
 	portal := makePortalInfo(t, "SELECT * FROM orders WHERE id = $1")
-	_, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	_, err := exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)
@@ -361,13 +361,13 @@ func TestCrossProtocol_MixedWorkload(t *testing.T) {
 
 	// 3. Portal hit (same normalized form)
 	portal := makePortalInfo(t, "SELECT * FROM t WHERE x = $1")
-	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit)
 
 	// 4. Different query — portal miss
 	portal2 := makePortalInfo(t, "SELECT * FROM t WHERE y = $1")
-	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal2, 0, noopCallback)
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal2, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.False(t, res.CacheHit)
 	time.Sleep(50 * time.Millisecond)
@@ -424,13 +424,13 @@ func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
 	portal := makePortalInfo(t, "SELECT * FROM orders WHERE id = $1")
 
 	// Cache plan in db1
-	res1, err := exec.PortalStreamExecute(ctx, connDB1, nil, portal, 0, noopCallback)
+	res1, err := exec.PortalStreamExecute(ctx, connDB1, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.False(t, res1.CacheHit)
 	time.Sleep(50 * time.Millisecond)
 
 	// Same portal on db2 — must miss
-	res2, err := exec.PortalStreamExecute(ctx, connDB2, nil, portal, 0, noopCallback)
+	res2, err := exec.PortalStreamExecute(ctx, connDB2, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.False(t, res2.CacheHit, "different databases must not share cached plans via portal")
 }
@@ -454,7 +454,7 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 
 	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
 
-	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, noopCallback)
+	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 
 	// Silent prefix must have written the tracker.
@@ -504,13 +504,13 @@ func TestCrossProtocol_CasingNormalization(t *testing.T) {
 	// 4. Portal with uppercase keywords — should hit the plan cached
 	//    in step 1, since SqlString() produces the same canonical form.
 	portal := makePortalInfo(t, "SELECT * FROM users WHERE id = $1")
-	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal, 0, noopCallback)
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit, "portal should share cache with simple protocol regardless of original casing")
 
 	// 5. Portal with lowercase keywords — same canonical form, cache hit.
 	portalLower := makePortalInfo(t, "select * from users where id = $1")
-	res, err = exec.PortalStreamExecute(ctx, conn, nil, portalLower, 0, noopCallback)
+	res, err = exec.PortalStreamExecute(ctx, conn, nil, portalLower, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit, "portal with different casing should share cached plan")
 }

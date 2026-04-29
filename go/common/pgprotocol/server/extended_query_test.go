@@ -63,7 +63,7 @@ func (h *testHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	if h.executeFunc != nil {
 		return h.executeFunc(ctx, conn, portalName, maxRows, callback)
 	}
