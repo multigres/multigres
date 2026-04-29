@@ -135,6 +135,10 @@ func runFailoverMatrixCase(t *testing.T, source, pauseName string, matcher s3moc
 		require.NoError(t, err, "failed to disable postgres restarts on %s", name)
 	}
 
+	// Wait for the multipooler's automatic post-init backup to finish before
+	// arming the gate. See waitForBootstrapBackup in backup_test_helpers.go.
+	waitForBootstrapBackup(t, backupClient)
+
 	jobID := fmt.Sprintf("failover-%s-%s", source, pauseName)
 	backupErrCh := make(chan error, 1)
 	go func() {
@@ -149,9 +153,7 @@ func runFailoverMatrixCase(t *testing.T, source, pauseName string, matcher s3moc
 	}()
 
 	tlog.Log("waiting for gate hit at pause=%s", pauseName)
-	gateCtx, gateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer gateCancel()
-	hit, err := gate.Wait(gateCtx)
+	hit, err := waitForGateOrEarlyError(t, gate, backupErrCh, 2*time.Minute)
 	require.NoError(t, err, "timed out waiting for pgBackRest at pause=%s", pauseName)
 	tlog.Log("paused at key=%s", hit.Key)
 

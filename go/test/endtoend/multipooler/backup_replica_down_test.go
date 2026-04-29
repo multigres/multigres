@@ -153,6 +153,11 @@ func runReplicaDownCase(t *testing.T, source, killTarget string) {
 		&multipoolermanagerdata.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err, "failed to disable postgres restarts on %s", killName)
 
+	// Wait for the multipooler's automatic post-init backup to finish before
+	// arming the gate. Otherwise our test backup races for the pgBackRest
+	// stanza lock and fails fast with exit 56.
+	waitForBootstrapBackup(t, backupClient)
+
 	gate.Arm()
 	jobID := fmt.Sprintf("replica-down-%s-%s", source, killTarget)
 
@@ -169,9 +174,7 @@ func runReplicaDownCase(t *testing.T, source, killTarget string) {
 		backupErrCh <- err
 	}()
 
-	gateCtx, gateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer gateCancel()
-	hit, err := gate.Wait(gateCtx)
+	hit, err := waitForGateOrEarlyError(t, gate, backupErrCh, 2*time.Minute)
 	require.NoError(t, err, "timed out waiting for first backup data PUT")
 	tlog.Log("paused at %s", hit.Key)
 

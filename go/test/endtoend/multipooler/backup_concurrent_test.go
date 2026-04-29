@@ -147,6 +147,10 @@ func runConcurrentCase(t *testing.T, firstSrc, secondSrc string) {
 	first := targetFor(firstSrc)
 	second := targetFor(secondSrc)
 
+	// Wait for the multipooler's automatic post-init backup to finish before
+	// arming the gate. See waitForBootstrapBackup in backup_test_helpers.go.
+	waitForBootstrapBackup(t, first.client)
+
 	// === Phase 1: launch first backup (will park in gate). ===
 	gate.Arm()
 	phase.Set("first-backup")
@@ -167,9 +171,7 @@ func runConcurrentCase(t *testing.T, firstSrc, secondSrc string) {
 		firstErrCh <- err
 	}()
 
-	gateCtx, gateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer gateCancel()
-	hit, err := gate.Wait(gateCtx)
+	hit, err := waitForGateOrEarlyError(t, gate, firstErrCh, 2*time.Minute)
 	require.NoError(t, err, "timed out waiting for first backup to start uploading")
 	tlog.Log("first paused at %s", hit.Key)
 
