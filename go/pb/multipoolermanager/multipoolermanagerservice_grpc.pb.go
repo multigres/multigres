@@ -44,6 +44,7 @@ const (
 	MultiPoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
 	MultiPoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
 	MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
+	MultiPoolerManager_Shutdown_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/Shutdown"
 	MultiPoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultiPoolerManager/ManagerHealthStream"
 )
 
@@ -79,6 +80,18 @@ type MultiPoolerManagerClient interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// Shutdown initiates a graceful pooler shutdown identical to receiving SIGTERM.
+	//
+	// For PRIMARY poolers: signals PoolerType_STOPPING so multiorch can orchestrate
+	// a controlled failover (EmergencyDemote + AppointLeader) before the process
+	// exits. The pooler waits up to 45 s for multiorch to call EmergencyDemote and
+	// stop postgres; it stops postgres directly on timeout.
+	//
+	// For REPLICA poolers: stops postgres directly and exits.
+	//
+	// The response is delivered before the shutdown sequence starts, so callers
+	// will always receive a response. The process exit happens asynchronously.
+	Shutdown(ctx context.Context, in *multipoolermanagerdata.ShutdownRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ShutdownResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -204,6 +217,16 @@ func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Contex
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) Shutdown(ctx context.Context, in *multipoolermanagerdata.ShutdownRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ShutdownResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ShutdownResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Shutdown_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiPoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultiPoolerManager_ServiceDesc.Streams[0], MultiPoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
@@ -249,6 +272,18 @@ type MultiPoolerManagerServer interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// Shutdown initiates a graceful pooler shutdown identical to receiving SIGTERM.
+	//
+	// For PRIMARY poolers: signals PoolerType_STOPPING so multiorch can orchestrate
+	// a controlled failover (EmergencyDemote + AppointLeader) before the process
+	// exits. The pooler waits up to 45 s for multiorch to call EmergencyDemote and
+	// stop postgres; it stops postgres directly on timeout.
+	//
+	// For REPLICA poolers: stops postgres directly and exits.
+	//
+	// The response is delivered before the shutdown sequence starts, so callers
+	// will always receive a response. The process exit happens asynchronously.
+	Shutdown(context.Context, *multipoolermanagerdata.ShutdownRequest) (*multipoolermanagerdata.ShutdownResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -303,6 +338,9 @@ func (UnimplementedMultiPoolerManagerServer) ExpireBackups(context.Context, *mul
 }
 func (UnimplementedMultiPoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) Shutdown(context.Context, *multipoolermanagerdata.ShutdownRequest) (*multipoolermanagerdata.ShutdownResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Shutdown not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
@@ -508,6 +546,24 @@ func _MultiPoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_Shutdown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ShutdownRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).Shutdown(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_Shutdown_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).Shutdown(ctx, req.(*multipoolermanagerdata.ShutdownRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiPoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MultiPoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
 }
@@ -561,6 +617,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetPostgresRestartsEnabled",
 			Handler:    _MultiPoolerManager_SetPostgresRestartsEnabled_Handler,
+		},
+		{
+			MethodName: "Shutdown",
+			Handler:    _MultiPoolerManager_Shutdown_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

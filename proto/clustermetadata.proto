@@ -248,8 +248,17 @@ enum PoolerType {
   // REPLICA replicates from leader. It is used to read only traffic
   REPLICA = 2;
 
-  // DRAINED is used for poolers that are temporarily removed from serving traffic
+  // DRAINED is used for poolers that are no longer serving traffic and should
+  // be removed from the cluster. This is set when a pooler is permanently
+  // removed from consideration, for example, if pg_rewind fails and the server
+  // can no longer be part of the cluster. Analyzers skip DRAINED poolers to
+  // prevent spurious recovery attempts.
   DRAINED = 3;
+
+  // STOPPING is used for a primary that is in the process of being gracefully
+  // shut down. The primary has been demoted and a new primary is being elected.
+  // Analyzers skip STOPPING poolers to prevent spurious recovery attempts.
+  STOPPING = 4;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.

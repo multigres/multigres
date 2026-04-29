@@ -17,6 +17,7 @@ package grpcmanagerservice
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -146,6 +147,12 @@ func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermana
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
 func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)
+}
+
+// Shutdown initiates a graceful pooler shutdown identical to SIGTERM.
+func (s *managerService) Shutdown(ctx context.Context, req *multipoolermanagerdatapb.ShutdownRequest) (*multipoolermanagerdatapb.ShutdownResponse, error) {
+	s.manager.InitiateGracefulShutdown(ctx, slog.String("reason", req.Reason))
+	return &multipoolermanagerdatapb.ShutdownResponse{}, nil
 }
 
 // ManagerHealthStream is the bidirectional health stream implementation.

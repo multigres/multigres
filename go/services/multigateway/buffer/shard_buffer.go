@@ -189,6 +189,14 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 	sb.mu.Lock()
 	if sb.state != stateBuffering {
+		// Phantom stop: new primary detected while buffer was idle (gen=0 means
+		// called from the public StopBuffering, not from the max-duration timer).
+		// Record lastEnd so the MinTimeBetweenFailovers guard blocks unnecessary
+		// buffer cycles from late in-flight requests after the fast re-election.
+		if gen == 0 && sb.state == stateIdle {
+			sb.lastEnd = sb.buf.now()
+			sb.logger.Debug("phantom stop: primary elected while buffer was idle")
+		}
 		sb.mu.Unlock()
 		return
 	}

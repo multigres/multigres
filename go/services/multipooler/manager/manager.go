@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -157,6 +158,10 @@ type MultiPoolerManager struct {
 	// When set, the monitor continues to run and detect problems but skips the start action.
 	// False by default (restarts enabled); tests and demos set it during controlled failovers.
 	postgresRestartsDisabled atomic.Bool
+
+	// shutdownOnce ensures performGracefulShutdown runs at most once, even when both
+	// SIGTERM and the Shutdown RPC race to trigger it.
+	shutdownOnce sync.Once
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
@@ -1477,6 +1482,23 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 		return nil
 	})
+
+	// OnTermSync: signal graceful shutdown via the health stream so multiorch can
+	// orchestrate a controlled failover before postgres stops.
+	//
+	// PRIMARY path: signal STOPPING (multiorch will call EmergencyDemote, which stops
+	// postgres). Wait up to 45 s for postgres to stop; stop it ourselves on timeout
+	// so the process always exits cleanly.
+	//
+	// REPLICA path: stop postgres directly — no failover coordination needed.
+	//
+	// If the Shutdown RPC already called performGracefulShutdown, the sync.Once
+	// makes this a no-op (postgres is already stopped before SIGTERM fires).
+	senv.OnTermSync(func() {
+		// pm.ctx may already be cancelled when OnTermSync fires. Detach so shutdown
+		// work is not skipped due to cancellation, while preserving trace context.
+		pm.performGracefulShutdown(ctxutil.Detach(pm.ctx))
+	})
 }
 
 // WaitUntilReady blocks until the manager reaches Ready or Error state, or
@@ -1726,10 +1748,14 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 
 	// Postgres is running: Check if pooler type needs adjustment
 	if currentState.postgresRunning {
-		if currentState.isPrimary && pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+		currentType := pm.getPoolerType()
+		// STOPPING is an intentional transient state set by OnTermSync to signal
+		// multiorch. Do not overwrite it — the monitor would otherwise race against
+		// the shutdown path and restore PRIMARY before EmergencyDemote can run.
+		if currentState.isPrimary && currentType != clustermetadatapb.PoolerType_PRIMARY && currentType != clustermetadatapb.PoolerType_STOPPING {
 			return remedialActionAdjustTypeToPrimary
 		}
-		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+		if !currentState.isPrimary && currentType == clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToReplica
 		}
 		// Postgres is standby and type is already REPLICA, but check if the resignation

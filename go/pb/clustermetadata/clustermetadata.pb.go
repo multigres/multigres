@@ -47,8 +47,16 @@ const (
 	PoolerType_PRIMARY PoolerType = 1
 	// REPLICA replicates from leader. It is used to read only traffic
 	PoolerType_REPLICA PoolerType = 2
-	// DRAINED is used for poolers that are temporarily removed from serving traffic
+	// DRAINED is used for poolers that are no longer serving traffic and should
+	// be removed from the cluster. This is set when a pooler is permanently
+	// removed from consideration, for example, if pg_rewind fails and the server
+	// can no longer be part of the cluster. Analyzers skip DRAINED poolers to
+	// prevent spurious recovery attempts.
 	PoolerType_DRAINED PoolerType = 3
+	// STOPPING is used for a primary that is in the process of being gracefully
+	// shut down. The primary has been demoted and a new primary is being elected.
+	// Analyzers skip STOPPING poolers to prevent spurious recovery attempts.
+	PoolerType_STOPPING PoolerType = 4
 )
 
 // Enum value maps for PoolerType.
@@ -58,12 +66,14 @@ var (
 		1: "PRIMARY",
 		2: "REPLICA",
 		3: "DRAINED",
+		4: "STOPPING",
 	}
 	PoolerType_value = map[string]int32{
-		"UNKNOWN": 0,
-		"PRIMARY": 1,
-		"REPLICA": 2,
-		"DRAINED": 3,
+		"UNKNOWN":  0,
+		"PRIMARY":  1,
+		"REPLICA":  2,
+		"DRAINED":  3,
+		"STOPPING": 4,
 	}
 )
 
@@ -1993,13 +2003,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\fprimary_term\x18\x01 \x01(\x03R\vprimaryTerm\x129\n" +
 	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"d\n" +
 	"\x12AvailabilityStatus\x12N\n" +
-	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus*@\n" +
+	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus*N\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
 	"\aREPLICA\x10\x02\x12\v\n" +
-	"\aDRAINED\x10\x03*L\n" +
+	"\aDRAINED\x10\x03\x12\f\n" +
+	"\bSTOPPING\x10\x04*L\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +

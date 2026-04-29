@@ -24,6 +24,7 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -706,11 +707,158 @@ func (x *TriggerRecoveryNowResponse) GetRemainingProblemCodes() []string {
 	return nil
 }
 
+type ShutdownPrimaryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Shard to perform the switchover on
+	Database   string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	TableGroup string `protobuf:"bytes,2,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
+	Shard      string `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
+	// Identity of the primary requesting shutdown.
+	// Used to validate that the caller is the current primary and to exclude
+	// it from the new election cohort.
+	PrimaryId *clustermetadata.ID `protobuf:"bytes,4,opt,name=primary_id,json=primaryId,proto3" json:"primary_id,omitempty"`
+	// How long to wait for in-flight write transactions to drain on the primary.
+	// Required: must be a positive duration.
+	DrainTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
+	// How long to wait for standbys to replay to the primary's final LSN.
+	// Required: must be a positive duration.
+	StandbyCatchupTimeout *durationpb.Duration `protobuf:"bytes,6,opt,name=standby_catchup_timeout,json=standbyCatchupTimeout,proto3" json:"standby_catchup_timeout,omitempty"`
+	// Human-readable reason for the shutdown (e.g. "SIGTERM", "operator request").
+	// Used for logging and audit trails only.
+	Reason        string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownPrimaryRequest) Reset() {
+	*x = ShutdownPrimaryRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownPrimaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownPrimaryRequest) ProtoMessage() {}
+
+func (x *ShutdownPrimaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownPrimaryRequest.ProtoReflect.Descriptor instead.
+func (*ShutdownPrimaryRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ShutdownPrimaryRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *ShutdownPrimaryRequest) GetTableGroup() string {
+	if x != nil {
+		return x.TableGroup
+	}
+	return ""
+}
+
+func (x *ShutdownPrimaryRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+func (x *ShutdownPrimaryRequest) GetPrimaryId() *clustermetadata.ID {
+	if x != nil {
+		return x.PrimaryId
+	}
+	return nil
+}
+
+func (x *ShutdownPrimaryRequest) GetDrainTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.DrainTimeout
+	}
+	return nil
+}
+
+func (x *ShutdownPrimaryRequest) GetStandbyCatchupTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.StandbyCatchupTimeout
+	}
+	return nil
+}
+
+func (x *ShutdownPrimaryRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ShutdownPrimaryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The newly elected primary after the switchover.
+	NewPrimaryId  *clustermetadata.ID `protobuf:"bytes,1,opt,name=new_primary_id,json=newPrimaryId,proto3" json:"new_primary_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownPrimaryResponse) Reset() {
+	*x = ShutdownPrimaryResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownPrimaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownPrimaryResponse) ProtoMessage() {}
+
+func (x *ShutdownPrimaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownPrimaryResponse.ProtoReflect.Descriptor instead.
+func (*ShutdownPrimaryResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ShutdownPrimaryResponse) GetNewPrimaryId() *clustermetadata.ID {
+	if x != nil {
+		return x.NewPrimaryId
+	}
+	return nil
+}
+
 var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"g\n" +
+	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"g\n" +
 	"\x12ShardStatusRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
@@ -758,13 +906,26 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"max_cycles\x18\x01 \x01(\rR\tmaxCycles\"T\n" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
-	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes2\xe1\x03\n" +
+	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\xca\x02\n" +
+	"\x16ShutdownPrimaryRequest\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
+	"\vtable_group\x18\x02 \x01(\tR\n" +
+	"tableGroup\x12\x14\n" +
+	"\x05shard\x18\x03 \x01(\tR\x05shard\x122\n" +
+	"\n" +
+	"primary_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12>\n" +
+	"\rdrain_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12Q\n" +
+	"\x17standby_catchup_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15standbyCatchupTimeout\x12\x16\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\"T\n" +
+	"\x17ShutdownPrimaryResponse\x129\n" +
+	"\x0enew_primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\fnewPrimaryId2\xbd\x04\n" +
 	"\x10MultiOrchService\x12Q\n" +
 	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00\x12Z\n" +
 	"\x0fDisableRecovery\x12!.multiorch.DisableRecoveryRequest\x1a\".multiorch.DisableRecoveryResponse\"\x00\x12W\n" +
 	"\x0eEnableRecovery\x12 .multiorch.EnableRecoveryRequest\x1a!.multiorch.EnableRecoveryResponse\"\x00\x12`\n" +
 	"\x11GetRecoveryStatus\x12#.multiorch.GetRecoveryStatusRequest\x1a$.multiorch.GetRecoveryStatusResponse\"\x00\x12c\n" +
-	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
+	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00\x12Z\n" +
+	"\x0fShutdownPrimary\x12!.multiorch.ShutdownPrimaryRequest\x1a\".multiorch.ShutdownPrimaryResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
 
 var (
 	file_multiorchservice_proto_rawDescOnce sync.Once
@@ -778,7 +939,7 @@ func file_multiorchservice_proto_rawDescGZIP() []byte {
 	return file_multiorchservice_proto_rawDescData
 }
 
-var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_multiorchservice_proto_goTypes = []any{
 	(*ShardStatusRequest)(nil),         // 0: multiorch.ShardStatusRequest
 	(*ShardStatusResponse)(nil),        // 1: multiorch.ShardStatusResponse
@@ -792,31 +953,40 @@ var file_multiorchservice_proto_goTypes = []any{
 	(*GetRecoveryStatusResponse)(nil),  // 9: multiorch.GetRecoveryStatusResponse
 	(*TriggerRecoveryNowRequest)(nil),  // 10: multiorch.TriggerRecoveryNowRequest
 	(*TriggerRecoveryNowResponse)(nil), // 11: multiorch.TriggerRecoveryNowResponse
-	(*clustermetadata.ID)(nil),         // 12: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),      // 13: google.protobuf.Timestamp
+	(*ShutdownPrimaryRequest)(nil),     // 12: multiorch.ShutdownPrimaryRequest
+	(*ShutdownPrimaryResponse)(nil),    // 13: multiorch.ShutdownPrimaryResponse
+	(*clustermetadata.ID)(nil),         // 14: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),      // 15: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),        // 16: google.protobuf.Duration
 }
 var file_multiorchservice_proto_depIdxs = []int32{
 	2,  // 0: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
 	3,  // 1: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
-	12, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	13, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
-	12, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
-	13, // 5: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
-	0,  // 6: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 7: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 8: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 9: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 10: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	1,  // 11: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 12: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 13: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	14, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
+	15, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
+	14, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
+	15, // 5: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
+	14, // 6: multiorch.ShutdownPrimaryRequest.primary_id:type_name -> clustermetadata.ID
+	16, // 7: multiorch.ShutdownPrimaryRequest.drain_timeout:type_name -> google.protobuf.Duration
+	16, // 8: multiorch.ShutdownPrimaryRequest.standby_catchup_timeout:type_name -> google.protobuf.Duration
+	14, // 9: multiorch.ShutdownPrimaryResponse.new_primary_id:type_name -> clustermetadata.ID
+	0,  // 10: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 11: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 12: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 13: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 14: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	12, // 15: multiorch.MultiOrchService.ShutdownPrimary:input_type -> multiorch.ShutdownPrimaryRequest
+	1,  // 16: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 17: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 18: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 19: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 20: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	13, // 21: multiorch.MultiOrchService.ShutdownPrimary:output_type -> multiorch.ShutdownPrimaryResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }
@@ -830,7 +1000,7 @@ func file_multiorchservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiorchservice_proto_rawDesc), len(file_multiorchservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

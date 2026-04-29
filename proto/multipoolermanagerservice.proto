@@ -83,6 +83,19 @@ service MultiPoolerManager {
   rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
       returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
 
+  // Shutdown initiates a graceful pooler shutdown identical to receiving SIGTERM.
+  //
+  // For PRIMARY poolers: signals PoolerType_STOPPING so multiorch can orchestrate
+  // a controlled failover (EmergencyDemote + AppointLeader) before the process
+  // exits. The pooler waits up to 45 s for multiorch to call EmergencyDemote and
+  // stop postgres; it stops postgres directly on timeout.
+  //
+  // For REPLICA poolers: stops postgres directly and exits.
+  //
+  // The response is delivered before the shutdown sequence starts, so callers
+  // will always receive a response. The process exit happens asynchronously.
+  rpc Shutdown(multipoolermanagerdata.ShutdownRequest) returns (multipoolermanagerdata.ShutdownResponse);
+
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.
   //

@@ -38,6 +38,7 @@ const (
 	MultiOrchService_EnableRecovery_FullMethodName     = "/multiorch.MultiOrchService/EnableRecovery"
 	MultiOrchService_GetRecoveryStatus_FullMethodName  = "/multiorch.MultiOrchService/GetRecoveryStatus"
 	MultiOrchService_TriggerRecoveryNow_FullMethodName = "/multiorch.MultiOrchService/TriggerRecoveryNow"
+	MultiOrchService_ShutdownPrimary_FullMethodName    = "/multiorch.MultiOrchService/ShutdownPrimary"
 )
 
 // MultiOrchServiceClient is the client API for MultiOrchService service.
@@ -68,6 +69,34 @@ type MultiOrchServiceClient interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(ctx context.Context, in *TriggerRecoveryNowRequest, opts ...grpc.CallOption) (*TriggerRecoveryNowResponse, error)
+	// ShutdownPrimary orchestrates a planned primary switchover.
+	//
+	// Normally called by the primary multipooler during graceful shutdown on the
+	// reception of a SIGTERM signal, but this is not a requirement.
+	//
+	// Sequence:
+	//  1. Validates that the pooler is currently PRIMARY or STOPPING.
+	//  2. Reads the primary's current WAL LSN. The multipooler has already set
+	//     PoolerType_STOPPING on the health stream before calling this RPC,
+	//     which causes the gateway to stop routing new writes — so this LSN is
+	//     a stable target for standby catchup.
+	//  3. Waits for all standbys to replay to that LSN. The primary is still
+	//     running and streaming WAL during this window. If the timeout expires
+	//     the switchover proceeds anyway to avoid hanging indefinitely.
+	//  4. Calls EmergencyDemote to stop the primary. Standbys have caught up
+	//     (or timed out), so there are few or no active writes left to drain.
+	//     Then updates the old primary's topology type to REPLICA so that the
+	//     topology never shows two PRIMARY nodes simultaneously.
+	//  5. Builds the election cohort from shard poolers, excluding STOPPING and
+	//     DRAINED poolers. This prevents the old primary from being re-elected
+	//     and prevents irreparable replicas from becoming candidates.
+	//  6. Elects a new primary via AppointLeader.
+	//  7. Polls shard poolers to confirm the new primary and returns its ID.
+	//
+	// Returns once a new primary has been elected. The caller can then shut down
+	// PostgreSQL cleanly. Errors are non-fatal: the caller should log and proceed
+	// with shutdown regardless.
+	ShutdownPrimary(ctx context.Context, in *ShutdownPrimaryRequest, opts ...grpc.CallOption) (*ShutdownPrimaryResponse, error)
 }
 
 type multiOrchServiceClient struct {
@@ -128,6 +157,16 @@ func (c *multiOrchServiceClient) TriggerRecoveryNow(ctx context.Context, in *Tri
 	return out, nil
 }
 
+func (c *multiOrchServiceClient) ShutdownPrimary(ctx context.Context, in *ShutdownPrimaryRequest, opts ...grpc.CallOption) (*ShutdownPrimaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShutdownPrimaryResponse)
+	err := c.cc.Invoke(ctx, MultiOrchService_ShutdownPrimary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiOrchServiceServer is the server API for MultiOrchService service.
 // All implementations must embed UnimplementedMultiOrchServiceServer
 // for forward compatibility.
@@ -156,6 +195,34 @@ type MultiOrchServiceServer interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error)
+	// ShutdownPrimary orchestrates a planned primary switchover.
+	//
+	// Normally called by the primary multipooler during graceful shutdown on the
+	// reception of a SIGTERM signal, but this is not a requirement.
+	//
+	// Sequence:
+	//  1. Validates that the pooler is currently PRIMARY or STOPPING.
+	//  2. Reads the primary's current WAL LSN. The multipooler has already set
+	//     PoolerType_STOPPING on the health stream before calling this RPC,
+	//     which causes the gateway to stop routing new writes — so this LSN is
+	//     a stable target for standby catchup.
+	//  3. Waits for all standbys to replay to that LSN. The primary is still
+	//     running and streaming WAL during this window. If the timeout expires
+	//     the switchover proceeds anyway to avoid hanging indefinitely.
+	//  4. Calls EmergencyDemote to stop the primary. Standbys have caught up
+	//     (or timed out), so there are few or no active writes left to drain.
+	//     Then updates the old primary's topology type to REPLICA so that the
+	//     topology never shows two PRIMARY nodes simultaneously.
+	//  5. Builds the election cohort from shard poolers, excluding STOPPING and
+	//     DRAINED poolers. This prevents the old primary from being re-elected
+	//     and prevents irreparable replicas from becoming candidates.
+	//  6. Elects a new primary via AppointLeader.
+	//  7. Polls shard poolers to confirm the new primary and returns its ID.
+	//
+	// Returns once a new primary has been elected. The caller can then shut down
+	// PostgreSQL cleanly. Errors are non-fatal: the caller should log and proceed
+	// with shutdown regardless.
+	ShutdownPrimary(context.Context, *ShutdownPrimaryRequest) (*ShutdownPrimaryResponse, error)
 	mustEmbedUnimplementedMultiOrchServiceServer()
 }
 
@@ -180,6 +247,9 @@ func (UnimplementedMultiOrchServiceServer) GetRecoveryStatus(context.Context, *G
 }
 func (UnimplementedMultiOrchServiceServer) TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerRecoveryNow not implemented")
+}
+func (UnimplementedMultiOrchServiceServer) ShutdownPrimary(context.Context, *ShutdownPrimaryRequest) (*ShutdownPrimaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ShutdownPrimary not implemented")
 }
 func (UnimplementedMultiOrchServiceServer) mustEmbedUnimplementedMultiOrchServiceServer() {}
 func (UnimplementedMultiOrchServiceServer) testEmbeddedByValue()                          {}
@@ -292,6 +362,24 @@ func _MultiOrchService_TriggerRecoveryNow_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiOrchService_ShutdownPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShutdownPrimaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiOrchServiceServer).ShutdownPrimary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiOrchService_ShutdownPrimary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiOrchServiceServer).ShutdownPrimary(ctx, req.(*ShutdownPrimaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiOrchService_ServiceDesc is the grpc.ServiceDesc for MultiOrchService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -318,6 +406,10 @@ var MultiOrchService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerRecoveryNow",
 			Handler:    _MultiOrchService_TriggerRecoveryNow_Handler,
+		},
+		{
+			MethodName: "ShutdownPrimary",
+			Handler:    _MultiOrchService_ShutdownPrimary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

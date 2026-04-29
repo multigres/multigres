@@ -472,6 +472,13 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		if topologyPrimary.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
 			sa.PromotingPrimaryID = topologyPrimary.MultiPooler.Id
 		}
+
+		// Detect graceful primary shutdown: pooler reports STOPPING while it is the
+		// highest-term primary. ShutdownPrimary will handle the election, so
+		// PrimaryIsDeadAnalyzer should not trigger a second concurrent failover.
+		if topologyPrimary.GetStatus().GetPoolerType() == clustermetadatapb.PoolerType_STOPPING {
+			sa.PrimaryIsStopping = true
+		}
 	}
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.

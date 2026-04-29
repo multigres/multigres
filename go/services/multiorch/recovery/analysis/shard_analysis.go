@@ -105,6 +105,11 @@ type ShardAnalysis struct {
 	// Used by PrimaryIsDeadAnalyzer to suppress spurious failover detection during the
 	// brief window (~5–10s) when the newly promoted node's postgres is not yet ready.
 	PromotingPrimaryID *clustermetadatapb.ID
+
+	// PrimaryIsStopping is true when the topology primary has signalled PoolerType_STOPPING,
+	// indicating a graceful shutdown is in progress. When true, PrimaryIsDeadAnalyzer
+	// suppresses its failover because the ShutdownPrimary flow handles the election.
+	PrimaryIsStopping bool
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the primary's
