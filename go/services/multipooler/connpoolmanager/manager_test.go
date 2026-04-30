@@ -371,8 +371,11 @@ func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
 	assert.Equal(t, 2, calls, "should retry exactly once after auth failure")
 	require.Len(t, seenPools, 2)
 	assert.NotSame(t, seenPools[0], seenPools[1], "retry must run against a freshly-built pool, not the evicted one")
-	assert.False(t, manager.HasUserPool("testuser") && manager.userPoolsSnapshot.Load() != nil && (*manager.userPoolsSnapshot.Load())["testuser"] == seenPools[0],
-		"the original stale pool must no longer be in the snapshot")
+
+	snap := manager.userPoolsSnapshot.Load()
+	require.NotNil(t, snap, "snapshot must be loaded after retry")
+	assert.True(t, manager.HasUserPool("testuser"), "user pool must be present in fresh snapshot")
+	assert.NotSame(t, seenPools[0], (*snap)["testuser"], "the original stale pool must no longer be in the snapshot")
 }
 
 // TestWithReopenRetry_SurfacesPersistentAuthError ensures that if the retry
