@@ -549,3 +549,11 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 
 	return fmt.Errorf("timeout: %s failed to start listening on port %d after %d attempts", name, grpcPort, connectAttempts)
 }
+
+// pauseProcess sends SIGSTOP to pid, suspending the process. The kernel
+// keeps the pid valid until SIGCONT (resumeProcess) or until the process
+// is reaped.
+func pauseProcess(pid int) error { return syscall.Kill(pid, syscall.SIGSTOP) }
+
+// resumeProcess sends SIGCONT to pid, resuming a previously paused process.
+func resumeProcess(pid int) error { return syscall.Kill(pid, syscall.SIGCONT) }

@@ -1,4 +1,4 @@
-# Copyright 2025 Supabase, Inc.
+# Copyright 2026 Supabase, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Multigres Integration Tests
+name: Multigres Backup Fault-Tolerance Tests
 
 on:
   push:
@@ -23,9 +23,19 @@ on:
 permissions: {}
 
 jobs:
-  test-integration:
-    name: Run full integration test suite
+  test-backup-fault:
+    name: backup-fault-${{ matrix.shard.name }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: A
+            tests: "TestBackup_FailureMatrix_PrimaryFailover|TestBackup_TimelineSwitchAndChainContinuity"
+          - name: B
+            tests: "TestBackup_FailureMatrix_PlannedSwitchover|TestBackup_StalePrimaryArchiveFencing"
+          - name: C
+            tests: "TestBackup_ReplicaDownDuringBackup|TestBackup_ConcurrentMatrix"
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -40,6 +50,15 @@ jobs:
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
 
+      # System V shared memory segments leak when previous postgres processes
+      # are not shut down cleanly (e.g., a prior shard run left tmpfiles).
+      # Clear them up front so this shard's PostgreSQL instances can allocate
+      # their own. macOS-style note in CLAUDE.md applies on Linux runners
+      # too, just less commonly.
+      - name: Clear leaked SysV shmem segments
+        run: |
+          ipcs -m | awk -v u="$USER" '$5==u {print $2}' | xargs -r -n1 ipcrm -m || true
+
       - name: Build
         run: make build
 
@@ -49,14 +68,17 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
-      - name: Run integration tests
+      - name: Run backup fault tests (shard ${{ matrix.shard.name }})
         env:
           TEST_PRINT_LOGS: "1"
           AWS_ACCESS_KEY_ID: test-access-key
           AWS_SECRET_ACCESS_KEY: test-secret-key
-        # Backup fault-tolerance tests are run by test-integration-backup-fault.yml
-        # in three parallel shards; skip them here to avoid duplication.
-        run: go test -json -v -skip 'TestPostgreSQLRegression|TestBackup_(FailureMatrix|TimelineSwitchAndChainContinuity|StalePrimaryArchiveFencing|ReplicaDownDuringBackup|ConcurrentMatrix)' ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
+        run: |
+          go test -json -v -timeout 15m -parallel 4 \
+            -run '^(${{ matrix.shard.tests }})$' \
+            ./go/test/endtoend/multipooler/... \
+            | tee backup-fault-results-${{ matrix.shard.name }}.jsonl \
+            | go tool tparse -follow
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
@@ -65,14 +87,14 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: ${{ !cancelled() }}
         with:
-          name: integration-test-logs
-          path: integration-test-results.jsonl
+          name: backup-fault-results-${{ matrix.shard.name }}
+          path: backup-fault-results-${{ matrix.shard.name }}.jsonl
           retention-days: 7
 
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
-          name: Integration Tests
-          path: integration-test-results.jsonl
+          name: Backup Fault Tests (shard ${{ matrix.shard.name }})
+          path: backup-fault-results-${{ matrix.shard.name }}.jsonl
           reporter: golang-json

@@ -16,8 +16,7 @@ package multipooler
 
 import (
 	"context"
-	"os"
-	"sync/atomic"
+	"fmt"
 	"testing"
 	"time"
 
@@ -31,56 +30,67 @@ import (
 	"github.com/multigres/multigres/go/tools/s3mock"
 )
 
-// TestBackup_FailsDuringPrimaryFailover verifies that pgBackRest fails cleanly when
-// the primary PostgreSQL instance disappears while a backup is in progress.
+// TestBackup_FailureMatrix_PrimaryFailover exercises pgBackRest's response when
+// the primary postgres is killed mid-backup. The matrix covers backup source:
+// either from the primary itself (ForcePrimary) or from a standby.
 //
-// The test uses s3mock's PutCallback to pause pgBackRest mid-upload, giving us a
-// deterministic point to trigger the failover before unblocking.
-func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
+// The original design proposed three pause points (PgStart / Upload / Finalize).
+// Empirically, only Upload is a useful pause point for the "kill primary
+// postgres" fault model:
+//
+//   - PgStart is not a distinct S3 event. pg_start_backup is a SQL operation
+//     that writes nothing to S3; pgBackRest's first S3 write is the first data
+//     bundle, which is already what Upload captures.
+//   - Finalize (paused at backup.manifest write) happens AFTER pg_stop_backup
+//     has already returned. Killing postgres at that point does not fail the
+//     backup — the data is uploaded, the WAL stop position is captured, and
+//     pgBackRest just needs to write the manifest. That fault is covered
+//     elsewhere (lease-steal test) under a different fault model.
+//
+// Each sub-case runs in its own isolated cluster so they can run in parallel.
+func TestBackup_FailureMatrix_PrimaryFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
+	t.Parallel()
 
-	// Channels for coordinating with s3mock
-	uploadStarted := make(chan struct{}, 1)
-	unblock := make(chan struct{})
+	type pausePoint struct {
+		name    string
+		matcher s3mock.Matcher
+	}
+	pausePoints := []pausePoint{
+		{"Upload", s3mock.MatchDataUpload},
+	}
+	sources := []string{"Primary", "Standby"}
 
-	// blockPuts gates the callback: false during bootstrap, true once backup starts.
-	// This prevents the callback from interfering with bootstrap-time pgBackRest operations.
-	var blockPuts atomic.Bool
+	for _, src := range sources {
+		for _, pp := range pausePoints {
+			t.Run(fmt.Sprintf("Source=%s/Pause=%s", src, pp.name), func(t *testing.T) {
+				t.Parallel()
+				runFailoverMatrixCase(t, src, pp.name, pp.matcher)
+			})
+		}
+	}
+}
 
-	// Create a test-local s3mock with PutCallback — not the shared instance
-	s3Server, err := s3mock.NewServer(0, s3mock.WithPutCallback(
-		func(ctx context.Context, bucket, key string) error {
-			if !blockPuts.Load() {
-				return nil
-			}
-			// Signal once when the first upload arrives
-			select {
-			case uploadStarted <- struct{}{}:
-			default:
-			}
-			// Block until the test says to proceed (or request is cancelled)
-			select {
-			case <-unblock:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		},
-	))
+// runFailoverMatrixCase implements one matrix cell: bring up a 3-node cluster,
+// arm the s3mock gate at the chosen pause point, start a backup from the chosen
+// source, kill the primary postgres while the backup is paused, and verify
+// (a) the backup fails, (b) it leaves no orphan COMPLETE entry, (c) a new
+// primary is elected.
+func runFailoverMatrixCase(t *testing.T, source, pauseName string, matcher s3mock.Matcher) {
+	tlog := newBackupTestLogger(t)
+	tlog.Log("matrix case Source=%s Pause=%s", source, pauseName)
+
+	gate := s3mock.NewGate(matcher)
+	s3Server, err := s3mock.NewServer(0, s3mock.WithGate(gate))
 	require.NoError(t, err)
 	defer func() { _ = s3Server.Stop() }()
-
 	require.NoError(t, s3Server.CreateBucket("multigres"))
 
-	// Set AWS credentials required by pgBackRest (s3mock does not validate them)
-	t.Setenv("AWS_ACCESS_KEY_ID", "test-access-key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
-	os.Unsetenv("AWS_SESSION_TOKEN") // ensure no stale session token
+	// AWS credentials for pgBackRest are set process-wide in TestMain so they
+	// survive t.Parallel sub-tests without each test calling t.Setenv.
 
-	// Isolated shard: 3 multipoolers + 1 multiorch for failover, S3 backend.
-	// 3 nodes are required so that AT_LEAST_2 quorum can be satisfied after the primary is killed.
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiOrchCount(1),
@@ -92,90 +102,82 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiOrchs(t.Context(), t)
+	gate.Arm()
 
-	// Bootstrap is complete — enable PUT blocking so the backup will be intercepted.
-	blockPuts.Store(true)
-
-	// Record original primary before we kill it
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary)
 	originalPrimaryName := setup.PrimaryName
-	t.Logf("Primary before backup: %s", originalPrimaryName)
+	tlog.Log("primary=%s before backup", originalPrimaryName)
 
-	// Find the standby instance for the backup client.
-	// Backing up from a standby exercises the pgBackRest TLS server code path:
-	// shardsetup always generates pgBackRest TLS certs, so the standby's pgBackRest
-	// connects to the primary via --pg2-host-type=tls.
-	var standbyInst *shardsetup.MultipoolerInstance
-	for name, inst := range setup.Multipoolers {
-		if name != originalPrimaryName {
-			standbyInst = inst
-			break
+	// Pick the backup client based on source. Standby case mirrors the
+	// long-standing failover test: a standby running pgBackRest connects to
+	// the primary's pgBackRest TLS server.
+	backupClient := createBackupClient(t, primary.Multipooler.GrpcPort)
+	forcePrimary := true
+	if source == "Standby" {
+		var standbyInst *shardsetup.MultipoolerInstance
+		for name, inst := range setup.Multipoolers {
+			if name != originalPrimaryName {
+				standbyInst = inst
+				break
+			}
 		}
+		require.NotNil(t, standbyInst, "expected a standby instance")
+		backupClient = createBackupClient(t, standbyInst.Multipooler.GrpcPort)
+		forcePrimary = false
 	}
-	require.NotNil(t, standbyInst, "expected a standby instance")
-	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
-	// Disable postgres restarts on all nodes so that multipooler does not
-	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
+	// Disable postgres restarts so multiorch is the only path back to a primary.
 	for name, inst := range setup.Multipoolers {
 		mc := createBackupClient(t, inst.Multipooler.GrpcPort)
-		_, err := mc.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdata.SetPostgresRestartsEnabledRequest{Enabled: false})
+		_, err := mc.SetPostgresRestartsEnabled(t.Context(),
+			&multipoolermanagerdata.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err, "failed to disable postgres restarts on %s", name)
-		t.Logf("Disabled postgres restarts on %s", name)
 	}
 
-	// Tag the backup so we can check its specific status after failure.
-	const testJobID = "failover-test-backup"
+	// Wait for the multipooler's automatic post-init backup to finish before
+	// arming the gate. See waitForBootstrapBackup in backup_test_helpers.go.
+	waitForBootstrapBackup(t, backupClient)
 
-	// Start a full backup from the standby in a goroutine (it will block inside s3mock).
-	// The standby connects to the primary's pgBackRest TLS server (pg2-host-type=tls).
+	jobID := fmt.Sprintf("failover-%s-%s", source, pauseName)
 	backupErrCh := make(chan error, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, err := backupClient.Backup(ctx, &multipoolermanagerdata.BackupRequest{
-			Type:  "full",
-			JobId: testJobID,
+			Type:         "full",
+			JobId:        jobID,
+			ForcePrimary: forcePrimary,
 		})
 		backupErrCh <- err
 	}()
 
-	// Wait for pgBackRest to reach the upload phase
-	t.Log("Waiting for pgBackRest to start uploading to s3mock...")
-	select {
-	case <-uploadStarted:
-		t.Log("pgBackRest is mid-upload — triggering failover now")
-	case <-time.After(1 * time.Minute):
-		t.Fatal("timed out waiting for pgBackRest to start uploading")
-	}
+	tlog.Log("waiting for gate hit at pause=%s", pauseName)
+	hit, err := waitForGateOrEarlyError(t, gate, backupErrCh, 2*time.Minute)
+	require.NoError(t, err, "timed out waiting for pgBackRest at pause=%s", pauseName)
+	tlog.Log("paused at key=%s", hit.Key)
 
-	// Kill postgres on the primary to trigger failover
 	setup.KillPostgres(t, originalPrimaryName)
+	tlog.Log("killed postgres on %s", originalPrimaryName)
+	gate.Release()
+	tlog.Log("released gate")
 
-	// Unblock s3mock — pgBackRest resumes and discovers postgres is gone
-	close(unblock)
-
-	// Wait for backup goroutine to return
 	backupErr := <-backupErrCh
+	require.Error(t, backupErr, "backup must fail when primary postgres dies mid-backup (Source=%s Pause=%s)", source, pauseName)
+	tlog.Log("backup failed as expected: %v", backupErr)
 
-	// Assertion 1: backup must fail
-	require.Error(t, backupErr, "standby backup must fail when primary postgres disappears mid-backup")
-	t.Logf("Backup failed as expected: %v", backupErr)
-
-	// Assertion 2: the specific backup we started must not be marked complete
+	// Assertion: the failed backup must not be marked COMPLETE.
 	jobCtx := utils.WithTimeout(t, 30*time.Second)
-	jobResp, err := backupClient.GetBackupByJobId(jobCtx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: testJobID})
-	if err == nil && jobResp.GetBackup() != nil {
+	jobResp, getErr := backupClient.GetBackupByJobId(jobCtx,
+		&multipoolermanagerdata.GetBackupByJobIdRequest{JobId: jobID})
+	if getErr == nil && jobResp.GetBackup() != nil {
 		assert.NotEqual(t, multipoolermanagerdata.BackupMetadata_COMPLETE, jobResp.Backup.Status,
-			"the failed backup must not be marked complete (id=%s status=%s)",
+			"failed backup must not be marked complete (id=%s status=%s)",
 			jobResp.Backup.BackupId, jobResp.Backup.Status)
 	}
-	// If GetBackupByJobId returns an error (backup not found), that is also acceptable —
-	// it means pgBackRest never completed the backup and left no record.
 
-	// Assertion 3: cluster is healthy — a new primary is elected and postgres is running
-	t.Log("Waiting for a new primary to be elected...")
+	// Assertion: a new primary is elected.
+	tlog.Log("waiting for new primary to be elected")
 	require.Eventually(t, func() bool {
 		for name, inst := range setup.Multipoolers {
 			if name == originalPrimaryName {
@@ -193,10 +195,10 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 			if resp.Status.IsInitialized &&
 				resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
 				resp.Status.PostgresReady {
-				t.Logf("New primary elected: %s", name)
+				tlog.Log("new primary elected: %s", name)
 				return true
 			}
 		}
 		return false
-	}, 30*time.Second, 500*time.Millisecond, "a new primary should be elected and running after failover")
+	}, 60*time.Second, 500*time.Millisecond, "a new primary should be elected after failover")
 }

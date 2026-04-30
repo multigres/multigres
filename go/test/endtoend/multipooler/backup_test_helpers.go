@@ -23,6 +23,7 @@ package multipooler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -37,12 +38,77 @@ import (
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/s3mock"
 )
 
 // Backup ID format patterns
 var (
 	fullBackupIDPattern = regexp.MustCompile(`^\d{8}-\d{6}F$`)
 )
+
+// waitForBootstrapBackup blocks until the multipooler's automatic post-init
+// backup has finished (i.e. at least one backup is visible in COMPLETE
+// state). Tests must call this before launching their own backup, otherwise
+// they race the auto-backup for the pgBackRest stanza lock and pgBackRest
+// exits 56 with "is another pgBackRest process running?" — which makes the
+// gate.Wait block until its timeout instead of failing fast.
+func waitForBootstrapBackup(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		resp, err := client.GetBackups(ctx, &multipoolermanagerdata.GetBackupsRequest{Limit: 5})
+		if err != nil {
+			return false
+		}
+		for _, b := range resp.Backups {
+			if b.Status == multipoolermanagerdata.BackupMetadata_COMPLETE {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Minute, 1*time.Second, "automatic post-init backup did not reach COMPLETE in time")
+}
+
+// waitForGateOrEarlyError blocks on gate.Wait but also surfaces an early
+// return from the backup goroutine. If pgBackRest exits before producing a
+// matching PUT (e.g. exit 56 when the stanza lock is held), backupErrCh
+// receives the error before gate.Wait fires; we want to see that error
+// immediately instead of waiting out the full gate timeout.
+func waitForGateOrEarlyError(
+	t *testing.T,
+	gate *s3mock.Gate,
+	backupErrCh <-chan error,
+	timeout time.Duration,
+) (s3mock.Hit, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	type gateResult struct {
+		hit s3mock.Hit
+		err error
+	}
+	gateCh := make(chan gateResult, 1)
+	go func() {
+		hit, err := gate.Wait(ctx)
+		gateCh <- gateResult{hit, err}
+	}()
+
+	select {
+	case r := <-gateCh:
+		return r.hit, r.err
+	case bErr := <-backupErrCh:
+		// Backup returned before reaching the gate. Cancel the gate goroutine
+		// and surface the backup error.
+		cancel()
+		<-gateCh
+		if bErr != nil {
+			return s3mock.Hit{}, fmt.Errorf("backup failed before reaching the gate: %w", bErr)
+		}
+		return s3mock.Hit{}, errors.New("backup completed without ever hitting the gate")
+	}
+}
 
 // createBackupClient creates a gRPC client for backup operations.
 // The connection is automatically closed via t.Cleanup.

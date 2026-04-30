@@ -1816,6 +1816,34 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
 }
 
+// PauseMultipooler suspends the multipooler process on the named node by
+// sending SIGSTOP. pgctld and postgres keep running; the multipooler stops
+// emitting heartbeats and serving RPCs, which from multiorch's perspective
+// looks like a fenced node. Pair with ResumeMultipooler.
+func (s *ShardSetup) PauseMultipooler(t *testing.T, name string) {
+	t.Helper()
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+	require.NotNil(t, inst.Multipooler, "multipooler not running on %s", name)
+	require.NotNil(t, inst.Multipooler.Process, "multipooler process not started on %s", name)
+	pid := inst.Multipooler.Process.Process.Pid
+	require.NoError(t, pauseProcess(pid), "failed to SIGSTOP multipooler on %s", name)
+	t.Logf("Paused multipooler %s (pid=%d)", name, pid)
+}
+
+// ResumeMultipooler unpauses a previously paused multipooler by sending
+// SIGCONT. Pairs with PauseMultipooler.
+func (s *ShardSetup) ResumeMultipooler(t *testing.T, name string) {
+	t.Helper()
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+	require.NotNil(t, inst.Multipooler, "multipooler not running on %s", name)
+	require.NotNil(t, inst.Multipooler.Process, "multipooler process not started on %s", name)
+	pid := inst.Multipooler.Process.Process.Pid
+	require.NoError(t, resumeProcess(pid), "failed to SIGCONT multipooler on %s", name)
+	t.Logf("Resumed multipooler %s (pid=%d)", name, pid)
+}
+
 // StopPostgres disables automatic postgres restarts on the named node, then stops postgres
 // via the pgctld Stop RPC with the given mode (e.g. "fast", "immediate").
 // It returns a resume function that re-enables restarts; the caller should defer it.
