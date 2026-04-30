@@ -127,8 +127,10 @@ jobs:
           max_attempts=3
           while [ $attempt -le $max_attempts ]; do
             # Wipe the coverage dir before each attempt so the final
-            # profile reflects only the successful pass.
-            rm -rf "$GOCOVERDIR"/*
+            # profile reflects only the successful pass. The :? guard
+            # forces the script to abort if GOCOVERDIR ever ends up
+            # empty, so we can never accidentally rm -rf /*.
+            rm -rf "${GOCOVERDIR:?}"/*
             if go test -json -v -skip TestPostgreSQLRegression ./... \
                 | tee coverage-subprocess-test-results.jsonl \
                 | go tool tparse -follow ; then

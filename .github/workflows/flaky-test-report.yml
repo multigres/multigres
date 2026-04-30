@@ -18,6 +18,10 @@ on:
   schedule:
     # Mondays at 14:00 UTC.
     - cron: "0 14 * * 1"
+  # checkov:skip=CKV_GHA_7: inputs are read-only flags that gate aggregator
+  # behavior (lookback window, threshold, dry-run); they do not influence any
+  # build artifact, so the "build output cannot be affected by user
+  # parameters" rule does not apply.
   workflow_dispatch:
     inputs:
       days:
