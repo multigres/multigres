@@ -162,7 +162,7 @@ func NewMultiGateway() *MultiGateway {
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
-			Default:  2 * 1024 * 1024, // 2 MB; 0 disables per-query tracking
+			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
 			FlagName: "query-metrics-memory",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_METRICS_MEMORY"},

@@ -162,7 +162,7 @@ type Config struct {
 // DefaultConfig returns reasonable defaults for the registry.
 func DefaultConfig() Config {
 	return Config{
-		MaxMemoryBytes:     2 * 1024 * 1024, // 2 MB
+		MaxMemoryBytes:     8 * 1024 * 1024, // 8 MB — sized so the per-fingerprint trend rings (5 × TrendWindowSamples × 8 B) don't shrink admission capacity vs the pre-trend layout.
 		MaxSQLLength:       4096,
 		SampleInterval:     10 * time.Second,
 		TrendWindowSamples: 60, // 60 × 10s = 10-minute trend window
