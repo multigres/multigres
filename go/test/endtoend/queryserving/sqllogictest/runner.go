@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
@@ -58,6 +59,15 @@ type runResult struct {
 // CREATE TABLE statements and assumes no leftover state from the previous
 // file or previous protocol).
 //
+// resetter performs the per-file `DROP SCHEMA public CASCADE; CREATE SCHEMA
+// public; …` cycle. It is supplied by the caller so the same long-lived
+// connection is reused across all files. Without that reuse, each fresh pgx
+// connection-per-call generates a wave of pg_class / pg_namespace
+// invalidation messages that pile up against pooled multipooler backends
+// the simple-protocol path eventually lands on, producing a multi-second
+// catalog-cache rebuild on first use of those connections (most visibly:
+// `slt_good_125` simple hitting `statement_timeout` in CI).
+//
 // The runner always returns a *runResult; it never fails the test. Callers
 // decide what to do with the outcome (typically: aggregate into the
 // results.json report).
@@ -65,7 +75,7 @@ type runResult struct {
 // engine selects the sqllogictest-rs executor mode: "postgres" for the simple
 // wire protocol and "postgres-extended" for the extended one. An empty string
 // defaults to "postgres".
-func runSqllogictest(ctx context.Context, t suiteutil.Target, engine, file string) *runResult {
+func runSqllogictest(ctx context.Context, t suiteutil.Target, resetter *suiteutil.SchemaResetter, engine, file string) *runResult {
 	bin, lookErr := exec.LookPath("sqllogictest")
 	if lookErr != nil {
 		return &runResult{
@@ -74,7 +84,7 @@ func runSqllogictest(ctx context.Context, t suiteutil.Target, engine, file strin
 		}
 	}
 
-	if err := suiteutil.ResetPublicSchema(ctx, t); err != nil {
+	if err := resetter.ResetIfDirty(ctx); err != nil {
 		return &runResult{
 			File:    file,
 			ExecErr: fmt.Errorf("reset target %s: %w", t.Name, err),
@@ -105,10 +115,25 @@ func runSqllogictest(ctx context.Context, t suiteutil.Target, engine, file strin
 	err := cmd.Run()
 	elapsed := time.Since(start)
 
+	output := buf.String()
+
+	// Mark the resetter dirty unless this run never reached the database.
+	// sqllogictest exits with "failed to parse" before opening any
+	// connection when a .test file uses syntax it doesn't recognise (e.g.
+	// `onlyif mysql # …`); those files leave the schema untouched, so the
+	// next file can reuse the prior reset. Skipping those resets keeps the
+	// pg_namespace/pg_class invalidation queue from piling up against
+	// pooled multipooler backends — see SchemaResetter for the failure
+	// mode this prevents (slt_good_125's simple-protocol
+	// statement_timeout in CI).
+	if !strings.Contains(output, "failed to parse") {
+		resetter.MarkDirty()
+	}
+
 	res := &runResult{
 		File:     file,
 		Duration: elapsed,
-		Output:   truncateOutput(buf.String(), maxOutputBytes),
+		Output:   truncateOutput(output, maxOutputBytes),
 	}
 
 	switch {
