@@ -34,10 +34,11 @@ import (
 // Values are parsed at plan time and stored in typed fields so execution is a
 // simple assignment with no parsing overhead per query.
 type GatewaySessionState struct {
-	sql      string // Original SQL for debugging
-	variable string // Variable name (e.g., "statement_timeout")
-	isReset  bool   // true for RESET, SET ... TO DEFAULT, or SET LOCAL ... TO DEFAULT
-	isLocal  bool   // true if the source statement included LOCAL
+	sql         string // Original SQL for debugging
+	variable    string // Variable name (e.g., "statement_timeout")
+	isReset     bool   // true for RESET, SET ... TO DEFAULT, or SET LOCAL ... TO DEFAULT
+	isLocal     bool   // true if the source statement included LOCAL
+	isResetStmt bool   // true only for the literal `RESET var` statement; controls CommandTag
 
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
@@ -52,6 +53,12 @@ type GatewaySessionState struct {
 	//   true    false    RESET var | SET var TO DEFAULT       clear session (and any local)
 	//   true    true     SET LOCAL var TO DEFAULT             transaction-local revert to
 	//                                                         default; session preserved
+	//
+	// isResetStmt is an orthogonal flag used only to derive the wire-protocol
+	// CommandTag. PostgreSQL returns "RESET" only for the literal `RESET var`
+	// statement; `SET [LOCAL] var TO DEFAULT` returns "SET" even though it
+	// shares semantics with RESET. So isResetStmt is true only when isReset is
+	// true AND the source was VAR_RESET (never VAR_SET_DEFAULT).
 }
 
 // NewStatementTimeoutSet creates a primitive that SETs `statement_timeout`.
@@ -72,13 +79,17 @@ func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal 
 // the SET LOCAL ... TO DEFAULT semantic (transaction-scoped override to
 // the server default that masks any session value). When isLocal is false,
 // it performs the session-level RESET (or SET ... TO DEFAULT) which clears
-// the session override entirely.
-func NewGatewaySessionStateReset(sql string, variable string, isLocal bool) *GatewaySessionState {
+// the session override entirely. isResetStmt must be true only for the
+// literal `RESET var` statement (VAR_RESET); for `SET [LOCAL] var TO
+// DEFAULT` (VAR_SET_DEFAULT) it must be false so the CommandTag is "SET",
+// matching PostgreSQL.
+func NewGatewaySessionStateReset(sql string, variable string, isLocal bool, isResetStmt bool) *GatewaySessionState {
 	return &GatewaySessionState{
-		sql:      sql,
-		variable: variable,
-		isReset:  true,
-		isLocal:  isLocal,
+		sql:         sql,
+		variable:    variable,
+		isReset:     true,
+		isLocal:     isLocal,
+		isResetStmt: isResetStmt,
 	}
 }
 
@@ -91,8 +102,12 @@ func (g *GatewaySessionState) StreamExecute(
 	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// PostgreSQL returns "RESET" only for the literal `RESET var` statement.
+	// `SET [LOCAL] var TO DEFAULT` and all other SET forms return "SET", even
+	// though VAR_SET_DEFAULT shares semantics with RESET. Use isResetStmt
+	// (set by the planner from stmt.Kind == VAR_RESET) so the tag matches PG.
 	commandTag := "SET"
-	if g.isReset {
+	if g.isResetStmt {
 		commandTag = "RESET"
 	}
 

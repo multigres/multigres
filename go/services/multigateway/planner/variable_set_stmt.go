@@ -151,9 +151,13 @@ func (p *Planner) planGatewayManagedVariable(
 		// which never passes isGatewayManagedVariable. RESET ALL is handled by
 		// ApplySessionState (after routing to PostgreSQL) which resets both
 		// PostgreSQL session settings and gateway-managed variables.
+		// isResetStmt is set only for VAR_RESET so the wire CommandTag is
+		// "RESET" for `RESET var` and "SET" for `SET [LOCAL] var TO DEFAULT`,
+		// matching PostgreSQL.
+		isResetStmt := stmt.Kind == ast.VAR_RESET
 		p.logger.Debug("planning RESET gateway-managed variable",
-			"variable", name, "is_local", stmt.IsLocal)
-		return engine.NewGatewaySessionStateReset(sql, name, stmt.IsLocal), nil
+			"variable", name, "is_local", stmt.IsLocal, "is_reset_stmt", isResetStmt)
+		return engine.NewGatewaySessionStateReset(sql, name, stmt.IsLocal, isResetStmt), nil
 
 	default:
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError,
