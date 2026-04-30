@@ -467,6 +467,19 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction:      remedialActionNone,
 		},
 		{
+			// STOPPING is intentional: OnTermSync set it so multiorch can call EmergencyDemote.
+			// The monitor must not overwrite it back to PRIMARY even though postgres is still
+			// running as primary — doing so would block the graceful-shutdown path.
+			name: "postgres_ready_primary_type_is_stopping_no_action",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_STOPPING,
+			expectedAction: remedialActionNone,
+		},
+		{
 			name: "postgres_stopped_start",
 			state: postgresState{
 				pgctldAvailable: true,

@@ -57,6 +57,11 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, err
 		return nil, nil
 	}
 
+	// Primary is gracefully stopping — ShutdownPrimary handles the election.
+	if sa.PrimaryIsStopping {
+		return nil, nil
+	}
+
 	// No initialized replica to confirm the primary is dead — skip to avoid false positives
 	// when the shard has no replica that has joined the cohort yet.
 	if !sa.HasInitializedReplica {

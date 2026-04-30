@@ -17,6 +17,7 @@ syntax = "proto3";
 package multiorch;
 
 import "clustermetadata.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiorch";
@@ -49,6 +50,35 @@ service MultiOrchService {
   // - Returns when either: (1) no problems remain, or (2) context times out
   // - If recovery is disabled, this temporarily enables it during this operation
   rpc TriggerRecoveryNow(TriggerRecoveryNowRequest) returns (TriggerRecoveryNowResponse) {}
+
+  // ShutdownPrimary orchestrates a planned primary switchover.
+  //
+  // Normally called by the primary multipooler during graceful shutdown on the
+  // reception of a SIGTERM signal, but this is not a requirement.
+  //
+  // Sequence:
+  //   1. Validates that the pooler is currently PRIMARY or STOPPING.
+  //   2. Reads the primary's current WAL LSN. The multipooler has already set
+  //      PoolerType_STOPPING on the health stream before calling this RPC,
+  //      which causes the gateway to stop routing new writes — so this LSN is
+  //      a stable target for standby catchup.
+  //   3. Waits for all standbys to replay to that LSN. The primary is still
+  //      running and streaming WAL during this window. If the timeout expires
+  //      the switchover proceeds anyway to avoid hanging indefinitely.
+  //   4. Calls EmergencyDemote to stop the primary. Standbys have caught up
+  //      (or timed out), so there are few or no active writes left to drain.
+  //      Then updates the old primary's topology type to REPLICA so that the
+  //      topology never shows two PRIMARY nodes simultaneously.
+  //   5. Builds the election cohort from shard poolers, excluding STOPPING and
+  //      DRAINED poolers. This prevents the old primary from being re-elected
+  //      and prevents irreparable replicas from becoming candidates.
+  //   6. Elects a new primary via AppointLeader.
+  //   7. Polls shard poolers to confirm the new primary and returns its ID.
+  //
+  // Returns once a new primary has been elected. The caller can then shut down
+  // PostgreSQL cleanly. Errors are non-fatal: the caller should log and proceed
+  // with shutdown regardless.
+  rpc ShutdownPrimary(ShutdownPrimaryRequest) returns (ShutdownPrimaryResponse) {}
 }
 
 message ShardStatusRequest {
@@ -130,4 +160,33 @@ message TriggerRecoveryNowRequest {
 message TriggerRecoveryNowResponse {
   // remaining_problem_codes lists problem codes still detected (e.g., "REPLICA_NOT_REPLICATING")
   repeated string remaining_problem_codes = 4;
+}
+
+message ShutdownPrimaryRequest {
+  // Shard to perform the switchover on
+  string database = 1;
+  string table_group = 2;
+  string shard = 3;
+
+  // Identity of the primary requesting shutdown.
+  // Used to validate that the caller is the current primary and to exclude
+  // it from the new election cohort.
+  clustermetadata.ID primary_id = 4;
+
+  // How long to wait for in-flight write transactions to drain on the primary.
+  // Required: must be a positive duration.
+  google.protobuf.Duration drain_timeout = 5;
+
+  // How long to wait for standbys to replay to the primary's final LSN.
+  // Required: must be a positive duration.
+  google.protobuf.Duration standby_catchup_timeout = 6;
+
+  // Human-readable reason for the shutdown (e.g. "SIGTERM", "operator request").
+  // Used for logging and audit trails only.
+  string reason = 7;
+}
+
+message ShutdownPrimaryResponse {
+  // The newly elected primary after the switchover.
+  clustermetadata.ID new_primary_id = 1;
 }

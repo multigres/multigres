@@ -217,6 +217,7 @@ type Engine struct {
 	// Action factory for creating recovery actions
 	actionFactory *analysis.RecoveryActionFactory
 
+	// Consensus coordinator for leader election
 	coordinator *consensus.Coordinator
 
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
@@ -296,6 +297,10 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
+	// Wire the ShutdownPrimary callback after the factory is constructed.
+	// This breaks the circular dependency: factory is in a sub-package of recovery
+	// and cannot import Engine directly.
+	engine.actionFactory.SetShutdownPrimary(engine.shutdownPrimaryCallback)
 
 	// Create deadline tracker for grace periods
 	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
@@ -619,6 +624,25 @@ func (re *Engine) pollAllPoolers() {
 	re.poolerStore.Range(func(_ string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
 		if poolerHealth != nil && poolerHealth.MultiPooler != nil && poolerHealth.MultiPooler.Id != nil {
 			_ = re.healthStream.Poll(poolerHealth.MultiPooler.Id)
+		}
+		return true
+	})
+}
+
+// pollShardPoolers sends a poll request on the active health stream for every
+// pooler in the given shard. Fire-and-forget; snapshots arrive asynchronously.
+func (re *Engine) pollShardPoolers(shardKey commontypes.ShardKey) {
+	re.poolerStore.Range(func(poolerID string, p *multiorchdatapb.PoolerHealthState) bool {
+		// This should never happen since we only track poolers with metadata,
+		// but guard against nil just in case. If we encounter a nil entry, we
+		// return true to keep iterating rather than stopping the loop.
+		if p == nil || p.MultiPooler == nil {
+			return true
+		}
+		if p.MultiPooler.Database == shardKey.Database &&
+			p.MultiPooler.TableGroup == shardKey.TableGroup &&
+			p.MultiPooler.Shard == shardKey.Shard {
+			_ = re.healthStream.Poll(p.MultiPooler.Id)
 		}
 		return true
 	})

@@ -39,6 +39,7 @@ const (
 
 	// Primary problems (catastrophic - block everything else).
 	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
+	ProblemPrimaryIsStopping  ProblemCode = "PrimaryIsStopping"
 	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
 	ProblemStalePrimary       ProblemCode = "StalePrimary"
 

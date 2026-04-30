@@ -90,6 +90,7 @@ type testPortConfig struct {
 	// Global services (shared across zones)
 	EtcdClientPort     int
 	EtcdPeerPort       int
+	EtcdMetricsPort    int
 	MultiadminHTTPPort int
 	MultiadminGRPCPort int
 
@@ -102,6 +103,7 @@ func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
 	config := &testPortConfig{
 		EtcdClientPort:     utils.GetFreePort(t),
 		EtcdPeerPort:       utils.GetFreePort(t),
+		EtcdMetricsPort:    utils.GetFreePort(t),
 		MultiadminHTTPPort: utils.GetFreePort(t),
 		MultiadminGRPCPort: utils.GetFreePort(t),
 		Zones:              make([]zonePortConfig, numZones),
@@ -202,10 +204,11 @@ func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, db
 		RootWorkingDir: tempDir,
 		DefaultDbName:  dbName,
 		Etcd: local.EtcdConfig{
-			Version:  "3.5.9",
-			DataDir:  filepath.Join(tempDir, "data", "etcd-data"),
-			Port:     portConfig.EtcdClientPort,
-			PeerPort: portConfig.EtcdPeerPort,
+			Version:     "3.5.9",
+			DataDir:     filepath.Join(tempDir, "data", "etcd-data"),
+			Port:        portConfig.EtcdClientPort,
+			PeerPort:    portConfig.EtcdPeerPort,
+			MetricsPort: portConfig.EtcdMetricsPort,
 		},
 		Topology: local.TopologyConfig{
 			GlobalRootPath: "/multigres/global",
