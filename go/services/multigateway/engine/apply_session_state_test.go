@@ -18,12 +18,14 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -336,4 +338,170 @@ func TestExtractConstValue(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
+	// PostgreSQL: SET LOCAL outside a transaction block emits
+	//   WARNING: 25P01 — SET LOCAL can only be used in transaction blocks
+	// and the value is discarded immediately because the implicit autocommit
+	// transaction commits right after the statement.
+	//
+	// Multigateway must mirror this: skip the gateway-state mutation and
+	// surface the WARNING as a NoticeResponse. Without this guard, isLocalSet
+	// would persist for the lifetime of the connection because no
+	// COMMIT/ROLLBACK ever fires to clear it.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	ctx := context.Background()
+
+	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true /*isLocal*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	// State must NOT have absorbed the LOCAL value.
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"SET LOCAL outside txn must not update gateway state")
+
+	// Should receive a synthetic CommandComplete with a NoticeResponse attached.
+	require.Len(t, results, 1)
+	assert.Equal(t, "SET", results[0].CommandTag)
+	require.Len(t, results[0].Notices, 1, "should attach a single NoticeResponse")
+	notice := results[0].Notices[0]
+	assert.Equal(t, "WARNING", notice.Severity)
+	assert.Equal(t, "25P01", notice.Code)
+	assert.Equal(t, "SET LOCAL can only be used in transaction blocks", notice.Message)
+	assert.Equal(t, byte('N'), notice.MessageType, "must be NoticeResponse, not ErrorResponse")
+}
+
+func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
+	// Sanity check: inside a transaction, SET LOCAL still flows to gateway state.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	ctx := context.Background()
+
+	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 100*time.Millisecond, state.GetStatementTimeout())
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].Notices, "inside-txn SET LOCAL emits no warning")
+}
+
+func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
+	// SET LOCAL var TO DEFAULT must mask the session value with the default for
+	// the duration of the transaction without destroying the session value.
+	// Pre-fix behavior: this primitive called ResetStatementTimeout(),
+	// destroying the session value.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	// Mirrors what the planner emits for `SET LOCAL statement_timeout TO DEFAULT`.
+	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"inside txn: effective value is default, masking session")
+	state.ResetAllLocalGUCs()
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout(),
+		"after txn end: session value is restored, not lost")
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].Notices, "inside-txn LOCAL TO DEFAULT emits no warning")
+	assert.Equal(t, "SET", results[0].CommandTag,
+		`SET LOCAL var TO DEFAULT must return CommandTag "SET" (not "RESET"), matching PostgreSQL`)
+}
+
+func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
+	// Plain RESET (non-LOCAL) should still clear the session-level override.
+	// Regression check: thread isLocal through without breaking the existing
+	// session-RESET behavior.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	prim := NewGatewaySessionStateReset("RESET statement_timeout", "statement_timeout", false /*isLocal*/, true /*isResetStmt*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"RESET clears the session override and reverts to default")
+	require.Len(t, results, 1)
+	assert.Equal(t, "RESET", results[0].CommandTag)
+}
+
+func TestGatewaySessionState_SETToDEFAULT_NonLocalReturnsSETTag(t *testing.T) {
+	// `SET var TO DEFAULT` (non-LOCAL, VAR_SET_DEFAULT) clears the session
+	// override like RESET, but PostgreSQL returns CommandTag "SET" — only the
+	// literal `RESET var` syntax returns "RESET". The planner sets
+	// isResetStmt=false for VAR_SET_DEFAULT.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	prim := NewGatewaySessionStateReset("SET statement_timeout TO DEFAULT", "statement_timeout", false /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"SET ... TO DEFAULT clears the session override, same effect as RESET")
+	require.Len(t, results, 1)
+	assert.Equal(t, "SET", results[0].CommandTag,
+		`SET var TO DEFAULT must return CommandTag "SET" (not "RESET"), matching PostgreSQL`)
+}
+
+func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testing.T) {
+	// `SET LOCAL var TO DEFAULT` outside a transaction emits the 25P01 warning
+	// AND must return CommandTag "SET" (not "RESET") because the source
+	// statement was VAR_SET_DEFAULT, not VAR_RESET.
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
+
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
+	ctx := context.Background()
+
+	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt*/)
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	require.NoError(t, err)
+
+	// State must NOT have changed: outside-txn SET LOCAL is a no-op.
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout(),
+		"outside-txn SET LOCAL (any form) must not mutate gateway state")
+
+	require.Len(t, results, 1)
+	assert.Equal(t, "SET", results[0].CommandTag,
+		`SET LOCAL var TO DEFAULT (even outside txn) must return CommandTag "SET"`)
+	require.Len(t, results[0].Notices, 1)
+	assert.Equal(t, "25P01", results[0].Notices[0].Code)
 }
