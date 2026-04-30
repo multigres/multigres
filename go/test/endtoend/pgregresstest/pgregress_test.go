@@ -139,7 +139,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// verification. Operates on the regress build directory, where
 			// pg_regress wrote expected/ and results/ files.
 			regressDir := filepath.Join(builder.BuildDir, "src", "test", "regress")
-			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir); verr != nil {
+			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir, builder.OutputDir); verr != nil {
 				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 

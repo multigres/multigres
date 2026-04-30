@@ -393,7 +393,7 @@ func findExpectedFile(regressDir, name string) string {
 // Expected output lives in the source tree (prep_buildtree does not symlink
 // .out files into the build tree). Actual output is written by pg_regress
 // into the build tree's results/ directory.
-func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir string) error {
+func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir, outputDir string) error {
 	t.Helper()
 	mode := GetPatchMode()
 	patchDir := PatchesDir()
@@ -410,6 +410,14 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 	t.Logf("Patch-based verification: mode=%s patches=%s", mode, patchDir)
 	t.Logf("  expected source: %s", sourceRegressDir)
 	t.Logf("  actual source:   %s", buildRegressDir)
+
+	// Per-test residual diffs are written under outputDir/diffs/ for inclusion
+	// in the CI artifact. Concatenated failures.diffs is written at the end.
+	diffsDir := ""
+	if outputDir != "" {
+		diffsDir = filepath.Join(outputDir, "diffs")
+	}
+	var aggregated bytes.Buffer
 
 	// Recompute aggregates from the per-test results after verification.
 	// We intentionally discard pg_regress's TAP-derived aggregates because
@@ -460,12 +468,35 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 
 		if outcome.Status == "pass" {
 			passed++
+			continue
+		}
+		failed++
+		failures = append(failures, TestFailure{
+			TestName: test.Name,
+			Error:    outcome.Reason,
+		})
+
+		if outcome.Diff == "" || diffsDir == "" {
+			continue
+		}
+		if err := os.MkdirAll(diffsDir, 0o755); err != nil {
+			t.Logf("Warning: mkdir %s: %v", diffsDir, err)
+			continue
+		}
+		diffPath := filepath.Join(diffsDir, test.Name+".diff")
+		if err := os.WriteFile(diffPath, []byte(outcome.Diff), 0o644); err != nil {
+			t.Logf("Warning: write %s: %v", diffPath, err)
+			continue
+		}
+		fmt.Fprintf(&aggregated, "=== %s ===\n%s\n", test.Name, outcome.Diff)
+	}
+
+	if outputDir != "" && aggregated.Len() > 0 {
+		aggPath := filepath.Join(outputDir, "failures.diffs")
+		if err := os.WriteFile(aggPath, aggregated.Bytes(), 0o644); err != nil {
+			t.Logf("Warning: write %s: %v", aggPath, err)
 		} else {
-			failed++
-			failures = append(failures, TestFailure{
-				TestName: test.Name,
-				Error:    outcome.Reason,
-			})
+			t.Logf("Residual failure diffs: %s (per-test files in %s)", aggPath, diffsDir)
 		}
 	}
 
