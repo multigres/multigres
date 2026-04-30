@@ -35,10 +35,10 @@
  
  copy attest(a) from stdin;
 -ERROR:  column "a" of relation "attest" does not exist
-+ERROR:  failed to initiate COPY: failed to initiate COPY: failed to receive READY response: rpc error: code = Internal desc = failed to initiate COPY: failed to initiate COPY FROM STDIN: ERROR: column "a" of relation "attest" does not exist
++ERROR:  failed to initiate COPY: failed to initiate COPY: failed to receive READY response: rpc error: code = Internal desc = failed to initiate COPY: failed to create reserved connection for COPY: failed to initiate COPY FROM STDIN: ERROR: column "a" of relation "attest" does not exist
  copy attest("........pg.dropped.1........") from stdin;
 -ERROR:  column "........pg.dropped.1........" of relation "attest" does not exist
-+ERROR:  failed to initiate COPY: failed to initiate COPY: failed to receive READY response: rpc error: code = Internal desc = failed to initiate COPY: failed to initiate COPY FROM STDIN: ERROR: column "........pg.dropped.1........" of relation "attest" does not exist
++ERROR:  failed to initiate COPY: failed to initiate COPY: failed to receive READY response: rpc error: code = Internal desc = failed to initiate COPY: failed to create reserved connection for COPY: failed to initiate COPY FROM STDIN: ERROR: column "........pg.dropped.1........" of relation "attest" does not exist
  copy attest(b,c) from stdin;
  select * from attest;
   b  | c  

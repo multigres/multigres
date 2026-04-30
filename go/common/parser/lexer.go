@@ -1209,7 +1209,7 @@ func (l *Lexer) getOpText(startScanPos, length int) string {
 }
 
 // scanOperator scans a multi-character operator
-// Equivalent to postgres/src/backend/parser/scan.l:900-960 (operator rule)
+// Equivalent to postgres/src/backend/parser/scan.l:868-963 (operator rule)
 func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 	// Continue scanning operator characters
 	for {
@@ -1223,7 +1223,7 @@ func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 	text := l.context.GetCurrentText(startScanPos)
 
 	// Check for embedded comment starts
-	// postgres/src/backend/parser/scan.l:907-920
+	// postgres/src/backend/parser/scan.l:869-888
 	truncatedText, hadComment := checkOperatorForCommentStart(text)
 	if hadComment {
 		// Put back the extra characters
@@ -1232,8 +1232,77 @@ func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 		text = truncatedText
 	}
 
-	// Return as generic operator
+	// Apply PostgreSQL's give-back trailing +/- rule.
+	// postgres/src/backend/parser/scan.l:890-925
+	if reduced := giveBackTrailingPlusMinus(text); len(reduced) < len(text) {
+		l.context.PutBack(len(text) - len(reduced))
+		text = reduced
+	}
+
+	// Re-classify after trimming so single-char self tokens and known multi-char
+	// tokens are returned with their correct types rather than as generic Op.
+	// postgres/src/backend/parser/scan.l:933-962
+	switch len(text) {
+	case 1:
+		b := text[0]
+		if IsSelfChar(b) {
+			return NewToken(TokenType(b), startPos, text), nil
+		}
+		return NewStringToken(Op, text, startPos, text), nil
+	case 2:
+		switch text {
+		case "=>":
+			return NewToken(EQUALS_GREATER, startPos, text), nil
+		case "<=":
+			return NewToken(LESS_EQUALS, startPos, text), nil
+		case ">=":
+			return NewToken(GREATER_EQUALS, startPos, text), nil
+		case "<>", "!=":
+			return NewToken(NOT_EQUALS, startPos, text), nil
+		}
+	}
+
 	return NewStringToken(Op, text, startPos, text), nil
+}
+
+// hasOperatorExtensionChar reports whether op contains any non-SQL operator
+// character. PostgreSQL keeps a trailing '+' or '-' on a multi-char operator
+// only when one of these chars is present.
+// postgres/src/backend/parser/scan.l:907-911
+func hasOperatorExtensionChar(op string) bool {
+	for i := 0; i < len(op); i++ {
+		switch op[i] {
+		case '~', '!', '@', '#', '^', '&', '|', '`', '?', '%':
+			return true
+		}
+	}
+	return false
+}
+
+// giveBackTrailingPlusMinus implements PostgreSQL's rule that '+' or '-' may
+// not be the last character of a multi-char operator unless the operator
+// contains a non-SQL operator char. Trailing '+'/'-' chars are stripped so
+// that "=-1" lexes as "=" then "-1" rather than as the operator "=-".
+// postgres/src/backend/parser/scan.l:890-925
+func giveBackTrailingPlusMinus(op string) string {
+	if len(op) <= 1 {
+		return op
+	}
+	last := op[len(op)-1]
+	if last != '+' && last != '-' {
+		return op
+	}
+	if hasOperatorExtensionChar(op[:len(op)-1]) {
+		return op
+	}
+	for len(op) > 1 {
+		last := op[len(op)-1]
+		if last != '+' && last != '-' {
+			break
+		}
+		op = op[:len(op)-1]
+	}
+	return op
 }
 
 // skipWhitespace skips whitespace and handles comments following PostgreSQL rules

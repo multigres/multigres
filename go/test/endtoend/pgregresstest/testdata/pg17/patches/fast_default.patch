@@ -1,0 +1,37 @@
+--- a
++++ b
+@@ -883,23 +883,29 @@
+ -- verify that a default set on a non-plain table doesn't set a missing
+ -- value on the attribute
+ CREATE FOREIGN DATA WRAPPER dummy;
++ERROR:  CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ CREATE SERVER s0 FOREIGN DATA WRAPPER dummy;
++ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ CREATE FOREIGN TABLE ft1 (c1 integer NOT NULL) SERVER s0;
++ERROR:  server "s0" does not exist
+ ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer DEFAULT 0;
++ERROR:  relation "ft1" does not exist
+ ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10);
++ERROR:  relation "ft1" does not exist
+ SELECT count(*)
+   FROM pg_attribute
+   WHERE attrelid = 'ft1'::regclass AND
+     (attmissingval IS NOT NULL OR atthasmissing);
+- count 
+--------
+-     0
+-(1 row)
+-
++ERROR:  relation "ft1" does not exist
++LINE 3:   WHERE attrelid = 'ft1'::regclass AND
++                            ^
+ -- cleanup
+ DROP FOREIGN TABLE ft1;
++ERROR:  foreign table "ft1" does not exist
+ DROP SERVER s0;
++ERROR:  server "s0" does not exist
+ DROP FOREIGN DATA WRAPPER dummy;
++ERROR:  foreign-data wrapper "dummy" does not exist
+ DROP TABLE vtype;
+ DROP TABLE vtype2;
+ DROP TABLE follower;
