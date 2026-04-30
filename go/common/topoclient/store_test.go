@@ -637,6 +637,23 @@ func TestStatus_CellConnectionError(t *testing.T) {
 	assert.Contains(t, cell1Status, "factory error", "Status should contain error message")
 }
 
+func TestIsConnected_Connected(t *testing.T) {
+	factory := newMockFactory()
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
+	defer ts.Close()
+
+	require.NoError(t, ts.IsConnected(context.Background()))
+}
+
+func TestIsConnected_NoConnection(t *testing.T) {
+	factory := newMockFactory()
+	factory.setShouldFail(true)
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
+	defer ts.Close()
+
+	require.Error(t, ts.IsConnected(context.Background()))
+}
+
 func TestStatus_ReturnsCopy(t *testing.T) {
 	factory := newMockFactory()
 	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
