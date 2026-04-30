@@ -254,6 +254,17 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 	})
 }
 
+// BindDescribeAndExecute fuses Bind+Describe(P)+Execute+Sync into a single
+// backend round trip. The portal RowDescription rides back through the
+// streaming callback's first Fields-bearing chunk, mirroring how the
+// standalone Describe path delivers it.
+// If the context is cancelled, the backend query is cancelled via adminPool.
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	return execWithContextCancel(c, ctx, func() (bool, error) {
+		return c.conn.BindDescribeAndExecute(ctx, portalName, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+	})
+}
+
 // DescribePrepared describes a prepared statement.
 // If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {

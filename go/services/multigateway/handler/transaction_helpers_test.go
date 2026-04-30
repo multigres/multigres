@@ -61,7 +61,7 @@ func (m *trackingMockExecutor) StreamExecute(
 	return &ExecuteResult{}, err
 }
 
-func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
 	return &ExecuteResult{}, nil
 }
 

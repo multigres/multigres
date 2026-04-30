@@ -156,6 +156,18 @@ type Conn struct {
 	// closed indicates whether the connection has been closed.
 	closed atomic.Bool
 
+	// deferredPortalDescribe captures Describe('P') messages so an immediately
+	// following Execute on the same portal can fold both into one backend
+	// call via HandleExecute(includeDescribe=true). When the deferred state
+	// is held and a non-Execute message arrives, resolveDeferredPortalDescribe
+	// flushes it through HandleDescribe so the wire stays well-formed.
+	//
+	// Set by handleDescribe('P'); cleared by handleExecute on a name match,
+	// by resolveDeferredPortalDescribe otherwise. Per-Conn state is fine —
+	// the protocol guarantees one in-flight request per connection.
+	deferredPortalDescribe     bool
+	deferredPortalDescribeName string
+
 	// flushTimer is used for auto-flushing buffered writes.
 	flushTimer *time.Timer
 
@@ -505,7 +517,30 @@ func (c *Conn) serve() error {
 }
 
 // handleMessage processes a single message from the client.
+//
+// A Describe('P') is held by handleDescribe in case the very next message is
+// Execute on the same portal — that pair is fused into one backend call. Any
+// other message (including a follow-up Describe of either type) flushes the
+// held state here first so the wire reply order matches what an unfused
+// Describe(P)+Execute would produce.
 func (c *Conn) handleMessage(msgType byte) error {
+	switch msgType {
+	case protocol.MsgExecute:
+		// handleExecute consumes the deferred describe directly (it folds
+		// it into the backend call rather than flushing it separately).
+		return c.handleExecute()
+
+	case protocol.MsgTerminate:
+		c.logger.Debug("received termination message")
+		return io.EOF // Signal connection should close
+	}
+
+	// Every other message must run after any pending portal describe is
+	// flushed so the wire stays well-formed.
+	if err := c.resolveDeferredPortalDescribe(); err != nil {
+		return err
+	}
+
 	switch msgType {
 	case protocol.MsgQuery:
 		return c.handleQuery()
@@ -515,9 +550,6 @@ func (c *Conn) handleMessage(msgType byte) error {
 
 	case protocol.MsgBind:
 		return c.handleBind()
-
-	case protocol.MsgExecute:
-		return c.handleExecute()
 
 	case protocol.MsgDescribe:
 		return c.handleDescribe()
@@ -530,10 +562,6 @@ func (c *Conn) handleMessage(msgType byte) error {
 
 	case protocol.MsgFlush:
 		return c.flush()
-
-	case protocol.MsgTerminate:
-		c.logger.Debug("received termination message")
-		return io.EOF // Signal connection should close
 
 	default:
 		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
@@ -835,6 +863,24 @@ func (c *Conn) handleExecute() error {
 
 	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
 
+	// If a Describe('P') was deferred for this exact portal, fold it into
+	// this Execute call — the handler/executor will fetch RowDescription
+	// alongside the data rows in one backend round trip. A mismatched
+	// portal name forces the deferred describe to flush via the handler
+	// before this Execute proceeds.
+	includeDescribe := false
+	if c.deferredPortalDescribe {
+		if c.deferredPortalDescribeName == portalName {
+			includeDescribe = true
+			c.deferredPortalDescribe = false
+			c.deferredPortalDescribeName = ""
+		} else {
+			if err := c.resolveDeferredPortalDescribe(); err != nil {
+				return err
+			}
+		}
+	}
+
 	// Create a cancelable query context so cancel requests can interrupt this execution.
 	queryCtx := c.BeginQueryCancel()
 	defer c.EndQueryCancel()
@@ -844,7 +890,7 @@ func (c *Conn) handleExecute() error {
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
-	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, includeDescribe, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send notices immediately (zero-buffering delivery).
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
@@ -854,6 +900,7 @@ func (c *Conn) handleExecute() error {
 
 		// On first callback with fields, send RowDescription.
 		// Use nil check (not len > 0) because zero-column results still require RowDescription.
+		// When a folded Describe('P') is in flight, the same RowDescription resolves it.
 		if !sentRowDescription && result.Fields != nil {
 			if err := c.writeRowDescription(result.Fields); err != nil {
 				return fmt.Errorf("writing row description: %w", err)
@@ -870,6 +917,15 @@ func (c *Conn) handleExecute() error {
 
 		// If CommandTag is set, this is the last packet.
 		if result.CommandTag != "" {
+			// DML folded with a deferred Describe never sends Fields through
+			// the callback, but the protocol still requires NoData before
+			// CommandComplete. Emit it here so the wire order matches a
+			// non-folded Describe(P)+Execute sequence.
+			if includeDescribe && !sentRowDescription {
+				if err := c.writeMessage(protocol.MsgNoData, nil); err != nil {
+					return fmt.Errorf("writing no data: %w", err)
+				}
+			}
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
@@ -891,9 +947,6 @@ func (c *Conn) handleExecute() error {
 // handleDescribe handles a 'D' (Describe) message - extended query protocol.
 // Describes either a prepared statement ('S') or a portal ('P').
 func (c *Conn) handleDescribe() error {
-	c.startWriterBuffering()
-	defer c.endWriterBuffering()
-
 	// Read message length.
 	msgLen, err := c.ReadMessageLength()
 	if err != nil {
@@ -920,7 +973,23 @@ func (c *Conn) handleDescribe() error {
 
 	c.logger.Debug("describe", "type", string(typ), "name", name)
 
-	// Call the handler.
+	// Describe('P') is captured and held: if the next message is Execute on
+	// the same portal, the two fold into a single backend call. Otherwise
+	// the next non-Execute handler (including a follow-up Describe of any
+	// type) flushes the held state via resolveDeferredPortalDescribe in
+	// handleMessage before its own reply runs. No writes happen here, so
+	// skip buffer acquisition entirely.
+	if typ == 'P' {
+		c.deferredPortalDescribe = true
+		c.deferredPortalDescribeName = name
+		return nil
+	}
+
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Statement describe ('S') — call handler synchronously. Any prior
+	// Describe('P') was already flushed by handleMessage before this call.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
 		if writeErr := c.writeError(mterrors.MTD06.NewWithDetail(err.Error())); writeErr != nil {
@@ -932,6 +1001,9 @@ func (c *Conn) handleDescribe() error {
 	// Send ParameterDescription only for statement describes ('S').
 	// PostgreSQL protocol: Describe('S') returns ParameterDescription + RowDescription/NoData,
 	// but Describe('P') returns only RowDescription/NoData — no ParameterDescription.
+	// The 'P' branch above already returned, so this is reachable only for
+	// 'S' under the contract; the explicit check is defense in depth in case
+	// a future caller routes a different byte through this path.
 	if typ == 'S' {
 		if err := c.writeParameterDescription(desc.Parameters); err != nil {
 			return fmt.Errorf("failed to write parameter description: %w", err)
@@ -953,6 +1025,30 @@ func (c *Conn) handleDescribe() error {
 	}
 
 	return c.flush()
+}
+
+// resolveDeferredPortalDescribe flushes a pending Describe('P') by calling
+// the handler synchronously and writing the wire-correct RowDescription
+// (or NoData) before any subsequent message's reply is generated. Called
+// from every non-Execute handler that runs while a deferred Describe is
+// outstanding.
+//
+// No-op when nothing is deferred.
+func (c *Conn) resolveDeferredPortalDescribe() error {
+	if !c.deferredPortalDescribe {
+		return nil
+	}
+	name := c.deferredPortalDescribeName
+	c.deferredPortalDescribe = false
+	c.deferredPortalDescribeName = ""
+	desc, err := c.handler.HandleDescribe(c.ctx, c, 'P', name)
+	if err != nil {
+		return c.writeError(mterrors.MTD06.NewWithDetail(err.Error()))
+	}
+	if desc != nil && desc.Fields != nil {
+		return c.writeRowDescription(desc.Fields)
+	}
+	return c.writeMessage(protocol.MsgNoData, nil)
 }
 
 // handleClose handles a 'C' (Close) message - extended query protocol.

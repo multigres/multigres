@@ -281,6 +281,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -310,6 +311,16 @@ func (sc *ScatterConn) PortalStreamExecute(
 		User:            conn.User(),
 		MaxRows:         uint64(maxRows),
 		SessionSettings: state.GetSessionSettings(),
+	}
+
+	// When the protocol layer folded a Describe('P') into this Execute, ask
+	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
+	// backend round trip. The portal RowDescription rides back through
+	// the streaming callback's Fields on the first chunk; pgwire-server's
+	// handleExecute writes it to the wire before any DataRow.
+	var portalOpts *multipoolerpb.PortalExecuteOptions
+	if includeDescribe {
+		portalOpts = &multipoolerpb.PortalExecuteOptions{IncludeDescribe: true}
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -373,7 +384,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	// Use the query from the prepared statement
-	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, callback)
+	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, callback)
 	if err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic

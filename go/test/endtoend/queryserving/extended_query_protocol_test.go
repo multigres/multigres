@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -165,6 +166,285 @@ func TestExtendedQueryProtocol_DescribePortal(t *testing.T) {
 				assert.Equal(t, "7", sum)
 
 				require.NoError(t, conn.CloseStatement(ctx, "exec_test"))
+			})
+
+			// Two consecutive Describe('P') calls (no Execute between them).
+			// Each is its own batch (BindAndDescribe sends B+D+S), so the deferred-describe
+			// flush runs at the first Sync. Both must return the correct portal description.
+			t.Run("two portal describes back to back", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "two_d", "SELECT $1::int AS v", []uint32{23}))
+
+				desc1, err := conn.BindAndDescribe(ctx, "two_d", [][]byte{[]byte("1")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.NotNil(t, desc1)
+				require.Len(t, desc1.Fields, 1)
+				assert.Equal(t, "v", desc1.Fields[0].Name)
+
+				desc2, err := conn.BindAndDescribe(ctx, "two_d", [][]byte{[]byte("2")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.NotNil(t, desc2)
+				require.Len(t, desc2.Fields, 1)
+				assert.Equal(t, "v", desc2.Fields[0].Name)
+
+				require.NoError(t, conn.CloseStatement(ctx, "two_d"))
+			})
+
+			// Statement describe immediately after a portal describe. The portal
+			// describe must produce its own RowDescription before the statement
+			// describe's ParameterDescription+RowDescription, in that order.
+			t.Run("statement describe after portal describe", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "ps_after_pp", "SELECT $1::int AS v", []uint32{23}))
+
+				portalDesc, err := conn.BindAndDescribe(ctx, "ps_after_pp", [][]byte{[]byte("9")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.Len(t, portalDesc.Fields, 1)
+				assert.Empty(t, portalDesc.Parameters, "portal describe must not return ParameterDescription")
+
+				stmtDesc, err := conn.DescribePrepared(ctx, "ps_after_pp")
+				require.NoError(t, err)
+				require.Len(t, stmtDesc.Parameters, 1, "statement describe must return ParameterDescription")
+				require.Len(t, stmtDesc.Fields, 1)
+
+				require.NoError(t, conn.CloseStatement(ctx, "ps_after_pp"))
+			})
+
+			// Inverse direction: statement describe first, then portal describe.
+			// Different code paths because Describe('S') goes straight to the
+			// handler while Describe('P') is held pending.
+			t.Run("portal describe after statement describe", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "pp_after_ps", "SELECT $1::int AS v", []uint32{23}))
+
+				stmtDesc, err := conn.DescribePrepared(ctx, "pp_after_ps")
+				require.NoError(t, err)
+				require.Len(t, stmtDesc.Parameters, 1)
+				require.Len(t, stmtDesc.Fields, 1)
+
+				portalDesc, err := conn.BindAndDescribe(ctx, "pp_after_ps", [][]byte{[]byte("4")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.Len(t, portalDesc.Fields, 1)
+				assert.Empty(t, portalDesc.Parameters)
+
+				require.NoError(t, conn.CloseStatement(ctx, "pp_after_ps"))
+			})
+
+			// Describe('P') followed by Execute targeting a *different* portal name.
+			// The held describe must flush before the unrelated Execute runs, and the
+			// Execute itself must not carry a fused describe — it returns no Fields.
+			t.Run("execute on different portal after describe", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "diff_portal", "SELECT $1::int AS v", []uint32{23}))
+
+				descA, err := conn.BindAndDescribe(ctx, "diff_portal", [][]byte{[]byte("11")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.Len(t, descA.Fields, 1)
+
+				var got string
+				_, err = conn.BindAndExecute(ctx, "portalB", "diff_portal", [][]byte{[]byte("22")}, []int16{0}, []int16{0}, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						if len(result.Rows) > 0 {
+							got = string(result.Rows[0].Values[0])
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, "22", got)
+
+				require.NoError(t, conn.CloseStatement(ctx, "diff_portal"))
+			})
+
+			// DML prepared statement: portal describe yields NoData (Fields is nil)
+			// and a follow-up Execute completes successfully with the right CommandTag.
+			t.Run("describe DML portal returns NoData", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS describe_dml_t")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE describe_dml_t (id int)")
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS describe_dml_t")
+				})
+
+				require.NoError(t, conn.Parse(ctx, "ins", "INSERT INTO describe_dml_t (id) VALUES ($1)", []uint32{23}))
+
+				desc, err := conn.BindAndDescribe(ctx, "ins", [][]byte{[]byte("1")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				assert.Empty(t, desc.Fields, "DML portal describe should produce NoData (no fields)")
+
+				var tag string
+				_, err = conn.BindAndExecute(ctx, "", "ins", [][]byte{[]byte("2")}, []int16{0}, []int16{0}, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						if result.CommandTag != "" {
+							tag = result.CommandTag
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, "INSERT 0 1", tag)
+
+				require.NoError(t, conn.CloseStatement(ctx, "ins"))
+			})
+
+			// Empty-result-set SELECT through a prepared portal: Fields are present
+			// (column descriptors), Rows is empty, and CommandTag reflects 0 rows.
+			t.Run("describe portal for empty result set", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "empty_sel", "SELECT $1::int AS v WHERE false", []uint32{23}))
+
+				desc, err := conn.BindAndDescribe(ctx, "empty_sel", [][]byte{[]byte("1")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.Len(t, desc.Fields, 1, "SELECT-with-no-rows still reports its column descriptors")
+				assert.Equal(t, "v", desc.Fields[0].Name)
+
+				var rowCount int
+				var tag string
+				_, err = conn.BindAndExecute(ctx, "", "empty_sel", [][]byte{[]byte("1")}, []int16{0}, []int16{0}, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						rowCount += len(result.Rows)
+						if result.CommandTag != "" {
+							tag = result.CommandTag
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, 0, rowCount)
+				assert.Equal(t, "SELECT 0", tag)
+
+				require.NoError(t, conn.CloseStatement(ctx, "empty_sel"))
+			})
+
+			// Repeated Bind+Execute on the same prepared statement (no Describe).
+			// Verifies that the absence of describe state on one batch does not
+			// bleed into the next, and that the Execute path produces consistent
+			// CommandTags + row data across iterations.
+			t.Run("repeated bind+execute without describe", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "rep", "SELECT $1::int AS v", []uint32{23}))
+
+				for _, in := range []string{"10", "20", "30"} {
+					var got string
+					_, err := conn.BindAndExecute(ctx, "", "rep", [][]byte{[]byte(in)}, []int16{0}, []int16{0}, 0,
+						func(ctx context.Context, result *sqltypes.Result) error {
+							if len(result.Rows) > 0 {
+								got = string(result.Rows[0].Values[0])
+							}
+							return nil
+						})
+					require.NoError(t, err)
+					assert.Equal(t, in, got, "iteration with input %q", in)
+				}
+
+				require.NoError(t, conn.CloseStatement(ctx, "rep"))
+			})
+
+			// BindDescribeAndExecute: the fused single-batch path. Verifies the
+			// streaming callback surfaces Fields on the row chunk just like a
+			// standalone Describe('P') would have done.
+			t.Run("fused bind describe and execute", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "fused", "SELECT $1::int AS v, $2::text AS t", []uint32{23, 25}))
+
+				var sawFields []*query.Field
+				var rowVal0, rowVal1 string
+				_, err := conn.BindDescribeAndExecute(ctx, "", "fused",
+					[][]byte{[]byte("7"), []byte("hi")},
+					[]int16{0, 0}, []int16{0, 0}, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						if len(result.Fields) > 0 && sawFields == nil {
+							sawFields = result.Fields
+						}
+						if len(result.Rows) > 0 {
+							rowVal0 = string(result.Rows[0].Values[0])
+							rowVal1 = string(result.Rows[0].Values[1])
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				require.Len(t, sawFields, 2, "fused path must surface the portal's RowDescription via Fields")
+				assert.Equal(t, "v", sawFields[0].Name)
+				assert.Equal(t, "t", sawFields[1].Name)
+				assert.Equal(t, "7", rowVal0)
+				assert.Equal(t, "hi", rowVal1)
+
+				require.NoError(t, conn.CloseStatement(ctx, "fused"))
+			})
+
+			// Two BindDescribeAndExecute calls on the same statement, back to back.
+			// Confirms the within-batch fused path resets cleanly across batches.
+			t.Run("repeated fused bind describe and execute", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "fused_rep", "SELECT $1::int AS v", []uint32{23}))
+
+				for _, in := range []string{"100", "200", "300"} {
+					var got string
+					var sawFields []*query.Field
+					_, err := conn.BindDescribeAndExecute(ctx, "", "fused_rep",
+						[][]byte{[]byte(in)}, []int16{0}, []int16{0}, 0,
+						func(ctx context.Context, result *sqltypes.Result) error {
+							if len(result.Fields) > 0 && sawFields == nil {
+								sawFields = result.Fields
+							}
+							if len(result.Rows) > 0 {
+								got = string(result.Rows[0].Values[0])
+							}
+							return nil
+						})
+					require.NoError(t, err)
+					require.Len(t, sawFields, 1, "iteration with input %q must carry Fields", in)
+					assert.Equal(t, in, got)
+				}
+
+				require.NoError(t, conn.CloseStatement(ctx, "fused_rep"))
+			})
+
+			// Describe(P) then Close(P) — the deferred describe must flush before
+			// Close runs, and Close must not produce a stray RowDescription.
+			t.Run("close portal after describe", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "close_p", "SELECT $1::int AS v", []uint32{23}))
+
+				desc, err := conn.BindAndDescribe(ctx, "close_p", [][]byte{[]byte("5")}, []int16{0}, []int16{0})
+				require.NoError(t, err)
+				require.Len(t, desc.Fields, 1)
+
+				require.NoError(t, conn.ClosePortal(ctx, "close_p"))
+
+				// Statement is still parsed; a fresh Bind+Execute should still work.
+				var got string
+				_, err = conn.BindAndExecute(ctx, "", "close_p", [][]byte{[]byte("6")}, []int16{0}, []int16{0}, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						if len(result.Rows) > 0 {
+							got = string(result.Rows[0].Values[0])
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, "6", got)
+
+				require.NoError(t, conn.CloseStatement(ctx, "close_p"))
 			})
 		})
 	}

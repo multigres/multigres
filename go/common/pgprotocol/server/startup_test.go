@@ -252,7 +252,7 @@ func (m *mockHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 

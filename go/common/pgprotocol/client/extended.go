@@ -87,6 +87,45 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 	return c.processBindAndExecuteResponses(ctx, callback)
 }
 
+// BindDescribeAndExecute binds, describes the portal, and executes it in a single
+// flushed batch (Bind → Describe('P') → Execute → Sync). This collapses the two
+// round trips that BindAndDescribe + BindAndExecute would otherwise require for
+// libpq's standard prepared-execute pattern, and avoids the redundant second
+// Bind that the second backend call would have to perform after Sync drops the
+// portal.
+//
+// The portal RowDescription is surfaced to the caller via the same streaming
+// callback as the rows: the first Result chunk carries Fields populated from
+// the backend's RowDescription (or nil from NoData), exactly as Describe('P')
+// would have set them. Returns the same completion bool as BindAndExecute —
+// true for CommandComplete, false for PortalSuspended.
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
+		return false, fmt.Errorf("failed to write Bind: %w", err)
+	}
+
+	if err := c.writeDescribe('P', portalName); err != nil {
+		return false, fmt.Errorf("failed to write Describe: %w", err)
+	}
+
+	if err := c.writeExecute(portalName, maxRows); err != nil {
+		return false, fmt.Errorf("failed to write Execute: %w", err)
+	}
+
+	if err := c.writeSync(); err != nil {
+		return false, fmt.Errorf("failed to write Sync: %w", err)
+	}
+
+	if err := c.flush(); err != nil {
+		return false, fmt.Errorf("failed to flush: %w", err)
+	}
+
+	return c.processBindDescribeAndExecuteResponses(ctx, callback)
+}
+
 // BindAndDescribe binds parameters to a prepared statement and describes the resulting portal.
 // This sends Bind → Describe('P') → Sync in a single operation.
 // stmtName is the prepared statement name - the portal will use the same name.
@@ -1174,6 +1213,142 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 					Notices: []*mterrors.PgDiagnostic{notice},
 				}
 				firstErr = callback(ctx, noticeResult)
+			}
+
+		case protocol.MsgParameterStatus:
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
+			}
+
+		default:
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
+		}
+	}
+}
+
+// processBindDescribeAndExecuteResponses processes responses to the fused
+// Bind+Describe(P)+Execute+Sync batch. Responses arrive in order:
+// BindComplete, RowDescription/NoData (from Describe),
+// DataRow*, CommandComplete/PortalSuspended/EmptyQueryResponse (from Execute),
+// ReadyForQuery (from Sync).
+//
+// The portal RowDescription is fed into the streaming callback's Fields on
+// the first chunk that carries data or the CommandTag, so callers receive
+// the same Fields they would have gotten from a standalone Describe('P').
+// NoData leaves currentFields nil and produces a Result with Fields == nil.
+func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	gotBindComplete := false
+	var currentFields []*query.Field
+	var batchedRows []*sqltypes.Row
+	var batchedSize int
+	var firstErr error
+	completed := false
+
+	flushBatch := func() {
+		if len(batchedRows) == 0 || callback == nil {
+			return
+		}
+		result := &sqltypes.Result{
+			Fields: currentFields,
+			Rows:   batchedRows,
+		}
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
+		}
+		batchedRows = nil
+		batchedSize = 0
+	}
+
+	for {
+		msgType, body, err := c.readMessage()
+		if err != nil {
+			return false, fmt.Errorf("failed to read message: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgBindComplete:
+			gotBindComplete = true
+
+		case protocol.MsgRowDescription:
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				currentFields = fields
+			}
+
+		case protocol.MsgNoData:
+			// No fields — currentFields stays nil.
+
+		case protocol.MsgDataRow:
+			row, err := c.parseDataRow(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				batchedRows = append(batchedRows, row)
+				batchedSize += len(body)
+				if batchedSize >= DefaultStreamingBatchSize {
+					flushBatch()
+				}
+			}
+
+		case protocol.MsgCommandComplete:
+			tag, err := c.parseCommandComplete(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else if callback != nil && firstErr == nil {
+				result := &sqltypes.Result{
+					Fields:       currentFields,
+					Rows:         batchedRows,
+					CommandTag:   tag,
+					RowsAffected: parseRowsAffected(tag),
+				}
+				firstErr = callback(ctx, result)
+			}
+			completed = true
+			currentFields = nil
+			batchedRows = nil
+			batchedSize = 0
+
+		case protocol.MsgEmptyQueryResponse:
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &sqltypes.Result{})
+			}
+			completed = true
+
+		case protocol.MsgPortalSuspended:
+			flushBatch()
+			completed = false
+
+		case protocol.MsgReadyForQuery:
+			c.txnStatus = protocol.TransactionStatus(body[0])
+			if firstErr != nil {
+				return false, firstErr
+			}
+			if !gotBindComplete {
+				return false, errors.New("did not receive BindComplete")
+			}
+			return completed, nil
+
+		case protocol.MsgErrorResponse:
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
+
+		case protocol.MsgNoticeResponse:
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				firstErr = callback(ctx, &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				})
 			}
 
 		case protocol.MsgParameterStatus:

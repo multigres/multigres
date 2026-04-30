@@ -97,7 +97,7 @@ func (m *mockGateway) ExecuteQuery(context.Context, *querypb.Target, string, *qu
 	return nil, nil, nil
 }
 
-func (m *mockGateway) PortalStreamExecute(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions, func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
+func (m *mockGateway) PortalStreamExecute(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions, *multipoolerpb.PortalExecuteOptions, func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
 	return nil, nil
 }
 
