@@ -339,6 +339,12 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 	return c.pooled.Conn.BindAndDescribe(ctx, stmtName, params, paramFormats, resultFormats)
 }
 
+// BindDescribeAndExecute fuses Bind+Describe(P)+Execute+Sync into a single
+// backend round trip.
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	return c.pooled.Conn.BindDescribeAndExecute(ctx, portalName, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+}
+
 // DescribePrepared describes a prepared statement.
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
 	return c.pooled.Conn.DescribePrepared(ctx, name)

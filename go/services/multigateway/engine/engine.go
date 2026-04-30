@@ -76,6 +76,11 @@ type IExecute interface {
 	//   state: Connection state containing session information and reserved connections
 	//   portalInfo: Portal information including bound parameters
 	//   maxRows: Maximum number of rows to return (0 for unlimited)
+	//   includeDescribe: when true, asks the multipooler to fold a portal
+	//     Describe('P') into the same backend round trip as Execute (libpq
+	//     pipelines the two). The portal RowDescription rides back through
+	//     the streaming callback's Fields on the first chunk. When false,
+	//     the Execute uses Bind+Execute+Sync as before.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -85,6 +90,7 @@ type IExecute interface {
 		state *handler.MultiGatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
+		includeDescribe bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -252,6 +258,7 @@ type Primitive interface {
 		state *handler.MultiGatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
+		includeDescribe bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

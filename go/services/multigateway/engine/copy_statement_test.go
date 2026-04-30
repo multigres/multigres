@@ -74,6 +74,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return nil

@@ -70,10 +70,10 @@ func TestParseDiagnosticFieldsMissingRequiredFields(t *testing.T) {
 			// Build wire format message body
 			w := NewMessageWriter()
 			for fieldType, value := range tc.fields {
-				w.WriteByte(fieldType)
+				w.AppendByte(fieldType)
 				w.WriteString(value)
 			}
-			w.WriteByte(0) // Terminator
+			w.AppendByte(0) // Terminator
 
 			// Parse as error (warning should be logged)
 			diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
@@ -95,35 +95,35 @@ func TestParseDiagnosticFieldsMissingRequiredFields(t *testing.T) {
 func TestParseDiagnosticFieldsAllFieldsPopulated(t *testing.T) {
 	// Build wire format message with all 14 fields
 	w := NewMessageWriter()
-	w.WriteByte(protocol.FieldSeverity)
+	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("23505")
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("duplicate key value violates unique constraint")
-	w.WriteByte(protocol.FieldDetail)
+	w.AppendByte(protocol.FieldDetail)
 	w.WriteString("Key (id)=(1) already exists.")
-	w.WriteByte(protocol.FieldHint)
+	w.AppendByte(protocol.FieldHint)
 	w.WriteString("Use a different key value.")
-	w.WriteByte(protocol.FieldPosition)
+	w.AppendByte(protocol.FieldPosition)
 	w.WriteString("42")
-	w.WriteByte(protocol.FieldInternalPosition)
+	w.AppendByte(protocol.FieldInternalPosition)
 	w.WriteString("15")
-	w.WriteByte(protocol.FieldInternalQuery)
+	w.AppendByte(protocol.FieldInternalQuery)
 	w.WriteString("SELECT * FROM internal_table")
-	w.WriteByte(protocol.FieldWhere)
+	w.AppendByte(protocol.FieldWhere)
 	w.WriteString("PL/pgSQL function check_email() line 5")
-	w.WriteByte(protocol.FieldSchema)
+	w.AppendByte(protocol.FieldSchema)
 	w.WriteString("public")
-	w.WriteByte(protocol.FieldTable)
+	w.AppendByte(protocol.FieldTable)
 	w.WriteString("users")
-	w.WriteByte(protocol.FieldColumn)
+	w.AppendByte(protocol.FieldColumn)
 	w.WriteString("email")
-	w.WriteByte(protocol.FieldDataType)
+	w.AppendByte(protocol.FieldDataType)
 	w.WriteString("text")
-	w.WriteByte(protocol.FieldConstraint)
+	w.AppendByte(protocol.FieldConstraint)
 	w.WriteString("users_email_key")
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 	require.NotNil(t, diag)
@@ -153,13 +153,13 @@ func TestParseDiagnosticFieldsAllFieldsPopulated(t *testing.T) {
 // TestParseDiagnosticFieldsOnlyRequiredFields tests parsing diagnostics with only required fields.
 func TestParseDiagnosticFieldsOnlyRequiredFields(t *testing.T) {
 	w := NewMessageWriter()
-	w.WriteByte(protocol.FieldSeverity)
+	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("FATAL")
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("28P01")
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("password authentication failed")
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 	require.NotNil(t, diag)
@@ -191,24 +191,24 @@ func TestParseDiagnosticFieldsOnlyRequiredFields(t *testing.T) {
 func TestParseDiagnosticFieldsUnknownFieldTypes(t *testing.T) {
 	w := NewMessageWriter()
 	// Known fields
-	w.WriteByte(protocol.FieldSeverity)
+	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
 	// Unknown field type 'Z'
-	w.WriteByte('Z')
+	w.AppendByte('Z')
 	w.WriteString("unknown value 1")
 	// Known field
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("42601")
 	// Another unknown field type '!'
-	w.WriteByte('!')
+	w.AppendByte('!')
 	w.WriteString("unknown value 2")
 	// Known field
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("syntax error")
 	// Unknown field type that looks like it could be a field
-	w.WriteByte(0x7F)
+	w.AppendByte(0x7F)
 	w.WriteString("high byte value")
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 	require.NotNil(t, diag)
@@ -227,13 +227,13 @@ func TestParseDiagnosticFieldsUnknownFieldTypes(t *testing.T) {
 // TestParseDiagnosticFieldsNoticeMessageType tests parsing notices (not errors).
 func TestParseDiagnosticFieldsNoticeMessageType(t *testing.T) {
 	w := NewMessageWriter()
-	w.WriteByte(protocol.FieldSeverity)
+	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("WARNING")
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("01000")
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("this is a warning")
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgNoticeResponse, w.Bytes())
 	require.NotNil(t, diag)
@@ -601,13 +601,13 @@ func TestDiagnosticValidationCatchesAllInvalidStates(t *testing.T) {
 func TestPgDiagnosticErrorWrapping(t *testing.T) {
 	// Create a PgDiagnostic error
 	w := NewMessageWriter()
-	w.WriteByte(protocol.FieldSeverity)
+	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("42P01")
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("relation does not exist")
-	w.WriteByte(0)
+	w.AppendByte(0)
 
 	conn := &Conn{}
 	err := conn.parseError(w.Bytes())
@@ -650,63 +650,63 @@ func buildDiagnosticWireFormat(diag *mterrors.PgDiagnostic) []byte {
 	w := NewMessageWriter()
 
 	if diag.Severity != "" {
-		w.WriteByte(protocol.FieldSeverity)
+		w.AppendByte(protocol.FieldSeverity)
 		w.WriteString(diag.Severity)
 	}
 	if diag.Code != "" {
-		w.WriteByte(protocol.FieldCode)
+		w.AppendByte(protocol.FieldCode)
 		w.WriteString(diag.Code)
 	}
 	if diag.Message != "" {
-		w.WriteByte(protocol.FieldMessage)
+		w.AppendByte(protocol.FieldMessage)
 		w.WriteString(diag.Message)
 	}
 	if diag.Detail != "" {
-		w.WriteByte(protocol.FieldDetail)
+		w.AppendByte(protocol.FieldDetail)
 		w.WriteString(diag.Detail)
 	}
 	if diag.Hint != "" {
-		w.WriteByte(protocol.FieldHint)
+		w.AppendByte(protocol.FieldHint)
 		w.WriteString(diag.Hint)
 	}
 	if diag.Position != 0 {
-		w.WriteByte(protocol.FieldPosition)
+		w.AppendByte(protocol.FieldPosition)
 		w.WriteString(positionToString(diag.Position))
 	}
 	if diag.InternalPosition != 0 {
-		w.WriteByte(protocol.FieldInternalPosition)
+		w.AppendByte(protocol.FieldInternalPosition)
 		w.WriteString(positionToString(diag.InternalPosition))
 	}
 	if diag.InternalQuery != "" {
-		w.WriteByte(protocol.FieldInternalQuery)
+		w.AppendByte(protocol.FieldInternalQuery)
 		w.WriteString(diag.InternalQuery)
 	}
 	if diag.Where != "" {
-		w.WriteByte(protocol.FieldWhere)
+		w.AppendByte(protocol.FieldWhere)
 		w.WriteString(diag.Where)
 	}
 	if diag.Schema != "" {
-		w.WriteByte(protocol.FieldSchema)
+		w.AppendByte(protocol.FieldSchema)
 		w.WriteString(diag.Schema)
 	}
 	if diag.Table != "" {
-		w.WriteByte(protocol.FieldTable)
+		w.AppendByte(protocol.FieldTable)
 		w.WriteString(diag.Table)
 	}
 	if diag.Column != "" {
-		w.WriteByte(protocol.FieldColumn)
+		w.AppendByte(protocol.FieldColumn)
 		w.WriteString(diag.Column)
 	}
 	if diag.DataType != "" {
-		w.WriteByte(protocol.FieldDataType)
+		w.AppendByte(protocol.FieldDataType)
 		w.WriteString(diag.DataType)
 	}
 	if diag.Constraint != "" {
-		w.WriteByte(protocol.FieldConstraint)
+		w.AppendByte(protocol.FieldConstraint)
 		w.WriteString(diag.Constraint)
 	}
 
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 	return w.Bytes()
 }
 
@@ -718,13 +718,13 @@ func positionToString(pos int32) string {
 func TestParseDiagnosticFieldsSeverityVOnly(t *testing.T) {
 	// Build wire format message with only FieldSeverityV (non-localized severity)
 	w := NewMessageWriter()
-	w.WriteByte(protocol.FieldSeverityV)
+	w.AppendByte(protocol.FieldSeverityV)
 	w.WriteString("ERROR")
-	w.WriteByte(protocol.FieldCode)
+	w.AppendByte(protocol.FieldCode)
 	w.WriteString("42P01")
-	w.WriteByte(protocol.FieldMessage)
+	w.AppendByte(protocol.FieldMessage)
 	w.WriteString("relation does not exist")
-	w.WriteByte(0) // Terminator
+	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 	require.NotNil(t, diag)
@@ -745,15 +745,15 @@ func TestParseDiagnosticFieldsBothSeverityFields(t *testing.T) {
 	// Expected: Use FieldSeverity value
 	t.Run("S_before_V", func(t *testing.T) {
 		w := NewMessageWriter()
-		w.WriteByte(protocol.FieldSeverity)
+		w.AppendByte(protocol.FieldSeverity)
 		w.WriteString("ERREUR") // Localized (e.g., French)
-		w.WriteByte(protocol.FieldSeverityV)
+		w.AppendByte(protocol.FieldSeverityV)
 		w.WriteString("ERROR") // Non-localized
-		w.WriteByte(protocol.FieldCode)
+		w.AppendByte(protocol.FieldCode)
 		w.WriteString("42P01")
-		w.WriteByte(protocol.FieldMessage)
+		w.AppendByte(protocol.FieldMessage)
 		w.WriteString("relation does not exist")
-		w.WriteByte(0)
+		w.AppendByte(0)
 
 		diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 		require.NotNil(t, diag)
@@ -766,15 +766,15 @@ func TestParseDiagnosticFieldsBothSeverityFields(t *testing.T) {
 	// Expected: Use FieldSeverity value (overrides V)
 	t.Run("V_before_S", func(t *testing.T) {
 		w := NewMessageWriter()
-		w.WriteByte(protocol.FieldSeverityV)
+		w.AppendByte(protocol.FieldSeverityV)
 		w.WriteString("ERROR") // Non-localized (set first)
-		w.WriteByte(protocol.FieldSeverity)
+		w.AppendByte(protocol.FieldSeverity)
 		w.WriteString("ERREUR") // Localized (overrides)
-		w.WriteByte(protocol.FieldCode)
+		w.AppendByte(protocol.FieldCode)
 		w.WriteString("42P01")
-		w.WriteByte(protocol.FieldMessage)
+		w.AppendByte(protocol.FieldMessage)
 		w.WriteString("relation does not exist")
-		w.WriteByte(0)
+		w.AppendByte(0)
 
 		diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 		require.NotNil(t, diag)

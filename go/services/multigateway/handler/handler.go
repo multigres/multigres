@@ -66,7 +66,11 @@ type Executor interface {
 	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// PortalStreamExecute is used to execute a Portal that was previously created.
-	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
+	// includeDescribe asks the execution layer to fold a portal Describe('P')
+	// into the same backend round trip as Execute (libpq pipelines the two);
+	// when true, RowDescription rides back on the streaming callback's
+	// first Fields-bearing chunk.
+	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
@@ -361,7 +365,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
 // Executes the specified portal's query with bound parameters and streams results via callback.
-func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
 
@@ -409,7 +413,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	defer cancel()
 
 	execStart := time.Now()
-	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
+	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, includeDescribe, countingCallback)
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)

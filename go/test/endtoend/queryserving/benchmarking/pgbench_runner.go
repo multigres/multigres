@@ -43,7 +43,13 @@ type ScenarioConfig struct {
 	ConnChurn bool   // -C flag (new connection per transaction)
 }
 
-// ScenarioResult holds computed metrics from a pgbench run.
+// ScenarioResult holds computed metrics from a pgbench or sysbench run.
+//
+// Protocol/ConnChurn/LatencyP50 are pgbench-specific but kept non-omitempty
+// so existing downstream tooling (e.g. the weekly pgbench workflow that
+// filters with `select(.connection_churn == false)`) keeps working — their
+// zero values for sysbench rows are harmless. PSMode is sysbench-only and
+// stays `omitempty` so it doesn't pollute pgbench output.
 type ScenarioResult struct {
 	Target       string  `json:"target"`
 	Scenario     string  `json:"scenario"`
@@ -55,22 +61,28 @@ type ScenarioResult struct {
 	Duration     int     `json:"duration_seconds"`
 	Protocol     string  `json:"protocol"`
 	ConnChurn    bool    `json:"connection_churn"`
+	PSMode       string  `json:"ps_mode,omitempty"`
 	Transactions int     `json:"transactions"`
 }
 
 // BenchmarkReport is the top-level report containing all results.
 type BenchmarkReport struct {
 	Timestamp   string           `json:"timestamp"`
+	LoadTool    string           `json:"load_tool,omitempty"` // "pgbench" or "sysbench"
 	Results     []ScenarioResult `json:"results"`
 	Environment EnvironmentInfo  `json:"environment"`
 }
 
 // EnvironmentInfo captures the test environment for reproducibility.
 type EnvironmentInfo struct {
-	PostgresVersion string `json:"postgres_version"`
-	PgBenchVersion  string `json:"pgbench_version"`
-	OS              string `json:"os"`
-	GOMAXPROCS      int    `json:"gomaxprocs"`
+	PostgresVersion  string `json:"postgres_version,omitempty"`
+	PgBenchVersion   string `json:"pgbench_version,omitempty"`
+	SysBenchVersion  string `json:"sysbench_version,omitempty"`
+	MultigresVersion string `json:"multigres_version,omitempty"`
+	OS               string `json:"os"`
+	Arch             string `json:"arch,omitempty"`
+	GOMAXPROCS       int    `json:"gomaxprocs"`
+	PlanCacheBytes   int    `json:"plan_cache_bytes,omitempty"`
 }
 
 // PgBenchRunner wraps pgbench execution: initialization, scenario runs, and output parsing.

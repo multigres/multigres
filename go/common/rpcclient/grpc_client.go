@@ -82,6 +82,19 @@ func (c *Client) BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiP
 	return conn.consensusClient.BeginTerm(ctx, request)
 }
 
+// Recruit asks a pooler to stop replication participation and record a TermRevocation.
+func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.Recruit(ctx, request)
+}
+
 // ConsensusStatus gets the consensus status of the multipooler.
 func (c *Client) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)

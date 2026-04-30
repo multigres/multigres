@@ -33,8 +33,8 @@ import (
 // queryStr is the SQL query.
 // paramTypes are the OIDs of parameter types (0 for unspecified).
 func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeParse(name, queryStr, paramTypes); err != nil {
 		return fmt.Errorf("failed to write Parse: %w", err)
@@ -64,8 +64,8 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		return false, fmt.Errorf("failed to write Bind: %w", err)
@@ -87,6 +87,45 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 	return c.processBindAndExecuteResponses(ctx, callback)
 }
 
+// BindDescribeAndExecute binds, describes the portal, and executes it in a single
+// flushed batch (Bind → Describe('P') → Execute → Sync). This collapses the two
+// round trips that BindAndDescribe + BindAndExecute would otherwise require for
+// libpq's standard prepared-execute pattern, and avoids the redundant second
+// Bind that the second backend call would have to perform after Sync drops the
+// portal.
+//
+// The portal RowDescription is surfaced to the caller via the same streaming
+// callback as the rows: the first Result chunk carries Fields populated from
+// the backend's RowDescription (or nil from NoData), exactly as Describe('P')
+// would have set them. Returns the same completion bool as BindAndExecute —
+// true for CommandComplete, false for PortalSuspended.
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
+		return false, fmt.Errorf("failed to write Bind: %w", err)
+	}
+
+	if err := c.writeDescribe('P', portalName); err != nil {
+		return false, fmt.Errorf("failed to write Describe: %w", err)
+	}
+
+	if err := c.writeExecute(portalName, maxRows); err != nil {
+		return false, fmt.Errorf("failed to write Execute: %w", err)
+	}
+
+	if err := c.writeSync(); err != nil {
+		return false, fmt.Errorf("failed to write Sync: %w", err)
+	}
+
+	if err := c.flush(); err != nil {
+		return false, fmt.Errorf("failed to flush: %w", err)
+	}
+
+	return c.processBindDescribeAndExecuteResponses(ctx, callback)
+}
+
 // BindAndDescribe binds parameters to a prepared statement and describes the resulting portal.
 // This sends Bind → Describe('P') → Sync in a single operation.
 // stmtName is the prepared statement name - the portal will use the same name.
@@ -94,8 +133,8 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 // paramFormats are format codes for parameters (0=text, 1=binary).
 // resultFormats are format codes for result columns (0=text, 1=binary).
 func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (*query.StatementDescription, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Use the same name for portal as the statement for consistency.
 	if err := c.writeBind(stmtName, stmtName, params, paramFormats, resultFormats); err != nil {
@@ -122,8 +161,8 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 // This sends Describe('S') → Sync.
 // name is the prepared statement name (empty for unnamed statement).
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeDescribe('S', name); err != nil {
 		return nil, fmt.Errorf("failed to write Describe: %w", err)
@@ -153,8 +192,8 @@ func (c *Conn) ClosePortal(ctx context.Context, name string) error {
 
 // closeTarget sends a Close message for a statement or portal.
 func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeClose(typ, name); err != nil {
 		return fmt.Errorf("failed to write Close: %w", err)
@@ -175,8 +214,8 @@ func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
 
 // Sync sends a Sync message to synchronize the extended query protocol.
 func (c *Conn) Sync(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeSync(); err != nil {
 		return fmt.Errorf("failed to write Sync: %w", err)
@@ -192,8 +231,8 @@ func (c *Conn) Sync(ctx context.Context) error {
 
 // Flush sends a Flush message to request the server to flush its output buffer.
 func (c *Conn) Flush(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeFlush(); err != nil {
 		return fmt.Errorf("failed to write Flush: %w", err)
@@ -207,8 +246,8 @@ func (c *Conn) Flush(ctx context.Context) error {
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
 // A named statement persists until explicitly closed or the session ends.
 func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Write all messages without flushing.
 	if err := c.writeParse(name, queryStr, nil); err != nil {
@@ -290,8 +329,8 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeExecute(portalName, maxRows); err != nil {
 		return false, fmt.Errorf("failed to write Execute: %w", err)
@@ -526,75 +565,88 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 
 // writeParse writes a Parse message.
 func (c *Conn) writeParse(name, queryStr string, paramTypes []uint32) error {
-	w := NewMessageWriter()
-	w.WriteString(name)
-	w.WriteString(queryStr)
-	w.WriteInt16(int16(len(paramTypes)))
+	bodyLen := len(name) + 1 + len(queryStr) + 1 + 2 + 4*len(paramTypes)
+	buf, pos := c.startPacket(protocol.MsgParse, bodyLen)
+	pos = writeStringAt(buf, pos, name)
+	pos = writeStringAt(buf, pos, queryStr)
+	pos = writeInt16At(buf, pos, int16(len(paramTypes)))
 	for _, oid := range paramTypes {
-		w.WriteUint32(oid)
+		pos = writeUint32At(buf, pos, oid)
 	}
-	return c.writeMessageNoFlush(protocol.MsgParse, w.Bytes())
+	return c.writePacket(buf, pos)
 }
 
 // writeBind writes a Bind message.
 func (c *Conn) writeBind(portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
-	w := NewMessageWriter()
-	w.WriteString(portalName)
-	w.WriteString(stmtName)
-
-	// Parameter format codes.
-	w.WriteInt16(int16(len(paramFormats)))
-	for _, f := range paramFormats {
-		w.WriteInt16(f)
-	}
-
-	// Parameter values.
-	w.WriteInt16(int16(len(params)))
+	bodyLen := len(portalName) + 1 + len(stmtName) + 1
+	bodyLen += 2 + 2*len(paramFormats)
+	bodyLen += 2
 	for _, p := range params {
-		w.WriteByteString(p)
+		bodyLen += 4
+		if p != nil {
+			bodyLen += len(p)
+		}
+	}
+	bodyLen += 2 + 2*len(resultFormats)
+
+	buf, pos := c.startPacket(protocol.MsgBind, bodyLen)
+	pos = writeStringAt(buf, pos, portalName)
+	pos = writeStringAt(buf, pos, stmtName)
+
+	pos = writeInt16At(buf, pos, int16(len(paramFormats)))
+	for _, f := range paramFormats {
+		pos = writeInt16At(buf, pos, f)
 	}
 
-	// Result format codes.
-	w.WriteInt16(int16(len(resultFormats)))
+	pos = writeInt16At(buf, pos, int16(len(params)))
+	for _, p := range params {
+		pos = writeByteStringAt(buf, pos, p)
+	}
+
+	pos = writeInt16At(buf, pos, int16(len(resultFormats)))
 	for _, f := range resultFormats {
-		w.WriteInt16(f)
+		pos = writeInt16At(buf, pos, f)
 	}
-
-	return c.writeMessageNoFlush(protocol.MsgBind, w.Bytes())
+	return c.writePacket(buf, pos)
 }
 
 // writeExecute writes an Execute message.
 func (c *Conn) writeExecute(portalName string, maxRows int32) error {
-	w := NewMessageWriter()
-	w.WriteString(portalName)
-	w.WriteInt32(maxRows)
-	return c.writeMessageNoFlush(protocol.MsgExecute, w.Bytes())
+	bodyLen := len(portalName) + 1 + 4
+	buf, pos := c.startPacket(protocol.MsgExecute, bodyLen)
+	pos = writeStringAt(buf, pos, portalName)
+	pos = writeInt32At(buf, pos, maxRows)
+	return c.writePacket(buf, pos)
 }
 
 // writeDescribe writes a Describe message.
 func (c *Conn) writeDescribe(typ byte, name string) error {
-	w := NewMessageWriter()
-	w.WriteByte(typ)
-	w.WriteString(name)
-	return c.writeMessageNoFlush(protocol.MsgDescribe, w.Bytes())
+	bodyLen := 1 + len(name) + 1
+	buf, pos := c.startPacket(protocol.MsgDescribe, bodyLen)
+	pos = writeByteAt(buf, pos, typ)
+	pos = writeStringAt(buf, pos, name)
+	return c.writePacket(buf, pos)
 }
 
 // writeClose writes a Close message.
 func (c *Conn) writeClose(typ byte, name string) error {
-	w := NewMessageWriter()
-	w.WriteByte(typ)
-	w.WriteString(name)
-	return c.writeMessageNoFlush(protocol.MsgClose, w.Bytes())
+	bodyLen := 1 + len(name) + 1
+	buf, pos := c.startPacket(protocol.MsgClose, bodyLen)
+	pos = writeByteAt(buf, pos, typ)
+	pos = writeStringAt(buf, pos, name)
+	return c.writePacket(buf, pos)
 }
 
 // writeSync writes a Sync message.
 func (c *Conn) writeSync() error {
-	return c.writeMessageNoFlush(protocol.MsgSync, nil)
+	buf, pos := c.startPacket(protocol.MsgSync, 0)
+	return c.writePacket(buf, pos)
 }
 
 // writeFlush writes a Flush message.
 func (c *Conn) writeFlush() error {
-	return c.writeMessageNoFlush(protocol.MsgFlush, nil)
+	buf, pos := c.startPacket(protocol.MsgFlush, 0)
+	return c.writePacket(buf, pos)
 }
 
 // Response processing methods.
@@ -1161,6 +1213,142 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 					Notices: []*mterrors.PgDiagnostic{notice},
 				}
 				firstErr = callback(ctx, noticeResult)
+			}
+
+		case protocol.MsgParameterStatus:
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
+			}
+
+		default:
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
+		}
+	}
+}
+
+// processBindDescribeAndExecuteResponses processes responses to the fused
+// Bind+Describe(P)+Execute+Sync batch. Responses arrive in order:
+// BindComplete, RowDescription/NoData (from Describe),
+// DataRow*, CommandComplete/PortalSuspended/EmptyQueryResponse (from Execute),
+// ReadyForQuery (from Sync).
+//
+// The portal RowDescription is fed into the streaming callback's Fields on
+// the first chunk that carries data or the CommandTag, so callers receive
+// the same Fields they would have gotten from a standalone Describe('P').
+// NoData leaves currentFields nil and produces a Result with Fields == nil.
+func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	gotBindComplete := false
+	var currentFields []*query.Field
+	var batchedRows []*sqltypes.Row
+	var batchedSize int
+	var firstErr error
+	completed := false
+
+	flushBatch := func() {
+		if len(batchedRows) == 0 || callback == nil {
+			return
+		}
+		result := &sqltypes.Result{
+			Fields: currentFields,
+			Rows:   batchedRows,
+		}
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
+		}
+		batchedRows = nil
+		batchedSize = 0
+	}
+
+	for {
+		msgType, body, err := c.readMessage()
+		if err != nil {
+			return false, fmt.Errorf("failed to read message: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgBindComplete:
+			gotBindComplete = true
+
+		case protocol.MsgRowDescription:
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				currentFields = fields
+			}
+
+		case protocol.MsgNoData:
+			// No fields — currentFields stays nil.
+
+		case protocol.MsgDataRow:
+			row, err := c.parseDataRow(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				batchedRows = append(batchedRows, row)
+				batchedSize += len(body)
+				if batchedSize >= DefaultStreamingBatchSize {
+					flushBatch()
+				}
+			}
+
+		case protocol.MsgCommandComplete:
+			tag, err := c.parseCommandComplete(body)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else if callback != nil && firstErr == nil {
+				result := &sqltypes.Result{
+					Fields:       currentFields,
+					Rows:         batchedRows,
+					CommandTag:   tag,
+					RowsAffected: parseRowsAffected(tag),
+				}
+				firstErr = callback(ctx, result)
+			}
+			completed = true
+			currentFields = nil
+			batchedRows = nil
+			batchedSize = 0
+
+		case protocol.MsgEmptyQueryResponse:
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &sqltypes.Result{})
+			}
+			completed = true
+
+		case protocol.MsgPortalSuspended:
+			flushBatch()
+			completed = false
+
+		case protocol.MsgReadyForQuery:
+			c.txnStatus = protocol.TransactionStatus(body[0])
+			if firstErr != nil {
+				return false, firstErr
+			}
+			if !gotBindComplete {
+				return false, errors.New("did not receive BindComplete")
+			}
+			return completed, nil
+
+		case protocol.MsgErrorResponse:
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
+
+		case protocol.MsgNoticeResponse:
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				firstErr = callback(ctx, &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				})
 			}
 
 		case protocol.MsgParameterStatus:

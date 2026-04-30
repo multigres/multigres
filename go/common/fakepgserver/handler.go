@@ -104,7 +104,7 @@ func (h *fakeHandler) HandleBind(ctx context.Context, conn *server.Conn, portalN
 }
 
 // HandleExecute handles an Execute message for the extended query protocol.
-func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(context.Context, *sqltypes.Result) error) error {
+func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	p, ok := h.portals[portalName]
 	if !ok {
 		return fmt.Errorf("portal %q not found", portalName)

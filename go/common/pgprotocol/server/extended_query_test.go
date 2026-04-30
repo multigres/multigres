@@ -67,7 +67,7 @@ func (h *testHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	if h.executeFunc != nil {
 		return h.executeFunc(ctx, conn, portalName, maxRows, callback)
 	}
@@ -694,6 +694,13 @@ func TestHandleDescribe(t *testing.T) {
 			err := conn.handleDescribe()
 			require.NoError(t, err) // handleDescribe writes errors to client, doesn't return them
 
+			// Describe('P') is held by handleDescribe and resolved on the next
+			// non-Execute message. Drive that resolution directly so the test
+			// observes the same wire bytes a real client would.
+			if tt.describeType == 'P' {
+				require.NoError(t, conn.resolveDeferredPortalDescribe())
+			}
+
 			if tt.expectError {
 				// Should have sent an ErrorResponse message.
 				msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
@@ -724,6 +731,48 @@ func TestHandleDescribe(t *testing.T) {
 			assert.Equal(t, byte(protocol.MsgNoData), msgType)
 		})
 	}
+}
+
+// TestDescribePortalThenFlush exercises the Describe('P') + Flush ('H')
+// sequence that libpq uses to receive a portal description without a full
+// Sync cycle. Describe('P') is held by handleDescribe; the Flush handler
+// must drain it before flushing the write buffer, otherwise the client
+// blocks waiting for a RowDescription/NoData that was never written.
+func TestDescribePortalThenFlush(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	state := handler.getConnectionState(conn)
+	stmt := &testPreparedStatement{Name: "p_flush", Query: "SELECT 1"}
+	state.mu.Lock()
+	state.preparedStatements["p_flush"] = stmt
+	state.portals["p_flush"] = &testPortal{Name: "p_flush", Statement: stmt}
+	state.mu.Unlock()
+
+	// Build a Describe('P', "p_flush") body for handleDescribe to consume.
+	length := int32(4 + 1 + len("p_flush") + 1)
+	writeTestInt32(&readBuf, length)
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, "p_flush")
+
+	require.NoError(t, conn.handleDescribe())
+	// Nothing should have been written yet — the describe is held.
+	assert.Equal(t, 0, writeBuf.Len(), "Describe('P') must not write before resolution")
+
+	// MsgFlush has a 4-byte length on the wire (always 4: just the
+	// length field itself). handleMessage's MsgFlush case reads and
+	// discards it before flushing, so we have to feed it.
+	writeTestInt32(&readBuf, 4)
+
+	// Drive the Flush branch directly. It must resolve the deferred
+	// describe before flushing so the client sees the reply.
+	require.NoError(t, conn.handleMessage(protocol.MsgFlush))
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgNoData), msgType,
+		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
 // TestHandleClose tests the Close message handler.
@@ -847,6 +896,42 @@ func TestHandleClose(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandleDescribeMissingNullTerminator verifies that handleDescribe
+// rejects a body whose name field doesn't end in NUL, instead of
+// silently slicing off the trailing byte.
+func TestHandleDescribeMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Body: 'S' + "stmt" with NO null terminator. Length = 4 (length
+	// field) + 1 (type byte) + 4 (name bytes) = 9.
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleDescribe()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
+}
+
+// TestHandleCloseMissingNullTerminator verifies the same for handleClose.
+func TestHandleCloseMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleClose()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
 }
 
 // TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
