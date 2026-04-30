@@ -501,9 +501,6 @@ func (c *Conn) handleMessage(msgType byte) error {
 		// it into the backend call rather than flushing it separately).
 		return c.handleExecute()
 
-	case protocol.MsgFlush:
-		return c.flush()
-
 	case protocol.MsgTerminate:
 		c.logger.Debug("received termination message")
 		return io.EOF // Signal connection should close
@@ -533,6 +530,9 @@ func (c *Conn) handleMessage(msgType byte) error {
 
 	case protocol.MsgSync:
 		return c.handleSync()
+
+	case protocol.MsgFlush:
+		return c.flush()
 
 	default:
 		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
@@ -918,9 +918,6 @@ func (c *Conn) handleExecute() error {
 // handleDescribe handles a 'D' (Describe) message - extended query protocol.
 // Describes either a prepared statement ('S') or a portal ('P').
 func (c *Conn) handleDescribe() error {
-	c.startWriterBuffering()
-	defer c.endWriterBuffering()
-
 	// Read message length.
 	msgLen, err := c.ReadMessageLength()
 	if err != nil {
@@ -952,12 +949,16 @@ func (c *Conn) handleDescribe() error {
 	// the same portal, the two fold into a single backend call. Otherwise
 	// the next non-Execute handler (including a follow-up Describe of any
 	// type) flushes the held state via resolveDeferredPortalDescribe in
-	// handleMessage before its own reply runs.
+	// handleMessage before its own reply runs. No writes happen here, so
+	// skip buffer acquisition entirely.
 	if typ == 'P' {
 		c.deferredPortalDescribe = true
 		c.deferredPortalDescribeName = name
 		return nil
 	}
+
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
 
 	// Statement describe ('S') — call handler synchronously. Any prior
 	// Describe('P') was already flushed by handleMessage before this call.

@@ -729,6 +729,43 @@ func TestHandleDescribe(t *testing.T) {
 	}
 }
 
+// TestDescribePortalThenFlush exercises the Describe('P') + Flush ('H')
+// sequence that libpq uses to receive a portal description without a full
+// Sync cycle. Describe('P') is held by handleDescribe; the Flush handler
+// must drain it before flushing the write buffer, otherwise the client
+// blocks waiting for a RowDescription/NoData that was never written.
+func TestDescribePortalThenFlush(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	state := handler.getConnectionState(conn)
+	stmt := &testPreparedStatement{Name: "p_flush", Query: "SELECT 1"}
+	state.mu.Lock()
+	state.preparedStatements["p_flush"] = stmt
+	state.portals["p_flush"] = &testPortal{Name: "p_flush", Statement: stmt}
+	state.mu.Unlock()
+
+	// Build a Describe('P', "p_flush") body for handleDescribe to consume.
+	length := int32(4 + 1 + len("p_flush") + 1)
+	writeTestInt32(&readBuf, length)
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, "p_flush")
+
+	require.NoError(t, conn.handleDescribe())
+	// Nothing should have been written yet — the describe is held.
+	assert.Equal(t, 0, writeBuf.Len(), "Describe('P') must not write before resolution")
+
+	// Drive the Flush branch directly. It must resolve the deferred
+	// describe before flushing so the client sees the reply.
+	require.NoError(t, conn.handleMessage(protocol.MsgFlush))
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgNoData), msgType,
+		"Flush after Describe('P') must surface NoData/RowDescription")
+}
+
 // TestHandleClose tests the Close message handler.
 func TestHandleClose(t *testing.T) {
 	tests := []struct {
