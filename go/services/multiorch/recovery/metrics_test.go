@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -59,7 +58,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		{
 			CheckName: "PrimaryIsDead",
 			Scope:     types.ScopePooler,
-			ShardKey: commontypes.ShardKey{
+			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -73,7 +72,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		{
 			CheckName: "ReplicaNotReplicating",
 			Scope:     types.ScopePooler,
-			ShardKey: commontypes.ShardKey{
+			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard2",
@@ -122,7 +121,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 		{
 			CheckName: "PrimaryIsDead",
 			Scope:     types.ScopePooler,
-			ShardKey: commontypes.ShardKey{
+			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -141,7 +140,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 		{
 			CheckName: "ReplicaNotReplicating",
 			Scope:     types.ScopePooler,
-			ShardKey: commontypes.ShardKey{
+			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard2",
@@ -190,7 +189,7 @@ func TestEngine_DetectedProblems_ThreadSafety(t *testing.T) {
 				problems := []types.Problem{
 					{
 						CheckName: "PrimaryIsDead",
-						ShardKey: commontypes.ShardKey{
+						ShardKey: &clustermetadatapb.ShardKey{
 							Database:   "testdb",
 							TableGroup: "tg1",
 							Shard:      "shard1",
