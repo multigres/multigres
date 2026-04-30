@@ -190,6 +190,21 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	}
 }
 
+// NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
+// ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
+// (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a
+// successful CommandComplete — e.g., the WARNING emitted for `SET LOCAL`
+// outside a transaction block.
+func NewPgNotice(severity, sqlState, message, detail string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'N',
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
+	}
+}
+
 // NewUnrecognizedParameter creates a PgDiagnostic for an unrecognized configuration
 // parameter (SQLSTATE 42704 undefined_object). This matches PostgreSQL's error for
 // SHOW/SET/RESET of unknown GUC parameters.

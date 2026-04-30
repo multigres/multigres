@@ -134,6 +134,9 @@ func (t *TransactionPrimitive) executeCommit(
 ) error {
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
+	// Clear any SET LOCAL overrides on gateway-managed variables — they're
+	// transaction-scoped and revert at COMMIT.
+	state.ResetAllLocalGUCs()
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
@@ -204,6 +207,9 @@ func (t *TransactionPrimitive) executeRollback(
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
+	// Clear any SET LOCAL overrides on gateway-managed variables — they're
+	// transaction-scoped and revert at ROLLBACK.
+	state.ResetAllLocalGUCs()
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)

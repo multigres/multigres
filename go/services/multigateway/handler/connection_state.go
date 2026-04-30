@@ -244,12 +244,43 @@ func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.statementTimeout.Set(d)
 }
 
-// ResetStatementTimeout clears the session-level statement timeout,
-// reverting to the default (from startup params or flag).
+// ResetStatementTimeout clears both the session-level override and any
+// active transaction-local override, reverting to the default (from startup
+// params or flag). Matches PostgreSQL: RESET inside a transaction with a
+// prior SET LOCAL supersedes the LOCAL — effective value becomes the default.
 func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout.Reset()
+}
+
+// SetLocalStatementTimeout stores a transaction-local statement timeout
+// override (from SET LOCAL statement_timeout). Cleared on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocal(d)
+}
+
+// SetLocalStatementTimeoutToDefault sets the transaction-local override to
+// the server default (from SET LOCAL statement_timeout TO DEFAULT). This
+// masks any session-level override for the duration of the transaction
+// without destroying it; the session value is restored on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocalToDefault()
+}
+
+// ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
+// variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
+// observes the session-level (or default) value.
+func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.ResetLocal()
 }
 
 // GetStatementTimeout returns the effective statement timeout:
