@@ -122,7 +122,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	result := &StartResult{}
 
 	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
+	if isPostgreSQLRunning(config) {
 		logger.Info("PostgreSQL is already running")
 		result.AlreadyRunning = true
 		result.Message = "PostgreSQL is already running"
@@ -133,6 +133,19 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		}
 
 		return result, nil
+	}
+
+	// Clean up stale postmaster.pid before starting PostgreSQL.
+	// This is critical for issue #723 (PID reuse vulnerability in K8s with PVC).
+	// When a container restarts with PVC retention, the old postmaster.pid persists.
+	// If the stale PID gets reused by another process, pg_ctl will fail with "lock file already exists".
+	err := removePostmasterFile(config)
+	if err != nil {
+		// If removal fails, it's typically because the file doesn't exist (already removed or never created)
+		// which is harmless, so we log and continue. pg_ctl will handle any actual lock issues.
+		if !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("Failed to remove stale postmaster.pid, proceeding anyway", "error", err)
+		}
 	}
 
 	// Ensure Unix socket directory exists before starting PostgreSQL
@@ -227,20 +240,20 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 	return nil
 }
 
-func isPostgreSQLRunning(dataDir string) bool {
+// removePostmasterFile removes the PostgreSQL lock file (postmaster.pid) from PGDATA.
+func removePostmasterFile(config *pgctld.PostgresCtlConfig) error {
+	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
+	return os.Remove(pidFile)
+}
+
+func isPostgreSQLRunning(config *pgctld.PostgresCtlConfig) bool {
 	// Check if postmaster.pid file exists and process is running
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
 	if _, err := os.Stat(pidFile); err != nil {
 		return false
 	}
 
-	// Read PID from file and check if process is actually running
-	pid, err := readPostmasterPID(dataDir)
-	if err != nil {
-		return false
-	}
-
-	return isProcessRunning(pid)
+	return IsPostmasterProcessRunning(config)
 }
 
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
@@ -414,6 +427,20 @@ func readPostmasterPID(dataDir string) (int, error) {
 	}
 
 	return pid, nil
+}
+
+func IsPostmasterProcessRunning(config *pgctld.PostgresCtlConfig) bool {
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+
+	cmd := exec.Command("pg_isready",
+		"-h", socketDir,
+		"-p", strconv.Itoa(config.Port),
+		"-U", config.User,
+		"-d", config.Database,
+	)
+
+	_, err := cmd.CombinedOutput()
+	return err == nil
 }
 
 func isProcessRunning(pid int) bool {

@@ -21,12 +21,13 @@
 package consensus
 
 import (
+	reflect "reflect"
+	unsafe "unsafe"
+
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	unsafe "unsafe"
 )
 
 const (
