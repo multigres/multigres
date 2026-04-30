@@ -251,6 +251,10 @@ type ConnProvider interface {
 
 	// Status returns the connection status for all cells
 	Status() map[string]string
+
+	// IsConnected performs a live probe against the global topology store.
+	// Returns nil if the store is reachable, or an error otherwise.
+	IsConnected(ctx context.Context) error
 }
 
 // store is the main topology store implementation. It supports two ways of creation:
@@ -569,6 +573,17 @@ func (ts *store) Status() map[string]string {
 	ts.statusMu.Lock()
 	defer ts.statusMu.Unlock()
 	return maps.Clone(ts.status)
+}
+
+// IsConnected performs a live probe against the global topology store.
+// It lists the cells directory, ErrNoNode means etcd is reachable but no
+// cells are registered yet, which is still a successful connectivity check.
+func (ts *store) IsConnected(ctx context.Context) error {
+	_, err := ts.globalTopo.ListDir(ctx, CellsPath, false)
+	if errors.Is(err, &TopoError{Code: NoNode}) {
+		return nil
+	}
+	return err
 }
 
 // Close will close all connections to underlying topology stores.
