@@ -37,7 +37,6 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -336,7 +335,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		// This is a direct signal from the pooler's health stream — more reliable
 		// and lower latency than topology-based propagation via etcd.
 		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(commontypes.ShardKey{
+			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
 				TableGroup: tableGroup,
 				Shard:      shard,
 			})

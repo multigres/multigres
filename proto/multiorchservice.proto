@@ -53,9 +53,7 @@ service MultiOrchService {
 
 message ShardStatusRequest {
   // Shard to get status for
-  string database = 1;
-  string table_group = 2;
-  string shard = 3;
+  clustermetadata.ShardKey shard_key = 1;
 }
 
 message ShardStatusResponse {
@@ -70,13 +68,11 @@ message DetectedProblem {
   string code = 1; // e.g., "PrimaryIsDead"
   string check_name = 2; // Analyzer name
   clustermetadata.ID pooler_id = 3; // Affected pooler
-  string database = 4;
-  string table_group = 5;
-  string shard = 6;
-  string description = 7;
-  int32 priority = 8;
-  string scope = 9; // "Shard" or "Pooler"
-  google.protobuf.Timestamp detected_at = 10;
+  clustermetadata.ShardKey shard_key = 4;
+  string description = 5;
+  int32 priority = 6;
+  string scope = 7; // "Shard" or "Pooler"
+  google.protobuf.Timestamp detected_at = 8;
 }
 
 message PoolerHealth {

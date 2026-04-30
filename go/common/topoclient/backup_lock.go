@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // BackupsPath is the path component for backup locks in the topology hierarchy.
@@ -61,7 +62,7 @@ const BackupLeaseStealGracePeriod = 5 * time.Second
 const BackupLeaseCheckInterval = 10 * time.Second
 
 type backupLock struct {
-	types.ShardKey
+	shardKey *clustermetadatapb.ShardKey
 }
 
 var _ iTopoLock = (*backupLock)(nil)
@@ -71,17 +72,17 @@ func (b *backupLock) Type() string {
 }
 
 func (b *backupLock) ResourceName() string {
-	return b.ShardKey.String()
+	return types.ShardKeyString(b.shardKey)
 }
 
 func (b *backupLock) Path() string {
-	return fmt.Sprintf("%s/%s/%s/%s/lock", BackupsPath, b.Database, b.TableGroup, b.Shard)
+	return fmt.Sprintf("%s/%s/%s/%s/lock", BackupsPath, b.shardKey.Database, b.shardKey.TableGroup, b.shardKey.Shard)
 }
 
 // AssertBackupLockHeld checks that the backup lock is held for the given shard
 // in the provided context. Returns an error if it is not.
-func AssertBackupLockHeld(ctx context.Context, shardKey types.ShardKey) error {
-	return checkLocked(ctx, &backupLock{ShardKey: shardKey})
+func AssertBackupLockHeld(ctx context.Context, shardKey *clustermetadatapb.ShardKey) error {
+	return checkLocked(ctx, &backupLock{shardKey: shardKey})
 }
 
 // TryLockBackup attempts to acquire a backup lock on the specified shard without
@@ -90,8 +91,8 @@ func AssertBackupLockHeld(ctx context.Context, shardKey types.ShardKey) error {
 //
 // The lock uses a 30s TTL with KeepAlive as a safety net for crash recovery.
 // Normal release is done by calling the returned unlock function.
-func (ts *store) TryLockBackup(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error) {
-	bl := &backupLock{ShardKey: shardKey}
+func (ts *store) TryLockBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error) {
+	bl := &backupLock{shardKey: shardKey}
 	// Use NamedNonBlocking semantics (fail-fast, creates path) with custom TTL
 	return ts.internalLock(ctx, bl, action,
 		WithType(NamedNonBlockingWithTTL),
@@ -105,8 +106,8 @@ func (ts *store) TryLockBackup(ctx context.Context, shardKey types.ShardKey, act
 // triggering process cleanup on their side.
 //
 // Returns nil if no lock exists.
-func (ts *store) RevokeBackup(ctx context.Context, shardKey types.ShardKey) error {
-	bl := &backupLock{ShardKey: shardKey}
+func (ts *store) RevokeBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey) error {
+	bl := &backupLock{shardKey: shardKey}
 	if ts.globalTopo == nil {
 		return errors.New("no global cell connection on the topo server")
 	}
@@ -121,7 +122,7 @@ func (ts *store) RevokeBackup(ctx context.Context, shardKey types.ShardKey) erro
 // to steal.
 func (ts *store) WithBackupLease(
 	ctx context.Context,
-	shardKey types.ShardKey,
+	shardKey *clustermetadatapb.ShardKey,
 	holderID string,
 	operation string,
 	logger *slog.Logger,
@@ -131,17 +132,17 @@ func (ts *store) WithBackupLease(
 	acquire, revoke, check := ts.backupLeaseOps(shardKey)
 
 	logger.InfoContext(ctx, "Acquiring backup lease",
-		"shard", shardKey.String(), "holder", holderID, "operation", operation)
+		"shard", types.ShardKeyString(shardKey), "holder", holderID, "operation", operation)
 
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
 		WithLeaseCheckInterval(BackupLeaseCheckInterval),
 	)
 	if err != nil {
 		logger.InfoContext(ctx, "Backup lease operation completed with error",
-			"shard", shardKey.String(), "holder", holderID, "error", err)
+			"shard", types.ShardKeyString(shardKey), "holder", holderID, "error", err)
 	} else {
 		logger.InfoContext(ctx, "Backup lease operation completed",
-			"shard", shardKey.String(), "holder", holderID, "operation", operation)
+			"shard", types.ShardKeyString(shardKey), "holder", holderID, "operation", operation)
 	}
 	return err
 }
@@ -154,7 +155,7 @@ func (ts *store) WithBackupLease(
 // contenders for the lease, retries of steals would cause thrashing of the lease.
 func (ts *store) WithStolenBackupLease(
 	ctx context.Context,
-	shardKey types.ShardKey,
+	shardKey *clustermetadatapb.ShardKey,
 	stealerID string,
 	operation string,
 	logger *slog.Logger,
@@ -164,7 +165,7 @@ func (ts *store) WithStolenBackupLease(
 	acquire, revoke, check := ts.backupLeaseOps(shardKey)
 
 	logger.InfoContext(ctx, "Acquiring backup lease (steal-enabled)",
-		"shard", shardKey.String(), "stealer", stealerID, "operation", operation)
+		"shard", types.ShardKeyString(shardKey), "stealer", stealerID, "operation", operation)
 
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
 		WithStealGracePeriod(BackupLeaseStealGracePeriod),
@@ -172,16 +173,16 @@ func (ts *store) WithStolenBackupLease(
 	)
 	if err != nil {
 		logger.InfoContext(ctx, "Backup lease operation completed with error",
-			"shard", shardKey.String(), "stealer", stealerID, "error", err)
+			"shard", types.ShardKeyString(shardKey), "stealer", stealerID, "error", err)
 	} else {
 		logger.InfoContext(ctx, "Backup lease operation completed",
-			"shard", shardKey.String(), "stealer", stealerID, "operation", operation)
+			"shard", types.ShardKeyString(shardKey), "stealer", stealerID, "operation", operation)
 	}
 	return err
 }
 
 // backupLeaseOps returns the acquire/revoke/check closures for backup lease operations.
-func (ts *store) backupLeaseOps(shardKey types.ShardKey) (LeaseAcquirer, LeaseRevoker, LeaseChecker) {
+func (ts *store) backupLeaseOps(shardKey *clustermetadatapb.ShardKey) (LeaseAcquirer, LeaseRevoker, LeaseChecker) {
 	return func(ctx context.Context, action string) (context.Context, func(*error), error) {
 			return ts.TryLockBackup(ctx, shardKey, action)
 		},

@@ -23,7 +23,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/constants"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -313,5 +312,5 @@ func TestAudit(t *testing.T) {
 	engine := newTestEngine(ctx, t)
 
 	// Just verify audit doesn't panic (output is logged)
-	engine.audit("test-type", "pooler-1", commontypes.ShardKey{Database: "db1", TableGroup: "default", Shard: "-"}, "test message")
+	engine.audit("test-type", "pooler-1", &clustermetadata.ShardKey{Database: "db1", TableGroup: "default", Shard: "-"}, "test message")
 }

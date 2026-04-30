@@ -1925,9 +1925,11 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 		// Query shard status for the default shard
 		// TODO: Handle multiple shards if needed
 		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
-			Database:   "postgres",
-			TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
-			Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "postgres",
+				TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
+				Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
+			},
 		})
 		if err != nil {
 			t.Logf("%s: multiorch %s: RPC failed: %v", label, name, err)

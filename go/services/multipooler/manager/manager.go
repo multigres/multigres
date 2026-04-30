@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
@@ -612,8 +611,8 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 }
 
 // shardKey returns a ShardKey identifying this pooler's shard.
-func (pm *MultiPoolerManager) shardKey() commontypes.ShardKey {
-	return commontypes.ShardKey{
+func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
+	return &clustermetadatapb.ShardKey{
 		Database:   pm.multipooler.Database,
 		TableGroup: pm.multipooler.TableGroup,
 		Shard:      pm.multipooler.Shard,

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -27,7 +26,7 @@ import (
 // ShardAnalysis groups all per-pooler analyses for a single shard.
 // It is the input type for the Analyzer interface.
 type ShardAnalysis struct {
-	ShardKey commontypes.ShardKey
+	ShardKey *clustermetadatapb.ShardKey
 	Analyses []*PoolerAnalysis
 
 	// NumInitialized is the count of reachable, initialized poolers in this shard.
@@ -135,7 +134,7 @@ func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
 type PoolerAnalysis struct {
 	// Identity
 	PoolerID *clustermetadatapb.ID
-	ShardKey commontypes.ShardKey
+	ShardKey *clustermetadatapb.ShardKey
 
 	// Pooler properties
 	PoolerType clustermetadatapb.PoolerType

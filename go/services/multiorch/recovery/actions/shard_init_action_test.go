@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -72,7 +71,7 @@ func (m *mockCoordinator) GetCoordinatorID() *clustermetadatapb.ID {
 	return testCoordinatorID
 }
 
-var testShardInitShardKey = commontypes.ShardKey{
+var testShardInitShardKey = &clustermetadatapb.ShardKey{
 	Database:   "testdb",
 	TableGroup: "default",
 	Shard:      "0",

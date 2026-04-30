@@ -230,7 +230,7 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 		},
 	}
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -250,7 +250,7 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 	}
 
 	// Reset deadline (now + 10s)
-	tracker.Observe(types.ProblemPrimaryIsDead, shardKey.String(), action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, commontypes.ShardKeyString(shardKey), action, true)
 
 	// Check immediately - should not be expired
 	expired := tracker.ShouldExecute(problem)
@@ -272,7 +272,7 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 		},
 	}
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -292,7 +292,7 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 	}
 
 	// Reset deadline (now + 100ms)
-	tracker.Observe(types.ProblemPrimaryIsDead, shardKey.String(), action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, commontypes.ShardKeyString(shardKey), action, true)
 
 	// Wait for deadline to expire
 	time.Sleep(150 * time.Millisecond)
@@ -315,7 +315,7 @@ func TestRecoveryGracePeriod_NoDeadlineTracked(t *testing.T) {
 		gracePeriod: nil,
 	}
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -426,7 +426,7 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 		},
 	}
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -505,7 +505,7 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 	problem := types.Problem{
 		Code:           types.ProblemReplicaNotReplicating,
 		RecoveryAction: action,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -549,7 +549,7 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 		},
 	}
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -610,7 +610,7 @@ func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
 	}
 
 	// Build problems the same way the recovery loop would.
-	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c", Name: "pooler-1"}
 
 	problemA := types.Problem{
@@ -627,7 +627,7 @@ func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
 	}
 
 	// Observe both problems as unhealthy using the same entity IDs as the recovery loop
-	// (shardKey.String() for shard-wide, MultiPoolerIDString for pooler-scoped).
+	// (commontypes.ShardKeyString(shardKey) for shard-wide, MultiPoolerIDString for pooler-scoped).
 	tracker.Observe(types.ProblemPrimaryIsDead, problemA.EntityID(), action, false)
 	tracker.Observe(types.ProblemStalePrimary, problemB.EntityID(), action, false)
 

@@ -14,16 +14,17 @@
 
 package types
 
-import "fmt"
+import (
+	"fmt"
 
-// ShardKey uniquely identifies a shard.
-type ShardKey struct {
-	Database   string
-	TableGroup string
-	Shard      string
-}
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+)
 
-// String returns a string representation of the ShardKey.
-func (s ShardKey) String() string {
-	return fmt.Sprintf("%s/%s/%s", s.Database, s.TableGroup, s.Shard)
+// ShardKeyString returns a human-readable string for a proto ShardKey.
+// Use this wherever a stable string representation is needed (map keys, logs, errors).
+func ShardKeyString(k *clustermetadatapb.ShardKey) string {
+	if k == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/%s", k.Database, k.TableGroup, k.Shard)
 }

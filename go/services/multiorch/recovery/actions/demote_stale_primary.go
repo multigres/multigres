@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -105,7 +106,7 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale primary action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey),
 		"stale_primary", poolerIDStr)
 
 	// Get the stale primary from the store
@@ -164,7 +165,7 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 		"lsn_position", demoteResp.LsnPosition)
 
 	a.logger.InfoContext(ctx, "demote stale primary action completed",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey),
 		"demoted_primary", poolerIDStr)
 
 	return nil
@@ -172,7 +173,7 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 
 // findCorrectPrimary finds the correct primary in the shard and returns it along with its term.
 // The correct primary is the one with the highest PrimaryTerm.
-func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
+func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey *clustermetadatapb.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
 	var correctPrimary *multiorchdatapb.PoolerHealthState
 	var maxPrimaryTerm int64
 
@@ -211,7 +212,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 	})
 
 	if correctPrimary == nil {
-		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
+		return nil, 0, fmt.Errorf("no correct primary found in shard %s", commontypes.ShardKeyString(shardKey))
 	}
 
 	consensusTerm := correctPrimary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()

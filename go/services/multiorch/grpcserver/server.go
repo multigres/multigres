@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 )
@@ -60,28 +61,28 @@ func (s *MultiOrchServer) GetShardStatus(
 	req *multiorchpb.ShardStatusRequest,
 ) (*multiorchpb.ShardStatusResponse, error) {
 	// Validate that this shard is in our watch targets
-	if !s.engine.IsWatchingShard(req.Database, req.TableGroup, req.Shard) {
+	if req.ShardKey == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "shard_key is required")
+	}
+	sk := req.ShardKey
+	if !s.engine.IsWatchingShard(sk.Database, sk.TableGroup, sk.Shard) {
 		return nil, status.Errorf(codes.NotFound,
-			"shard %s/%s/%s is not in watch targets for this multiorch instance",
-			req.Database, req.TableGroup, req.Shard)
+			"shard %s is not in watch targets for this multiorch instance", commontypes.ShardKeyString(sk))
 	}
 
 	// Get all detected problems from the engine
 	allProblems := s.engine.GetDetectedProblems()
 
 	// Filter problems for the requested shard
+	skStr := commontypes.ShardKeyString(sk)
 	var shardProblems []*multiorchpb.DetectedProblem
 	for _, p := range allProblems {
-		if p.ShardKey.Database == req.Database &&
-			p.ShardKey.TableGroup == req.TableGroup &&
-			p.ShardKey.Shard == req.Shard {
+		if commontypes.ShardKeyString(p.ShardKey) == skStr {
 			shardProblems = append(shardProblems, &multiorchpb.DetectedProblem{
 				Code:        string(p.Code),
 				CheckName:   string(p.CheckName),
 				PoolerId:    p.PoolerID,
-				Database:    p.ShardKey.Database,
-				TableGroup:  p.ShardKey.TableGroup,
-				Shard:       p.ShardKey.Shard,
+				ShardKey:    p.ShardKey,
 				Description: p.Description,
 				Priority:    int32(p.Priority),
 				Scope:       string(p.Scope),
@@ -162,7 +163,8 @@ func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorch
 
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.
 func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
-	poolers := s.engine.GetPoolerHealthForShard(req.Database, req.TableGroup, req.Shard)
+	sk := req.ShardKey
+	poolers := s.engine.GetPoolerHealthForShard(sk.Database, sk.TableGroup, sk.Shard)
 
 	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))
 	for _, p := range poolers {
