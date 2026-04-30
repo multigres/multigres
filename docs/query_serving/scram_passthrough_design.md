@@ -61,7 +61,7 @@ MultiGateway populates `UserAuth` from the session's captured keys on every outb
 
 ### MultiPooler dial logic
 
-`pgprotocol/client.Config` carries optional `ClientKey` and `ServerKey`. The client-side auth dispatch in `client/startup.go:handleAuthenticationRequest` branches on their presence: when set, it constructs a SCRAM client via `newScramClientWithKeys(user, clientKey, serverKey)`; otherwise it uses the password path.
+`pgprotocol/client.Config` carries optional `ScramClientKey` and `ScramServerKey`. The client-side auth dispatch in `client/startup.go:handleAuthenticationRequest` branches on their presence: when set, it constructs a SCRAM client via `newScramClientWithKeys(user, scramClientKey, scramServerKey)`; otherwise it uses the password path.
 
 `connpoolmanager.Manager` routes keys from the inbound RPC into the user-pool backend dial. User pools are keyed by username and carry the session's keys into their `client.Config` at the pool's first-time creation.
 
