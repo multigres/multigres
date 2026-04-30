@@ -100,8 +100,8 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 // would have set them. Returns the same completion bool as BindAndExecute —
 // true for CommandComplete, false for PortalSuspended.
 func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		return false, fmt.Errorf("failed to write Bind: %w", err)
