@@ -146,7 +146,7 @@ func TestAsyncNotificationRace(t *testing.T) {
 		var (
 			wg      sync.WaitGroup
 			handErr atomic.Value // holds error
-			notifEr atomic.Value
+			pushErr atomic.Value
 		)
 
 		// Synchronous handler: tight loop of the wire packets a
@@ -183,11 +183,11 @@ func TestAsyncNotificationRace(t *testing.T) {
 		wg.Go(func() {
 			for i := range notifIters {
 				if err := c.writeNotificationResponseMsg(int32(i+1), notifChannel, notifPayload); err != nil {
-					notifEr.Store(err)
+					pushErr.Store(err)
 					return
 				}
 				if err := c.flush(); err != nil {
-					notifEr.Store(err)
+					pushErr.Store(err)
 					return
 				}
 			}
@@ -197,7 +197,7 @@ func TestAsyncNotificationRace(t *testing.T) {
 		if v := handErr.Load(); v != nil {
 			t.Fatalf("handler goroutine error: %v", v.(error))
 		}
-		if v := notifEr.Load(); v != nil {
+		if v := pushErr.Load(); v != nil {
 			t.Fatalf("notification goroutine error: %v", v.(error))
 		}
 
