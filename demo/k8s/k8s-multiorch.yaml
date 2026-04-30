@@ -55,6 +55,13 @@ spec:
               port: 17000
             initialDelaySeconds: 10
             periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: 17000
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
           volumeMounts:
             - name: sampling-config
               mountPath: /etc/otel
