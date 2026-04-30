@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	commontypes "github.com/multigres/multigres/go/common/types"
 )
 
 // timeoutThread is a single goroutine that monitors the head of the global
@@ -135,6 +136,6 @@ func (tt *timeoutThread) evictHead() {
 	head.err = mterrors.MTB02.New()
 	close(head.done)
 	tt.buf.bufferSizeSema.Release(1)
-	tt.buf.stats.recordEvicted(tt.buf.ctx, head.shardKey.String(), "window_exceeded")
-	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", head.shardKey)
+	tt.buf.stats.recordEvicted(tt.buf.ctx, commontypes.ShardKeyString(head.shardKey), "window_exceeded")
+	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", commontypes.ShardKeyString(head.shardKey))
 }

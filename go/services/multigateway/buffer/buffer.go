@@ -33,6 +33,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // RetryDoneFunc must be called by the caller after the retry attempt completes.
@@ -52,7 +53,7 @@ type entry struct {
 	bufferCtx    context.Context
 	bufferCancel context.CancelFunc
 	// shardKey identifies which shard this entry belongs to.
-	shardKey commontypes.ShardKey
+	shardKey *clustermetadatapb.ShardKey
 	// createdAt records when the entry was enqueued for metrics.
 	createdAt time.Time
 }
@@ -88,8 +89,8 @@ type Buffer struct {
 	bufferSizeSema *semaphore.Weighted
 
 	mu      sync.Mutex
-	buffers map[commontypes.ShardKey]*shardBuffer
-	queue   []*entry // Global FIFO queue (all shards interleaved)
+	buffers map[string]*shardBuffer // keyed by ShardKeyString
+	queue   []*entry                // Global FIFO queue (all shards interleaved)
 	stopped bool
 
 	timeoutThread *timeoutThread
@@ -106,7 +107,7 @@ func New(ctx context.Context, config *Config, logger *slog.Logger, opts ...Optio
 		ctx:            ctx,
 		cancel:         cancel,
 		bufferSizeSema: semaphore.NewWeighted(int64(config.Size.Get())),
-		buffers:        make(map[commontypes.ShardKey]*shardBuffer),
+		buffers:        make(map[string]*shardBuffer),
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -120,7 +121,7 @@ func New(ctx context.Context, config *Config, logger *slog.Logger, opts ...Optio
 // a failover. When the failover completes, the returned RetryDoneFunc must
 // be called after the retry attempt completes. Returns (nil, nil) if
 // buffering is not applicable (disabled, wrong target type, timing guard, etc).
-func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key commontypes.ShardKey) (RetryDoneFunc, error) {
+func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key *clustermetadatapb.ShardKey) (RetryDoneFunc, error) {
 	if !b.config.Enabled.Get() {
 		return nil, nil
 	}
@@ -134,14 +135,14 @@ func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key commontypes.ShardKe
 // it does NOT start buffering for idle shards. This is used proactively before
 // sending a query to avoid a wasted round-trip to a pooler that is known to be
 // failing over.
-func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key commontypes.ShardKey) (RetryDoneFunc, error) {
+func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key *clustermetadatapb.ShardKey) (RetryDoneFunc, error) {
 	if !b.config.Enabled.Get() {
 		return nil, nil
 	}
 
 	// Lookup only — don't create a shardBuffer for a shard we've never seen.
 	b.mu.Lock()
-	sb, ok := b.buffers[key]
+	sb, ok := b.buffers[commontypes.ShardKeyString(key)]
 	b.mu.Unlock()
 	if !ok {
 		return nil, nil
@@ -152,9 +153,9 @@ func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key commontypes.Sha
 
 // StopBuffering is called when a new PRIMARY is discovered for the given shard.
 // It transitions the shard from BUFFERING to DRAINING.
-func (b *Buffer) StopBuffering(key commontypes.ShardKey) {
+func (b *Buffer) StopBuffering(key *clustermetadatapb.ShardKey) {
 	b.mu.Lock()
-	sb, ok := b.buffers[key]
+	sb, ok := b.buffers[commontypes.ShardKeyString(key)]
 	b.mu.Unlock()
 
 	if !ok {
@@ -207,14 +208,15 @@ func (b *Buffer) Shutdown() {
 	b.logger.Info("buffer shut down")
 }
 
-func (b *Buffer) getOrCreateShardBuffer(key commontypes.ShardKey) *shardBuffer {
+func (b *Buffer) getOrCreateShardBuffer(key *clustermetadatapb.ShardKey) *shardBuffer {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sb, ok := b.buffers[key]
+	keyStr := commontypes.ShardKeyString(key)
+	sb, ok := b.buffers[keyStr]
 	if !ok {
 		sb = newShardBuffer(b, key)
-		b.buffers[key] = sb
+		b.buffers[keyStr] = sb
 	}
 	return sb
 }
@@ -225,7 +227,7 @@ func (b *Buffer) getOrCreateShardBuffer(key commontypes.ShardKey) *shardBuffer {
 // keeps the implementation simple and avoids per-shard capacity tracking. For the
 // common case (single-shard failover) there is no cross-shard interference.
 // Must NOT be called with b.mu held.
-func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
+func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -247,7 +249,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		b.queue = b.queue[1:]
 		oldest.err = mterrors.MTB01.New()
 		close(oldest.done)
-		b.stats.recordEvicted(b.ctx, oldest.shardKey.String(), "buffer_full")
+		b.stats.recordEvicted(b.ctx, commontypes.ShardKeyString(oldest.shardKey), "buffer_full")
 		// The evicted entry's semaphore slot is conceptually transferred to us,
 		// so we don't need to acquire again.
 	}
@@ -263,7 +265,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		createdAt:    now,
 	}
 	b.queue = append(b.queue, e)
-	b.stats.recordBuffered(b.ctx, shardKey.String())
+	b.stats.recordBuffered(b.ctx, commontypes.ShardKeyString(shardKey))
 
 	// Notify timeout thread only when the queue transitions from empty to
 	// non-empty. Entries are always appended to the tail, and the timeout
@@ -298,14 +300,15 @@ func (b *Buffer) removeEntry(e *entry) {
 // drainEntriesForShard removes and returns all entries for the given shard
 // from the global queue.
 // Must NOT be called with b.mu held.
-func (b *Buffer) drainEntriesForShard(shardKey commontypes.ShardKey) []*entry {
+func (b *Buffer) drainEntriesForShard(shardKey *clustermetadatapb.ShardKey) []*entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	shardKeyStr := commontypes.ShardKeyString(shardKey)
 	var drained []*entry
 	remaining := b.queue[:0]
 	for _, e := range b.queue {
-		if e.shardKey == shardKey {
+		if commontypes.ShardKeyString(e.shardKey) == shardKeyStr {
 			drained = append(drained, e)
 		} else {
 			remaining = append(remaining, e)

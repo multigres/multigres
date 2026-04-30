@@ -25,7 +25,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -403,7 +402,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	})
 
 	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil/false
@@ -459,7 +458,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	})
 
 	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica")
 	require.NotNil(t, analysis)
@@ -494,7 +493,7 @@ func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
 		},
 	}
 
-	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	t.Run("topology type PRIMARY, PoolerType REPLICA, primary term > 0 via ConsensusStatus", func(t *testing.T) {
 		// Former primary promoted at term 4; etcd topology updated to PRIMARY.
@@ -687,7 +686,7 @@ func TestIsInStandbyList(t *testing.T) {
 			})
 
 			generator := NewAnalysisGenerator(ps, nil)
-			sa, err := generator.GenerateShardAnalysis(commontypes.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"})
+			sa, err := generator.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"})
 			require.NoError(t, err)
 
 			result := sa.IsInStandbyList(tt.replicaID)
@@ -745,7 +744,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, sa.PrimaryPoolerReachable)
@@ -800,7 +799,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, sa.PrimaryPoolerReachable)
@@ -894,7 +893,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, sa.ReplicasConnectedToPrimary, "should be true when all replicas are connected")
@@ -976,7 +975,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when any replica is disconnected")
@@ -1027,7 +1026,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when replica is unreachable")
@@ -1060,7 +1059,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// Primary-only shard: ReplicasConnectedToPrimary should be false (no replicas)
@@ -1121,7 +1120,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, sa.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
@@ -1492,7 +1491,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	})
 
 	generator := NewAnalysisGenerator(ps, nil)
-	shardKey := commontypes.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"}
 
 	t.Run("replica in standby list", func(t *testing.T) {
 		sa, err := generator.GenerateShardAnalysis(shardKey)
@@ -1596,7 +1595,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 	})
 
 	generator := NewAnalysisGenerator(ps, nil)
-	sa, err := generator.GenerateShardAnalysis(commontypes.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"})
+	sa, err := generator.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica-1")
 	require.NotNil(t, analysis)
@@ -1612,7 +1611,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 }
 
 func TestDetectOtherPrimary(t *testing.T) {
-	shardKey := commontypes.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
 
 	t.Run("single other primary detected", func(t *testing.T) {
 		store := setupMultiplePrimariesStore(t, []primaryConfig{
@@ -1882,7 +1881,7 @@ func TestGenerateShardAnalysis_ErrorOnMissingShard(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
 	gen := NewAnalysisGenerator(ps, nil)
 
-	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	_, err := gen.GenerateShardAnalysis(shardKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "shard not found")
@@ -1913,7 +1912,7 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 	})
 
 	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
+	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
 	require.NoError(t, err)
 	assert.Len(t, sa.Analyses, 2)
 }

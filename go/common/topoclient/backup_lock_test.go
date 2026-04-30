@@ -26,7 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func newTestStore(t *testing.T) topoclient.Store {
@@ -39,7 +39,7 @@ func newTestStore(t *testing.T) topoclient.Store {
 	return ts
 }
 
-var testShardKey = types.ShardKey{
+var testShardKey = &clustermetadatapb.ShardKey{
 	Database:   "testdb",
 	TableGroup: constants.DefaultTableGroup,
 	Shard:      "0",
@@ -54,7 +54,7 @@ func TestTryLockBackup(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Acquire backup lock
 	lockCtx, unlock, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-1")
@@ -69,7 +69,7 @@ func TestTryLockBackup(t *testing.T) {
 	require.Error(t, err)
 
 	// Different shard should succeed
-	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+	shardKey2 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 	_, unlock2, err := ts.TryLockBackup(ctx, shardKey2, "backup by pooler-1")
 	require.NoError(t, err)
 	var unlockErr error
@@ -96,7 +96,7 @@ func TestForceUnlockBackup(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Acquire backup lock
 	_, _, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-1")
@@ -127,7 +127,7 @@ func TestAssertBackupLockHeld(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Assert should fail when no lock is held
 	err := topoclient.AssertBackupLockHeld(ctx, shardKey)
@@ -258,7 +258,7 @@ func TestWithBackupLeaseDifferentShards(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.Default()
 
-	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+	shardKey2 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 
 	err := ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
 		return nil

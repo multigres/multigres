@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -124,7 +123,7 @@ func (pg *PoolerGateway) withBuffering(
 	inner func(conn *PoolerConnection) error,
 ) error {
 	bufferedOnce := false
-	sk := commontypes.ShardKey{
+	sk := &clustermetadatapb.ShardKey{
 		TableGroup: target.TableGroup,
 		Shard:      target.Shard,
 	}

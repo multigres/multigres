@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -30,7 +29,7 @@ import (
 // first caller wins, different caller loses, same caller after crash wins
 // with the originally committed cohort.
 func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store) {
-	shardKey := types.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "0"}
 
 	coord1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
 	coord2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "orch-2"}
@@ -63,7 +62,7 @@ func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store)
 	assert.False(t, won, "different caller should lose")
 
 	t.Log("===      independent shard can be claimed separately")
-	shardKey2 := types.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "1"}
+	shardKey2 := &clustermetadatapb.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "1"}
 	won, committed, err = ts.ClaimShardInitialization(ctx, shardKey2, coord2, cohort)
 	require.NoError(t, err)
 	assert.True(t, won, "different shard should be claimable independently")

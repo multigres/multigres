@@ -21,6 +21,7 @@ import (
 	"time"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // bufferState represents the state of a per-shard buffer.
@@ -49,7 +50,7 @@ func (s bufferState) String() string {
 // State transitions: IDLE -> BUFFERING -> DRAINING -> IDLE
 type shardBuffer struct {
 	buf      *Buffer
-	shardKey commontypes.ShardKey
+	shardKey *clustermetadatapb.ShardKey
 	logger   *slog.Logger
 
 	mu               sync.Mutex
@@ -61,7 +62,7 @@ type shardBuffer struct {
 	drainWg          sync.WaitGroup
 }
 
-func newShardBuffer(buf *Buffer, key commontypes.ShardKey) *shardBuffer {
+func newShardBuffer(buf *Buffer, key *clustermetadatapb.ShardKey) *shardBuffer {
 	return &shardBuffer{
 		buf:      buf,
 		shardKey: key,
@@ -127,7 +128,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		gen := sb.generation
 		sb.lastStart = sb.buf.now()
 		sb.logger.InfoContext(ctx, "failover detected, starting buffering")
-		sb.buf.stats.recordFailover(ctx, sb.shardKey.String())
+		sb.buf.stats.recordFailover(ctx, commontypes.ShardKeyString(sb.shardKey))
 
 		// Start max-duration timer. The generation is captured so that if
 		// the timer fires after this failover has already ended and a new
@@ -168,7 +169,7 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 		// <-e.bufferCtx.Done(). If the entry was still in the queue,
 		// this is harmless (nobody is watching bufferCtx).
 		e.bufferCancel()
-		sb.buf.stats.recordEvicted(sb.buf.ctx, sb.shardKey.String(), "context_canceled")
+		sb.buf.stats.recordEvicted(sb.buf.ctx, commontypes.ShardKeyString(sb.shardKey), "context_canceled")
 		sb.buf.stats.recordWaitDuration(sb.buf.ctx, sb.buf.now().Sub(start).Seconds())
 		return nil, ctx.Err()
 	case <-e.done:
@@ -251,7 +252,7 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 func (sb *shardBuffer) drainEntry(e *entry) {
 	// Signal the entry to retry by closing its done channel.
 	close(e.done)
-	sb.buf.stats.recordDrained(sb.buf.ctx, sb.shardKey.String())
+	sb.buf.stats.recordDrained(sb.buf.ctx, commontypes.ShardKeyString(sb.shardKey))
 
 	// Wait for the retry to complete (caller invokes RetryDoneFunc which
 	// calls bufferCancel).

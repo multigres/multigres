@@ -69,7 +69,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 		poolerID  string
 		id        *clustermetadatapb.ID
 		auditType string
-		shardKey  commontypes.ShardKey
+		shardKey  *clustermetadatapb.ShardKey
 		message   string
 	}
 	var toDelete []deleteEntry
@@ -88,7 +88,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 			return true // continue iteration
 		}
 
-		shardKey := commontypes.ShardKey{
+		shardKey := &clustermetadatapb.ShardKey{
 			Database:   poolerInfo.MultiPooler.Database,
 			TableGroup: poolerInfo.MultiPooler.TableGroup,
 			Shard:      poolerInfo.MultiPooler.Shard,
@@ -157,11 +157,11 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 // audit logs an audit message with consistent formatting.
 // This ensures important operations are logged in a structured way for compliance and debugging.
-func (re *Engine) audit(auditType, poolerID string, shardKey commontypes.ShardKey, message string) {
+func (re *Engine) audit(auditType, poolerID string, shardKey *clustermetadatapb.ShardKey, message string) {
 	re.logger.Info("audit",
 		"audit_type", auditType,
 		"pooler_id", poolerID,
-		"shard_key", shardKey.String(),
+		"shard_key", commontypes.ShardKeyString(shardKey),
 		"message", message,
 	)
 }

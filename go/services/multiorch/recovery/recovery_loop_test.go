@@ -184,17 +184,17 @@ func TestGroupProblemsByShard(t *testing.T) {
 		{
 			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID1,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
 			Code:     types.ProblemReplicaNotReplicating,
 			PoolerID: poolerID2,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
 			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID3,
-			ShardKey: commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"},
 		},
 	}
 
@@ -204,11 +204,11 @@ func TestGroupProblemsByShard(t *testing.T) {
 	assert.Len(t, grouped, 2, "should have 2 shards")
 
 	// Check first shard
-	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key1 := commontypes.ShardKeyString(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"})
 	assert.Len(t, grouped[key1], 2, "db1/tg1/0 should have 2 problems")
 
 	// Check second shard
-	key2 := commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"}
+	key2 := commontypes.ShardKeyString(&clustermetadatapb.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"})
 	assert.Len(t, grouped[key2], 1, "db2/tg2/0 should have 1 problem")
 }
 
@@ -235,19 +235,19 @@ func TestPrioritySorting(t *testing.T) {
 		{
 			Code:     types.ProblemReplicaNotReplicating,
 			PoolerID: poolerID2,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Priority: types.PriorityHigh,
 		},
 		{
 			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID1,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Priority: types.PriorityEmergency,
 		},
 		{
 			Code:     "ConfigurationDrift",
 			PoolerID: poolerID3,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Priority: types.PriorityNormal,
 		},
 	}
@@ -270,22 +270,20 @@ func TestPrioritySorting(t *testing.T) {
 }
 
 func TestShardKey(t *testing.T) {
-	// Test that ShardKey works correctly as a map key
-	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	// Test that ShardKeyString provides value-equality semantics for proto shard keys.
+	key1 := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key2 := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key3 := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg2", Shard: "0"}
 
-	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	// Test string key map usage — proto pointers can't be map keys, so we use ShardKeyString.
+	m := make(map[string]int)
+	m[commontypes.ShardKeyString(key1)] = 1
+	m[commontypes.ShardKeyString(key2)] = 2 // Should overwrite key1
+	m[commontypes.ShardKeyString(key3)] = 3
 
-	key3 := commontypes.ShardKey{Database: "db1", TableGroup: "tg2", Shard: "0"}
-
-	// Test map usage
-	m := make(map[commontypes.ShardKey]int)
-	m[key1] = 1
-	m[key2] = 2 // Should overwrite key1
-	m[key3] = 3
-
-	assert.Equal(t, 2, m[key1], "key1 and key2 should be equal")
-	assert.Equal(t, 2, m[key2], "key1 and key2 should be equal")
-	assert.Equal(t, 3, m[key3], "key3 should be different")
+	assert.Equal(t, 2, m[commontypes.ShardKeyString(key1)], "key1 and key2 should be equal")
+	assert.Equal(t, 2, m[commontypes.ShardKeyString(key2)], "key1 and key2 should be equal")
+	assert.Equal(t, 3, m[commontypes.ShardKeyString(key3)], "key3 should be different")
 	assert.Len(t, m, 2, "should have 2 unique keys")
 }
 
@@ -312,12 +310,12 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 		{
 			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID1,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
 			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID2,
-			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}, // Different shard
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}, // Different shard
 		},
 	}
 
@@ -326,8 +324,8 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	// Should have 2 separate groups (different shards)
 	assert.Len(t, grouped, 2, "should have 2 separate groups for different shards")
 
-	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
-	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}
+	key1 := commontypes.ShardKeyString(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"})
+	key2 := commontypes.ShardKeyString(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"})
 
 	assert.Len(t, grouped[key1], 1, "shard 0 should have 1 problem")
 	assert.Len(t, grouped[key2], 1, "shard 1 should have 1 problem")
@@ -353,7 +351,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 		Code:      types.ProblemPrimaryIsDead,
 		CheckName: "PrimaryDeadCheck",
 		PoolerID:  poolerID,
-		ShardKey:  commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+		ShardKey:  &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		Priority:  types.PriorityEmergency,
 	}
 
@@ -768,7 +766,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		problems := detectProblems(t, engine)
 		require.Len(t, problems, 2, "should detect both primary dead and replica not replicating")
 
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems - this exercises the full recovery flow
 		engine.processShardProblems(t.Context(), shardKey, problems)
@@ -830,7 +828,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		require.Len(t, problems, 1, "should detect only replica not replicating")
 		assert.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
 
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems
 		engine.processShardProblems(t.Context(), shardKey, problems)
@@ -1467,7 +1465,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	problems := detectProblems(t, engine)
 	require.Len(t, problems, 3, "should detect 3 problems with different priorities")
 
-	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	// Process problems - they should be attempted in priority order
 	engine.processShardProblems(t.Context(), shardKey, problems)

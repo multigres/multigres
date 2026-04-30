@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -50,7 +49,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		stalePA := &PoolerAnalysis{
 			PoolerID:        staleID,
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:       true,
 			IsInitialized:   true,
 			ConsensusStatus: primaryRuleStatus(staleID, 5),
@@ -87,7 +86,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newPA := &PoolerAnalysis{
 			PoolerID:        newID,
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:       true,
 			IsInitialized:   true,
 			ConsensusStatus: primaryRuleStatus(newID, 6),
@@ -125,7 +124,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		primaryBID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-b"}
 		primaryAPA := &PoolerAnalysis{
 			PoolerID:        primaryAID,
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:       true,
 			IsInitialized:   true,
 			ConsensusStatus: primaryRuleStatus(primaryAID, 5),
@@ -156,7 +155,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica1",
 			},
-			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:      &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     false,
 			IsInitialized: true,
 		}
@@ -172,7 +171,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 		pa := &PoolerAnalysis{
 			PoolerID:        primaryID,
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:       true,
 			IsInitialized:   true,
 			ConsensusStatus: primaryRuleStatus(primaryID, 5),
@@ -208,7 +207,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		stale2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-2"}
 		newPA := &PoolerAnalysis{
 			PoolerID:        newID,
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:       true,
 			IsInitialized:   true,
 			ConsensusStatus: primaryRuleStatus(newID, 6),

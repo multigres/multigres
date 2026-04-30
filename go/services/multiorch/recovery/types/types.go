@@ -106,15 +106,15 @@ const (
 
 // Problem represents a detected issue.
 type Problem struct {
-	Code           ProblemCode           // Category of problem
-	CheckName      CheckName             // Which check detected it
-	PoolerID       *clustermetadatapb.ID // Affected pooler; can be nil for shard-scoped problems
-	ShardKey       commontypes.ShardKey  // Identifies the affected shard
-	Description    string                // Human-readable description
-	Priority       Priority              // Priority of this problem
-	Scope          ProblemScope          // Whether this affects the whole cluster or just one pooler
-	DetectedAt     time.Time             // When the problem was detected
-	RecoveryAction RecoveryAction        // What to do about it
+	Code           ProblemCode                 // Category of problem
+	CheckName      CheckName                   // Which check detected it
+	PoolerID       *clustermetadatapb.ID       // Affected pooler; can be nil for shard-scoped problems
+	ShardKey       *clustermetadatapb.ShardKey // Identifies the affected shard
+	Description    string                      // Human-readable description
+	Priority       Priority                    // Priority of this problem
+	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
+	DetectedAt     time.Time                   // When the problem was detected
+	RecoveryAction RecoveryAction              // What to do about it
 }
 
 // IsShardWide reports whether this problem affects the entire shard.
@@ -129,7 +129,7 @@ func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
 		return topoclient.MultiPoolerIDString(p.PoolerID)
 	}
-	return p.ShardKey.String()
+	return commontypes.ShardKeyString(p.ShardKey)
 }
 
 // GracePeriodConfig holds grace period settings for recovery actions.

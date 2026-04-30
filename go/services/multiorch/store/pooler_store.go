@@ -20,7 +20,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -106,7 +105,7 @@ func (s *PoolerStore) DoUpdateRange(fn func(key string, value *multiorchdatapb.P
 
 // IsInitialized returns true if the pooler has been initialized.
 // FindPoolersInShard returns all poolers belonging to the given shard.
-func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
+func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
 	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {

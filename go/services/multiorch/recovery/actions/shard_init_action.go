@@ -86,7 +86,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	initializedPoolers, cohortEstablished := a.getInitializedPoolers(problem.ShardKey)
 	if cohortEstablished {
 		a.logger.InfoContext(ctx, "cohort already established, skipping",
-			"shard_key", problem.ShardKey.String())
+			"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 		return nil
 	}
 	if len(initializedPoolers) == 0 {
@@ -117,7 +117,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	}
 
 	a.logger.InfoContext(ctx, "quorum of initialized poolers available",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey),
 		"initialized_count", len(initializedPoolers),
 		"policy", durabilityPolicy.Description())
 
@@ -129,12 +129,12 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	}
 	if !won {
 		a.logger.InfoContext(ctx, "shard initialization claimed by another coordinator, skipping",
-			"shard_key", problem.ShardKey.String())
+			"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "shard initialization claimed",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey),
 		"committed_cohort_size", len(committedIDs))
 
 	// Resolve committed IDs to full PoolerHealthState entries from the pooler store.
@@ -154,7 +154,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	}
 
 	a.logger.InfoContext(ctx, "shard init action completed successfully",
-		"shard_key", problem.ShardKey.String())
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 	return nil
 }
 
@@ -162,7 +162,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // recovery loop before Execute is called). It returns the list of initialized poolers, plus
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
-func (a *ShardInitAction) getInitializedPoolers(shardKey commontypes.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
+func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
 	a.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true

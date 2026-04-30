@@ -80,7 +80,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 					break
 				}
 			}
-			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), shardAnalysis.ShardKey.String(), analyzer.RecoveryAction(), !shardHasProblem)
+			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), commontypes.ShardKeyString(shardAnalysis.ShardKey), analyzer.RecoveryAction(), !shardHasProblem)
 
 			problems = append(problems, detectedProblems...)
 		}
@@ -101,12 +101,12 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 
 	// Process each shard independently in parallel
 	var wg sync.WaitGroup
-	for shardKey, shardProblems := range problemsByShard {
+	for _, shardProblems := range problemsByShard {
 		wg.Add(1)
-		go func(key commontypes.ShardKey, problems []types.Problem) {
+		go func(problems []types.Problem) {
 			defer wg.Done()
-			re.processShardProblems(ctx, key, problems)
-		}(shardKey, shardProblems)
+			re.processShardProblems(ctx, problems[0].ShardKey, problems)
+		}(shardProblems)
 	}
 	wg.Wait()
 
@@ -115,19 +115,20 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	re.recoveryRunner.UpdateInterval(newInterval)
 }
 
-// groupProblemsByShard groups problems by their shard.
-func (re *Engine) groupProblemsByShard(problems []types.Problem) map[commontypes.ShardKey][]types.Problem {
-	grouped := make(map[commontypes.ShardKey][]types.Problem)
+// groupProblemsByShard groups problems by their shard string key.
+func (re *Engine) groupProblemsByShard(problems []types.Problem) map[string][]types.Problem {
+	grouped := make(map[string][]types.Problem)
 
 	for _, problem := range problems {
-		grouped[problem.ShardKey] = append(grouped[problem.ShardKey], problem)
+		key := commontypes.ShardKeyString(problem.ShardKey)
+		grouped[key] = append(grouped[key], problem)
 	}
 
 	return grouped
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes.ShardKey, problems []types.Problem) {
+func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermetadatapb.ShardKey, problems []types.Problem) {
 	re.logger.DebugContext(ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,

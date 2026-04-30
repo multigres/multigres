@@ -75,16 +75,16 @@ func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(data
 // GenerateShardAnalyses groups per-pooler analyses into one ShardAnalysis per shard.
 func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 	type shardEntry struct {
-		key     commontypes.ShardKey
+		key     *clustermetadatapb.ShardKey
 		poolers map[string]*multiorchdatapb.PoolerHealthState
 	}
-	byKey := make(map[commontypes.ShardKey]*shardEntry)
+	byKey := make(map[string]*shardEntry)
 
 	for database, tableGroups := range g.poolersByShard {
 		for tableGroup, shards := range tableGroups {
 			for shard, poolers := range shards {
-				key := commontypes.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
-				byKey[key] = &shardEntry{key: key, poolers: poolers}
+				key := &clustermetadatapb.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
+				byKey[commontypes.ShardKeyString(key)] = &shardEntry{key: key, poolers: poolers}
 			}
 		}
 	}
@@ -98,16 +98,16 @@ func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 
 // GenerateShardAnalysis returns a ShardAnalysis for a specific shard.
 // Returns an error if no poolers for that shard are found in the store.
-func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey commontypes.ShardKey) (*ShardAnalysis, error) {
+func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.ShardKey) (*ShardAnalysis, error) {
 	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
 	if !ok || len(poolers) == 0 {
-		return nil, fmt.Errorf("shard not found: %s", shardKey)
+		return nil, fmt.Errorf("shard not found: %s", commontypes.ShardKeyString(shardKey))
 	}
 	return g.buildShardAnalysis(shardKey, poolers), nil
 }
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
-func (g *AnalysisGenerator) buildShardAnalysis(shardKey commontypes.ShardKey, poolers map[string]*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
+func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[string]*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
 	sa := &ShardAnalysis{ShardKey: shardKey}
 	for _, pooler := range poolers {
 		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
@@ -201,14 +201,14 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*Shar
 		return nil, fmt.Errorf("shard not found for pooler: %s", poolerIDStr)
 	}
 
-	shardKey := commontypes.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
+	shardKey := &clustermetadatapb.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard}
 	return g.buildShardAnalysis(shardKey, poolers), nil
 }
 
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *multiorchdatapb.PoolerHealthState,
-	shardKey commontypes.ShardKey,
+	shardKey *clustermetadatapb.ShardKey,
 ) *PoolerAnalysis {
 	// Determine pooler type from health check (PoolerType).
 	// Nodes are never created with topology type PRIMARY, so health check is authoritative.

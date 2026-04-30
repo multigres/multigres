@@ -28,12 +28,13 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 var (
-	shard1Key = commontypes.ShardKey{TableGroup: "tg1", Shard: "shard1"}
-	shard2Key = commontypes.ShardKey{TableGroup: "tg1", Shard: "shard2"}
+	shard1Key = &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "shard1"}
+	shard2Key = &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "shard2"}
 )
 
 func testConfig(t *testing.T, opts ...func(*Config)) *Config {
@@ -259,7 +260,7 @@ func TestBufferStaleMaxDurationTimer(t *testing.T) {
 
 	// Wait for max duration to fire and drain.
 	wg.Wait()
-	sb := buf.buffers[shard1Key]
+	sb := buf.buffers[commontypes.ShardKeyString(shard1Key)]
 	sb.drainWg.Wait()
 
 	// Failover 2: start buffering again immediately.
@@ -351,7 +352,7 @@ func TestBufferTimingGuard(t *testing.T) {
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
-	sb := buf.buffers[shard1Key]
+	sb := buf.buffers[commontypes.ShardKeyString(shard1Key)]
 	sb.drainWg.Wait()
 
 	// Second failover: should be skipped (too soon).
@@ -404,13 +405,13 @@ func TestBufferMultipleShards(t *testing.T) {
 
 	// Stop buffering for shard1 only.
 	buf.StopBuffering(shard1Key)
-	sb := buf.buffers[shard1Key]
+	sb := buf.buffers[commontypes.ShardKeyString(shard1Key)]
 	sb.drainWg.Wait()
 
 	// shard2 should still be buffered.
 	buf.mu.Lock()
 	assert.Len(t, buf.queue, 1)
-	assert.Equal(t, shard2Key, buf.queue[0].shardKey)
+	assert.Equal(t, commontypes.ShardKeyString(shard2Key), commontypes.ShardKeyString(buf.queue[0].shardKey))
 	buf.mu.Unlock()
 
 	// Stop buffering for shard2.
@@ -604,7 +605,7 @@ func TestBufferContextCancelDuringDrain(t *testing.T) {
 
 	// Wait for the shard buffer drain to complete. If the bug is present,
 	// this will hang because drainEntry blocks on <-e.bufferCtx.Done() forever.
-	sb := buf.buffers[shard1Key]
+	sb := buf.buffers[commontypes.ShardKeyString(shard1Key)]
 	sb.drainWg.Wait()
 
 	wg.Wait()
@@ -628,7 +629,7 @@ func TestBufferProactiveBuffering(t *testing.T) {
 	assert.Nil(t, retryDone, "idle shard should not proactively buffer")
 
 	// WaitIfAlreadyBuffering on an unknown shard should return (nil, nil).
-	retryDone, err = buf.WaitIfAlreadyBuffering(ctx, commontypes.ShardKey{TableGroup: "unknown", Shard: "unknown"})
+	retryDone, err = buf.WaitIfAlreadyBuffering(ctx, &clustermetadatapb.ShardKey{TableGroup: "unknown", Shard: "unknown"})
 	assert.NoError(t, err)
 	assert.Nil(t, retryDone, "unknown shard should not proactively buffer")
 

@@ -68,12 +68,12 @@ func NewAppointLeaderAction(
 // Execute performs leader appointment by running the coordinator's consensus protocol
 func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem) error {
 	a.logger.InfoContext(ctx, "executing appoint leader action",
-		"shard_key", problem.ShardKey.String())
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 
 	// Fetch cohort and recheck the problem
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
-		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
+		return fmt.Errorf("no poolers found for shard %s", commontypes.ShardKeyString(problem.ShardKey))
 	}
 
 	// Check if a primary already exists and is healthy (problem resolved).
@@ -91,17 +91,17 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		if types.PrimaryNeedsReplacement(pooler) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
 				"primary", pooler.MultiPooler.Id.Name,
-				"shard_key", problem.ShardKey.String())
+				"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 			continue
 		}
 		a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
 			"primary", pooler.MultiPooler.Id.Name,
-			"shard_key", problem.ShardKey.String())
+			"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey),
 		"cohort_size", len(cohort))
 
 	// Use the coordinator's AppointLeader to handle the election
@@ -116,13 +116,13 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	}
 
 	a.logger.InfoContext(ctx, "appoint leader action completed successfully",
-		"shard_key", problem.ShardKey.String())
+		"shard_key", commontypes.ShardKeyString(problem.ShardKey))
 
 	return nil
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
-func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
+func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var cohort []*multiorchdatapb.PoolerHealthState
 
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {

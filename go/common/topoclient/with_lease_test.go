@@ -25,13 +25,13 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-var withLeaseShardKey = types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+var withLeaseShardKey = &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 // backupLeaseOps returns the acquire/revoke/check closures for backup lease tests.
-func backupLeaseOps(ts topoclient.Store, shardKey types.ShardKey) (topoclient.LeaseAcquirer, topoclient.LeaseRevoker, topoclient.LeaseChecker) {
+func backupLeaseOps(ts topoclient.Store, shardKey *clustermetadatapb.ShardKey) (topoclient.LeaseAcquirer, topoclient.LeaseRevoker, topoclient.LeaseChecker) {
 	return func(ctx context.Context, action string) (context.Context, func(*error), error) {
 			return ts.TryLockBackup(ctx, shardKey, action)
 		},
