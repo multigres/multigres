@@ -37,6 +37,7 @@ import (
 
 // testHandler is a mock handler for testing extended query protocol.
 type testHandler struct {
+	queryFunc    func(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error
 	parseFunc    func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error
 	bindFunc     func(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
 	executeFunc  func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
@@ -46,6 +47,9 @@ type testHandler struct {
 }
 
 func (h *testHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+	if h.queryFunc != nil {
+		return h.queryFunc(ctx, conn, queryStr, callback)
+	}
 	return nil
 }
 

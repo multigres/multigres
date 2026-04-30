@@ -177,8 +177,10 @@ func (c *Conn) Close() error {
 
 	// Return pooled resources.
 	c.returnReader()
-	// End writer buffering (flushes and returns to pool).
-	c.endWriterBuffering()
+	// End writer buffering (flushes and returns to pool). Flush errors
+	// during teardown are uninteresting — we're closing the socket
+	// next anyway — so swallow them here.
+	_ = c.endWriterBuffering()
 
 	return c.conn.Close()
 }
@@ -381,21 +383,28 @@ func (c *Conn) Flush() error {
 	return c.flush()
 }
 
-// endWriterBuffering ends write buffering and returns the writer to the pool.
-// This should be called after each query to release the buffer back to the pool.
-func (c *Conn) endWriterBuffering() {
+// endWriterBuffering flushes any remaining buffered data and returns
+// the writer to the pool. Returns the Flush error (broken-pipe, write
+// timeout, etc.) so callers in the serve() loop can propagate it for
+// connection-level cleanup; the writer is still detached and pooled
+// even when Flush fails, so the connection state is consistent.
+func (c *Conn) endWriterBuffering() error {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
-	if c.bufferedWriter != nil {
-		// Flush any remaining buffered data.
-		_ = c.bufferedWriter.Flush()
-
-		// Return to pool.
-		c.bufferedWriter.Reset(nil)
-		c.listener.writersPool.Put(c.bufferedWriter)
-		c.bufferedWriter = nil
+	if c.bufferedWriter == nil {
+		return nil
 	}
+
+	flushErr := c.bufferedWriter.Flush()
+
+	// Return to pool regardless of flush outcome — the writer is in
+	// a defined state (Reset clears its internal cursors), and
+	// stranding it on the Conn would leak the pooled buffer.
+	c.bufferedWriter.Reset(nil)
+	c.listener.writersPool.Put(c.bufferedWriter)
+	c.bufferedWriter = nil
+	return flushErr
 }
 
 // generateBackendKey generates a cryptographically secure random backend key for cancellation.
@@ -488,7 +497,9 @@ func (c *Conn) serve() error {
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
 			_ = c.writeReadyForQuery()
-			c.endWriterBuffering()
+			// Best-effort flush of the error reply. Already returning
+			// the original handler error, so swallow flush errors here.
+			_ = c.endWriterBuffering()
 			// For now, close connection on any error.
 			return err
 		}
@@ -496,17 +507,26 @@ func (c *Conn) serve() error {
 		// Flush at end-of-batch boundaries. For pipelined messages
 		// (Parse / Bind / Describe / Execute / Close) the buffer
 		// stays attached so the next inbound message in the same
-		// batch lands in the same flush.
+		// batch lands in the same flush. Flush errors here mean the
+		// socket is broken — propagate so serve() can tear down the
+		// connection instead of looping until the next ReadMessageType
+		// fails (which would lose the original write-error context).
 		switch msgType {
 		case protocol.MsgSync, protocol.MsgQuery:
 			// End of a batch. Flush and release the writer back to
 			// the pool — the connection might idle here.
-			c.endWriterBuffering()
+			if err := c.endWriterBuffering(); err != nil {
+				c.logger.Error("flush at batch boundary failed", "type", string(msgType), "error", err)
+				return err
+			}
 		case protocol.MsgFlush:
 			// Client asked for an explicit mid-pipeline flush.
 			// Push bytes out but keep the writer attached: more
 			// pipelined messages typically follow.
-			_ = c.flush()
+			if err := c.flush(); err != nil {
+				c.logger.Error("explicit Flush failed", "error", err)
+				return err
+			}
 		}
 	}
 }
@@ -536,7 +556,15 @@ func (c *Conn) handleMessage(msgType byte) error {
 		return c.handleSync()
 
 	case protocol.MsgFlush:
-		// Flush itself is handled by the serve() loop after this
+		// Read and discard the message length (Int32, always 4: just
+		// the length field itself). The 'H' type byte was already
+		// consumed by serve()'s ReadMessageType; if we don't consume
+		// the length here, the next ReadMessageType picks up 0x00
+		// and treats it as a bogus type.
+		if _, err := c.ReadMessageLength(); err != nil {
+			return fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		// The actual flush is handled by the serve() loop after this
 		// switch returns — see the post-handleMessage flush-boundary
 		// dispatch. Returning nil here avoids a redundant flush().
 		return nil
