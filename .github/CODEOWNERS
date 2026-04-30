@@ -5,42 +5,42 @@
 #
 # Teams must have at least Read access to this repository.
 
-# Global catch-all — owns everything not matched by a more specific rule below
-*  @multigres/Maintainers
-
 # Gateway service
-go/services/multigateway/  @multigres/owners-query-serving
+go/services/multigateway/ @multigres/owners-query-serving
 
 # Orchestration service
-go/services/multiorch/  @multigres/owners-cluster-management
+go/services/multiorch/    @multigres/owners-cluster-management
 
 # PostgreSQL lifecycle manager
-go/services/pgctld/  @multigres/owners-cluster-management
+go/services/pgctld/       @multigres/owners-cluster-management
+
+# Pooler service
+go/services/multipooler/  @multigres/owners-cluster-management
+go/multipooler/           @multigres/owners-cluster-management
 
 # SQL parser
-go/common/parser/  @multigres/owners-query-serving
+go/common/parser/         @multigres/owners-query-serving
 
 # PostgreSQL protocol implementation
-go/common/pgprotocol/  @multigres/owners-query-serving
+go/common/pgprotocol/     @multigres/owners-query-serving
 
 # Backup subsystem
-go/common/backup/  @multigres/owners-cluster-management
+go/common/backup/         @multigres/owners-cluster-management
 
 # Topoclient subsystem
-go/common/topoclient/  @multigres/owners-cluster-management
-
-# Pooler service (implementation is split across two directories)
-go/services/multipooler/  @multigres/Maintainers
-go/multipooler/            @multigres/Maintainers
-
-# Admin service
-go/services/multiadmin/  @multigres/Maintainers
+go/common/topoclient/     @multigres/owners-cluster-management
 
 # CI/CD and GitHub configuration
 .github/  @multigres/Maintainers
 
-# Proto definitions (API surface)
-proto/  @multigres/Maintainers
-
-# Documentation
-docs/  @multigres/Maintainers
+# Protobuf definitions
+proto/clustermetadata.proto         @multigres/owners-cluster-management @multigres/owners-operator
+proto/consensusdata.proto           @multigres/owners-cluster-management @multigres/owners-operator
+proto/consensusservice.proto        @multigres/owners-cluster-management
+proto/multiadminservice.proto       @multigres/Maintainers
+proto/multigatewayservice.proto     @multigres/owners-query-serving
+proto/multiorchdata.proto           @multigres/owners-cluster-management
+proto/multiorchservice.proto        @multigres/owners-cluster-management
+proto/multipoolermanagerdata.proto  @multigres/owners-cluster-management @multigres/owners-operator
+proto/pgctldservice.proto           @multigres/owners-cluster-management
+proto/query.proto                   @multigres/owners-query-serving

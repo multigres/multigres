@@ -145,6 +145,10 @@ type MultiPoolerClient interface {
 	// This is part of the consensus protocol for establishing a new term.
 	BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error)
 
+	// Recruit asks a pooler to stop replication participation and record a TermRevocation.
+	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
+	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
+
 	// ConsensusStatus gets the consensus status of the multipooler.
 	// This may be called frequently for monitoring, so implementations cache connections.
 	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)

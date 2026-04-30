@@ -60,8 +60,38 @@ type Conn struct {
 	// bufferedWriter is used for writing to the connection.
 	bufferedWriter *bufio.Writer
 
-	// bufMu protects bufferedReader and bufferedWriter.
+	// bufMu protects bufferedReader, bufferedWriter, and the
+	// startPacket→writePacket critical section. It is held across
+	// in-place packet encoding when startPacket reserves space inside
+	// the bufferedWriter, so the body can't be split by an interleaved
+	// write from the async notification pusher.
 	bufMu sync.Mutex
+
+	// outboundPoolBuf holds the listener-level bufpool buffer that
+	// startPacket grabbed for an oversize (slow-path) packet. Non-nil
+	// only between startPacket and writePacket, and only on the slow
+	// path. writePacket returns it to the pool. Protected by bufMu.
+	//
+	// Stored as the original *[]byte the pool returned (rather than
+	// taking &buf inside writePacket) because passing the address of a
+	// stack-local slice to bufPool.Put would force the slice header to
+	// escape to the heap on every call, even when the slow path
+	// doesn't fire — sync.Pool retains its arguments. Going through
+	// this field, which already points at heap memory the pool owns,
+	// avoids that escape.
+	outboundPoolBuf *[]byte
+
+	// inboundPoolBuf is the read-path equivalent of outboundPoolBuf:
+	// holds the listener-level bufpool buffer that readMessageBody
+	// grabbed for the most recent message body. Non-nil between
+	// readMessageBody and returnReadBuffer. Same escape-avoidance
+	// rationale — the parameterless returnReadBuffer reads this field
+	// instead of taking &buf, so callers don't pay a 24-byte slice-
+	// header heap alloc per message.
+	//
+	// Reads on a Conn are sequential (one in flight at a time), so a
+	// single field is enough.
+	inboundPoolBuf *[]byte
 
 	// listener is a reference to the listener that accepted this connection.
 	listener *Listener
@@ -189,6 +219,16 @@ func (c *Conn) Close() error {
 
 	// Return pooled resources.
 	c.returnReader()
+	// Defensive cleanup: if a handler panicked between readMessageBody
+	// and its returnReadBuffer call, the inbound pool buffer is still
+	// stashed on the Conn — release it now so the pool can recycle it.
+	c.returnReadBuffer()
+	// Same defense for the write side: a panic between startPacket and
+	// writePacket leaves outboundPoolBuf set (writePacket's defer never
+	// fires) and bufMu held. We can't re-lock here without deadlocking
+	// our own goroutine, but Close runs after concurrent access has
+	// stopped so an unlocked Put is safe.
+	c.returnOutboundBuffer()
 	// End writer buffering (flushes and returns to pool).
 	c.endWriterBuffering()
 
@@ -362,17 +402,6 @@ func (c *Conn) startWriterBuffering() {
 		c.bufferedWriter = c.listener.writersPool.Get().(*bufio.Writer)
 		c.bufferedWriter.Reset(c.conn)
 	}
-}
-
-// getWriter returns the writer to use (buffered or direct).
-func (c *Conn) getWriter() io.Writer {
-	c.bufMu.Lock()
-	defer c.bufMu.Unlock()
-
-	if c.bufferedWriter != nil {
-		return c.bufferedWriter
-	}
-	return c.conn
 }
 
 // flush flushes any buffered writes.
@@ -651,7 +680,7 @@ func (c *Conn) handleParse() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Parse message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)
@@ -721,7 +750,7 @@ func (c *Conn) handleBind() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Bind message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)
@@ -817,7 +846,7 @@ func (c *Conn) handleExecute() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Execute message body: %w", err)
 	}
-	defer c.returnReadBuffer(buf)
+	defer c.returnReadBuffer()
 
 	// Parse the message.
 	reader := NewMessageReader(buf)
@@ -923,25 +952,24 @@ func (c *Conn) handleDescribe() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
+	if msgLen < 2 {
+		return errors.New("invalid describe message: missing type or name")
+	}
 
-	// Read describe type (1 byte): 'S' for statement, 'P' for portal.
-	typ, err := c.bufferedReader.ReadByte()
+	// Read the full body (type byte + null-terminated name) into a
+	// pooled buffer.
+	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
-		return fmt.Errorf("failed to read describe type: %w", err)
+		return fmt.Errorf("failed to read describe body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
-	// Calculate remaining length for name.
-	// msgLen is already the body length (excluding the 4-byte length field).
-	nameLen := msgLen - 1 // Subtract only the type byte.
-
-	// Read name (null-terminated string).
-	nameBuf := make([]byte, nameLen)
-	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
-		return fmt.Errorf("failed to read describe name: %w", err)
+	if buf[len(buf)-1] != 0 {
+		return errors.New("invalid describe message: name missing null terminator")
 	}
-
-	// Remove null terminator.
-	name := string(nameBuf[:len(nameBuf)-1])
+	typ := buf[0]
+	// String() copies, so the body buffer can be returned to the pool.
+	name := string(buf[1 : len(buf)-1])
 
 	c.logger.Debug("describe", "type", string(typ), "name", name)
 
@@ -1034,25 +1062,24 @@ func (c *Conn) handleClose() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
+	if msgLen < 2 {
+		return errors.New("invalid close message: missing type or name")
+	}
 
-	// Read close type (1 byte): 'S' for statement, 'P' for portal.
-	typ, err := c.bufferedReader.ReadByte()
+	// Read the full body (type byte + null-terminated name) into a
+	// pooled buffer.
+	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
-		return fmt.Errorf("failed to read close type: %w", err)
+		return fmt.Errorf("failed to read close body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
-	// Calculate remaining length for name.
-	// msgLen is already the body length (excluding the 4-byte length field).
-	nameLen := msgLen - 1 // Subtract only the type byte.
-
-	// Read name (null-terminated string).
-	nameBuf := make([]byte, nameLen)
-	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
-		return fmt.Errorf("failed to read close name: %w", err)
+	if buf[len(buf)-1] != 0 {
+		return errors.New("invalid close message: name missing null terminator")
 	}
-
-	// Remove null terminator.
-	name := string(nameBuf[:len(nameBuf)-1])
+	typ := buf[0]
+	// String() copies, so the body buffer can be returned to the pool.
+	name := string(buf[1 : len(buf)-1])
 
 	c.logger.Debug("close", "type", string(typ), "name", name)
 
@@ -1126,18 +1153,16 @@ func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.No
 					return
 				}
 				c.startWriterBuffering()
-				c.bufMu.Lock()
-				if c.bufferedWriter == nil {
-					c.bufMu.Unlock()
+				// writeNotificationResponseMsg acquires bufMu through
+				// startPacket/writePacket; each notification packet is
+				// committed atomically under that lock, so it can't be
+				// interleaved with a synchronous handler's packet.
+				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+					c.logger.Error("failed to push notification", "error", err)
 					return
 				}
-				err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload)
-				if err == nil {
-					err = c.bufferedWriter.Flush()
-				}
-				c.bufMu.Unlock()
-				if err != nil {
-					c.logger.Error("failed to push notification", "error", err)
+				if err := c.flush(); err != nil {
+					c.logger.Error("failed to flush notification", "error", err)
 					return
 				}
 			}
@@ -1155,63 +1180,47 @@ func (c *Conn) StopAsyncNotifications() {
 	}
 }
 
-// FlushPendingNotifications drains all pending notifications from the async pusher
-// channel and writes them to the client socket. This is called synchronously after
-// each query completes (before ReadyForQuery) to deliver any notifications that
-// arrived during query execution.
+// FlushPendingNotifications drains all pending notifications from
+// the async pusher channel and writes them to the client socket.
+// Called synchronously after each query completes (before
+// ReadyForQuery) to deliver notifications that arrived during query
+// execution.
 //
-// This is the safe synchronous path: it holds bufMu while writing, preventing
-// races with the async pusher goroutine which also writes with bufMu held.
+// Each notification is written via writeNotificationResponseMsg,
+// which acquires bufMu inside startPacket/writePacket per packet.
+// Multiple notifications may interleave with the synchronous query
+// handler's writes between packets, but every individual packet is
+// committed atomically under the lock, so packet bodies can never be
+// split.
 func (c *Conn) FlushPendingNotifications() error {
 	if c.notifPush == nil {
 		return nil
 	}
 	c.startWriterBuffering()
-	c.bufMu.Lock()
-	defer c.bufMu.Unlock()
-	if c.bufferedWriter == nil {
-		return nil
-	}
 	for {
 		select {
 		case notif, ok := <-c.notifPush.ch:
 			if !ok || notif == nil {
-				return c.bufferedWriter.Flush()
+				return c.flush()
 			}
 			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
 				return err
 			}
 		default:
-			return c.bufferedWriter.Flush()
+			return c.flush()
 		}
 	}
 }
 
-// writeNotificationResponseMsg writes a NotificationResponse without locking bufMu.
-// Caller must hold bufMu.
+// writeNotificationResponseMsg writes a NotificationResponse ('A')
+// packet: int32 pid, null-terminated channel, null-terminated payload.
+// Goes through startPacket/writePacket — caller does NOT need to hold
+// bufMu (the helpers manage it).
 func (c *Conn) writeNotificationResponseMsg(pid int32, channel, payload string) error {
-	// 'A' (NotificationResponse): int32 pid, string channel, string payload
-	msgLen := 4 + 4 + len(channel) + 1 + len(payload) + 1
-	if err := c.bufferedWriter.WriteByte(protocol.MsgNotificationResponse); err != nil {
-		return err
-	}
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(msgLen))
-	if _, err := c.bufferedWriter.Write(buf); err != nil {
-		return err
-	}
-	binary.BigEndian.PutUint32(buf, uint32(pid))
-	if _, err := c.bufferedWriter.Write(buf); err != nil {
-		return err
-	}
-	if _, err := c.bufferedWriter.WriteString(channel); err != nil {
-		return err
-	}
-	if err := c.bufferedWriter.WriteByte(0); err != nil {
-		return err
-	}
-	if _, err := c.bufferedWriter.WriteString(payload); err != nil {
-		return err
-	}
-	return c.bufferedWriter.WriteByte(0)
+	bodyLen := 4 + len(channel) + 1 + len(payload) + 1
+	buf, pos := c.startPacket(protocol.MsgNotificationResponse, bodyLen)
+	pos = writeInt32At(buf, pos, pid)
+	pos = writeStringAt(buf, pos, channel)
+	pos = writeStringAt(buf, pos, payload)
+	return c.writePacket(buf, pos)
 }
