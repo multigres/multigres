@@ -124,6 +124,18 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	// grandchildren (e.g. psql) holding pipes open would cause a hang.
 	cmd.SetWaitDelay(10 * time.Second)
 
+	// pgctld provisions PostgreSQL with Supabase Pico-instance defaults
+	// (work_mem=1092kB, random_page_cost=1.1, effective_cache_size=192MB,
+	// max_parallel_workers_per_gather=1). pg_regress expected .out files were
+	// captured against vanilla PostgreSQL defaults, so the planner picks
+	// different shapes (e.g. Hash↔Merge, Bitmap↔Index) under our defaults.
+	// Override to vanilla values per session via PGOPTIONS so the harness
+	// matches upstream fixtures without changing production pgctld defaults.
+	pgOptions := "-c work_mem=4MB" +
+		" -c random_page_cost=4.0" +
+		" -c effective_cache_size=4GB" +
+		" -c max_parallel_workers_per_gather=2"
+
 	cmd.AddEnv(
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
@@ -131,6 +143,7 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		"PGPASSWORD="+password,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
+		"PGOPTIONS="+pgOptions,
 	)
 
 	// Capture stdout for result parsing while still printing to the terminal.
