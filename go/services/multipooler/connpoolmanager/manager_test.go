@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
@@ -275,7 +277,7 @@ func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	result, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		if calls == 1 {
 			// Simulate reopenConnections running mid-flight: the pool we
@@ -304,7 +306,7 @@ func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		// No generation bump — manager hasn't been reopened.
 		return 0, connpool.ErrPoolClosed
@@ -327,7 +329,7 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		manager.generation.Add(1)
 		return 0, connpool.ErrPoolClosed
@@ -336,6 +338,128 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
 	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+}
+
+// TestWithReopenRetry_EvictsStalePoolOnAuthError verifies the stale-key
+// self-heal path: when op fails with a class-28 SQLSTATE (SCRAM auth
+// failure against stale cached keys), withReopenRetry must evict the
+// user pool and retry once against a freshly-built replacement so the
+// session's known-current keys get a chance against pg_authid.
+func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
+
+	var seenPools []*UserPool
+	calls := 0
+	result, err := withReopenRetry(manager, "testuser", nil, nil, func(pool *UserPool) (int, error) {
+		calls++
+		seenPools = append(seenPools, pool)
+		if calls == 1 {
+			return 0, fmt.Errorf("dial failed: %w", authErr)
+		}
+		return 42, nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 42, result)
+	assert.Equal(t, 2, calls, "should retry exactly once after auth failure")
+	require.Len(t, seenPools, 2)
+	assert.NotSame(t, seenPools[0], seenPools[1], "retry must run against a freshly-built pool, not the evicted one")
+
+	snap := manager.userPoolsSnapshot.Load()
+	require.NotNil(t, snap, "snapshot must be loaded after retry")
+	assert.True(t, manager.HasUserPool("testuser"), "user pool must be present in fresh snapshot")
+	assert.NotSame(t, seenPools[0], (*snap)["testuser"], "the original stale pool must no longer be in the snapshot")
+}
+
+// TestWithReopenRetry_SurfacesPersistentAuthError ensures that if the retry
+// also fails with an auth error — e.g. because the retrier itself is holding
+// old-password keys — we surface the clean 28xxx error and stop retrying.
+// Without a retry cap this would loop forever.
+func TestWithReopenRetry_SurfacesPersistentAuthError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
+
+	calls := 0
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+		calls++
+		return 0, fmt.Errorf("dial failed: %w", authErr)
+	})
+
+	require.Error(t, err)
+	assert.True(t, mterrors.IsAuthenticationError(err), "auth error must propagate with class-28 SQLSTATE intact")
+	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+}
+
+// TestEvictUserPool_RemovesFromSnapshotAndCloses verifies the direct
+// eviction primitive: removes the pool from the snapshot, closes it, and
+// returns true. A subsequent acquire must build a fresh pool.
+func TestEvictUserPool_RemovesFromSnapshotAndCloses(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Warm up: create a user pool.
+	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	require.True(t, manager.HasUserPool("testuser"))
+
+	evicted := manager.evictUserPool("testuser", stale)
+	assert.True(t, evicted, "eviction of the current pool should return true")
+	assert.False(t, manager.HasUserPool("testuser"), "pool must be removed from snapshot")
+
+	// Subsequent acquire must produce a different pool instance.
+	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	assert.NotSame(t, stale, fresh, "post-eviction acquire must build a fresh pool")
+
+	// Real acquisition must still work against the fresh pool.
+	conn, err := manager.GetRegularConn(ctx, "testuser")
+	require.NoError(t, err)
+	conn.Recycle()
+}
+
+// TestEvictUserPool_NoOpOnRacingEviction verifies that evicting a stale
+// reference that no longer matches the snapshot (because a concurrent call
+// already swapped it) is a no-op and returns false — preventing callers
+// from clobbering a fresh pool built by a racing goroutine.
+func TestEvictUserPool_NoOpOnRacingEviction(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+
+	// Racing goroutine already evicted + recreated.
+	require.True(t, manager.evictUserPool("testuser", stale))
+	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	require.NotSame(t, stale, fresh)
+
+	// Late caller still holding the stale reference must not clobber fresh.
+	assert.False(t, manager.evictUserPool("testuser", stale), "stale reference must not evict the fresh pool")
+	assert.True(t, manager.HasUserPool("testuser"), "fresh pool must remain in the snapshot")
 }
 
 // TestManager_NewReservedConn_SurvivesReopen exercises the end-to-end path:
@@ -771,4 +895,52 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 		}
 		conn.Recycle()
 	}
+}
+
+// --- SCRAM passthrough ---
+
+// TestBuildUserClientConfig_KeysApplied verifies that when both keys are
+// supplied, the resulting client.Config carries them through to the dial.
+func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+
+	ck, sk := bytes32(1), bytes32(2)
+	cfg := manager.buildUserClientConfig("alice", ck, sk)
+
+	assert.Equal(t, ck, cfg.ScramClientKey)
+	assert.Equal(t, sk, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+	assert.Equal(t, "alice", cfg.User)
+}
+
+// TestBuildUserClientConfig_NilKeys_FallsBack ensures that an
+// authenticated-but-keyless session (not expected in practice, but possible
+// during rollout) does not crash and falls back to the empty-password path.
+// An empty-password dial only succeeds against the pg_hba admin-user trust
+// exception; any other user will fail authentication at PostgreSQL.
+func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+
+	cfg := manager.buildUserClientConfig("alice", nil, nil)
+
+	assert.Nil(t, cfg.ScramClientKey)
+	assert.Nil(t, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+}
+
+// bytes32 returns a deterministic 32-byte slice for key testing.
+func bytes32(seed byte) []byte {
+	out := make([]byte, 32)
+	for i := range out {
+		out[i] = seed
+	}
+	return out
 }

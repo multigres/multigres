@@ -58,9 +58,19 @@ type PoolManager interface {
 	// GetRegularConn acquires a regular connection for the specified user.
 	GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
 
+	// GetRegularConnWithAuth is GetRegularConn that also carries SCRAM
+	// passthrough keys from the caller's session. Keys are consumed only when
+	// this call triggers first-time user-pool creation.
+	GetRegularConnWithAuth(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
+
 	// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
 	// Settings are provided as a map and internally converted via the shared SettingsCache.
 	GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error)
+
+	// GetRegularConnWithSettingsAndAuth is GetRegularConnWithSettings that
+	// also carries SCRAM passthrough keys. Keys are consumed only on first
+	// pool creation for the user.
+	GetRegularConnWithSettingsAndAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
 
 	// --- Reserved Pool Operations ---
 
@@ -68,6 +78,10 @@ type PoolManager interface {
 	// Settings are provided as a map and internally converted via the shared SettingsCache.
 	// Optional ReservedConnOption values configure validate-with-retry behavior.
 	NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
+
+	// NewReservedConnWithAuth is NewReservedConn that also carries SCRAM
+	// passthrough keys. Keys are consumed only on first pool creation.
+	NewReservedConnWithAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)

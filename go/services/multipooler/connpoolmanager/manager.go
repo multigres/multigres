@@ -24,6 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
@@ -130,6 +131,17 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
 
+	// Warn operators when running with an empty admin password. The shipped
+	// pg_hba template retains trust on the local socket only for the configured
+	// admin user, so this path continues to work during the bootstrap window.
+	// Once that trust exception is closed (tracked as a TODO in the template),
+	// an empty password will cause admin dials to fail.
+	if m.config.PgPassword() == "" {
+		m.logger.WarnContext(ctx, "admin password is empty; multipooler relies on the local-socket trust exception in pg_hba.conf. Configure CONNPOOL_ADMIN_PASSWORD (or POSTGRES_PASSWORD) before the trust line is removed.",
+			"pg_user", m.config.PgUser(),
+		)
+	}
+
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
@@ -183,6 +195,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 }
 
 // buildClientConfig creates a client.Config with the specified user and password.
+// Used by the admin pool and by user pools when SCRAM passthrough is disabled.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
 		SocketFile:  m.connConfig.SocketFile,
@@ -195,12 +208,35 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	}
 }
 
+// buildUserClientConfig creates a client.Config for a per-user pool dial.
+// When the session carried ClientKey / ServerKey (forwarded via
+// ExecuteOptions.UserAuth), the returned config authenticates to PostgreSQL
+// using those keys. Absent keys fall back to the empty-password path, which
+// only succeeds against a pg_hba.conf that still trusts the local socket for
+// the dialing user — the template's narrow admin-user trust exception.
+func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte) *client.Config {
+	cfg := m.buildClientConfig(user, "")
+	if len(clientKey) > 0 && len(serverKey) > 0 {
+		cfg.ScramClientKey = clientKey
+		cfg.ScramServerKey = serverKey
+	}
+	return cfg
+}
+
 // getOrCreateUserPool returns the pool for the given user, creating it if needed.
 //
 // This method uses an atomic snapshot pattern for lock-free reads on the hot path.
 // For existing users, this completes with just an atomic load and map lookup.
 // Only new user creation acquires the createMu mutex.
-func (m *Manager) getOrCreateUserPool(user string) (*UserPool, error) {
+//
+// clientKey and serverKey are the SCRAM passthrough keys forwarded by the
+// gateway on the triggering RPC. They are consumed only when a new pool is
+// created (cold path); subsequent RPCs for the same user reuse the existing
+// pool regardless of the keys they carry. ClientKey is deterministic per
+// (user, password) in PostgreSQL's SCRAM scheme, so cached keys stay valid
+// until the user's password rotates; password rotation is surfaced via SCRAM
+// auth failure on the next dial.
+func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) (*UserPool, error) {
 	if user == "" {
 		return nil, errors.New("user cannot be empty")
 	}
@@ -220,12 +256,12 @@ func (m *Manager) getOrCreateUserPool(user string) (*UserPool, error) {
 	// Cold path: need to create a new user pool.
 	// Use the manager's lifecycle context so the pool is tied to the manager's
 	// lifetime, not the caller's request context.
-	return m.createUserPoolSlow(m.ctx, user)
+	return m.createUserPoolSlow(m.ctx, user, clientKey, serverKey)
 }
 
 // createUserPoolSlow creates a new user pool. This is the cold path that requires
 // acquiring the createMu mutex.
-func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPool, error) {
+func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey, serverKey []byte) (*UserPool, error) {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
@@ -264,7 +300,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	// the capacity based on demand within a few seconds.
 	userConnectTimeout := 2 * m.config.DialTimeout()
 	pool, err := NewUserPool(ctx, &UserPoolConfig{
-		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
+		ClientConfig: m.buildUserClientConfig(user, clientKey, serverKey),
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
 			Name:            "regular:" + user,
@@ -383,7 +419,15 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 // GetRegularConn acquires a regular connection for the specified user.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error) {
-	return withReopenRetry(m, user, func(pool *UserPool) (regular.PooledConn, error) {
+	return m.GetRegularConnWithAuth(ctx, user, nil, nil)
+}
+
+// GetRegularConnWithAuth is GetRegularConn that additionally carries SCRAM
+// passthrough keys from the caller's session. The keys are consumed only when
+// this call triggers first-time pool creation for the user; subsequent calls
+// reuse the existing pool regardless of the keys they pass.
+func (m *Manager) GetRegularConnWithAuth(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
+	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConn(ctx)
 	})
 }
@@ -392,8 +436,15 @@ func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.Pool
 // Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error) {
+	return m.GetRegularConnWithSettingsAndAuth(ctx, settings, user, nil, nil)
+}
+
+// GetRegularConnWithSettingsAndAuth is GetRegularConnWithSettings that also
+// carries SCRAM passthrough keys. Key-consumption semantics match
+// GetRegularConnWithAuth.
+func (m *Manager) GetRegularConnWithSettingsAndAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(m, user, func(pool *UserPool) (regular.PooledConn, error) {
+	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConnWithSettings(ctx, s)
 	})
 }
@@ -403,38 +454,120 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // NewReservedConn creates a new reserved connection for the specified user.
 // Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The connection is assigned a unique ID for client-side tracking.
+// Optional ReservedConnOption values configure validate-with-retry behavior.
 // The caller must call Release() when done with the connection.
 func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	return m.NewReservedConnWithAuth(ctx, settings, user, nil, nil, opts...)
+}
+
+// NewReservedConnWithAuth is NewReservedConn that also carries SCRAM
+// passthrough keys. Key-consumption semantics match GetRegularConnWithAuth.
+func (m *Manager) NewReservedConnWithAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(m, user, func(pool *UserPool) (*reserved.Conn, error) {
+	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewReservedConn(ctx, s, opts...)
 	})
 }
 
-// withReopenRetry runs op against the current user pool and, if op returns
-// ErrPoolClosed because a concurrent reopenConnections() swapped the pools
-// mid-flight, retries once against the fresh pool. Genuine closed-pool errors
-// (manager shutting down for real) are surfaced to the caller unchanged
-// because the generation will not have advanced.
-func withReopenRetry[T any](m *Manager, user string, op func(*UserPool) (T, error)) (T, error) {
+// evictUserPool removes stale from the snapshot and closes it. Used when a
+// pool's cached SCRAM keys no longer match pg_authid — typically because the
+// user rotated their PostgreSQL password — so the next getOrCreateUserPool
+// call rebuilds from the triggering session's fresh keys.
+//
+// Eviction is a no-op (returns false) if a racing caller already swapped the
+// snapshot to a different pool for this user, or dropped the entry entirely.
+// Callers should still retry against whatever the snapshot now holds: the
+// racing caller's fresh pool is the right target, and if the entry is gone
+// getOrCreateUserPool creates a new one.
+func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return false
+	}
+	current, ok := (*pools)[user]
+	if !ok || current != stale {
+		return false
+	}
+
+	newPools := make(map[string]*UserPool, len(*pools)-1)
+	for u, p := range *pools {
+		if u == user {
+			continue
+		}
+		newPools[u] = p
+	}
+	m.userPoolsSnapshot.Store(&newPools)
+
+	// Close outside the createMu critical section would be safer for latency
+	// but Close is cheap and racing creators already passed the double-check
+	// by now, so finishing synchronously keeps invariants simple.
+	stale.Close()
+	m.logger.InfoContext(m.ctx, "evicted user pool after stale credentials detected", "user", user)
+	return true
+}
+
+// withReopenRetry runs op against the current user pool with two single-shot
+// retry paths for transient, self-healable failures:
+//
+//  1. ErrPoolClosed after a generation bump: reopenConnections() swapped the
+//     pools mid-flight (PostgreSQL auto-restart recovery). Retry against the
+//     fresh pool. A closed-pool error with no generation bump means the
+//     manager is genuinely shutting down — surface it unchanged.
+//
+//  2. Class-28 SQLSTATE from PostgreSQL: the cached user pool's ClientConfig
+//     carries stale SCRAM keys (password rotated in pg_authid). Evict the
+//     pool and recreate from the triggering session's keys, which are
+//     known-current — they were derived moments ago during the session's
+//     SCRAM handshake at MultiGateway against whatever verifier pg_authid
+//     holds right now. If the retry also auth-fails (retrier itself used the
+//     old password at the gateway), we surface the clean 28xxx error and the
+//     client reconnects to re-derive keys against the new verifier.
+//
+// clientKey and serverKey forward the SCRAM passthrough material to
+// getOrCreateUserPool so that a first-time pool creation triggered during
+// this call (including after an eviction or reopen swap) gets the session's
+// keys.
+func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
 	var zero T
 	startGen := m.generation.Load()
-	pool, err := m.getOrCreateUserPool(user)
+	pool, err := m.getOrCreateUserPool(user, clientKey, serverKey)
 	if err != nil {
 		return zero, err
 	}
 	result, err := op(pool)
-	if err == nil || !errors.Is(err, connpool.ErrPoolClosed) {
-		return result, err
+	if err == nil {
+		return result, nil
 	}
-	if m.generation.Load() == startGen {
-		return zero, err
+
+	// Manager-restart race: reopenConnections swapped pools mid-flight.
+	if errors.Is(err, connpool.ErrPoolClosed) {
+		if m.generation.Load() == startGen {
+			return zero, err
+		}
+		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
+		if err2 != nil {
+			return zero, err2
+		}
+		return op(pool2)
 	}
-	pool, err2 := m.getOrCreateUserPool(user)
-	if err2 != nil {
-		return zero, err2
+
+	// Stale-key self-heal. evictUserPool is best-effort; even if it returns
+	// false (racing eviction), getOrCreateUserPool returns whatever is in the
+	// snapshot now, which is either a freshly-created pool with fresh keys
+	// or absent (and we create one).
+	if mterrors.IsAuthenticationError(err) {
+		m.evictUserPool(user, pool)
+		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
+		if err2 != nil {
+			return zero, err2
+		}
+		return op(pool2)
 	}
-	return op(pool)
+
+	return zero, err
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.

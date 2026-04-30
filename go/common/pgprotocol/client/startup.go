@@ -224,9 +224,16 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 			return fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
 		}
 
-		// Perform SCRAM-SHA-256 authentication.
-		scram := newScramClient(c, c.config.User, c.config.Password)
-		return scram.authenticate()
+		// Prefer SCRAM passthrough when keys are present; otherwise fall back
+		// to password-based SCRAM. Passthrough lets a proxy authenticate on a
+		// session's behalf without ever holding the plaintext password.
+		var scramClient *scramClient
+		if len(c.config.ScramClientKey) > 0 && len(c.config.ScramServerKey) > 0 {
+			scramClient = newScramClientWithKeys(c, c.config.User, c.config.ScramClientKey, c.config.ScramServerKey)
+		} else {
+			scramClient = newScramClient(c, c.config.User, c.config.Password)
+		}
+		return scramClient.authenticate()
 
 	default:
 		return fmt.Errorf("unsupported authentication method: %d", authType)
