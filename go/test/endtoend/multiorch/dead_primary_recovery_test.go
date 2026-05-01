@@ -147,7 +147,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
 		// several seconds for failover execution (BeginTerm + Promote + Demote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
-		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -239,7 +239,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// the SIGKILL case. Added to 8–12s grace period and execution time, the worst-case
 	// path needs ~25s — 30s gives adequate headroom.
 	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
-	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after emergency demotion")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -525,33 +525,6 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
 	require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
-}
-
-// checkPrimary checks if a specific multipooler is the primary.
-// Returns the multipooler name if it's a primary, empty string otherwise.
-// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
-	t.Helper()
-
-	var poolers []*shardsetup.MultipoolerInstance
-	for _, inst := range setup.Multipoolers {
-		poolers = append(poolers, inst)
-	}
-
-	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
-		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
-			for _, r := range statuses {
-				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
-					continue
-				}
-				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					return r.Name, true, ""
-				}
-			}
-			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
-		},
-		"new primary not elected within %v", timeout,
-	)
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch

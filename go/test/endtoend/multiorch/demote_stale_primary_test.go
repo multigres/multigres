@@ -94,7 +94,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
-	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -196,7 +196,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
-	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 

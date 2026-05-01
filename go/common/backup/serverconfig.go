@@ -41,9 +41,21 @@ type ServerConfigOpts struct {
 func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 	pgbackrestDir := filepath.Join(opts.PoolerDir, "pgbackrest")
 	logPath := filepath.Join(pgbackrestDir, "log")
+	// lockPath must be per-pooler. Without it, pgbackrest defaults to
+	// /tmp/pgbackrest/, which collides across multiple pgctld instances on the
+	// same host (e.g. parallel endtoend test binaries). The TLS server
+	// acquires this lock when a remote pgbackrest client (--pg2-host=tls)
+	// connects to perform a backup, so a default global path turns concurrent
+	// cross-pooler backups into a flake source.
+	//
+	// Distinct from the *client* lock-path on the same pooler (lock/, see
+	// clientconfig.go). Sharing one path would let same-pooler client and
+	// server processes serialize on pgbackrest's OS lock and race against
+	// our lease-stealing logic; keep them isolated until that race is fixed.
+	lockPath := filepath.Join(pgbackrestDir, "server-lock")
 
 	// Create directories
-	for _, dir := range []string{pgbackrestDir, logPath} {
+	for _, dir := range []string{pgbackrestDir, logPath, lockPath} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -56,6 +68,7 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 
 	templateData := struct {
 		LogPath        string
+		LockPath       string
 		ServerCertFile string
 		ServerKeyFile  string
 		ServerCAFile   string
@@ -66,6 +79,7 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 		Pg1User        string
 	}{
 		LogPath:        logPath,
+		LockPath:       lockPath,
 		ServerCertFile: filepath.Join(opts.CertDir, "pgbackrest.crt"),
 		ServerKeyFile:  filepath.Join(opts.CertDir, "pgbackrest.key"),
 		ServerCAFile:   filepath.Join(opts.CertDir, "ca.crt"),
