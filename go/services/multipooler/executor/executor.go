@@ -127,7 +127,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
-	conn, err := e.poolManager.GetRegularConnWithSettingsAndAuth(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -234,7 +234,7 @@ func (e *Executor) StreamExecute(
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
-	conn, err := e.poolManager.GetRegularConnWithSettingsAndAuth(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -308,7 +308,7 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Create a reserved connection
 	clientKey, serverKey := scramKeysFromOptions(options)
-	reservedConn, err := e.poolManager.NewReservedConnWithAuth(ctx, settings, user, clientKey, serverKey, reservedOpts...)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -512,7 +512,7 @@ func (e *Executor) portalExecuteWithReserved(
 		// below is a no-op for the new-conn path because connState
 		// dedupes by canonical name.
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConnWithAuth(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))
@@ -564,7 +564,7 @@ func (e *Executor) portalExecuteWithReserved(
 
 // portalExecuteWithRegular executes a portal using a regular pooled connection.
 // clientKey and serverKey are the SCRAM passthrough keys forwarded by the
-// caller's session; see connpoolmanager.GetRegularConnWithAuth.
+// caller's session; see connpoolmanager.GetRegularConn.
 func (e *Executor) portalExecuteWithRegular(
 	ctx context.Context,
 	preparedStatement *query.PreparedStatement,
@@ -576,7 +576,7 @@ func (e *Executor) portalExecuteWithRegular(
 	paramFormats, resultFormats []int16,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	conn, err := e.poolManager.GetRegularConnWithSettingsAndAuth(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -653,7 +653,7 @@ func (e *Executor) Describe(
 		conn = reservedConn.Conn()
 	} else {
 		clientKey, serverKey := scramKeysFromOptions(options)
-		pooled, err := e.poolManager.GetRegularConnWithSettingsAndAuth(ctx, settings, user, clientKey, serverKey)
+		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 		}
@@ -830,7 +830,7 @@ func (e *Executor) CopyReady(
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConnWithAuth(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}

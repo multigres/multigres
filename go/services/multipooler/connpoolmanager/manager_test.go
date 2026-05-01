@@ -77,7 +77,7 @@ func TestManager_Close(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a connection to create a user pool.
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -139,7 +139,7 @@ func TestManager_GetRegularConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a regular connection for a user.
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -163,7 +163,7 @@ func TestManager_GetRegularConn_EmptyUser(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty user should error.
-	_, err := manager.GetRegularConn(ctx, "")
+	_, err := manager.GetRegularConn(ctx, "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user cannot be empty")
 }
@@ -179,7 +179,7 @@ func TestManager_GetRegularConn_ClosedManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Closed manager should error.
-	_, err := manager.GetRegularConn(ctx, "testuser")
+	_, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is closed")
 }
@@ -202,7 +202,7 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	}
 
 	// Get a connection with settings.
-	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "testuser")
+	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -226,7 +226,7 @@ func TestManager_NewReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -253,7 +253,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	}
 
 	// Create a reserved connection with settings.
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -431,7 +431,7 @@ func TestEvictUserPool_RemovesFromSnapshotAndCloses(t *testing.T) {
 	assert.NotSame(t, stale, fresh, "post-eviction acquire must build a fresh pool")
 
 	// Real acquisition must still work against the fresh pool.
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 }
@@ -477,7 +477,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm up: create a user pool.
-	c1, err := manager.NewReservedConn(ctx, nil, "testuser")
+	c1, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	c1.Release(reserved.ReleaseCommit)
 
@@ -491,7 +491,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	})
 
 	// Reserved-conn acquisition must succeed against the fresh pool.
-	c2, err := manager.NewReservedConn(ctx, nil, "testuser")
+	c2, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c2)
 	c2.Release(reserved.ReleaseCommit)
@@ -508,7 +508,7 @@ func TestManager_GetReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	connID := conn.ConnID()
 
@@ -562,11 +562,11 @@ func TestManager_Stats(t *testing.T) {
 	assert.Empty(t, stats.UserPools)
 
 	// Create some user pools.
-	conn1, err := manager.GetRegularConn(ctx, "user1")
+	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2")
+	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -588,15 +588,15 @@ func TestManager_UserPoolReuse(t *testing.T) {
 	ctx := context.Background()
 
 	// Get connections for the same user multiple times.
-	conn1, err := manager.GetRegularConn(ctx, "testuser")
+	conn1, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "testuser")
+	conn2, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	conn3, err := manager.GetRegularConn(ctx, "testuser")
+	conn3, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn3.Recycle()
 
@@ -621,7 +621,7 @@ func TestManager_ConcurrentUserPoolCreation(t *testing.T) {
 	// Concurrently create connections for the same user.
 	for range numGoroutines {
 		wg.Go(func() {
-			conn, err := manager.GetRegularConn(ctx, "concurrent-user")
+			conn, err := manager.GetRegularConn(ctx, "concurrent-user", nil, nil)
 			if err != nil {
 				errs <- err
 				return
@@ -661,7 +661,7 @@ func TestManager_ConcurrentDifferentUsers(t *testing.T) {
 		go func(userNum int) {
 			defer wg.Done()
 			user := "user" + string(rune('A'+userNum))
-			conn, err := manager.GetRegularConn(ctx, user)
+			conn, err := manager.GetRegularConn(ctx, user, nil, nil)
 			if err != nil {
 				t.Errorf("unexpected error for %s: %v", user, err)
 				return
@@ -693,12 +693,12 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	}
 
 	// Get connections with the same settings multiple times.
-	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "user1")
+	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "user1", nil, nil)
 	require.NoError(t, err)
 	settings1 := conn1.Conn.Settings()
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "user2")
+	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "user2", nil, nil)
 	require.NoError(t, err)
 	settings2 := conn2.Conn.Settings()
 	conn2.Recycle()
@@ -723,7 +723,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 
 	// Create a reserved connection with initial settings.
 	initialSettings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -753,7 +753,7 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	ctx := context.Background()
 
 	settings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -778,7 +778,7 @@ func TestManager_ApplySettingsToConn_NilSettings(t *testing.T) {
 
 	ctx := context.Background()
 
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -803,7 +803,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 
 	// Create a reserved connection with two settings.
 	initialSettings := map[string]string{"search_path": "public", "work_mem": "256MB"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -841,7 +841,7 @@ func BenchmarkManager_GetUserPool_HotPath(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first (cold path)
-	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -880,7 +880,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first
-	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -889,7 +889,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	// Benchmark getting connections for existing user
 	b.ResetTimer()
 	for b.Loop() {
-		conn, err := manager.GetRegularConn(ctx, "benchuser")
+		conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 		if err != nil {
 			b.Fatalf("failed to get connection: %v", err)
 		}

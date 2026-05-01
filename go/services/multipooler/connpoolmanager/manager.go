@@ -416,33 +416,23 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 
 // --- Regular Pool Operations ---
 
-// GetRegularConn acquires a regular connection for the specified user.
-// The caller must call Recycle() on the returned connection to return it to the pool.
-func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error) {
-	return m.GetRegularConnWithAuth(ctx, user, nil, nil)
-}
-
-// GetRegularConnWithAuth is GetRegularConn that additionally carries SCRAM
-// passthrough keys from the caller's session. The keys are consumed only when
-// this call triggers first-time pool creation for the user; subsequent calls
-// reuse the existing pool regardless of the keys they pass.
-func (m *Manager) GetRegularConnWithAuth(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
+// GetRegularConn acquires a regular connection for the specified user,
+// optionally carrying SCRAM passthrough keys from the caller's session. Keys
+// may be nil for admin/internal callers that dial via the local-trust line in
+// pg_hba.conf. When non-nil, keys are consumed only when this call triggers
+// first-time pool creation for the user; subsequent calls reuse the existing
+// pool regardless of the keys they pass. The caller must call Recycle() on
+// the returned connection to return it to the pool.
+func (m *Manager) GetRegularConn(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
 	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConn(ctx)
 	})
 }
 
-// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
-// Settings are converted via the shared SettingsCache for consistent bucket assignment.
-// The caller must call Recycle() on the returned connection to return it to the pool.
-func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error) {
-	return m.GetRegularConnWithSettingsAndAuth(ctx, settings, user, nil, nil)
-}
-
-// GetRegularConnWithSettingsAndAuth is GetRegularConnWithSettings that also
-// carries SCRAM passthrough keys. Key-consumption semantics match
-// GetRegularConnWithAuth.
-func (m *Manager) GetRegularConnWithSettingsAndAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
+// GetRegularConnWithSettings is GetRegularConn that additionally applies
+// per-session settings. Settings are converted via the shared SettingsCache
+// for consistent bucket assignment.
+func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
 	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConnWithSettings(ctx, s)
@@ -451,18 +441,14 @@ func (m *Manager) GetRegularConnWithSettingsAndAuth(ctx context.Context, setting
 
 // --- Reserved Pool Operations ---
 
-// NewReservedConn creates a new reserved connection for the specified user.
-// Settings are converted via the shared SettingsCache for consistent bucket assignment.
-// The connection is assigned a unique ID for client-side tracking.
-// Optional ReservedConnOption values configure validate-with-retry behavior.
-// The caller must call Release() when done with the connection.
-func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
-	return m.NewReservedConnWithAuth(ctx, settings, user, nil, nil, opts...)
-}
-
-// NewReservedConnWithAuth is NewReservedConn that also carries SCRAM
-// passthrough keys. Key-consumption semantics match GetRegularConnWithAuth.
-func (m *Manager) NewReservedConnWithAuth(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+// NewReservedConn creates a new reserved connection for the specified user,
+// optionally carrying SCRAM passthrough keys. Settings are converted via the
+// shared SettingsCache for consistent bucket assignment. The connection is
+// assigned a unique ID for client-side tracking. Optional ReservedConnOption
+// values configure validate-with-retry behavior. Key-consumption semantics
+// match GetRegularConn. The caller must call Release() when done with the
+// connection.
+func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
 	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewReservedConn(ctx, s, opts...)
