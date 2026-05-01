@@ -29,7 +29,8 @@ import (
 
 // RecruitmentResult holds the interpreted outcome of a successful recruitment
 // round. It is passed to the buildProposal callback in BuildSafeProposal,
-// CheckProposalPossible, CheckForcedProposalPossible, and BuildForcedProposal.
+// CheckProposalPossible, CheckExternallyCertifiedProposalPossible, and
+// BuildExternallyCertifiedProposal.
 type RecruitmentResult struct {
 	// TermRevocation is the revocation the coordinator requested. For
 	// Build*Proposal functions, all nodes in this result have accepted it. For
@@ -39,8 +40,8 @@ type RecruitmentResult struct {
 
 	// OutgoingRule is the highest committed ShardRule across all recruited nodes,
 	// determined from current_position.rule (WAL-backed, authoritative).
-	// May be nil for BuildForcedProposal when nodes have no committed rule
-	// (e.g. fresh bootstrap before any rule has been written).
+	// May be nil for BuildExternallyCertifiedProposal when nodes have no
+	// committed rule (e.g. fresh bootstrap before any rule has been written).
 	OutgoingRule *clustermetadatapb.ShardRule
 
 	// EligibleLeaders are the recruited nodes with the best WAL position.
@@ -54,7 +55,7 @@ type RecruitmentResult struct {
 // cohortQuorumMode controls which cohort's quorum requirements are enforced
 // before calling buildProposal. The mode makes explicit whether we are
 // validating the OUTGOING cohort's consent (normal failover) or relying on the
-// INCOMING cohort's coverage (bootstrap and forced recovery).
+// INCOMING cohort's coverage (bootstrap and externally certified recovery).
 type cohortQuorumMode int
 
 const (
@@ -69,7 +70,7 @@ const (
 	// incomingCohortMode skips the outgoing-cohort quorum check and instead
 	// relies on validateProposal to verify that enough members of the
 	// PROPOSED (incoming) cohort have been recruited. Used for bootstrap and
-	// forced recovery where the outgoing cohort cannot be consulted.
+	// externally certified recovery where the outgoing cohort cannot be consulted.
 	incomingCohortMode
 )
 
@@ -128,21 +129,23 @@ func CheckProposalPossible(
 	return err
 }
 
-// CheckForcedProposalPossible checks whether a forced leadership proposal is
-// possible given the current observed statuses, without requiring nodes to have
-// already accepted the revocation. It is the forced-recovery counterpart of
-// CheckProposalPossible: it uses incomingCohortMode so that bootstrap scenarios
-// with no committed rule (no OutgoingRule) are handled correctly.
+// CheckExternallyCertifiedProposalPossible checks whether an externally certified
+// proposal is possible given the current observed statuses, without requiring
+// nodes to have already accepted the revocation. It is the externally-certified
+// counterpart of CheckProposalPossible: it uses incomingCohortMode so that
+// bootstrap scenarios with no committed rule (no OutgoingRule) are handled correctly.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
 // returned since nodes have not yet committed to the revocation.
 //
-// Intended for pre-vote feasibility checks in bootstrap or forced-recovery paths.
-func CheckForcedProposalPossible(
-	revocation *clustermetadatapb.TermRevocation,
+// Intended for pre-vote feasibility checks in bootstrap or externally-certified
+// recovery paths.
+func CheckExternallyCertifiedProposalPossible(
+	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) error {
+	revocation := cert.GetTermRevocation()
 	candidates := filterByPotentialRevocation(revocation, statuses)
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
@@ -151,20 +154,25 @@ func CheckForcedProposalPossible(
 	return err
 }
 
-// BuildForcedProposal constructs a proposal for scenarios where the outgoing
-// cohort's quorum cannot be obtained — specifically bootstrap and stuck-quorum
-// recovery. Like BuildSafeProposal it requires nodes to have accepted the term
-// revocation, but it skips the outgoing-cohort quorum check. Instead,
+// BuildExternallyCertifiedProposal constructs a proposal for scenarios where
+// the outgoing cohort's revocation has been established by an external agent
+// rather than through normal Recruit RPCs. The incoming cohort is still
+// recruited normally: nodes must have accepted the term revocation in cert
+// before this function is called.
+//
+// Unlike BuildSafeProposal, the outgoing-cohort quorum check is skipped —
+// the caller certifies via cert that the outgoing cohort is frozen. Instead,
 // validateProposal verifies that the INCOMING (proposed) cohort has sufficient
 // recruited members, ensuring the new cluster can make durable writes.
 //
 // The buildProposal callback is responsible for specifying the full new cohort
 // and durability policy, since there may be no committed rule to derive them from.
-func BuildForcedProposal(
-	revocation *clustermetadatapb.TermRevocation,
+func BuildExternallyCertifiedProposal(
+	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
+	revocation := cert.GetTermRevocation()
 	recruited := filterByRevocation(revocation, statuses)
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
@@ -173,7 +181,7 @@ func BuildForcedProposal(
 }
 
 // buildProposalCore is the shared implementation for BuildSafeProposal,
-// CheckProposalPossible, and BuildForcedProposal. Callers are responsible
+// CheckProposalPossible, and BuildExternallyCertifiedProposal. Callers are responsible
 // for pre-filtering and deduplicating statuses before calling this.
 //
 // With outgoingCohortMode: validates that the current/outgoing cohort has
@@ -343,8 +351,8 @@ func validateProposal(
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
 	if mode == incomingCohortMode {
-		// Coordinator-retry safety: multiple coordinators may attempt forced
-		// proposals (e.g. repeated bootstrap attempts with different proposed
+		// Coordinator-retry safety: multiple coordinators may attempt externally
+		// certified proposals (e.g. repeated bootstrap attempts with different proposed
 		// leaders). Sufficient recruitment (majority overlap) ensures any two
 		// concurrent recruitments of the same cohort and durability policy must
 		// overlap and therefore cannot both independently succeed or cause split brain.
@@ -385,8 +393,8 @@ func filterByRevocation(revocation *clustermetadatapb.TermRevocation, statuses [
 
 // filterByPotentialRevocation returns only the statuses that could accept the
 // given revocation — i.e. ValidateRevocation returns nil. Used by
-// CheckProposalPossible and CheckForcedProposalPossible for pre-vote feasibility
-// checks where nodes have not yet been recruited.
+// CheckProposalPossible and CheckExternallyCertifiedProposalPossible for
+// pre-vote feasibility checks where nodes have not yet been recruited.
 func filterByPotentialRevocation(revocation *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ConsensusStatus {
 	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(statuses))
 	for _, cs := range statuses {

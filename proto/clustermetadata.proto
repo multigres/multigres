@@ -423,6 +423,36 @@ message TermRevocation {
   google.protobuf.Timestamp coordinator_initiated_at = 3;
 }
 
+// ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation
+// has been established by an external agent rather than through normal Recruit
+// RPCs. The incoming cohort is still recruited normally via Recruit RPCs.
+//
+// The external actor certifies:
+//
+//  1. No pooler in the outgoing cohort can make progress beyond frozen_lsn
+//     under outgoing_rule_number — all durable transactions at the time of
+//     revocation are captured at or below that position.
+//
+//  2. The term in term_revocation is globally unique; no other coordinator has
+//     used or will use it.
+//
+// The coordinator names itself as the initiator in term_revocation even though
+// it is acting on an external request.
+message ExternallyCertifiedRevocation {
+  // The rule number being superseded. Identifies which outgoing cohort is frozen.
+  RuleNumber outgoing_rule_number = 1;
+
+  // The LSN at which the outgoing cohort's progress is frozen. No durable writes
+  // occurred beyond this position under outgoing_rule_number. The chosen leader's
+  // WAL position must meet or exceed this LSN.
+  string frozen_lsn = 2;
+
+  // Records the unique coordinator term for this proposal and the coordinator
+  // facilitating the request. The coordinator fills this in even though it is
+  // acting on behalf of an external operator request.
+  TermRevocation term_revocation = 3;
+}
+
 // ConsensusStatus is a pooler's complete view of its position in the distributed
 // system. It combines three layers with different durability and precision guarantees:
 //

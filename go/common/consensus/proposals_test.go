@@ -1394,7 +1394,7 @@ func TestCheckProposalPossible(t *testing.T) {
 	}
 }
 
-func TestCheckForcedProposalPossible(t *testing.T) {
+func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	a, b, c := makeID("z1", "a"), makeID("z1", "b"), makeID("z1", "c")
 	cohort := []*clustermetadatapb.ID{a, b, c}
 
@@ -1411,6 +1411,8 @@ func TestCheckForcedProposalPossible(t *testing.T) {
 			},
 		}, nil
 	}
+
+	cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: testCoordRevocation}
 
 	tests := []struct {
 		name     string
@@ -1435,7 +1437,7 @@ func TestCheckForcedProposalPossible(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := CheckForcedProposalPossible(testCoordRevocation, tt.statuses, bootstrapProposal)
+			err := CheckExternallyCertifiedProposalPossible(cert, tt.statuses, bootstrapProposal)
 			if tt.wantErr != "" {
 				assert.EqualError(t, err, tt.wantErr)
 			} else {
@@ -1445,10 +1447,11 @@ func TestCheckForcedProposalPossible(t *testing.T) {
 	}
 }
 
-func TestBuildForcedProposal_NoNodesAccepted(t *testing.T) {
+func TestBuildExternallyCertifiedProposal_NoNodesAccepted(t *testing.T) {
 	a := makeID("z1", "a")
 	cohort := []*clustermetadatapb.ID{a}
-	_, err := BuildForcedProposal(testRevocation, []*clustermetadatapb.ConsensusStatus{
+	cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: testRevocation}
+	_, err := BuildExternallyCertifiedProposal(cert, []*clustermetadatapb.ConsensusStatus{
 		makeStatus(a, makeRule(3, cohort), &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}),
 	}, simpleProposal(5, cohort))
 	assert.EqualError(t, err, "no nodes accepted the requested term revocation")
