@@ -636,7 +636,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
 			return nil, err
 		}
-		if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 			return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 		}
 		// checkPromotionState already fetched the LSN when postgres was primary;
@@ -674,9 +674,9 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		// Rule committed and replicated. Safe to open write traffic.
 		// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
 		// ends the write-buffering window and lets the gateway route writes here.
-		pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-			PrimaryID:   pm.serviceID,
-			PrimaryTerm: revokedBelowTerm,
+		pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+			LeaderID:   pm.serviceID,
+			LeaderTerm: revokedBelowTerm,
 		})
 		if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
