@@ -245,7 +245,7 @@ func stripQuotes(value string) string {
 // pgConfig.Path, following postgres include directives so the in-memory struct
 // matches what postgres will load at runtime.
 func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Duration) (*PostgresServerConfig, error) {
-	_, err := os.Stat(pgConfig.Path)
+	f, err := os.Open(pgConfig.Path)
 	if waitTime != 0 {
 		timer := time.NewTimer(waitTime)
 		for err != nil {
@@ -254,13 +254,14 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 				return nil, err
 			default:
 				time.Sleep(postgresConfigWaitRetryTime)
-				_, err = os.Stat(pgConfig.Path)
+				f, err = os.Open(pgConfig.Path)
 			}
 		}
 	}
 	if err != nil {
 		return nil, err
 	}
+	f.Close()
 
 	pgConfig.configMap = make(map[string]string)
 	if err := parseConfigInto(pgConfig.Path, pgConfig.configMap, 0); err != nil {
