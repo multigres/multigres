@@ -101,6 +101,43 @@ func TestInitDbSQLFilesFlag(t *testing.T) {
 	})
 }
 
+func TestExtraPostgresConfFlag(t *testing.T) {
+	t.Run("defaults to empty slice", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Empty(t, pc.extraPostgresConf.Get())
+	})
+
+	t.Run("accepts repeated flag", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--extra-postgres-conf", "/etc/pg/a.conf",
+			"--extra-postgres-conf", "/etc/pg/b.conf",
+		}))
+		assert.Equal(t, []string{"/etc/pg/a.conf", "/etc/pg/b.conf"}, pc.extraPostgresConf.Get())
+	})
+
+	t.Run("accepts comma-separated values", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--extra-postgres-conf", "/etc/pg/a.conf,/etc/pg/b.conf",
+		}))
+		assert.Equal(t, []string{"/etc/pg/a.conf", "/etc/pg/b.conf"}, pc.extraPostgresConf.Get())
+	})
+
+	t.Run("POSTGRES_EXTRA_CONF env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgExtraConfFilesEnvVar, "/etc/pg/env.conf")
+		_, pc := GetRootCommand()
+		assert.Equal(t, []string{"/etc/pg/env.conf"}, pc.extraPostgresConf.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_EXTRA_CONF env var", func(t *testing.T) {
+		t.Setenv(constants.PgExtraConfFilesEnvVar, "/etc/pg/env.conf")
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{"--extra-postgres-conf", "/etc/pg/flag.conf"}))
+		assert.Equal(t, []string{"/etc/pg/flag.conf"}, pc.extraPostgresConf.Get())
+	})
+}
+
 func TestPgBackRestFlags(t *testing.T) {
 	// Test default values
 	rootCmd, _ := GetRootCommand()

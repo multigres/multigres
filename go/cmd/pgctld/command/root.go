@@ -49,6 +49,7 @@ type PgCtlCommand struct {
 	postgresConfigTmpl viperutil.Value[string]
 	pgInitdbArgs       viperutil.Value[string]
 	initDbSQLFiles     viperutil.Value[[]string]
+	extraPostgresConf  viperutil.Value[[]string]
 
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
@@ -121,6 +122,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars:  []string{constants.PgInitDbSQLFilesEnvVar},
 			Dynamic:  false,
 		}),
+		extraPostgresConf: viperutil.Configure(reg, "extra-postgres-conf", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "extra-postgres-conf",
+			EnvVars:  []string{constants.PgExtraConfFilesEnvVar},
+			Dynamic:  false,
+		}),
 		vc:        viperutil.NewViperConfig(reg),
 		lg:        servenv.NewLogger(reg, telemetry),
 		telemetry: telemetry,
@@ -172,6 +179,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 	root.PersistentFlags().StringSlice("init-db-sql-file", pc.initDbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitDbSQLFilesEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("extra-postgres-conf", pc.extraPostgresConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgExtraConfFilesEnvVar+" env var).")
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -188,6 +196,7 @@ management for PostgreSQL servers.`,
 		pc.postgresConfigTmpl,
 		pc.pgInitdbArgs,
 		pc.initDbSQLFiles,
+		pc.extraPostgresConf,
 	)
 
 	// Add all subcommands

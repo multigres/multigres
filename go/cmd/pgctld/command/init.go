@@ -105,7 +105,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
-	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, cfg.Port, cfg.User)
+	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, cfg.User, cfg.ExtraPostgresConfFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
@@ -171,11 +171,12 @@ func runInitDbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
 	cfg := PgCtldServiceConfig{
-		Port:           i.pgCtlCmd.pgPort.Get(),
-		User:           i.pgCtlCmd.pgUser.Get(),
-		Database:       i.pgCtlCmd.pgDatabase.Get(),
-		Password:       i.pgCtlCmd.pgPassword.Get(),
-		InitDbSQLFiles: i.pgCtlCmd.initDbSQLFiles.Get(),
+		Port:                   i.pgCtlCmd.pgPort.Get(),
+		User:                   i.pgCtlCmd.pgUser.Get(),
+		Database:               i.pgCtlCmd.pgDatabase.Get(),
+		Password:               i.pgCtlCmd.pgPassword.Get(),
+		InitDbSQLFiles:         i.pgCtlCmd.initDbSQLFiles.Get(),
+		ExtraPostgresConfFiles: i.pgCtlCmd.extraPostgresConf.Get(),
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
 	if err != nil {

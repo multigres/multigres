@@ -50,10 +50,12 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 
 // GeneratePostgresServerConfig generates a new PostgreSQL server configuration
 // and writes it to disk using the embedded template, then reads it back.
-// poolerId is used for the cluster name and path generation.
-// port is the port for the PostgreSQL server.
-// pgUser is the PostgreSQL user name for authentication.
-func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*PostgresServerConfig, error) {
+// extraConfFiles is an optional list of paths whose contents are appended verbatim
+// after the templated config — last-write-wins per postgres semantics. The four
+// settings pgctld pins via command-line args (port, listen_addresses,
+// unix_socket_directories, data_directory) are unaffected even if extras try to
+// override them, since CLI args beat postgresql.conf.
+func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFiles []string) (*PostgresServerConfig, error) {
 	// Create minimal config for template generation
 	if poolerDir == "" {
 		return nil, errors.New("--pooler-dir needs to be set to generate postgres server config")
@@ -69,14 +71,12 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 	cnf.DataDir = PostgresDataDir()
 	cnf.HbaFile = path.Join(PostgresDataDir(), "pg_hba.conf")
 	cnf.IdentFile = path.Join(PostgresDataDir(), "pg_ident.conf")
-	cnf.Port = port
-	cnf.ListenAddresses = "localhost"
-	cnf.UnixSocketDirectories = PostgresSocketDir(absPoolerDir)
 	cnf.ClusterName = "default"
 	cnf.User = pgUser
 
-	// Ensure Unix socket directory exists
-	if err := os.MkdirAll(cnf.UnixSocketDirectories, 0o755); err != nil {
+	// Ensure Unix socket directory exists. The path itself is pgctld-controlled and
+	// passed to postgres via -c unix_socket_directories= at start, not via the conf file.
+	if err := os.MkdirAll(PostgresSocketDir(absPoolerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create Unix socket directory: %w", err)
 	}
 
@@ -109,6 +109,13 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 		return nil, err
 	}
 
+	// Append user-supplied extra config files. Each is concatenated raw onto the
+	// generated postgresql.conf with a "## <path>" header for diagnostics; postgres
+	// applies last-write-wins for repeated keys, so extras override template values.
+	if err := cnf.appendExtraConfFiles(extraConfFiles); err != nil {
+		return nil, err
+	}
+
 	// Generate HBA file from template
 	if err := cnf.generateHbaFile(); err != nil {
 		return nil, err
@@ -118,28 +125,38 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 	return ReadPostgresServerConfig(cnf, 0)
 }
 
-// LoadOrCreatePostgresServerConfig loads an existing PostgreSQL server configuration
-// from disk, or generates and writes a new one if it doesn't exist.
-// port is the port for the PostgreSQL server.
-// pgUser is the PostgreSQL user name for authentication.
-func LoadOrCreatePostgresServerConfig(poolerDir string, port int, pgUser string) (*PostgresServerConfig, error) {
-	// Expand relative path to absolute path for consistent path handling
-	absPoolerDir, err := ExpandToAbsolutePath(poolerDir)
+// appendExtraConfFiles concatenates the contents of each path onto the generated
+// postgresql.conf. Each block is prefixed with "## <path>" so the source is
+// recoverable when reading the merged file.
+func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	f, err := os.OpenFile(cnf.Path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
+		return fmt.Errorf("failed to open postgresql.conf for extras: %w", err)
 	}
+	defer f.Close()
 
-	configPath := PostgresConfigFile()
-
-	// Check if config file already exists
-	if _, err := os.Stat(configPath); err == nil {
-		// Config file exists, read it
-		cnf := &PostgresServerConfig{Path: configPath}
-		return ReadPostgresServerConfig(cnf, 0)
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("failed to read extra postgres config file %q: %w", p, err)
+		}
+		if _, err := fmt.Fprintf(f, "\n## %s\n", p); err != nil {
+			return fmt.Errorf("failed to write extras header for %q: %w", p, err)
+		}
+		if _, err := f.Write(data); err != nil {
+			return fmt.Errorf("failed to append extra postgres config file %q: %w", p, err)
+		}
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			if _, err := f.WriteString("\n"); err != nil {
+				return fmt.Errorf("failed to terminate extras block for %q: %w", p, err)
+			}
+		}
 	}
-
-	// Config file doesn't exist, let's generate it
-	return GeneratePostgresServerConfig(absPoolerDir, port, pgUser)
+	return nil
 }
 
 // generateConfigFile creates the postgresql.conf file using the embedded template

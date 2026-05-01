@@ -44,6 +44,12 @@ const (
 	// Multiple files are comma-separated.
 	PgInitDbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
 
+	// PgExtraConfFilesEnvVar is the environment variable for extra postgresql.conf
+	// files appended verbatim onto the generated config at init time.
+	// Multiple files are comma-separated. Postgres applies last-write-wins, so
+	// extras override values from the templated defaults.
+	PgExtraConfFilesEnvVar = "POSTGRES_EXTRA_CONF"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
