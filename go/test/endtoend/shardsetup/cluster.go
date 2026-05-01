@@ -344,28 +344,28 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 	httpPort := utils.GetFreePort(t)
 
 	instance := &ProcessInstance{
-		Name:                                name,
-		PoolerDir:                           orchDataDir,
-		LogFile:                             logFile,
-		GrpcPort:                            grpcPort,
-		HttpPort:                            httpPort,
-		Cell:                                config.CellName,
-		EtcdAddr:                            s.EtcdClientAddr,
-		WatchTargets:                        watchTargets,
-		ServiceID:                           name, // Use the instance name as the service ID
-		Binary:                              "multiorch",
-		Environment:                         os.Environ(),
-		PrimaryFailoverGracePeriodBase:      config.PrimaryFailoverGracePeriodBase,
-		PrimaryFailoverGracePeriodMaxJitter: config.PrimaryFailoverGracePeriodMaxJitter,
-		LogLevel:                            config.LogLevel,
+		Name:                               name,
+		PoolerDir:                          orchDataDir,
+		LogFile:                            logFile,
+		GrpcPort:                           grpcPort,
+		HttpPort:                           httpPort,
+		Cell:                               config.CellName,
+		EtcdAddr:                           s.EtcdClientAddr,
+		WatchTargets:                       watchTargets,
+		ServiceID:                          name, // Use the instance name as the service ID
+		Binary:                             "multiorch",
+		Environment:                        os.Environ(),
+		LeaderFailoverGracePeriodBase:      config.LeaderFailoverGracePeriodBase,
+		LeaderFailoverGracePeriodMaxJitter: config.LeaderFailoverGracePeriodMaxJitter,
+		LogLevel:                           config.LogLevel,
 	}
 
 	// Apply defaults if not specified (0s for fast tests)
-	if instance.PrimaryFailoverGracePeriodBase == "" {
-		instance.PrimaryFailoverGracePeriodBase = "0s"
+	if instance.LeaderFailoverGracePeriodBase == "" {
+		instance.LeaderFailoverGracePeriodBase = "0s"
 	}
-	if instance.PrimaryFailoverGracePeriodMaxJitter == "" {
-		instance.PrimaryFailoverGracePeriodMaxJitter = "0s"
+	if instance.LeaderFailoverGracePeriodMaxJitter == "" {
+		instance.LeaderFailoverGracePeriodMaxJitter = "0s"
 	}
 
 	s.MultiOrchInstances[name] = instance

@@ -38,10 +38,7 @@ export function Sparkline({
   return (
     <div className={className} style={{ height, width: "100%" }}>
       <ResponsiveContainer>
-        <LineChart
-          data={data}
-          margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
-        >
+        <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
           <YAxis hide domain={[min, max]} />
           <Line
             type="monotone"

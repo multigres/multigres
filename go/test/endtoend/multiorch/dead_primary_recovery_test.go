@@ -144,7 +144,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
-		// 8–12s grace period (configured via WithPrimaryFailoverGracePeriod), plus
+		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
 		// several seconds for failover execution (BeginTerm + Promote + Demote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
