@@ -408,6 +408,25 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 	}
 }
 
+// readPrimaryConnInfo returns the current primary_conninfo setting as a raw string.
+// Returns an empty string if primary_conninfo is not set.
+func (pm *MultiPoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true)")
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to read primary_conninfo")
+	}
+	var connInfo *string
+	if err := executor.ScanSingleRow(result, &connInfo); err != nil {
+		return "", mterrors.Wrap(err, "failed to scan primary_conninfo")
+	}
+	if connInfo == nil {
+		return "", nil
+	}
+	return *connInfo, nil
+}
+
 // setPrimaryConnInfo sets the primary_conninfo connection string
 func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
 	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	pgconstants "github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
@@ -180,6 +181,47 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		DB:   "postgres",
 	}
 
+	// One long-lived schema-reset connection per target. Reusing the same
+	// pgx session across all corpus files keeps the catalog-cache
+	// invalidation queue on that backend bounded — without this, fresh
+	// connections issue `DROP SCHEMA … CASCADE` cycles whose pg_namespace
+	// invalidation messages pile up against pooled multipooler backends.
+	// On simple-protocol arrival (first parseable file after a long
+	// parse-error stretch in the corpus, e.g. `slt_good_125`) that backlog
+	// is drained as a multi-second catalog-cache rebuild that tips the
+	// query past `statement_timeout` in CI.
+	//
+	// Crucially, the multigateway target's resetter must connect to the
+	// **underlying primary PostgreSQL** rather than the gateway. Multigres
+	// is itself a connection pooler, so a gateway connection does not
+	// pin to one backend — sharing one gateway pgx conn still produces
+	// inval scatter across the multipooler's regular pool. Connecting
+	// directly to the primary PG bypasses the pool and pins all resets to
+	// a single backend.
+	resetCtx, resetCancel := context.WithTimeout(t.Context(), 30*time.Second)
+	pgResetter, err := suiteutil.NewSchemaResetter(resetCtx, pgTarget)
+	resetCancel()
+	if err != nil {
+		t.Fatalf("open postgres schema-resetter: %v", err)
+	}
+	t.Cleanup(func() { pgResetter.Close(context.Background()) })
+	primary := setup.GetPrimary(t)
+	mgResetTarget := suiteutil.Target{
+		Name: "multigateway-pg-direct",
+		Host: "127.0.0.1",
+		Port: primary.Pgctld.PgPort,
+		User: pgconstants.DefaultPostgresUser,
+		Pass: shardsetup.TestPostgresPassword,
+		DB:   "postgres",
+	}
+	resetCtx, resetCancel = context.WithTimeout(t.Context(), 30*time.Second)
+	mgResetter, err := suiteutil.NewSchemaResetter(resetCtx, mgResetTarget)
+	resetCancel()
+	if err != nil {
+		t.Fatalf("open multigateway schema-resetter (direct to primary PG): %v", err)
+	}
+	t.Cleanup(func() { mgResetter.Close(context.Background()) })
+
 	// Phase 6: for each file, run both targets under both protocols. Four
 	// invocations per file. Honors the overall test deadline so a timeout
 	// still produces a coherent partial report.
@@ -213,8 +255,8 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		ranAgainst++
 
 		for _, p := range protocols {
-			pgRes := runOne(overall, perFileTimeout, pgTarget, p.Engine, f)
-			mgRes := runOne(overall, perFileTimeout, mgTarget, p.Engine, f)
+			pgRes := runOne(overall, perFileTimeout, pgTarget, pgResetter, p.Engine, f)
+			mgRes := runOne(overall, perFileTimeout, mgTarget, mgResetter, p.Engine, f)
 			perProto[p.Key].pg = append(perProto[p.Key].pg, pgRes)
 			perProto[p.Key].mg = append(perProto[p.Key].mg, mgRes)
 		}
@@ -264,10 +306,10 @@ type protoResults struct {
 
 // runOne invokes sqllogictest against a single target under a single
 // protocol for one file, with its own bounded context.
-func runOne(parent context.Context, perFileTimeout time.Duration, t suiteutil.Target, engine, file string) *runResult {
+func runOne(parent context.Context, perFileTimeout time.Duration, t suiteutil.Target, resetter *suiteutil.SchemaResetter, engine, file string) *runResult {
 	ctx, cancel := context.WithTimeout(parent, perFileTimeout)
 	defer cancel()
-	return runSqllogictest(ctx, t, engine, file)
+	return runSqllogictest(ctx, t, resetter, engine, file)
 }
 
 func passedCount(results []*runResult) int {

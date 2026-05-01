@@ -180,7 +180,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return callback(ctx, result)
 	}
 
-	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, wrappedCallback)
+	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, false, wrappedCallback)
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
@@ -219,6 +219,7 @@ func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return p.StreamExecute(ctx, exec, conn, state, nil, callback)

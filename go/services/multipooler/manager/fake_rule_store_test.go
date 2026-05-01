@@ -28,17 +28,28 @@ import (
 // fakeRuleStore is a test double for ruleStorer that returns a preset position
 // without hitting postgres. Both observePosition and updateRule return pos
 // (or observeErr/updateErr when set). updateRule records all calls in updates.
+//
+// If posSequence is non-empty, observePosition returns positions from the
+// sequence in order (consuming each entry), then falls back to pos once
+// the sequence is exhausted. This is useful for simulating a position that
+// changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu         sync.Mutex
-	pos        *clustermetadatapb.PoolerPosition
-	observeErr error
-	updateErr  error
-	updates    []*ruleUpdateBuilder
+	mu          sync.Mutex
+	pos         *clustermetadatapb.PoolerPosition
+	posSequence []*clustermetadatapb.PoolerPosition
+	observeErr  error
+	updateErr   error
+	updates     []*ruleUpdateBuilder
 }
 
 func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(f.posSequence) > 0 {
+		pos := f.posSequence[0]
+		f.posSequence = f.posSequence[1:]
+		return pos, f.observeErr
+	}
 	return f.pos, f.observeErr
 }
 
