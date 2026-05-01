@@ -83,6 +83,7 @@ func (t *TempTableRoute) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return t.StreamExecute(ctx, exec, conn, state, nil, callback)

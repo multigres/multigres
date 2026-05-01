@@ -55,12 +55,12 @@ type ProcessInstance struct {
 	Environment []string
 
 	// Multiorch-specific fields
-	HttpPort                            int      // HTTP port (used by pgctld and multiorch for health endpoints)
-	Cell                                string   // Cell name (used by multipooler and multiorch)
-	WatchTargets                        []string // Database/tablegroup/shard targets to watch (multiorch)
-	ServiceID                           string   // Service ID (used by multipooler and multiorch)
-	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (e.g., "0s", "10s")
-	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
+	HttpPort                           int      // HTTP port (used by pgctld and multiorch for health endpoints)
+	Cell                               string   // Cell name (used by multipooler and multiorch)
+	WatchTargets                       []string // Database/tablegroup/shard targets to watch (multiorch)
+	ServiceID                          string   // Service ID (used by multipooler and multiorch)
+	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (e.g., "0s", "10s")
+	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
 
 	// Multigateway TLS fields
 	TLSCertFile string // TLS certificate file (multigateway)
@@ -245,11 +245,11 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 	}
 
 	// Add grace period flags if configured (defaults to 0 for fast tests)
-	if p.PrimaryFailoverGracePeriodBase != "" {
-		args = append(args, "--primary-failover-grace-period-base", p.PrimaryFailoverGracePeriodBase)
+	if p.LeaderFailoverGracePeriodBase != "" {
+		args = append(args, "--leader-failover-grace-period-base", p.LeaderFailoverGracePeriodBase)
 	}
-	if p.PrimaryFailoverGracePeriodMaxJitter != "" {
-		args = append(args, "--primary-failover-grace-period-max-jitter", p.PrimaryFailoverGracePeriodMaxJitter)
+	if p.LeaderFailoverGracePeriodMaxJitter != "" {
+		args = append(args, "--leader-failover-grace-period-max-jitter", p.LeaderFailoverGracePeriodMaxJitter)
 	}
 
 	// Coverage builds are slower — WAL receiver can take 3-10s to connect.

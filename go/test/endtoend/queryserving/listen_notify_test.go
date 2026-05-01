@@ -17,6 +17,8 @@ package queryserving
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -549,6 +551,118 @@ func TestListenNotify(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "test_extended", notification.Channel)
 				assert.Equal(t, "extended_payload", notification.Payload)
+			})
+
+			// listen_with_concurrent_queries exercises the contention
+			// shape the bufMu race fix targets. The race is on the
+			// SERVER side: the listener conn's synchronous query
+			// handler and its async notification pusher both write
+			// into the same bufferedWriter. Before startPacket /
+			// writePacket held bufMu across body encoding, the two
+			// could interleave byte-by-byte and produce torn packets
+			// on the listener's socket.
+			//
+			// On the client, pgx's pgconn buffers NotificationResponse
+			// messages it sees during normal reads, so a single tight
+			// query loop on the listener conn already exercises the
+			// race: each query reply runs the synchronous write path,
+			// concurrent NOTIFYs from a sibling connection drive the
+			// server-side async pusher, and pgx will surface a decode
+			// error on Query if the bytes on the wire are torn. We do
+			// not run a separate WaitForNotification goroutine because
+			// pgx forbids concurrent use of a single Conn ("conn
+			// busy") — the race is server-side, so client-side
+			// concurrency adds no signal.
+			t.Run("listen_with_concurrent_queries", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				listenerCfg, err := pgx.ParseConfig(connStr)
+				require.NoError(t, err)
+				// Force extended protocol so the listener's reply
+				// path goes through Parse/Bind/Describe/Execute —
+				// the helpers that share bufferedWriter with the
+				// async notification pusher.
+				listenerCfg.DefaultQueryExecMode = pgx.QueryExecModeDescribeExec
+
+				listener, err := pgx.ConnectConfig(ctx, listenerCfg)
+				require.NoError(t, err)
+				defer listener.Close(ctx)
+
+				notifier, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err)
+				defer notifier.Close(ctx)
+
+				_, err = listener.Exec(ctx, "LISTEN race_channel")
+				require.NoError(t, err)
+
+				// Soak window long enough for a torn packet to
+				// surface against unsynchronized writers, but short
+				// enough to stay under the test deadline.
+				soakCtx, soakCancel := context.WithTimeout(ctx, 5*time.Second)
+				defer soakCancel()
+
+				var (
+					wg          sync.WaitGroup
+					queryCount  atomic.Int64
+					notifyCount atomic.Int64
+					queryErr    atomic.Value
+					notifyErr   atomic.Value
+				)
+
+				wg.Go(func() {
+					for soakCtx.Err() == nil {
+						var n int
+						if err := listener.QueryRow(soakCtx, "SELECT $1::int4", 1).Scan(&n); err != nil {
+							if soakCtx.Err() != nil {
+								return
+							}
+							queryErr.Store(err)
+							return
+						}
+						if n != 1 {
+							queryErr.Store(fmt.Errorf("unexpected scan: got %d, want 1", n))
+							return
+						}
+						queryCount.Add(1)
+					}
+				})
+
+				wg.Go(func() {
+					for soakCtx.Err() == nil {
+						if _, err := notifier.Exec(soakCtx, "NOTIFY race_channel, 'p'"); err != nil {
+							if soakCtx.Err() != nil {
+								return
+							}
+							notifyErr.Store(err)
+							return
+						}
+						notifyCount.Add(1)
+					}
+				})
+
+				wg.Wait()
+
+				if v := queryErr.Load(); v != nil {
+					t.Fatalf("query loop failed (torn packet on listener reply path?): %v", v.(error))
+				}
+				if v := notifyErr.Load(); v != nil {
+					t.Fatalf("notifier loop failed: %v", v.(error))
+				}
+
+				assert.Greater(t, queryCount.Load(), int64(0), "query loop made no progress")
+				assert.Greater(t, notifyCount.Load(), int64(0), "notifier loop made no progress")
+
+				// Drain a few notifications after the soak: pgx
+				// buffered them during the query loop, and pulling
+				// them confirms the server's async pusher path also
+				// produced well-formed packets.
+				drainCtx, drainCancel := context.WithTimeout(ctx, 30*time.Second)
+				defer drainCancel()
+				notif, err := listener.WaitForNotification(drainCtx)
+				require.NoError(t, err, "drain WaitForNotification (torn NotificationResponse?)")
+				assert.Equal(t, "race_channel", notif.Channel)
+				assert.Equal(t, "p", notif.Payload)
 			})
 		})
 	}

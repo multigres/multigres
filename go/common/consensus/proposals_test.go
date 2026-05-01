@@ -43,7 +43,7 @@ func makeRule(coordTerm int64, cohort []*clustermetadatapb.ID) *clustermetadatap
 		RuleNumber: &clustermetadatapb.RuleNumber{
 			CoordinatorTerm: coordTerm,
 		},
-		PrimaryId:        cohort[0],
+		LeaderId:         cohort[0],
 		CohortMembers:    cohort,
 		DurabilityPolicy: topoclient.AtLeastN(2),
 	}
@@ -575,7 +575,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
 					ProposedRule: &clustermetadatapb.ShardRule{
 						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-						PrimaryId:     a,
+						LeaderId:      a,
 						CohortMembers: cohort,
 					},
 				}, nil
@@ -617,7 +617,7 @@ func TestBuildProposalCore(t *testing.T) {
 						RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 						CohortMembers:    cohort,
 						DurabilityPolicy: topoclient.AtLeastN(2),
-						PrimaryId:        leader.GetId(),
+						LeaderId:         leader.GetId(),
 					},
 				}, nil
 			},
@@ -638,7 +638,7 @@ func TestBuildProposalCore(t *testing.T) {
 						RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 						CohortMembers:    cohort,
 						DurabilityPolicy: topoclient.AtLeastN(2),
-						PrimaryId:        leader.GetId(),
+						LeaderId:         leader.GetId(),
 					},
 				}, nil
 			},
@@ -661,7 +661,7 @@ func TestBuildProposalCore(t *testing.T) {
 						RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 						CohortMembers:    cohort,
 						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN},
-						PrimaryId:        leader.GetId(),
+						LeaderId:         leader.GetId(),
 					},
 				}, nil
 			},
@@ -690,7 +690,7 @@ func TestBuildProposalCore(t *testing.T) {
 							RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 							CohortMembers:    bigCohort,
 							DurabilityPolicy: topoclient.AtLeastN(2),
-							PrimaryId:        leader.GetId(),
+							LeaderId:         leader.GetId(),
 						},
 					}, nil
 				},
@@ -710,13 +710,13 @@ func TestBuildProposalCore(t *testing.T) {
 			stuckRev := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}
 			multiCellRule := &clustermetadatapb.ShardRule{
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
-				PrimaryId:        nodeA,
+				LeaderId:         nodeA,
 				CohortMembers:    stuckCohort,
 				DurabilityPolicy: topoclient.MultiCellAtLeastN(2),
 			}
 			atLeastNRule := &clustermetadatapb.ShardRule{
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-				PrimaryId:        nodeA,
+				LeaderId:         nodeA,
 				CohortMembers:    stuckCohort,
 				DurabilityPolicy: topoclient.AtLeastN(2),
 			}
@@ -868,6 +868,345 @@ func TestBuildSafeProposal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckSufficientRecruitment_NoCommittedRule(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		{Id: a, TermRevocation: testRevocation}, // no current_position
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(0, nil))
+
+	require.Error(t, err)
+	// A node with no current_position has no parseable LSN, so it is filtered
+	// out by filterByValidPosition before the committed-rule check fires.
+	assert.Contains(t, err.Error(), "all recruited nodes reported an invalid or missing WAL position")
+}
+
+func TestCheckSufficientRecruitment_InsufficientQuorum(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	// Only one of three nodes recruited — not enough for AT_LEAST_2 with majority.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(3, cohort))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient recruitment")
+}
+
+func TestCheckSufficientRecruitment_InvalidLeader(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	outsider := makeID("z1", "outsider")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Callback proposes a node that was not recruited.
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: outsider},
+			ProposedRule:   rule,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not among eligible leaders")
+}
+
+// TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK verifies that not all
+// proposed cohort members need to be recruited, as long as the recruited subset
+// satisfies the durability policy. Here outsider was not recruited, but a and b
+// (2 nodes) cover AT_LEAST_2, so the proposal is accepted.
+func TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	outsider := makeID("z1", "outsider")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	proposedRule := makeRule(4, []*clustermetadatapb.ID{a, b, outsider})
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   proposedRule,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.NoError(t, err)
+}
+
+// TestCheckSufficientRecruitment_DeadLeaderRemainsInCohort verifies that a failover
+// can succeed when the dead leader is kept in the new cohort (so it can rejoin as a
+// standby later) but cannot be recruited. B and C are live and cover AT_LEAST_2.
+func TestCheckSufficientRecruitment_DeadLeaderRemainsInCohort(t *testing.T) {
+	a := makeID("z1", "pooler-a") // dead leader — not recruited
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	// Only B and C are reachable; A is dead.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule keeps A in the cohort (it will rejoin as standby) but promotes B.
+	proposedRule := makeRule(4, cohort)
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: b},
+			ProposedRule:   proposedRule,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.NoError(t, err)
+}
+
+// TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort verifies
+// that the proposal fails when too few proposed-cohort members were recruited to
+// satisfy the durability policy. Here the proposed cohort is [a, d, e] with
+// AT_LEAST_2, but only a was recruited from it — the new leader could not achieve
+// durable writes immediately after promotion.
+func TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	d := makeID("z1", "pooler-d") // proposed new member, not recruited
+	e := makeID("z1", "pooler-e") // proposed new member, not recruited
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule replaces b and c with d and e, but d and e were not recruited.
+	proposedRule := makeRule(4, []*clustermetadatapb.ID{a, d, e})
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   proposedRule,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient recruitment from proposed cohort")
+}
+
+func TestCheckSufficientRecruitment_BuildProposalError(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return nil, errors.New("no suitable candidate")
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no suitable candidate")
+}
+
+func TestCheckSufficientRecruitment_BestRuleSelected(t *testing.T) {
+	// One node is behind; the others are at the higher rule.
+	// The higher rule's cohort and policy must govern quorum.
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	oldRule := makeRule(2, cohort)
+	newRule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, newRule, testRevocation),
+		makeStatus(b, newRule, testRevocation),
+		makeStatus(c, oldRule, testRevocation), // behind
+	}
+
+	// Only a and b are eligible (at bestRule); callback picks a.
+	var gotResult RecruitmentResult
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		gotResult = r
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: r.EligibleLeaders[0].GetId()},
+			ProposedRule:   newRule,
+		}, nil
+	}
+
+	proposal, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.NoError(t, err)
+	require.NotNil(t, proposal)
+	assert.Equal(t, int64(3), gotResult.OutgoingRule.GetRuleNumber().GetCoordinatorTerm())
+	assert.Len(t, gotResult.EligibleLeaders, 2, "only nodes at bestRule are eligible")
+	// Leader must be a or b (both at newRule), not c.
+	leaderName := proposal.GetProposalLeader().GetId().GetName()
+	assert.NotEqual(t, "pooler-c", leaderName)
+	assert.Equal(t, topoclient.ClusterIDString(gotResult.EligibleLeaders[0].GetId()), topoclient.ClusterIDString(proposal.GetProposalLeader().GetId()))
+}
+
+func TestCheckSufficientRecruitment_BuildProposalNil(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return nil, nil
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "buildProposal returned nil")
+}
+
+func TestCheckSufficientRecruitment_ProposedPolicyNotAchievable(t *testing.T) {
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(b, rule, testRevocation),
+		makeStatus(c, rule, testRevocation),
+	}
+
+	// Proposed rule has AT_LEAST_2 but only one cohort member — not achievable.
+	tinyRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       rule.GetRuleNumber(),
+		CohortMembers:    []*clustermetadatapb.ID{a},
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: a},
+			ProposedRule:   tinyRule,
+		}, nil
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, buildProposal)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not achievable")
+}
+
+func TestCheckSufficientRecruitment_DuplicateStatusIgnoredForQuorum(t *testing.T) {
+	// The same pooler appears twice in the statuses (e.g. two RPC responses
+	// for the same node). It must count only once toward quorum.
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	rule := makeRule(3, cohort)
+
+	// Only a responds, but we see its response twice — still only 1 recruited.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(a, rule, testRevocation),
+		makeStatus(a, rule, testRevocation), // duplicate
+	}
+
+	_, err := BuildSafeProposal(testRevocation, statuses, simpleProposal(3, cohort))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient recruitment")
+}
+
+func TestCheckSufficientRecruitment_DuplicateBestPositionKept(t *testing.T) {
+	// The same pooler appears twice with different positions (e.g. a retry
+	// returned a fresher snapshot). The entry with the higher position must win,
+	// regardless of which appeared first in the input.
+	//
+	// Specifically this tests that rule number takes precedence: a's stale
+	// response has a higher LSN but an older rule, so the fresh lower-LSN
+	// response at the newer rule must win.
+	a := makeID("z1", "pooler-a")
+	b := makeID("z1", "pooler-b")
+	c := makeID("z1", "pooler-c")
+	cohort := []*clustermetadatapb.ID{a, b, c}
+	oldRule := makeRule(2, cohort)
+	newRule := makeRule(3, cohort)
+
+	// a appears twice: stale at oldRule with a high LSN, fresh at newRule with
+	// a lower LSN. Rule number wins, so the newRule entry must be kept.
+	// Result: a ends up as the sole eligible leader (highest LSN at newRule).
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithLSN(a, oldRule, testRevocation, "0/3000000"), // stale, high LSN
+		makeStatusWithLSN(a, newRule, testRevocation, "0/2000000"), // fresh, lower LSN
+		makeStatusWithLSN(b, newRule, testRevocation, "0/1000000"),
+		makeStatusWithLSN(c, newRule, testRevocation, "0/1000000"),
+	}
+
+	var gotResult RecruitmentResult
+	_, err := BuildSafeProposal(testRevocation, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		gotResult = r
+		return &consensusdatapb.CoordinatorProposal{
+			TermRevocation: r.TermRevocation,
+			ProposalLeader: &consensusdatapb.ProposalLeader{Id: r.EligibleLeaders[0].GetId()},
+			ProposedRule:   newRule,
+		}, nil
+	})
+
+	require.NoError(t, err)
+	// a is at newRule after deduplication and has the highest LSN among newRule
+	// nodes, so it is the sole eligible leader.
+	require.Len(t, gotResult.EligibleLeaders, 1)
+	assert.Equal(t, "pooler-a", gotResult.EligibleLeaders[0].GetId().GetName())
 }
 
 func TestBuildProposalCore_EligibleLeadersOrderDeterministic(t *testing.T) {
@@ -1068,7 +1407,7 @@ func TestCheckForcedProposalPossible(t *testing.T) {
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: r.TermRevocation.GetRevokedBelowTerm()},
 				CohortMembers:    cohort,
 				DurabilityPolicy: topoclient.AtLeastN(2),
-				PrimaryId:        leader.GetId(),
+				LeaderId:         leader.GetId(),
 			},
 		}, nil
 	}

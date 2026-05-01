@@ -329,14 +329,14 @@ message RuleNumber {
 }
 
 // ShardRule is the complete, authoritative description of shard state at a
-// specific rule number. Primary identity, cohort membership, and durability
+// specific rule number. Leader identity, cohort membership, and durability
 // policy are only meaningful together and relative to the rule that established
 // them.
 message ShardRule {
   RuleNumber rule_number = 1;
-  // The postgres primary for this rule, through which all transactions (including rules) are
+  // The consensus leader for this rule, through which all transactions (including rules) are
   // written to the WAL.
-  ID primary_id = 2;
+  ID leader_id = 2;
   repeated ID cohort_members = 3;
 
   // What nodes need to acknowledge a write before it's considered durable.
@@ -351,7 +351,7 @@ message ShardRule {
 
 // PoolerPosition describes a pooler's committed position in logical and physical
 // time. It captures the highest ShardRule this pooler has replicated (or written,
-// for a primary) and the latest WAL position.
+// for a leader) and the latest WAL position.
 //
 // Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
 // coordinator can determine which pooler is most advanced when selecting a
@@ -457,33 +457,33 @@ message ConsensusStatus {
 }
 
 // LeadershipSignal describes a leader's self-reported status for its current term.
-// Only published by nodes that are or were primary (primary_term != 0).
+// Only published by nodes that are or were the consensus leader (leader_term != 0).
 // 0 (UNKNOWN) means the field was not intentionally set.
 enum LeadershipSignal {
   LEADERSHIP_SIGNAL_UNKNOWN = 0;
 
-  // Node is actively and healthily serving as primary for primary_term.
+  // Node is actively and healthily serving as leader for leader_term.
   // Published each poll cycle so the coordinator can distinguish a confirmed
-  // healthy primary from one that restarted and hasn't re-published yet.
+  // healthy leader from one that restarted and hasn't re-published yet.
   LEADERSHIP_SIGNAL_ACTIVE = 1;
 
-  // Node is requesting demotion from leadership for primary_term. Coordinator
-  // should trigger an immediate election rather than waiting for a heartbeat
-  // timeout. The node may continue as a replica after demotion.
+  // Node is requesting demotion from leadership for leader_term. Coordinator
+  // should trigger an immediate failover rather than waiting for a heartbeat
+  // timeout. The node may continue as a follower after demotion.
   //
-  // Staleness check: coordinator verifies leadership_status.primary_term matches
-  // the node's known primary_term before acting, to ignore signals left over from
-  // a previous election cycle.
+  // Staleness check: coordinator verifies leadership_status.leader_term matches
+  // the node's known leader_term before acting, to ignore signals left over from
+  // a previous failover cycle.
   LEADERSHIP_SIGNAL_REQUESTING_DEMOTION = 2;
 }
 
-// LeadershipStatus is published only by nodes that are or have been primary.
-// It lets the coordinator distinguish an actively healthy primary, a primary
+// LeadershipStatus is published only by nodes that are or have been the consensus leader.
+// It lets the coordinator distinguish an actively healthy leader, a leader
 // requesting demotion, and a node that has never held leadership.
 message LeadershipStatus {
-  // The primary_term at which this node was most recently elected.
-  // Non-zero only on nodes that have been elected primary.
-  int64 primary_term = 1;
+  // The leader_term at which this node was most recently appointed.
+  // Non-zero only on nodes that have been appointed as leader.
+  int64 leader_term = 1;
 
   LeadershipSignal signal = 2;
 }
@@ -503,6 +503,6 @@ message LeadershipStatus {
 // PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
 // regardless of source.
 message AvailabilityStatus {
-  // leadership_status is only set by poolers that are or have been primary.
+  // leadership_status is only set by poolers that are or have been the consensus leader.
   LeadershipStatus leadership_status = 1;
 }

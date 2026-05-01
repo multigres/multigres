@@ -124,6 +124,16 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	// grandchildren (e.g. psql) holding pipes open would cause a hang.
 	cmd.SetWaitDelay(10 * time.Second)
 
+	// pg_regress expected .out files were captured against vanilla PostgreSQL
+	// defaults, so the planner picks different shapes (e.g. Hash↔Merge,
+	// Bitmap↔Index) when pgctld's tuned GUCs are in effect. Override to
+	// PostgreSQL defaults per session via PGOPTIONS so the harness matches
+	// upstream fixtures without changing pgctld defaults.
+	pgOptions := "-c work_mem=4MB" +
+		" -c random_page_cost=4.0" +
+		" -c effective_cache_size=4GB" +
+		" -c max_parallel_workers_per_gather=2"
+
 	cmd.AddEnv(
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
@@ -131,6 +141,7 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		"PGPASSWORD="+password,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
+		"PGOPTIONS="+pgOptions,
 	)
 
 	// Capture stdout for result parsing while still printing to the terminal.

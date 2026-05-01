@@ -22,15 +22,15 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-func TestIsPrimary(t *testing.T) {
+func TestIsLeader(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
 	}
-	statusWithRule := func(self, primary *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
+	statusWithRule := func(self, leader *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{
 			Id: self,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{PrimaryId: primary},
+				Rule: &clustermetadatapb.ShardRule{LeaderId: leader},
 			},
 		}
 	}
@@ -87,12 +87,12 @@ func TestIsPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsPrimary(tt.cs))
+			assert.Equal(t, tt.want, IsLeader(tt.cs))
 		})
 	}
 }
 
-func TestPrimaryTerm(t *testing.T) {
+func TestLeaderTerm(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
 	}
@@ -113,7 +113,7 @@ func TestPrimaryTerm(t *testing.T) {
 				Id: id("z1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						PrimaryId:  id("z1", "pooler-2"),
+						LeaderId:   id("z1", "pooler-2"),
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 					},
 				},
@@ -126,7 +126,7 @@ func TestPrimaryTerm(t *testing.T) {
 				Id: id("z1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						PrimaryId:  id("z1", "pooler-1"),
+						LeaderId:   id("z1", "pooler-1"),
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 					},
 				},
@@ -139,7 +139,7 @@ func TestPrimaryTerm(t *testing.T) {
 				Id: id("z1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						PrimaryId: id("z1", "pooler-1"),
+						LeaderId: id("z1", "pooler-1"),
 					},
 				},
 			},
@@ -149,7 +149,7 @@ func TestPrimaryTerm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, PrimaryTerm(tt.cs))
+			assert.Equal(t, tt.want, LeaderTerm(tt.cs))
 		})
 	}
 }

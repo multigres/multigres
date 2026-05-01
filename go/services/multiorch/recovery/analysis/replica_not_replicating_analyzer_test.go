@@ -53,13 +53,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               true,
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // No primary_conninfo configured
 				ReplicationStopped:  false,
@@ -77,13 +77,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects replica with replication stopped", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               true,
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				ReplicationStopped:  true, // Replication stopped
@@ -98,13 +98,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               true,
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				ReplicationStopped:  false,
@@ -122,7 +122,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            primaryID,
 				ShardKey:            shardKey,
-				IsPrimary:           true,
+				IsLeader:            true,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 			}},
@@ -139,7 +139,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       false, // Not initialized
 				PrimaryConnInfoHost: "",
 			}},
@@ -152,13 +152,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica when primary is unreachable", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               false, // Primary unreachable — PrimaryIsDead handles this
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               false, // Primary unreachable — PrimaryIsDead handles this
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},
@@ -176,13 +176,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotReplicatingAnalyzer{factory: nil}
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               true,
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},

@@ -14,13 +14,24 @@
 
 package handler
 
-// GatewayManagedVariable holds a session-overridable variable with a server default.
-// The default is set once at connection init (from startup params or the server flag)
-// and the current value can be overridden per-session via SET / cleared via RESET.
+// GatewayManagedVariable holds a variable with three priority layers matching
+// PostgreSQL's GUC semantics:
+//
+//  1. defaultValue — the server default, set once at connection init from startup
+//     params or the server flag.
+//  2. currentValue — a session-level override set via SET var, cleared via RESET.
+//     Persists across transactions.
+//  3. localValue   — a transaction-scoped override set via SET LOCAL var, cleared
+//     when the surrounding transaction COMMITs or ROLLBACKs.
+//
+// GetEffective resolves with priority local > session > default, matching
+// PostgreSQL's behavior.
 type GatewayManagedVariable[T comparable] struct {
 	defaultValue T
 	currentValue T
 	isSet        bool
+	localValue   T
+	isLocalSet   bool
 }
 
 // NewGatewayManagedVariable creates a variable with the given default value.
@@ -28,28 +39,73 @@ func NewGatewayManagedVariable[T comparable](defaultValue T) GatewayManagedVaria
 	return GatewayManagedVariable[T]{defaultValue: defaultValue}
 }
 
-// Set stores a session-level override.
+// Set stores a session-level override and clears any active transaction-local
+// override. Matches PostgreSQL: a non-LOCAL SET issued inside a transaction
+// that has a prior SET LOCAL supersedes the LOCAL — effective value
+// immediately becomes the new session value.
 func (g *GatewayManagedVariable[T]) Set(v T) {
 	g.currentValue = v
 	g.isSet = true
+	var zero T
+	g.localValue = zero
+	g.isLocalSet = false
 }
 
-// Reset clears the session override, reverting to the default.
+// Reset clears both the session override and any active transaction-local
+// override, reverting to the default. Matches PostgreSQL: RESET issued inside
+// a transaction that has a prior SET LOCAL supersedes the LOCAL — effective
+// value immediately becomes the default.
 func (g *GatewayManagedVariable[T]) Reset() {
 	var zero T
 	g.currentValue = zero
 	g.isSet = false
+	g.localValue = zero
+	g.isLocalSet = false
 }
 
-// GetEffective returns the session override if set, otherwise the default.
+// SetLocal stores a transaction-local override. Cleared by ResetLocal at
+// transaction end (COMMIT or ROLLBACK).
+func (g *GatewayManagedVariable[T]) SetLocal(v T) {
+	g.localValue = v
+	g.isLocalSet = true
+}
+
+// SetLocalToDefault is the LOCAL form of SET ... TO DEFAULT: a transaction-
+// scoped override whose value is the server default. It masks any session-level
+// override for the duration of the transaction without destroying it. Matches
+// PostgreSQL's behavior for `SET LOCAL var TO DEFAULT` — after the transaction
+// ends and ResetLocal fires, the session-level value (if any) is restored.
+func (g *GatewayManagedVariable[T]) SetLocalToDefault() {
+	g.localValue = g.defaultValue
+	g.isLocalSet = true
+}
+
+// ResetLocal clears any transaction-local override. Called at COMMIT/ROLLBACK
+// to revert the value to the session-level (or default) value.
+func (g *GatewayManagedVariable[T]) ResetLocal() {
+	var zero T
+	g.localValue = zero
+	g.isLocalSet = false
+}
+
+// GetEffective returns the active value with priority:
+// transaction-local > session > default.
 func (g *GatewayManagedVariable[T]) GetEffective() T {
+	if g.isLocalSet {
+		return g.localValue
+	}
 	if g.isSet {
 		return g.currentValue
 	}
 	return g.defaultValue
 }
 
-// IsSet returns whether a session override is active.
+// IsSet returns whether a session-level override is active.
 func (g *GatewayManagedVariable[T]) IsSet() bool {
 	return g.isSet
+}
+
+// IsLocalSet returns whether a transaction-local override is active.
+func (g *GatewayManagedVariable[T]) IsLocalSet() bool {
+	return g.isLocalSet
 }
