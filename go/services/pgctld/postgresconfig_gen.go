@@ -48,13 +48,8 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 	return absPath, nil
 }
 
-// GeneratePostgresServerConfig generates a new PostgreSQL server configuration
-// and writes it to disk using the embedded template, then reads it back.
-// extraConfFiles is an optional list of paths whose contents are appended verbatim
-// after the templated config — last-write-wins per postgres semantics. The four
-// settings pgctld pins via command-line args (port, listen_addresses,
-// unix_socket_directories, data_directory) are unaffected even if extras try to
-// override them, since CLI args beat postgresql.conf.
+// GeneratePostgresServerConfig writes postgresql.conf from the embedded template,
+// appends extraConfFiles verbatim (postgres last-write-wins), then reads it back.
 func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFiles []string) (*PostgresServerConfig, error) {
 	// Create minimal config for template generation
 	if poolerDir == "" {
@@ -74,8 +69,6 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.ClusterName = "default"
 	cnf.User = pgUser
 
-	// Ensure Unix socket directory exists. The path itself is pgctld-controlled and
-	// passed to postgres via -c unix_socket_directories= at start, not via the conf file.
 	if err := os.MkdirAll(PostgresSocketDir(absPoolerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create Unix socket directory: %w", err)
 	}
@@ -109,9 +102,6 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 		return nil, err
 	}
 
-	// Append user-supplied extra config files. Each is concatenated raw onto the
-	// generated postgresql.conf with a "## <path>" header for diagnostics; postgres
-	// applies last-write-wins for repeated keys, so extras override template values.
 	if err := cnf.appendExtraConfFiles(extraConfFiles); err != nil {
 		return nil, err
 	}
@@ -125,9 +115,9 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	return ReadPostgresServerConfig(cnf, 0)
 }
 
-// appendExtraConfFiles concatenates the contents of each path onto the generated
-// postgresql.conf. Each block is prefixed with "## <path>" so the source is
-// recoverable when reading the merged file.
+// appendExtraConfFiles concatenates each path onto postgresql.conf. The
+// "## <path>" header before each block lets readers attribute lines back to
+// their source file.
 func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	if len(paths) == 0 {
 		return nil
@@ -135,24 +125,24 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 
 	f, err := os.OpenFile(cnf.Path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed to open postgresql.conf for extras: %w", err)
+		return fmt.Errorf("opening postgresql.conf for extras: %w", err)
 	}
 	defer f.Close()
 
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return fmt.Errorf("failed to read extra postgres config file %q: %w", p, err)
+			return fmt.Errorf("reading extra postgres config %q: %w", p, err)
 		}
 		if _, err := fmt.Fprintf(f, "\n## %s\n", p); err != nil {
-			return fmt.Errorf("failed to write extras header for %q: %w", p, err)
+			return fmt.Errorf("appending %q: %w", p, err)
 		}
 		if _, err := f.Write(data); err != nil {
-			return fmt.Errorf("failed to append extra postgres config file %q: %w", p, err)
+			return fmt.Errorf("appending %q: %w", p, err)
 		}
 		if len(data) > 0 && data[len(data)-1] != '\n' {
 			if _, err := f.WriteString("\n"); err != nil {
-				return fmt.Errorf("failed to terminate extras block for %q: %w", p, err)
+				return fmt.Errorf("appending %q: %w", p, err)
 			}
 		}
 	}

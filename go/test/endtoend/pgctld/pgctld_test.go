@@ -431,6 +431,89 @@ timeout: 30
 	require.NoError(t, err)
 }
 
+// TestExtraPostgresConfWithInclude validates --extra-postgres-conf end-to-end:
+// the extra file uses postgres' `include` directive to point at a separate
+// overrides file, and the running server reports the override values via SHOW.
+// This exercises both pgctld's append step at init and postgres' own include
+// resolution at startup.
+func TestExtraPostgresConfWithInclude(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_extra_conf_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+	extraDir := filepath.Join(tempDir, "extras")
+	require.NoError(t, os.MkdirAll(extraDir, 0o755))
+
+	// overrides.conf holds the actual values.
+	overrides := filepath.Join(extraDir, "overrides.conf")
+	require.NoError(t, os.WriteFile(overrides, []byte(
+		"shared_buffers = 256MB\n"+
+			"track_io_timing = on\n",
+	), 0o644))
+
+	// extra.conf is the file pgctld appends — it just includes overrides.conf.
+	extra := filepath.Join(extraDir, "extra.conf")
+	require.NoError(t, os.WriteFile(extra, fmt.Appendf(nil, "include '%s'\n", overrides), 0o644))
+
+	port := utils.GetFreePort(t)
+
+	initCmd := executil.Command(t.Context(), "pgctld", "init",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+		"--extra-postgres-conf", extra,
+	)
+	setupTestEnv(initCmd, dataDir)
+	initOut, err := initCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld init failed: %s", string(initOut))
+
+	startCmd := executil.Command(t.Context(), "pgctld", "start",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(startCmd, dataDir)
+	startOut, err := startCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld start failed: %s", string(startOut))
+
+	defer func() {
+		stopCmd := executil.Command(t.Context(), "pgctld", "stop",
+			"--pooler-dir", dataDir,
+			"--pg-port", strconv.Itoa(port),
+		)
+		setupTestEnv(stopCmd, dataDir)
+		_ = stopCmd.Run()
+	}()
+
+	socketDir := filepath.Join(dataDir, "pg_sockets")
+	show := func(setting string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", "SHOW "+setting,
+		)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql SHOW %s failed: %s", setting, string(out))
+		return strings.TrimSpace(string(out))
+	}
+
+	// shared_buffers from the included file overrides the template's 64MB.
+	assert.Equal(t, "256MB", show("shared_buffers"))
+
+	// track_io_timing isn't in the template (defaults to off) — proves that
+	// included settings absent from the generated config still take effect.
+	assert.Equal(t, "on", show("track_io_timing"))
+}
+
 // TestPostgreSQLAuthentication tests PostgreSQL authentication with POSTGRES_PASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
