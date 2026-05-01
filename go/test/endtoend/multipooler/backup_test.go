@@ -239,7 +239,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
-					assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(statusResp.ConsensusStatus),
+					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore

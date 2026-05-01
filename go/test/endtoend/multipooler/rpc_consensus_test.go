@@ -87,7 +87,7 @@ func TestConsensus_Status(t *testing.T) {
 		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
 
 		// Verify this node is the consensus primary
-		assert.True(t, consensus.IsPrimary(resp.GetConsensusStatus()), "Primary should be consensus primary")
+		assert.True(t, consensus.IsLeader(resp.GetConsensusStatus()), "Primary should be consensus primary")
 
 		// Verify WAL position is present
 		assert.NotEmpty(t, resp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "CurrentLsn should not be empty on primary")
@@ -113,7 +113,7 @@ func TestConsensus_Status(t *testing.T) {
 		assert.Equal(t, "test-cell", resp.GetId().GetCell(), "Cell should match")
 
 		// Verify this node is not the consensus primary
-		assert.False(t, consensus.IsPrimary(resp.GetConsensusStatus()), "Standby should not be consensus primary")
+		assert.False(t, consensus.IsLeader(resp.GetConsensusStatus()), "Standby should not be consensus primary")
 
 		t.Logf("Standby node status verified")
 	})
@@ -417,7 +417,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Verify standby is replicating and not the consensus primary
 		statusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 		require.NoError(t, err)
-		assert.False(t, consensus.IsPrimary(statusResp.GetConsensusStatus()), "Standby should not be consensus primary before REVOKE")
+		assert.False(t, consensus.IsLeader(statusResp.GetConsensusStatus()), "Standby should not be consensus primary before REVOKE")
 		currentTerm := statusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 
 		// Send BeginTerm REVOKE to standby
@@ -458,7 +458,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		statusReq := &consensusdatapb.StatusRequest{}
 		statusResp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
-		assert.True(t, consensus.IsPrimary(statusResp.GetConsensusStatus()), "Node should be consensus primary before test")
+		assert.True(t, consensus.IsLeader(statusResp.GetConsensusStatus()), "Node should be consensus primary before test")
 		currentTerm := statusResp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 		t.Logf("Current term: %d", currentTerm)
 

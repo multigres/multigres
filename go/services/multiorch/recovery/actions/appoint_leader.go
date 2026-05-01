@@ -81,6 +81,12 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// PostgreSQL is ready (IsPostgresReady). If the pooler is up but Postgres
 	// is not ready, or if the primary has signalled it needs replacement, we still
 	// need to trigger failover.
+	//
+	// Note: this relies on the resign flow maintaining PoolerType_PRIMARY until
+	// DemoteStalePrimary completes. If a node somehow becomes the consensus leader
+	// while reporting PoolerType_REPLICA (e.g. a crash-restart as standby without
+	// going through the normal resign → appoint → demote flow), this check would
+	// miss it and proceed with an appointment unnecessarily.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
@@ -88,7 +94,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 			!pooler.GetStatus().GetPostgresReady() {
 			continue
 		}
-		if types.PrimaryNeedsReplacement(pooler) {
+		if types.LeaderNeedsReplacement(pooler) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
 				"primary", pooler.MultiPooler.Id.Name,
 				"shard_key", problem.ShardKey.String())
@@ -144,7 +150,7 @@ func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multio
 
 // RecoveryAction interface implementation
 
-func (a *AppointLeaderAction) RequiresHealthyPrimary() bool {
+func (a *AppointLeaderAction) RequiresHealthyLeader() bool {
 	return false // leader appointment doesn't need existing primary
 }
 
@@ -164,7 +170,7 @@ func (a *AppointLeaderAction) Priority() types.Priority {
 
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
-		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
-		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),
 	}
 }

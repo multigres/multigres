@@ -108,7 +108,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	connPrimary := lb.connections[poolerID(primary)]
 	lb.mu.Unlock()
 	simulateHealthUpdate(connPrimary, clustermetadatapb.PoolerServingStatus_SERVING,
-		&multipoolerservice.PrimaryObservation{PrimaryId: primary.Id, PrimaryTerm: 1})
+		&multipoolerservice.LeaderObservation{LeaderId: primary.Id, LeaderTerm: 1})
 
 	// Should find the primary via cache
 	target := &query.Target{
@@ -153,7 +153,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	connRemote := lb.connections[poolerID(remotePrimary)]
 	lb.mu.Unlock()
 	simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING,
-		&multipoolerservice.PrimaryObservation{PrimaryId: remotePrimary.Id, PrimaryTerm: 1})
+		&multipoolerservice.LeaderObservation{LeaderId: remotePrimary.Id, LeaderTerm: 1})
 
 	// Should find primary in remote cell via cache
 	target := &query.Target{
@@ -208,9 +208,9 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	connShard1 := lb.connections[poolerID(shard1)]
 	lb.mu.Unlock()
 	simulateHealthUpdate(connShard0, clustermetadatapb.PoolerServingStatus_SERVING,
-		&multipoolerservice.PrimaryObservation{PrimaryId: shard0.Id, PrimaryTerm: 1})
+		&multipoolerservice.LeaderObservation{LeaderId: shard0.Id, LeaderTerm: 1})
 	simulateHealthUpdate(connShard1, clustermetadatapb.PoolerServingStatus_SERVING,
-		&multipoolerservice.PrimaryObservation{PrimaryId: shard1.Id, PrimaryTerm: 1})
+		&multipoolerservice.LeaderObservation{LeaderId: shard1.Id, LeaderTerm: 1})
 
 	// Request specific shard — should find correct primary via cache
 	target := &query.Target{
@@ -247,7 +247,7 @@ func TestLoadBalancer_Close(t *testing.T) {
 
 // simulateHealthUpdate simulates receiving a health update from the stream.
 // This uses the same code path as real health updates, ensuring any callbacks are triggered.
-func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.PoolerServingStatus, observation *multipoolerservice.PrimaryObservation) {
+func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.PoolerServingStatus, observation *multipoolerservice.LeaderObservation) {
 	info := conn.PoolerInfo()
 	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
 		Target: &query.Target{
@@ -255,9 +255,9 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 			Shard:      info.GetShard(),
 			PoolerType: info.Type,
 		},
-		PoolerId:           info.Id,
-		ServingStatus:      status,
-		PrimaryObservation: observation,
+		PoolerId:          info.Id,
+		ServingStatus:     status,
+		LeaderObservation: observation,
 	})
 }
 
@@ -283,25 +283,25 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		// primary1 thinks primary1 is leader with term 5
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary1.Id,
-				PrimaryTerm: 5,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary1.Id,
+				LeaderTerm: 5,
 			})
 
 		// primary2 thinks primary2 is leader with term 10 (higher)
 		simulateHealthUpdate(connPrimary2,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary2.Id,
-				PrimaryTerm: 10,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary2.Id,
+				LeaderTerm: 10,
 			})
 
 		// replica1 also thinks primary2 is leader with term 10
 		simulateHealthUpdate(connReplica1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary2.Id,
-				PrimaryTerm: 10,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary2.Id,
+				LeaderTerm: 10,
 			})
 
 		target := &query.Target{
@@ -335,25 +335,25 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		// primary1 thinks primary1 is leader with term 15
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary1.Id,
-				PrimaryTerm: 15,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary1.Id,
+				LeaderTerm: 15,
 			})
 
 		// primary2 thinks primary2 is leader with term 12 (stale)
 		simulateHealthUpdate(connPrimary2,
 			clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary2.Id,
-				PrimaryTerm: 12,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary2.Id,
+				LeaderTerm: 12,
 			})
 
 		// replica1 observed the new leader (primary1) with term 20 (highest)
 		simulateHealthUpdate(connReplica1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary1.Id,
-				PrimaryTerm: 20,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary1.Id,
+				LeaderTerm: 20,
 			})
 
 		target := &query.Target{
@@ -407,9 +407,9 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		}
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   unknownPrimaryID,
-				PrimaryTerm: 100,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   unknownPrimaryID,
+				LeaderTerm: 100,
 			})
 
 		// Cache NOT updated (unknown-primary not in connections).
@@ -439,9 +439,9 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		// Health update populates cache
 		simulateHealthUpdate(connPrimary,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   primary.Id,
-				PrimaryTerm: 1,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   primary.Id,
+				LeaderTerm: 1,
 			})
 
 		// Verify cached
@@ -516,7 +516,7 @@ func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
 	conn := lb.connections[poolerID(pooler)]
 	lb.mu.Unlock()
 	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
-		&multipoolerservice.PrimaryObservation{PrimaryId: pooler.Id, PrimaryTerm: 5})
+		&multipoolerservice.LeaderObservation{LeaderId: pooler.Id, LeaderTerm: 5})
 
 	// Topo update: type changed to REPLICA — but health-confirmed entry (term > 0) is NOT invalidated
 	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -550,7 +550,7 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 	lb.mu.Unlock()
 
 	t.Run("UNKNOWN poolers without observations return error", func(t *testing.T) {
-		// No PrimaryObservation set - simulates initial state before health stream
+		// No LeaderObservation set - simulates initial state before health stream
 		simulateHealthUpdate(connUnknown1, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 		simulateHealthUpdate(connUnknown2, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 
@@ -569,15 +569,15 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 		// Both UNKNOWN poolers point to each other (pathological case)
 		simulateHealthUpdate(connUnknown1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   unknown2.Id,
-				PrimaryTerm: 10,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   unknown2.Id,
+				LeaderTerm: 10,
 			})
 		simulateHealthUpdate(connUnknown2,
 			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   unknown1.Id,
-				PrimaryTerm: 5,
+			&multipoolerservice.LeaderObservation{
+				LeaderId:   unknown1.Id,
+				LeaderTerm: 5,
 			})
 
 		target := &query.Target{

@@ -200,7 +200,7 @@ func TestHealthProvider_SubscribeHealthReturnsNilWhenNoStreamer(t *testing.T) {
 	assert.Nil(t, ch)
 }
 
-func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
+func TestHealthStreamer_UpdateLeaderObservation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -213,17 +213,17 @@ func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
 	_, ch := hs.subscribe()
 
 	// Update primary observation
-	obs := &poolerserver.PrimaryObservation{
-		PrimaryTerm: 42,
+	obs := &poolerserver.LeaderObservation{
+		LeaderTerm: 42,
 	}
-	hs.UpdatePrimaryObservation(obs)
+	hs.UpdateLeaderObservation(obs)
 
 	// Verify subscriber receives the updated state
 	select {
 	case received := <-ch:
 		require.NotNil(t, received)
-		require.NotNil(t, received.PrimaryObservation)
-		assert.Equal(t, int64(42), received.PrimaryObservation.PrimaryTerm)
+		require.NotNil(t, received.LeaderObservation)
+		assert.Equal(t, int64(42), received.LeaderObservation.LeaderTerm)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("subscriber did not receive health broadcast")
 	}

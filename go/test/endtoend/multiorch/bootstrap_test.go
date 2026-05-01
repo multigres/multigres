@@ -154,9 +154,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NotNil(t, status.ConsensusStatus.GetTermRevocation(), "Primary should have consensus term")
 		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Primary should be on term 1 after bootstrap")
 		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
-		assert.Equal(t, int64(1), commonconsensus.PrimaryTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
+		assert.Equal(t, int64(1), commonconsensus.LeaderTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.PrimaryTerm(status.ConsensusStatus))
+			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.LeaderTerm(status.ConsensusStatus))
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -182,11 +182,11 @@ func TestBootstrapInitialization(t *testing.T) {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
-				assert.Equal(t, int64(0), commonconsensus.PrimaryTerm(status.ConsensusStatus),
+				assert.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
 					"Standby %s should have primary_term=0 (never been primary)", name)
 
 				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
-					name, status.Status.PoolerType, commonconsensus.PrimaryTerm(status.ConsensusStatus))
+					name, status.Status.PoolerType, commonconsensus.LeaderTerm(status.ConsensusStatus))
 			}
 			client.Close()
 		}

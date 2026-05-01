@@ -386,12 +386,12 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
 	tests := []struct {
-		name                string
-		state               postgresState
-		poolerType          clustermetadatapb.PoolerType
-		primaryTerm         int64
-		resignedPrimaryTerm int64
-		expectedAction      remedialAction
+		name               string
+		state              postgresState
+		poolerType         clustermetadatapb.PoolerType
+		primaryTerm        int64
+		resignedLeaderTerm int64
+		expectedAction     remedialAction
 	}{
 		{
 			name:           "pgctld_unavailable",
@@ -440,7 +440,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			// After EmergencyDemote + process restart, resignedPrimaryAtTerm is lost.
+			// After EmergencyDemote + process restart, resignedLeaderAtTerm is lost.
 			// The monitor should re-publish it by triggering the replica adjustment action.
 			name: "postgres_ready_replica_missing_resignation_signal",
 			state: postgresState{
@@ -448,10 +448,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 				postgresRunning: true,
 				isPrimary:       false,
 			},
-			poolerType:          clustermetadatapb.PoolerType_REPLICA,
-			primaryTerm:         5,
-			resignedPrimaryTerm: 0,
-			expectedAction:      remedialActionAdjustTypeToReplica,
+			poolerType:         clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:        5,
+			resignedLeaderTerm: 0,
+			expectedAction:     remedialActionAdjustTypeToReplica,
 		},
 		{
 			// Signal already published — no action needed.
@@ -461,10 +461,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 				postgresRunning: true,
 				isPrimary:       false,
 			},
-			poolerType:          clustermetadatapb.PoolerType_REPLICA,
-			primaryTerm:         5,
-			resignedPrimaryTerm: 5,
-			expectedAction:      remedialActionNone,
+			poolerType:         clustermetadatapb.PoolerType_REPLICA,
+			primaryTerm:        5,
+			resignedLeaderTerm: 5,
+			expectedAction:     remedialActionNone,
 		},
 		{
 			name: "postgres_stopped_start",
@@ -522,7 +522,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 				},
 			}
 			pm.consensusState = NewConsensusState("", nil)
-			pm.resignedPrimaryAtTerm = tt.resignedPrimaryTerm
+			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
 			tt.state.primaryTerm = tt.primaryTerm
 
 			got := pm.determineRemedialAction(tt.state)
@@ -707,7 +707,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 		action         remedialAction
 		poolerType     clustermetadatapb.PoolerType
 		primaryTerm    int64 // set in consensus state before action
-		resignedBefore int64 // set resignedPrimaryAtTerm before action (0 = don't set)
+		resignedBefore int64 // set resignedLeaderAtTerm before action (0 = don't set)
 		wantAvStatus   *clustermetadatapb.AvailabilityStatus
 	}{
 		{
@@ -717,8 +717,8 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			primaryTerm: 5,
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					PrimaryTerm: 5,
-					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					LeaderTerm: 5,
+					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 				},
 			},
 		},
@@ -736,8 +736,8 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			resignedBefore: 7,
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					PrimaryTerm: 7,
-					Signal:      clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+					LeaderTerm: 7,
+					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 				},
 			},
 		},
@@ -764,7 +764,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			defer pm.actionLock.Release(lockCtx)
 
 			if tc.resignedBefore != 0 {
-				require.NoError(t, pm.setResignedPrimaryAtTerm(lockCtx, tc.resignedBefore))
+				require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
 			}
 
 			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})

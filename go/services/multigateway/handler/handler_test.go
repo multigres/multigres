@@ -60,7 +60,7 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 	return &ExecuteResult{}, err
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
@@ -268,7 +268,7 @@ func TestPortalHandling(t *testing.T) {
 
 	// 4. Execute works with valid portal
 	var result *sqltypes.Result
-	err = handler.HandleExecute(ctx, conn, "portal1", 0, func(ctx context.Context, r *sqltypes.Result) error {
+	err = handler.HandleExecute(ctx, conn, "portal1", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
 		result = r
 		return nil
 	})
@@ -276,7 +276,7 @@ func TestPortalHandling(t *testing.T) {
 	require.NotNil(t, result)
 
 	// 5. Execute fails for non-existent portal
-	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, func(ctx context.Context, r *sqltypes.Result) error {
+	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
 		return nil
 	})
 	require.Error(t, err)
@@ -502,7 +502,7 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	// Put connection in aborted transaction state
 	conn.SetTxnStatus(protocol.TxnStatusFailed)
 
-	err = h.HandleExecute(ctx, conn, "portal1", 0, func(_ context.Context, _ *sqltypes.Result) error {
+	err = h.HandleExecute(ctx, conn, "portal1", 0, false, func(_ context.Context, _ *sqltypes.Result) error {
 		t.Fatal("callback should not be called for aborted transaction")
 		return nil
 	})

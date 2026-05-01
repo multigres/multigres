@@ -77,10 +77,11 @@ func (s *Sequence) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	for i, p := range s.Primitives {
-		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, callback); err != nil {
+		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}
