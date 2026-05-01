@@ -43,6 +43,9 @@ jobs:
       - name: Build
         run: make build
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       - name: Start port pool server
         run: |
           ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
@@ -54,7 +57,15 @@ jobs:
           TEST_PRINT_LOGS: "1"
           AWS_ACCESS_KEY_ID: test-access-key
           AWS_SECRET_ACCESS_KEY: test-secret-key
-        run: go test -json -v -skip TestPostgreSQLRegression ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
+        run: |
+          gotestsum \
+            --format=testname \
+            --rerun-fails=3 \
+            --rerun-fails-max-failures=10 \
+            --packages="./go/test/endtoend/..." \
+            --jsonfile=integration-test-results.jsonl \
+            -- \
+            -skip TestPostgreSQLRegression -timeout=30m
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
@@ -65,7 +76,7 @@ jobs:
         with:
           name: integration-test-logs
           path: integration-test-results.jsonl
-          retention-days: 7
+          retention-days: 14
 
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0

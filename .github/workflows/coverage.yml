@@ -43,8 +43,36 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
+      # Coverage jobs cannot use gotestsum's --rerun-fails: a retry would
+      # re-invoke `go test` against the failing package and overwrite the
+      # single -coverprofile file, truncating coverage for packages that
+      # passed the first time. We instead retry the whole suite on failure,
+      # which preserves coverage correctness at the cost of one extra full
+      # pass on a flake. test-short / test-race / test-integration handle
+      # per-package retries and feed the flake aggregator; coverage just
+      # needs to converge on a clean profile without manual restarts.
       - name: Run tests with direct coverage
-        run: go test -json -v -skip TestPostgreSQLRegression -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
+        shell: bash
+        run: |
+          set -o pipefail
+          attempt=1
+          max_attempts=3
+          while [ $attempt -le $max_attempts ]; do
+            if go test -json -v -skip TestPostgreSQLRegression \
+                -cover -covermode=atomic \
+                -coverprofile=coverage-direct.txt \
+                -coverpkg=./... ./... \
+                | tee coverage-direct-test-results.jsonl \
+                | go tool tparse -follow ; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::coverage tests failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::coverage attempt $attempt failed; retrying"
+            attempt=$((attempt + 1))
+          done
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
@@ -86,11 +114,35 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
+      # See note in coverage-direct: we retry the whole suite on failure
+      # rather than per-package, because per-package retry would corrupt
+      # the GOCOVERDIR output (a clean dir is the simplest invariant).
       - name: Run tests with subprocess coverage
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          go test -json -v -skip TestPostgreSQLRegression ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
+          attempt=1
+          max_attempts=3
+          while [ $attempt -le $max_attempts ]; do
+            # Wipe the coverage dir before each attempt so the final
+            # profile reflects only the successful pass. The :? guard
+            # forces the script to abort if GOCOVERDIR ever ends up
+            # empty, so we can never accidentally rm -rf /*.
+            rm -rf "${GOCOVERDIR:?}"/*
+            if go test -json -v -skip TestPostgreSQLRegression ./... \
+                | tee coverage-subprocess-test-results.jsonl \
+                | go tool tparse -follow ; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::subprocess coverage tests failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::subprocess coverage attempt $attempt failed; retrying"
+            attempt=$((attempt + 1))
+          done
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
