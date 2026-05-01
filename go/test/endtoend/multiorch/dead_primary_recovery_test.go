@@ -398,7 +398,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+		assert.Contains(t, reason, "LeaderIsDead", "reason should indicate leader failure")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string
