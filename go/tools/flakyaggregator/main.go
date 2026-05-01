@@ -35,6 +35,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v68/github"
@@ -43,6 +44,7 @@ import (
 const (
 	defaultDays       = 7
 	defaultThreshold  = 3
+	defaultWorkers    = 8 // per-run fetch parallelism; well below GitHub's secondary concurrency limits
 	httpTimeoutSec    = 60
 	maxRunsToInspect  = 2000 // safety cap (covers main + all PR branches over a week)
 	maxRetries        = 3
@@ -68,8 +70,13 @@ var testWorkflowFiles = []string{
 func main() {
 	days := flag.Int("days", defaultDays, "lookback window in days")
 	threshold := flag.Int("threshold", defaultThreshold, "report tests with strictly more failures than this")
+	workers := flag.Int("workers", defaultWorkers, "per-run fetch parallelism")
 	dryRun := flag.Bool("dry-run", false, "print Slack payload to stdout instead of posting")
 	flag.Parse()
+
+	if *workers < 1 {
+		log.Fatalf("--workers must be >= 1, got %d", *workers)
+	}
 
 	repo := os.Getenv("GITHUB_REPOSITORY")
 	token := os.Getenv("GITHUB_TOKEN")
@@ -106,29 +113,11 @@ func main() {
 	log.Printf("found %d completed-success runs (flake-candidate scope)", len(runs))
 
 	stats := newAggregator()
-	for _, run := range runs {
-		artifacts, err := listRunArtifacts(ctx, gh, owner, name, run.GetID())
-		if err != nil {
-			log.Printf("WARN: list artifacts for run %d: %v", run.GetID(), err)
-			continue
-		}
-		for _, art := range artifacts {
-			if !isTestArtifact(art.GetName()) {
-				continue
-			}
-			body, err := downloadArtifact(ctx, gh, owner, name, art.GetID())
-			if err != nil {
-				log.Printf("WARN: download artifact %d (%s): %v", art.GetID(), art.GetName(), err)
-				continue
-			}
-			if err := stats.ingestArtifactZip(run, body); err != nil {
-				log.Printf("WARN: parse artifact %d (%s): %v", art.GetID(), art.GetName(), err)
-			}
-		}
-	}
+	processRunsConcurrently(ctx, gh, owner, name, runs, stats, *workers)
 
 	flaky := stats.filter(*threshold)
 	payload := formatSlackPayload(flaky, *days, *threshold)
+	logRateLimit(ctx, gh, "end")
 
 	if *dryRun {
 		buf, _ := json.MarshalIndent(payload, "", "  ")
@@ -140,7 +129,54 @@ func main() {
 		log.Fatalf("post slack: %v", err)
 	}
 	log.Printf("posted Slack message with %d flaky test(s)", len(flaky))
-	logRateLimit(ctx, gh, "end")
+}
+
+// processRunsConcurrently fans out per-run artifact fetch+parse work across
+// a small worker pool. The aggregator is shared across workers; recordFailure
+// is mutex-guarded so concurrent ingest is safe. Per-run errors are logged
+// and skipped — they're independent and should not abort the whole run.
+func processRunsConcurrently(ctx context.Context, gh *github.Client, owner, repo string, runs []*github.WorkflowRun, stats *aggregator, workers int) {
+	runCh := make(chan *github.WorkflowRun)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for run := range runCh {
+				processRun(ctx, gh, owner, repo, run, stats)
+			}
+		})
+	}
+	for _, run := range runs {
+		select {
+		case runCh <- run:
+		case <-ctx.Done():
+			close(runCh)
+			wg.Wait()
+			return
+		}
+	}
+	close(runCh)
+	wg.Wait()
+}
+
+func processRun(ctx context.Context, gh *github.Client, owner, repo string, run *github.WorkflowRun, stats *aggregator) {
+	artifacts, err := listRunArtifacts(ctx, gh, owner, repo, run.GetID())
+	if err != nil {
+		log.Printf("WARN: list artifacts for run %d: %v", run.GetID(), err)
+		return
+	}
+	for _, art := range artifacts {
+		if !isTestArtifact(art.GetName()) {
+			continue
+		}
+		body, err := downloadArtifact(ctx, gh, owner, repo, art.GetID())
+		if err != nil {
+			log.Printf("WARN: download artifact %d (%s): %v", art.GetID(), art.GetName(), err)
+			continue
+		}
+		if err := stats.ingestArtifactZip(run, body); err != nil {
+			log.Printf("WARN: parse artifact %d (%s): %v", art.GetID(), art.GetName(), err)
+		}
+	}
 }
 
 // --- Rate-limit handling ---
@@ -317,6 +353,7 @@ type testStats struct {
 }
 
 type aggregator struct {
+	mu    sync.Mutex
 	tests map[testKey]*testStats
 }
 
@@ -324,7 +361,11 @@ func newAggregator() *aggregator {
 	return &aggregator{tests: map[testKey]*testStats{}}
 }
 
+// recordFailure is safe for concurrent use; ingestArtifactZip is called from
+// multiple worker goroutines.
 func (a *aggregator) recordFailure(run *github.WorkflowRun, key testKey) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	s := a.tests[key]
 	if s == nil {
 		s = &testStats{runIDs: map[int64]struct{}{}}
@@ -346,6 +387,8 @@ type flakyEntry struct {
 }
 
 func (a *aggregator) filter(threshold int) []flakyEntry {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	var out []flakyEntry
 	for k, s := range a.tests {
 		if len(s.runIDs) > threshold {
