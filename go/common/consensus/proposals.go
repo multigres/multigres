@@ -103,7 +103,7 @@ func BuildSafeProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	return buildProposalCore(revocation, recruited, outgoingCohortMode, buildProposal)
+	return buildProposalCore(revocation, recruited, outgoingCohortMode, nil, buildProposal)
 }
 
 // CheckProposalPossible checks whether a safe leadership proposal is possible
@@ -125,7 +125,7 @@ func CheckProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	_, err := buildProposalCore(revocation, candidates, outgoingCohortMode, buildProposal)
+	_, err := buildProposalCore(revocation, candidates, outgoingCohortMode, nil, buildProposal)
 	return err
 }
 
@@ -150,7 +150,11 @@ func CheckExternallyCertifiedProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	_, err := buildProposalCore(revocation, candidates, incomingCohortMode, buildProposal)
+	leaderFilter, err := certLeaderFilter(cert, candidates)
+	if err != nil {
+		return err
+	}
+	_, err = buildProposalCore(revocation, candidates, incomingCohortMode, leaderFilter, buildProposal)
 	return err
 }
 
@@ -165,6 +169,13 @@ func CheckExternallyCertifiedProposalPossible(
 // validateProposal verifies that the INCOMING (proposed) cohort has sufficient
 // recruited members, ensuring the new cluster can make durable writes.
 //
+// Two additional checks enforce the cert's guarantees:
+//   - No recruited node may have a rule beyond cert.outgoing_rule_number; if
+//     one does, the outgoing cohort was not actually frozen at the certified point.
+//   - Only nodes with an LSN at or above cert.frozen_lsn are eligible to be
+//     leader. Nodes below that threshold still count toward quorum — they can
+//     endorse the proposal — but cannot be selected as the new leader.
+//
 // The buildProposal callback is responsible for specifying the full new cohort
 // and durability policy, since there may be no committed rule to derive them from.
 func BuildExternallyCertifiedProposal(
@@ -177,7 +188,45 @@ func BuildExternallyCertifiedProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	return buildProposalCore(revocation, recruited, incomingCohortMode, buildProposal)
+	leaderFilter, err := certLeaderFilter(cert, recruited)
+	if err != nil {
+		return nil, err
+	}
+	return buildProposalCore(revocation, recruited, incomingCohortMode, leaderFilter, buildProposal)
+}
+
+// certLeaderFilter validates cert constraints against the given nodes and
+// returns a leaderFilter to apply in buildProposalCore (nil if no frozen_lsn).
+//
+// It rejects any node whose committed rule exceeds cert.outgoing_rule_number
+// (meaning the outgoing cohort was not actually frozen at the certified point)
+// and returns a filter that restricts leader eligibility to nodes whose LSN is
+// at or above cert.frozen_lsn.
+func certLeaderFilter(
+	cert *clustermetadatapb.ExternallyCertifiedRevocation,
+	nodes []*clustermetadatapb.ConsensusStatus,
+) (func(*clustermetadatapb.ConsensusStatus) bool, error) {
+	if certRule := cert.GetOutgoingRuleNumber(); certRule != nil {
+		for _, cs := range nodes {
+			if rule := cs.GetCurrentPosition().GetRule(); rule != nil {
+				if CompareRuleNumbers(rule.GetRuleNumber(), certRule) > 0 {
+					return nil, fmt.Errorf("node %s is at rule term %d but certified outgoing rule is term %d",
+						topoclient.ClusterIDString(cs.GetId()), rule.GetRuleNumber().GetCoordinatorTerm(), certRule.GetCoordinatorTerm())
+				}
+			}
+		}
+	}
+	if frozenLSN := cert.GetFrozenLsn(); frozenLSN != "" {
+		minLSN, err := pgutil.ParseLSN(frozenLSN)
+		if err != nil {
+			return nil, fmt.Errorf("invalid frozen_lsn in cert: %w", err)
+		}
+		return func(cs *clustermetadatapb.ConsensusStatus) bool {
+			lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
+			return err == nil && lsn >= minLSN
+		}, nil
+	}
+	return nil, nil
 }
 
 // buildProposalCore is the shared implementation for BuildSafeProposal,
@@ -192,6 +241,7 @@ func buildProposalCore(
 	revocation *clustermetadatapb.TermRevocation,
 	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
 	mode cohortQuorumMode,
+	leaderFilter func(*clustermetadatapb.ConsensusStatus) bool,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
 	if len(recruitedStatuses) == 0 {
@@ -251,6 +301,9 @@ func buildProposalCore(
 			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
 				continue
 			}
+		}
+		if leaderFilter != nil && !leaderFilter(cs) {
+			continue
 		}
 		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
 		if err != nil {
