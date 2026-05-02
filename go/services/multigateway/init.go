@@ -99,7 +99,7 @@ type MultiGateway struct {
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
-	// tracking (0 disables fingerprint labeling and /debug/queries).
+	// tracking (0 disables fingerprint labeling and the registry RPCs).
 	queryMetricsMemory viperutil.Value[int]
 	// queryMetricsSQLMaxBytes is the maximum bytes of representative normalized
 	// SQL stored per tracked fingerprint.
@@ -162,7 +162,7 @@ func NewMultiGateway() *MultiGateway {
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
-			Default:  2 * 1024 * 1024, // 2 MB; 0 disables per-query tracking
+			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
 			FlagName: "query-metrics-memory",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_METRICS_MEMORY"},
@@ -214,8 +214,6 @@ func NewMultiGateway() *MultiGateway {
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
-				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
-				{"Queries", "Per-query-shape metrics", "/debug/queries"},
 			},
 		},
 	}
@@ -245,7 +243,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
-	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and /debug/queries")
+	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	viperutil.BindFlags(fs,
 		mg.cell,
@@ -420,10 +418,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Construct the per-query-shape metrics registry. Shared across primary
 	// and replica handlers so a query hitting either listener aggregates to
 	// the same stats bucket.
-	mg.queryRegistry = queryregistry.New(queryregistry.Config{
-		MaxMemoryBytes: mg.queryMetricsMemory.Get(),
-		MaxSQLLength:   mg.queryMetricsSQLMaxBytes.Get(),
-	})
+	// Start from DefaultConfig so SampleInterval / TrendWindowSamples are
+	// populated; only the operator-tunable size knobs come from flags.
+	registryCfg := queryregistry.DefaultConfig()
+	registryCfg.MaxMemoryBytes = mg.queryMetricsMemory.Get()
+	registryCfg.MaxSQLLength = mg.queryMetricsSQLMaxBytes.Get()
+	mg.queryRegistry = queryregistry.New(registryCfg)
 	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
 		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
 	}
@@ -523,10 +523,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
 	}
-	// Register the gRPC service via OnRun because grpcServer.Server is only
+	// Register gRPC services via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
+	managerServer := NewManagerServer(mg.queryRegistry, mg.pgHandler)
 	mg.senv.OnRun(func() {
 		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
 
 	// Start the PostgreSQL listener in a goroutine
@@ -559,7 +561,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	)
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
-	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
 
 	// The gateway is ready only when both conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -575,7 +576,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 		return nil
 	})
-	mg.senv.HTTPHandleFunc("/debug/queries", mg.handleQueriesDebug)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()

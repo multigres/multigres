@@ -539,7 +539,7 @@ func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, rep
 
 // RecoveryAction interface implementation
 
-func (a *FixReplicationAction) RequiresHealthyPrimary() bool {
+func (a *FixReplicationAction) RequiresHealthyLeader() bool {
 	return true // Cannot fix replica replication without a healthy primary
 }
 

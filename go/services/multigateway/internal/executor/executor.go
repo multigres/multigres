@@ -203,6 +203,7 @@ func (e *Executor) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
 ) (*handler.ExecuteResult, error) {
 	e.logger.DebugContext(ctx, "executing portal",
@@ -240,7 +241,7 @@ func (e *Executor) PortalStreamExecute(
 		// children (so any silent ApplySessionState prefix runs before the
 		// trailing Route forwards), gateway-local primitives ignore
 		// portalInfo and run their StreamExecute logic.
-		err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, callback)
+		err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 		return &handler.ExecuteResult{
 			TablesUsed:    plan.TablesUsed,
 			PlanType:      plan.Type,
@@ -273,7 +274,7 @@ func (e *Executor) PortalStreamExecute(
 	}
 
 	// Non-cacheable, non-local — send directly to multipooler with defaults.
-	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
+	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	return &handler.ExecuteResult{
 		TablesUsed: ast.ExtractTablesUsed(astStmt),
 		PlanType:   engine.PlanTypeRoute,

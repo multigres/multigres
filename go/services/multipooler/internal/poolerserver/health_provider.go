@@ -34,9 +34,9 @@ type HealthState struct {
 	// ServingStatus is the current serving state of the pooler.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// PrimaryObservation contains this pooler's view of who the primary is.
-	// May be nil if no primary observation is available.
-	PrimaryObservation *PrimaryObservation
+	// LeaderObservation contains this pooler's view of who the consensus leader is.
+	// May be nil if no leader observation is available.
+	LeaderObservation *LeaderObservation
 
 	// RecommendedStalenessTimeout is the duration clients should use
 	// to detect a stale/dead health stream.
@@ -47,16 +47,16 @@ type HealthState struct {
 	ReplicationLagNs int64
 }
 
-// PrimaryObservation represents a pooler's view of who the primary is.
-type PrimaryObservation struct {
-	// PrimaryID is the ID of the pooler this node believes is the primary.
-	// May be this pooler's own ID if it believes itself to be primary.
-	PrimaryID *clustermetadatapb.ID
+// LeaderObservation represents a pooler's view of who the consensus leader is.
+type LeaderObservation struct {
+	// LeaderID is the ID of the pooler this node believes is the consensus leader.
+	// May be this pooler's own ID if it believes itself to be leader.
+	LeaderID *clustermetadatapb.ID
 
-	// PrimaryTerm is the primary term at which this observation was made.
-	// The primary never changes within a primary term. Higher values indicate
-	// more recent primary appointments.
-	PrimaryTerm int64
+	// LeaderTerm is the consensus term at which this observation was made.
+	// The leader never changes within a leader term. Higher values indicate
+	// more recent leader appointments.
+	LeaderTerm int64
 }
 
 // HealthProvider provides health information for the pooler.

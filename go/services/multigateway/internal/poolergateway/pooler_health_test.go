@@ -87,20 +87,20 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "pooler1",
 		}
-		primaryObs := &multipoolerservice.PrimaryObservation{
-			PrimaryId:   poolerID,
-			PrimaryTerm: 42,
+		primaryObs := &multipoolerservice.LeaderObservation{
+			LeaderId:   poolerID,
+			LeaderTerm: 42,
 		}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
 		original := &PoolerHealth{
-			Target:             target,
-			PoolerID:           poolerID,
-			ServingStatus:      clustermetadatapb.PoolerServingStatus_SERVING,
-			PrimaryObservation: primaryObs,
-			LastError:          lastErr,
-			LastResponse:       lastResp,
+			Target:            target,
+			PoolerID:          poolerID,
+			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			LeaderObservation: primaryObs,
+			LastError:         lastErr,
+			LastResponse:      lastResp,
 		}
 
 		copy := original.SimpleCopy()
@@ -110,7 +110,7 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 		assert.Equal(t, original.Target, copy.Target)
 		assert.Equal(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
-		assert.Equal(t, original.PrimaryObservation, copy.PrimaryObservation)
+		assert.Equal(t, original.LeaderObservation, copy.LeaderObservation)
 		assert.Equal(t, original.LastError, copy.LastError)
 		assert.Equal(t, original.LastResponse, copy.LastResponse)
 
@@ -120,7 +120,7 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 		// Verify pointer fields point to same underlying objects (shallow copy)
 		assert.Same(t, original.Target, copy.Target)
 		assert.Same(t, original.PoolerID, copy.PoolerID)
-		assert.Same(t, original.PrimaryObservation, copy.PrimaryObservation)
+		assert.Same(t, original.LeaderObservation, copy.LeaderObservation)
 	})
 
 	t.Run("modifying copy does not affect original", func(t *testing.T) {

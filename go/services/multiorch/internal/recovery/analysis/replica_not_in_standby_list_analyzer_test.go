@@ -64,15 +64,15 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			name: "detects replica not in standby list",
 			buildShard: func() *ShardAnalysis {
 				return &ShardAnalysis{
-					ShardKey:                       shardKey,
-					HighestTermDiscoveredPrimaryID: primaryID,
-					PrimaryReachable:               true,
+					ShardKey:                      shardKey,
+					HighestTermDiscoveredLeaderID: primaryID,
+					LeaderReachable:               true,
 					// PrimaryStandbyIDs is empty — replica is not in standby list
 					Analyses: []*PoolerAnalysis{{
 						PoolerID:            replicaID,
 						ShardKey:            shardKey,
 						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-						IsPrimary:           false,
+						IsLeader:            false,
 						IsInitialized:       true,
 						PrimaryConnInfoHost: "primary.example.com",
 					}},
@@ -87,15 +87,15 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			name: "ignores replica already in standby list",
 			buildShard: func() *ShardAnalysis {
 				return &ShardAnalysis{
-					ShardKey:                       shardKey,
-					HighestTermDiscoveredPrimaryID: primaryID,
-					PrimaryReachable:               true,
-					PrimaryStandbyIDs:              []*clustermetadatapb.ID{replicaID},
+					ShardKey:                      shardKey,
+					HighestTermDiscoveredLeaderID: primaryID,
+					LeaderReachable:               true,
+					LeaderStandbyIDs:              []*clustermetadatapb.ID{replicaID},
 					Analyses: []*PoolerAnalysis{{
 						PoolerID:            replicaID,
 						ShardKey:            shardKey,
 						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-						IsPrimary:           false,
+						IsLeader:            false,
 						IsInitialized:       true,
 						PrimaryConnInfoHost: "primary.example.com",
 					}},
@@ -112,7 +112,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 						PoolerID:      primaryID,
 						ShardKey:      shardKey,
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
-						IsPrimary:     true,
+						IsLeader:      true,
 						IsInitialized: true,
 					}},
 				}
@@ -128,7 +128,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 						PoolerID:      replicaID,
 						ShardKey:      shardKey,
 						PoolerType:    clustermetadatapb.PoolerType_REPLICA,
-						IsPrimary:     false,
+						IsLeader:      false,
 						IsInitialized: false,
 					}},
 				}
@@ -139,14 +139,14 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			name: "ignores replica when primary is unreachable",
 			buildShard: func() *ShardAnalysis {
 				return &ShardAnalysis{
-					ShardKey:                       shardKey,
-					HighestTermDiscoveredPrimaryID: primaryID,
-					PrimaryReachable:               false,
+					ShardKey:                      shardKey,
+					HighestTermDiscoveredLeaderID: primaryID,
+					LeaderReachable:               false,
 					Analyses: []*PoolerAnalysis{{
 						PoolerID:            replicaID,
 						ShardKey:            shardKey,
 						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-						IsPrimary:           false,
+						IsLeader:            false,
 						IsInitialized:       true,
 						PrimaryConnInfoHost: "primary.example.com",
 					}},
@@ -158,14 +158,14 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			name: "ignores replica with no replication configured",
 			buildShard: func() *ShardAnalysis {
 				return &ShardAnalysis{
-					ShardKey:                       shardKey,
-					HighestTermDiscoveredPrimaryID: primaryID,
-					PrimaryReachable:               true,
+					ShardKey:                      shardKey,
+					HighestTermDiscoveredLeaderID: primaryID,
+					LeaderReachable:               true,
 					Analyses: []*PoolerAnalysis{{
 						PoolerID:            replicaID,
 						ShardKey:            shardKey,
 						PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-						IsPrimary:           false,
+						IsLeader:            false,
 						IsInitialized:       true,
 						PrimaryConnInfoHost: "", // No replication configured
 					}},
@@ -178,14 +178,14 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			buildShard: func() *ShardAnalysis {
 				unknownID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "unknown1"}
 				return &ShardAnalysis{
-					ShardKey:                       shardKey,
-					HighestTermDiscoveredPrimaryID: primaryID,
-					PrimaryReachable:               true,
+					ShardKey:                      shardKey,
+					HighestTermDiscoveredLeaderID: primaryID,
+					LeaderReachable:               true,
 					Analyses: []*PoolerAnalysis{{
 						PoolerID:            unknownID,
 						ShardKey:            shardKey,
 						PoolerType:          clustermetadatapb.PoolerType_UNKNOWN,
-						IsPrimary:           false,
+						IsLeader:            false,
 						IsInitialized:       true,
 						PrimaryConnInfoHost: "primary.example.com",
 					}},
@@ -216,14 +216,14 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotInStandbyListAnalyzer{factory: nil}
 		sa := &ShardAnalysis{
-			ShardKey:                       shardKey,
-			HighestTermDiscoveredPrimaryID: primaryID,
-			PrimaryReachable:               true,
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
 				PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-				IsPrimary:           false,
+				IsLeader:            false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 			}},

@@ -55,28 +55,28 @@ import (
 
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
-	MultipoolerCount                    int
-	MultiOrchCount                      int
-	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
-	EnableMultigatewayTLS               bool // Enable TLS for multigateway PostgreSQL listener
-	Database                            string
-	TableGroup                          string
-	Shard                               string
-	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
-	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
-	DeferMultipoolerStart               bool     // Start pgctld only; test starts multipooler itself
-	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
-	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
-	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
-	S3BackupRegion                      string   // S3 region
-	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
-	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
-	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
-	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
-	EnableMetricsExport                 bool     // Enable Prometheus metrics export on all services
-	LogLevel                            string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
-	InitDbSQLFiles                      []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	MultipoolerCount                   int
+	MultiOrchCount                     int
+	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
+	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
+	Database                           string
+	TableGroup                         string
+	Shard                              string
+	CellName                           string
+	DurabilityPolicy                   string   // Durability policy (e.g., "AT_LEAST_2")
+	SkipInitialization                 bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	DeferMultipoolerStart              bool     // Start pgctld only; test starts multipooler itself
+	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (default: "0s" for tests)
+	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
+	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
+	S3BackupRegion                     string   // S3 region
+	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
+	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
+	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
+	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
+	InitDbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 }
 
 // SetupOption is a function that configures setup creation.
@@ -164,13 +164,13 @@ func WithMultigatewayTLS() SetupOption {
 	}
 }
 
-// WithPrimaryFailoverGracePeriod sets the grace period configuration for primary failover.
+// WithLeaderFailoverGracePeriod sets the grace period configuration for leader failover.
 // Default is "0s" for both base and maxJitter to make tests run fast.
 // Use this to test grace period behavior explicitly.
-func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
+func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
-		c.PrimaryFailoverGracePeriodBase = base
-		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter
+		c.LeaderFailoverGracePeriodBase = base
+		c.LeaderFailoverGracePeriodMaxJitter = maxJitter
 	}
 }
 

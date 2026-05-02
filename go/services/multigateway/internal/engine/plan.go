@@ -91,9 +91,10 @@ func (p *Plan) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, callback)
+	return p.Primitive.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

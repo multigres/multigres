@@ -272,6 +272,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.PreparedStatement,
 		req.Portal,
 		req.Options,
+		req.PortalOptions,
 		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send notices first (if any) as separate diagnostic messages
 			for _, notice := range result.Notices {
@@ -615,10 +616,10 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 		ServingStatus: state.ServingStatus,
 	}
 
-	if state.PrimaryObservation != nil {
-		resp.PrimaryObservation = &multipoolerpb.PrimaryObservation{
-			PrimaryId:   state.PrimaryObservation.PrimaryID,
-			PrimaryTerm: state.PrimaryObservation.PrimaryTerm,
+	if state.LeaderObservation != nil {
+		resp.LeaderObservation = &multipoolerpb.LeaderObservation{
+			LeaderId:   state.LeaderObservation.LeaderID,
+			LeaderTerm: state.LeaderObservation.LeaderTerm,
 		}
 	}
 

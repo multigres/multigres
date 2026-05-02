@@ -120,8 +120,8 @@ func TestShardInitAction_Metadata(t *testing.T) {
 	assert.Equal(t, 60*time.Second, m.Timeout)
 }
 
-func TestShardInitAction_RequiresHealthyPrimary(t *testing.T) {
-	assert.False(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).RequiresHealthyPrimary())
+func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
+	assert.False(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).RequiresHealthyLeader())
 }
 
 func TestShardInitAction_Priority(t *testing.T) {

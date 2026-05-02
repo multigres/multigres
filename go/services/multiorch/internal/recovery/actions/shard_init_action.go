@@ -204,7 +204,7 @@ func (a *ShardInitAction) buildCohortFromIDs(poolers []*multiorchdatapb.PoolerHe
 
 // RecoveryAction interface implementation
 
-func (a *ShardInitAction) RequiresHealthyPrimary() bool {
+func (a *ShardInitAction) RequiresHealthyLeader() bool {
 	return false
 }
 

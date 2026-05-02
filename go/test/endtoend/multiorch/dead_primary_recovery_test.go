@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -116,7 +116,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
 	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
-	// and multigateway learns the new primary via PrimaryObservation health streams,
+	// and multigateway learns the new primary via LeaderObservation health streams,
 	// so neither component requires etcd during or after failover.
 	t.Log("Stopping etcd to verify etcd-independent failover...")
 	setup.StopEtcd(t)
@@ -144,7 +144,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
-		// 8–12s grace period (configured via WithPrimaryFailoverGracePeriod), plus
+		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
 		// several seconds for failover execution (BeginTerm + Promote + Demote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
@@ -173,7 +173,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryClient.Close()
 		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-		newPrimaryTermActual := commonconsensus.PrimaryTerm(status.ConsensusStatus)
+		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -309,7 +309,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-			assert.Zero(t, commonconsensus.PrimaryTerm(status.ConsensusStatus),
+			assert.Zero(t, commonconsensus.LeaderTerm(status.ConsensusStatus),
 				"Replica %s should have primary_term=0 (never been primary)", name)
 		}
 		client.Close()
@@ -398,7 +398,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+		assert.Contains(t, reason, "LeaderIsDead", "reason should indicate leader failure")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string

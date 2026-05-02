@@ -50,7 +50,7 @@ func (r *recordingPrimitive) StreamExecute(
 func (r *recordingPrimitive) PortalStreamExecute(
 	context.Context, IExecute, *server.Conn,
 	*handler.MultiGatewayConnectionState,
-	*preparedstatement.PortalInfo, int32,
+	*preparedstatement.PortalInfo, int32, bool,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.portalCalls++
@@ -75,7 +75,7 @@ func TestSequence_PortalStreamExecute_DispatchesPerChild(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	state := handler.NewMultiGatewayConnectionState()
 
-	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, nil)
+	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, nil)
 	require.NoError(t, err)
 
 	for i, p := range []*recordingPrimitive{a, b, c} {
@@ -97,7 +97,7 @@ func TestSequence_PortalStreamExecute_StopsOnError(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	state := handler.NewMultiGatewayConnectionState()
 
-	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, nil)
+	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, failure)
 	assert.Contains(t, err.Error(), "primitive 1 (recordingPrimitive)")

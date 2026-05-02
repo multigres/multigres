@@ -52,7 +52,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "GatewaySessionState",
-			primitive: engine.NewStatementTimeoutSet("SET statement_timeout = '5s'", 5*time.Second),
+			primitive: engine.NewStatementTimeoutSet("SET statement_timeout = '5s'", 5*time.Second, false),
 			want:      engine.PlanTypeGatewaySessionState,
 		},
 		{

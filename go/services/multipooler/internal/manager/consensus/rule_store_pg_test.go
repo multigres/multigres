@@ -416,9 +416,9 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	assert.Equal(t, int64(3), pos.Rule.RuleNumber.CoordinatorTerm)
 	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm)
 
-	require.NotNil(t, pos.Rule.PrimaryId)
-	assert.Equal(t, "zone1", pos.Rule.PrimaryId.Cell)
-	assert.Equal(t, "leader-1", pos.Rule.PrimaryId.Name)
+	require.NotNil(t, pos.Rule.LeaderId)
+	assert.Equal(t, "zone1", pos.Rule.LeaderId.Cell)
+	assert.Equal(t, "leader-1", pos.Rule.LeaderId.Name)
 
 	require.NotNil(t, pos.Rule.CoordinatorId)
 	assert.Equal(t, "zone1", pos.Rule.CoordinatorId.Cell)

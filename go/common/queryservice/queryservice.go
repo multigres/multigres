@@ -84,6 +84,8 @@ type QueryService interface {
 	//   preparedStatement: The prepared statement to execute
 	//   portal: The portal containing bound parameters
 	//   options: Execute options including max rows and reserved connection ID
+	//   portalOptions: Portal-specific knobs (e.g. include_describe). Nil
+	//     leaves all options at their defaults; non-nil overrides per-field.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -91,6 +93,7 @@ type QueryService interface {
 		preparedStatement *query.PreparedStatement,
 		portal *query.Portal,
 		options *query.ExecuteOptions,
+		portalOptions *multipoolerpb.PortalExecuteOptions,
 		callback func(context.Context, *sqltypes.Result) error,
 	) (*query.ReservedState, error)
 
