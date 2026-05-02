@@ -608,7 +608,14 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
-	// No implicit recruitment: require a prior Recruit() for this exact term.
+	// Require an explicit Recruit() for this exact term before accepting a
+	// Propose. Implicit recruitment (accepting the term here without a prior
+	// Recruit call) could in principle be made safe, but it would need to
+	// reproduce everything Recruit does: pausing replication on replicas and
+	// restarting primaries in standby mode. We keep things simple for now by
+	// requiring the two-phase protocol. ValidateRevocation already ensures
+	// storedTerm <= revokedBelowTerm, so a mismatch here always means Recruit
+	// was never called for this term.
 	storedTerm := currentStatus.GetTermRevocation().GetRevokedBelowTerm()
 	if storedTerm != revokedBelowTerm {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -734,6 +741,9 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		// does not update the pooler type until a Propose arrives).
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after propose", "error", err)
+		}
+		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after propose", "error", err)
 		}
 		pm.broadcastHealth()
 		if _, err := pm.rules.observePosition(ctx); err != nil {
