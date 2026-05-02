@@ -27,7 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/web"
-	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
+	"github.com/multigres/multigres/go/services/multigateway/internal/handler/queryregistry"
 )
 
 // PoolerStatus represents the status of a multipooler instance.

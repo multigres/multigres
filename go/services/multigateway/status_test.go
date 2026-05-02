@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/services/multigateway/handler"
-	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
+	"github.com/multigres/multigres/go/services/multigateway/internal/handler"
+	"github.com/multigres/multigres/go/services/multigateway/internal/handler/queryregistry"
 )
 
 func TestHandleQueriesDebugReturnsJSON(t *testing.T) {

@@ -28,10 +28,10 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/consensus"
-	"github.com/multigres/multigres/go/services/multiorch/grpcserver"
-	"github.com/multigres/multigres/go/services/multiorch/recovery"
+	"github.com/multigres/multigres/go/services/multiorch/internal/config"
+	"github.com/multigres/multigres/go/services/multiorch/internal/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/grpcserver"
+	"github.com/multigres/multigres/go/services/multiorch/internal/recovery"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
