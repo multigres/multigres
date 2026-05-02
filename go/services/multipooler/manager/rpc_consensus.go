@@ -452,6 +452,15 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
+	// Refuse recruitment if a rewind is still pending from a prior emergency
+	// demotion. The node's WAL is in an indeterminate state until RewindToSource
+	// completes; allowing it to be recruited could elect a leader with divergent
+	// or missing WAL.
+	if pm.rewindPending.Load() {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"rewind pending after emergency demotion; call RewindToSource before Recruit")
+	}
+
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to determine role for recruit")
@@ -569,6 +578,9 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if proposalLeader == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "proposal.proposal_leader is required")
 	}
+	if proposalLeader.GetId() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "proposal.proposal_leader.id is required")
+	}
 	if proposalLeader.GetPostgresPort() == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "proposal.proposal_leader.postgres_port is required")
 	}
@@ -603,6 +615,27 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 			"must Recruit before Propose: stored term %d != proposal term %d", storedTerm, revokedBelowTerm)
 	}
 
+	// Verify postgres is in the expected standby state: in recovery with no
+	// primary_conninfo set. Together these prove that Recruit ran (which clears
+	// primary_conninfo and goes into recovery mode) and that no prior Propose on
+	// this node succeeded.
+	inRecovery, err := pm.isInRecovery(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to verify standby state before propose")
+	}
+	if !inRecovery {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"postgres is not in standby mode; call Recruit before Propose")
+	}
+	connInfo, err := pm.readPrimaryConnInfo(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to verify primary_conninfo before propose")
+	}
+	if connInfo != "" {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary_conninfo is set (%q); call Recruit before Propose to stop replication", connInfo)
+	}
+
 	// Step 2: Act based on role.
 	isLeader := proto.Equal(pm.serviceID, proposalLeader.GetId())
 
@@ -614,14 +647,20 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		}
 		// Pre-configure synchronous_standby_names before pg_promote() so the primary
 		// enforces sync replication from the moment it starts accepting connections.
+		// Both failures are fatal: a misconfigured or partially applied GUC would let
+		// the primary accept writes without the required sync acknowledgment, risking
+		// data loss.
 		// TODO: Eventually updateRule() should own this GUC update so that the ordering
 		// of WAL writes and GUC changes is managed in one place, ensuring the durability
 		// configuration is always consistent with what is recorded in the rule history.
-		syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to compute sync config from proposal", "error", err)
-		} else if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to pre-configure sync replication before promote", "error", err)
+		if proposedRule.GetDurabilityPolicy() != nil {
+			syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
+			if err != nil {
+				return nil, mterrors.Wrap(err, "cannot derive sync config from proposed rule")
+			}
+			if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
+				return nil, mterrors.Wrap(err, "failed to pre-configure sync replication before promote")
+			}
 		}
 		// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
 		// postgres becomes a writable primary after pg_promote(), but this pooler's
@@ -639,16 +678,9 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 			return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 		}
-		// checkPromotionState already fetched the LSN when postgres was primary;
-		// only query again after a fresh pg_promote() call.
-		var finalLSN string
-		if state.isPrimaryInPostgres {
-			finalLSN = state.currentLSN
-		} else {
-			finalLSN, err = pm.getPrimaryLSN(ctx)
-			if err != nil {
-				return nil, err
-			}
+		finalLSN, err := pm.getPrimaryLSN(ctx)
+		if err != nil {
+			return nil, err
 		}
 		// TODO: If this proposal already exists, we're being asked to propagate
 		// rather than make a new entry. We can make the rule store understand
@@ -703,8 +735,6 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after propose", "error", err)
 		}
-		// Replication is now configured; allow the postgres monitor to resume.
-		pm.rewindPending.Store(false)
 		pm.broadcastHealth()
 		if _, err := pm.rules.observePosition(ctx); err != nil {
 			return nil, mterrors.Wrap(err, "propose failed: could not refresh rule position")

@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
@@ -1492,12 +1494,40 @@ func TestRecruit(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+
+	t.Run("RewindPending_RejectsRecruit", func(t *testing.T) {
+		mockQueryService := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+		pm.rewindPending.Store(true)
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coord"},
+				CoordinatorInitiatedAt: recruitTS,
+			},
+		}
+		_, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rewind pending")
+	})
+}
+
+// expectStandbyReadyMocks adds the mock responses for the standby-state
+// precondition check at the start of Propose(): postgres must be in recovery
+// and primary_conninfo must be empty.
+func expectStandbyReadyMocks(m *mock.QueryService) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	m.AddQueryPatternOnce("current_setting.*primary_conninfo",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{nil}}))
 }
 
 // expectLeaderProposeMocks sets up the postgres query expectations for the leader
 // Propose path: check recovery state, pg_promote, wait for promotion, reset conninfo,
 // reload config, then get the primary WAL position.
 func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
+	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -1517,6 +1547,7 @@ func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
 // expectReplicaProposeMocks sets up the postgres query expectations for the replica
 // Propose path: guardrail check (is it a standby?), set primary_conninfo, reload config.
 func expectReplicaProposeMocks(m *mock.QueryService) {
+	expectStandbyReadyMocks(m)
 	// setPrimaryConnInfoLocked guardrail: postgres is in recovery (standby), so setting conninfo is allowed
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -1555,11 +1586,6 @@ func TestPropose(t *testing.T) {
 		AcceptedCoordinatorId:  coordinatorA,
 		CoordinatorInitiatedAt: recruitTS,
 	}
-	validRevocation := &clustermetadatapb.TermRevocation{
-		RevokedBelowTerm:       7,
-		AcceptedCoordinatorId:  coordinatorA,
-		CoordinatorInitiatedAt: recruitTS,
-	}
 	validProposedRule := &clustermetadatapb.ShardRule{
 		CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 	}
@@ -1567,7 +1593,7 @@ func TestPropose(t *testing.T) {
 	makeLeaderReq := func() *consensusdatapb.ProposeRequest {
 		return &consensusdatapb.ProposeRequest{
 			Proposal: &consensusdatapb.CoordinatorProposal{
-				TermRevocation: validRevocation,
+				TermRevocation: recruitedTerm,
 				ProposalLeader: &consensusdatapb.ProposalLeader{
 					Id:           selfID,
 					Host:         "pg-primary.internal",
@@ -1581,7 +1607,7 @@ func TestPropose(t *testing.T) {
 	makeReplicaReq := func() *consensusdatapb.ProposeRequest {
 		return &consensusdatapb.ProposeRequest{
 			Proposal: &consensusdatapb.CoordinatorProposal{
-				TermRevocation: validRevocation,
+				TermRevocation: recruitedTerm,
 				ProposalLeader: &consensusdatapb.ProposalLeader{
 					Id:           otherPooler,
 					Host:         "pg-primary.internal",
@@ -1598,8 +1624,10 @@ func TestPropose(t *testing.T) {
 		ruleStore         *fakeRuleStore
 		req               *consensusdatapb.ProposeRequest
 		setupMocks        func(*mock.QueryService)
+		preRun            func(*MultiPoolerManager)
 		expectError       bool
 		expectErrContains string
+		postCheck         func(*testing.T, *MultiPoolerManager, *fakeRuleStore)
 	}{
 		{
 			name:              "NilProposal",
@@ -1630,7 +1658,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: validRevocation,
+					TermRevocation: recruitedTerm,
 					ProposedRule:   validProposedRule,
 				},
 			},
@@ -1644,7 +1672,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: validRevocation,
+					TermRevocation: recruitedTerm,
 					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID},
 					ProposedRule:   validProposedRule,
 				},
@@ -1659,7 +1687,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: validRevocation,
+					TermRevocation: recruitedTerm,
 					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID, PostgresPort: 5432},
 				},
 			},
@@ -1668,22 +1696,28 @@ func TestPropose(t *testing.T) {
 			expectErrContains: "proposal.proposed_rule is required",
 		},
 		{
-			name:        "TermNotRecruited",
-			initialTerm: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req:         makeLeaderReq(),
-			setupMocks:  func(m *mock.QueryService) {},
-			expectError: true,
-			// stored term 3 != proposal term 7
+			name:              "TermNotRecruited_StoredLower",
+			initialTerm:       &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(0)},
+			req:               makeLeaderReq(),
+			setupMocks:        func(m *mock.QueryService) {},
+			expectError:       true,
 			expectErrContains: "must Recruit before Propose",
 		},
 		{
-			name: "WrongCoordinator",
-			initialTerm: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm:      7,
-				AcceptedCoordinatorId: coordinatorA,
-			},
-			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
+			// Stored term (10) is newer than the proposal's term (7): also rejected.
+			name:              "TermNotRecruited_StoredHigher",
+			initialTerm:       &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(0)},
+			req:               makeLeaderReq(),
+			setupMocks:        func(m *mock.QueryService) {},
+			expectError:       true,
+			expectErrContains: "already accepted term 10 > requested 7",
+		},
+		{
+			name:        "WrongCoordinator",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
 					TermRevocation: &clustermetadatapb.TermRevocation{
@@ -1711,54 +1745,159 @@ func TestPropose(t *testing.T) {
 			expectErrContains: "coordinator term 7 >= revoked_below_term 7",
 		},
 		{
-			name: "LeaderSuccess",
-			// Non-nil pos so getCachedConsensusStatus returns a populated ConsensusStatus.
+			name:        "LeaderSuccess",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectLeaderProposeMocks(m, "0/5000000")
 			},
-			expectError: false,
+			// Verify the promotion was recorded with the right coordinator term and WAL
+			// position, and that the health streamer was updated for write traffic.
+			preRun: func(pm *MultiPoolerManager) {
+				// Pre-set so we can verify clearResignedLeaderAtTerm ran.
+				pm.mu.Lock()
+				pm.resignedLeaderAtTerm = 7
+				pm.mu.Unlock()
+			},
+			postCheck: func(t *testing.T, pm *MultiPoolerManager, rs *fakeRuleStore) {
+				update := rs.assertPromoteRecorded(t)
+				assert.Equal(t, int64(7), update.termNumber)
+				assert.True(t, proto.Equal(coordinatorA, update.coordinatorID))
+				assert.True(t, proto.Equal(selfID, update.leaderID))
+				assert.Len(t, update.cohortMembers, 2)
+				assert.Equal(t, "0/5000000", update.walPosition)
+				assert.Nil(t, update.durabilityPolicy)
+				assert.Empty(t, update.acceptedMembers)
+
+				state := pm.healthStreamer.getState()
+				require.NotNil(t, state.LeaderObservation)
+				assert.True(t, proto.Equal(selfID, state.LeaderObservation.LeaderID))
+				assert.Equal(t, int64(7), state.LeaderObservation.LeaderTerm)
+
+				pm.mu.Lock()
+				assert.Equal(t, int64(0), pm.resignedLeaderAtTerm, "clearResignedLeaderAtTerm should have cleared the term")
+				pm.mu.Unlock()
+			},
 		},
 		{
-			name: "LeaderAlreadyPromoted",
-			// Non-nil pos so getCachedConsensusStatus returns a populated ConsensusStatus.
+			// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
+			// A misconfigured GUC would allow the primary to accept writes without the
+			// required sync acknowledgment, so the failure is fatal.
+			name:        "LeaderGUCFailure",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.ProposeRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: recruitedTerm,
+					ProposalLeader: &consensusdatapb.ProposalLeader{
+						Id:           selfID,
+						Host:         "pg-primary.internal",
+						PostgresPort: 5432,
+					},
+					// Include a durability policy so syncConfigFromProposedRule
+					// succeeds and applyGUCsForSyncReplication is actually invoked.
+					ProposedRule: &clustermetadatapb.ShardRule{
+						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+							RequiredCount: 2,
+						},
+					},
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyReadyMocks(m)
+				// checkPromotionState: standby.
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_commit", errors.New("GUC write failed"))
+			},
+			expectError:       true,
+			expectErrContains: "failed to pre-configure sync replication",
+		},
+		{
+			// postgres is already primary (not in recovery): the standby-state
+			// precondition check rejects the proposal. The coordinator must
+			// re-Recruit before calling Propose again.
+			name:        "LeaderAlreadyPromoted",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
-				// checkPromotionState: already primary in postgres, fetches LSN inline.
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-					mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/6000000"}}))
 			},
-			expectError: false,
+			expectError:       true,
+			expectErrContains: "not in standby mode",
 		},
 		{
-			name: "ReplicaSuccess",
-			// Non-nil pos so getCachedConsensusStatus returns a populated ConsensusStatus.
+			// primary_conninfo is set (Prose may have already succeeded):
+			// caught by the standby-state precondition check.
+			name:        "ProposeFails_PrimaryConninfoSet",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req:         makeLeaderReq(),
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("current_setting.*primary_conninfo",
+					mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"host=primary port=5432"}}))
+			},
+			expectError:       true,
+			expectErrContains: "primary_conninfo is set",
+		},
+		{
+			name:        "ReplicaSuccess",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeReplicaReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectReplicaProposeMocks(m)
 			},
-			expectError: false,
+			// Verify primary connection info was stored and the pooler type was set correctly.
+			postCheck: func(t *testing.T, pm *MultiPoolerManager, _ *fakeRuleStore) {
+				pm.mu.Lock()
+				assert.True(t, proto.Equal(otherPooler, pm.primaryPoolerID))
+				assert.Equal(t, "pg-primary.internal", pm.primaryHost)
+				assert.Equal(t, int32(5432), pm.primaryPort)
+				pm.mu.Unlock()
+
+				assert.False(t, pm.rewindPending.Load())
+				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, pm.healthStreamer.getState().Target.PoolerType)
+			},
 		},
 		{
+			// postgres is not in recovery (it's primary): caught by the standby-state
+			// precondition check before any conninfo is touched.
 			name:        "ReplicaRejected_IsPrimary",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeReplicaReq(),
 			setupMocks: func(m *mock.QueryService) {
-				// setPrimaryConnInfoLocked guardrail: postgres is NOT in recovery (it's primary)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
 			expectError:       true,
 			expectErrContains: "not in standby mode",
+		},
+		{
+			// pg_reload_conf fails after setting primary_conninfo: Propose returns an error.
+			name:        "ReplicaRejected_ReloadFails",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req:         makeReplicaReq(),
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyReadyMocks(m)
+				// setPrimaryConnInfoLocked guardrail
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+			},
+			expectError:       true,
+			expectErrContains: "failed to reload PostgreSQL configuration",
 		},
 	}
 
@@ -1776,6 +1915,10 @@ func TestPropose(t *testing.T) {
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
+			if tt.preRun != nil {
+				tt.preRun(pm)
+			}
+
 			resp, err := pm.Propose(ctx, tt.req)
 
 			if tt.expectError {
@@ -1788,6 +1931,9 @@ func TestPropose(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 				require.NotNil(t, resp.ConsensusStatus)
+				if tt.postCheck != nil {
+					tt.postCheck(t, pm, tt.ruleStore)
+				}
 			}
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
