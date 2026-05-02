@@ -110,7 +110,7 @@ func ToReplicaIDs(ids []*clustermetadatapb.ID) ([]ReplicaID, error) {
 		rid, err := NewReplicaID(id)
 		result[i] = rid
 		if err != nil && firstErr == nil {
-			firstErr = err
+			firstErr = mterrors.Wrapf(err, "ids[%d]", i)
 		}
 	}
 	return result, firstErr
