@@ -258,17 +258,17 @@ func applyPatch(ctx context.Context, original []byte, patchPath string) ([]byte,
 // Newlines are preserved as separators. Trailing newlines on the file are
 // preserved.
 //
-// Why this exists: `diff -b` is supposed to ignore changes in the amount of
-// whitespace, but the BSD diff (macOS) and GNU diff (Linux/CI) implementations
-// disagree on edge cases — most importantly, leading-whitespace-only changes
-// like the `^` caret position under a psql `LINE N:` error block. BSD diff -b
-// treats `"   ^"` and `"    ^"` as identical; GNU diff -b reports them as
-// different. Generating patches on macOS and verifying them on Linux therefore
-// produces phantom residual diffs.
-//
-// Doing the normalization in Go before invoking `diff` removes the dependency
-// on the diff binary's `-b` semantics. After normalization, plain `diff -U3`
-// gives identical output on every platform.
+// Why this exists: in practice, patches generated against psql output on
+// macOS (BSD diff) drift when verified on Linux (GNU diff). PR #952 surfaced
+// this when locally-generated patches for `sqljson_queryfuncs` and
+// `sqljson_jsontable` passed locally but produced residual hunks in CI —
+// most visibly caret-position lines under `LINE N:` error blocks where the
+// only difference between the two sides was the amount of leading whitespace.
+// Both diff implementations document `-b` as ignoring whitespace amount, so
+// the exact behavioral divergence is undocumented and possibly version- or
+// edge-case specific; rather than trace it down, we sidestep it by doing
+// the whitespace canonicalisation here in Go and invoking plain `diff -U3`
+// against bytes that have no whitespace ambiguity left to resolve.
 func normalizeWhitespace(input []byte) []byte {
 	if len(input) == 0 {
 		return input
