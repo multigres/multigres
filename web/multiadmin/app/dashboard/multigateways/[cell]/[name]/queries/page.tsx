@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Sparkline } from "@/components/sparkline";
 import { useApi } from "@/lib/api/context";
+import { ID_ComponentType } from "@/lib/api/types";
 import type { QueryStatSnapshot } from "@/lib/api/types";
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -69,15 +70,15 @@ export default function GatewayQueriesPage({ params }: PageProps) {
       try {
         const { snapshot } = await api.getGatewayQueries(
           {
-            component: "MULTIGATEWAY",
+            component: ID_ComponentType.MULTIGATEWAY,
             cell: cellName,
             name: gatewayName,
           },
           { limit: MAX_FINGERPRINTS_PER_FETCH },
         );
         if (cancelled) return;
-        setQueries(snapshot.queries || []);
-        setTracked(snapshot.tracked_fingerprints || 0);
+        setQueries(snapshot?.queries || []);
+        setTracked(snapshot?.tracked_fingerprints || 0);
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -129,11 +130,13 @@ export default function GatewayQueriesPage({ params }: PageProps) {
           <ChevronLeft className="h-3 w-3" />
           Back to gateways
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">Per-Query Performance</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Per-Query Performance
+        </h1>
         <p className="text-sm text-muted-foreground">
           <span className="font-mono">{cellName}</span> /
-          <span className="font-mono"> {gatewayName}</span> · {tracked} tracked fingerprints
-          · refreshes every {REFRESH_INTERVAL_MS / 1000}s
+          <span className="font-mono"> {gatewayName}</span> · {tracked} tracked
+          fingerprints · refreshes every {REFRESH_INTERVAL_MS / 1000}s
         </p>
       </div>
 
@@ -159,7 +162,9 @@ export default function GatewayQueriesPage({ params }: PageProps) {
       ) : rows.length === 0 ? (
         <div className="px-4 lg:px-6 py-8">
           <p className="text-muted-foreground">
-            {filter ? "No queries match the filter." : "No queries tracked yet."}
+            {filter
+              ? "No queries match the filter."
+              : "No queries tracked yet."}
           </p>
         </div>
       ) : (
@@ -170,7 +175,9 @@ export default function GatewayQueriesPage({ params }: PageProps) {
                 <TableHead className="pl-6">query</TableHead>
                 <TableHead className="w-40">% of runtime</TableHead>
                 <TableHead className="w-36 text-right">count / s</TableHead>
-                <TableHead className="w-36 text-right">total time (ms/s)</TableHead>
+                <TableHead className="w-36 text-right">
+                  total time (ms/s)
+                </TableHead>
                 <TableHead className="w-32 text-right">p50 (ms)</TableHead>
                 <TableHead className="w-32 text-right">p99 (ms)</TableHead>
                 <TableHead className="w-32 text-right">rows / s</TableHead>
@@ -189,19 +196,34 @@ export default function GatewayQueriesPage({ params }: PageProps) {
                     <PctBar value={pct} />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={lastValue(q.call_rate_trends, 2)} trend={q.call_rate_trends} />
+                    <CellWithSparkline
+                      value={lastValue(q.call_rate_trends, 2)}
+                      trend={q.call_rate_trends}
+                    />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={lastValue(q.total_time_ms_trends, 2)} trend={q.total_time_ms_trends} />
+                    <CellWithSparkline
+                      value={lastValue(q.total_time_ms_trends, 2)}
+                      trend={q.total_time_ms_trends}
+                    />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={lastValue(q.p50_ms_trends, 2)} trend={q.p50_ms_trends} />
+                    <CellWithSparkline
+                      value={lastValue(q.p50_ms_trends, 2)}
+                      trend={q.p50_ms_trends}
+                    />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={lastValue(q.p99_ms_trends, 2)} trend={q.p99_ms_trends} />
+                    <CellWithSparkline
+                      value={lastValue(q.p99_ms_trends, 2)}
+                      trend={q.p99_ms_trends}
+                    />
                   </TableCell>
                   <TableCell className="align-top py-3 text-right">
-                    <CellWithSparkline value={lastValue(q.rows_rate_trends, 2)} trend={q.rows_rate_trends} />
+                    <CellWithSparkline
+                      value={lastValue(q.rows_rate_trends, 2)}
+                      trend={q.rows_rate_trends}
+                    />
                   </TableCell>
                   <TableCell className="pr-6 align-top py-3 text-right text-xs text-muted-foreground">
                     {formatRelativeTime(q.last_seen)}
@@ -234,7 +256,13 @@ function PctBar({ value }: { value: number }) {
 }
 
 // CellWithSparkline stacks the scalar value above a sparkline of its trend.
-function CellWithSparkline({ value, trend }: { value: string; trend?: number[] }) {
+function CellWithSparkline({
+  value,
+  trend,
+}: {
+  value: string;
+  trend?: number[];
+}) {
   return (
     <div className="flex flex-col items-end gap-1">
       <span className="font-mono text-xs">{value}</span>

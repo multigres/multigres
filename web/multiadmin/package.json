@@ -66,6 +66,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "ts-proto": "^2.7.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",

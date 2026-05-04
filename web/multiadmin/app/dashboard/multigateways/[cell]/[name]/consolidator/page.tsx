@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/lib/api/context";
+import { ID_ComponentType } from "@/lib/api/types";
 import type { ConsolidatorStats } from "@/lib/api/types";
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -38,17 +39,19 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
     async function load() {
       try {
         const { stats } = await api.getGatewayConsolidator({
-          component: "MULTIGATEWAY",
+          component: ID_ComponentType.MULTIGATEWAY,
           cell: cellName,
           name: gatewayName,
         });
         if (cancelled) return;
-        setStats(stats);
+        setStats(stats ?? null);
         setError(null);
       } catch (err) {
         if (cancelled) return;
         setError(
-          err instanceof Error ? err.message : "Failed to load consolidator stats",
+          err instanceof Error
+            ? err.message
+            : "Failed to load consolidator stats",
         );
       } finally {
         if (!cancelled) setLoading(false);
@@ -68,7 +71,8 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
     if (!filter.trim()) return all;
     const q = filter.toLowerCase();
     return all.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q),
+      (s) =>
+        s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q),
     );
   }, [stats, filter]);
 
@@ -104,8 +108,14 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
       ) : !stats ? null : (
         <>
           <div className="px-4 lg:px-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <SummaryCard label="Unique statements" value={stats.unique_statements} />
-            <SummaryCard label="Total references" value={stats.total_references} />
+            <SummaryCard
+              label="Unique statements"
+              value={stats.unique_statements}
+            />
+            <SummaryCard
+              label="Total references"
+              value={stats.total_references}
+            />
             <SummaryCard label="Connections" value={stats.connection_count} />
           </div>
 

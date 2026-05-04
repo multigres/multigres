@@ -35,7 +35,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
 
 ##@ General
 
@@ -59,8 +59,26 @@ tools: ## Install protobuf and build tools.
 PROTO_SRCS = $(shell find proto -name '*.proto')
 PROTO_GO_OUTS = pb
 
+# Proto source files for TypeScript generation (exclude google vendor protos)
+PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
+TS_PROTO_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-ts_proto
+TS_PROTO_OUT = $(MTROOT)/web/multiadmin/lib/api/generated
+
 # Generate protobuf files
-proto: tools $(PROTO_GO_OUTS) ## Generate protobuf files.
+proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
+
+# Generate TypeScript types from proto files
+proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_PLUGIN)
+	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
+		--plugin=$(TS_PROTO_PLUGIN) \
+		--ts_proto_out=$(TS_PROTO_OUT) \
+		--ts_proto_opt=onlyTypes=true,snakeToCamel=false,useOptionals=messages,outputTypeRegistry=false,useDate=string,stringEnums=true,fileSuffix=.generated \
+		"--ts_proto_opt=Mgoogle/protobuf/duration.proto=../google/protobuf/duration-wire" \
+		--proto_path=$(MTROOT)/proto \
+		$(PROTO_TS_SRCS)
+
+$(TS_PROTO_PLUGIN): web/multiadmin/package.json
+	cd $(MTROOT)/web/multiadmin && pnpm install
 
 pb: $(PROTO_SRCS)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \

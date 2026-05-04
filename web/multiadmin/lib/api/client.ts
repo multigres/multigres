@@ -146,13 +146,7 @@ export class MultiAdminClient {
   async backup(request: BackupRequest): Promise<BackupResponse> {
     return this.fetch<BackupResponse>("/api/v1/backups", {
       method: "POST",
-      body: JSON.stringify({
-        database: request.database,
-        table_group: request.tableGroup,
-        shard: request.shard,
-        type: request.type,
-        force_primary: request.forcePrimary,
-      }),
+      body: JSON.stringify(request),
     });
   }
 
@@ -161,13 +155,7 @@ export class MultiAdminClient {
   ): Promise<RestoreFromBackupResponse> {
     return this.fetch<RestoreFromBackupResponse>("/api/v1/restores", {
       method: "POST",
-      body: JSON.stringify({
-        database: request.database,
-        table_group: request.tableGroup,
-        shard: request.shard,
-        backup_id: request.backupId,
-        pooler_id: request.poolerId,
-      }),
+      body: JSON.stringify(request),
     });
   }
 
@@ -178,15 +166,15 @@ export class MultiAdminClient {
     if (request.database) {
       params.append("database", request.database);
     }
-    if (request.tableGroup) {
-      params.append("table_group", request.tableGroup);
+    if (request.table_group) {
+      params.append("table_group", request.table_group);
     }
     if (request.shard) {
       params.append("shard", request.shard);
     }
     const query = params.toString();
     return this.fetch<GetBackupJobStatusResponse>(
-      `/api/v1/jobs/${encodeURIComponent(request.jobId)}${query ? `?${query}` : ""}`,
+      `/api/v1/jobs/${encodeURIComponent(request.job_id)}${query ? `?${query}` : ""}`,
     );
   }
 
@@ -195,8 +183,8 @@ export class MultiAdminClient {
     if (request?.database) {
       params.append("database", request.database);
     }
-    if (request?.tableGroup) {
-      params.append("table_group", request.tableGroup);
+    if (request?.table_group) {
+      params.append("table_group", request.table_group);
     }
     if (request?.shard) {
       params.append("shard", request.shard);
