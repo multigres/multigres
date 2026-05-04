@@ -318,11 +318,17 @@ message ExecuteOptions {
 message UserAuth {
   // client_key is the SCRAM ClientKey recovered from the client's proof
   // during authentication. 32 bytes for SCRAM-SHA-256.
-  bytes client_key = 1;
+  //
+  // [debug_redact = true] is the canonical signal of intent. It is currently
+  // advisory in google.golang.org/protobuf (see
+  // https://github.com/golang/protobuf/issues/1655); when upstream lands the
+  // runtime path, generated String()/prototext output will redact this field
+  // automatically. query_redact_test.go locks the annotation in.
+  bytes client_key = 1 [debug_redact = true];
 
   // server_key is the SCRAM ServerKey read from the user's verifier in
   // pg_authid. 32 bytes for SCRAM-SHA-256.
-  bytes server_key = 2;
+  bytes server_key = 2 [debug_redact = true];
 }
 
 // ReservationOptions specifies options when creating or extending a reserved connection.

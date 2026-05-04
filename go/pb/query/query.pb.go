@@ -1174,6 +1174,12 @@ type UserAuth struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// client_key is the SCRAM ClientKey recovered from the client's proof
 	// during authentication. 32 bytes for SCRAM-SHA-256.
+	//
+	// [debug_redact = true] is the canonical signal of intent. It is currently
+	// advisory in google.golang.org/protobuf (see
+	// https://github.com/golang/protobuf/issues/1655); when upstream lands the
+	// runtime path, generated String()/prototext output will redact this field
+	// automatically. query_redact_test.go locks the annotation in.
 	ClientKey []byte `protobuf:"bytes,1,opt,name=client_key,json=clientKey,proto3" json:"client_key,omitempty"`
 	// server_key is the SCRAM ServerKey read from the user's verifier in
 	// pg_authid. 32 bytes for SCRAM-SHA-256.
@@ -1388,12 +1394,12 @@ const file_query_proto_rawDesc = "" +
 	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"H\n" +
-	"\bUserAuth\x12\x1d\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
+	"\bUserAuth\x12\"\n" +
 	"\n" +
-	"client_key\x18\x01 \x01(\fR\tclientKey\x12\x1d\n" +
+	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
 	"\n" +
-	"server_key\x18\x02 \x01(\fR\tserverKey\"O\n" +
+	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"O\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
