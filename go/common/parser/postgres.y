@@ -11963,8 +11963,12 @@ set_rest_more:
 				}
 		|	TIME ZONE zone_value
 				{
-					args := ast.NewNodeList($3)
-					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					if $3 == nil {
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "timezone", nil, false)
+					} else {
+						args := ast.NewNodeList($3)
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					}
 				}
 		|	CATALOG_P Sconst
 				{
@@ -12084,7 +12088,7 @@ zone_value:
 				$$ = ast.NewTypeCast(stringConst, t, 0)
 			}
 		|	NumericOnly								{ $$ = $1 }
-		|	DEFAULT									{ $$ = ast.NewString("default") }
+		|	DEFAULT									{ $$ = nil }
 		|	LOCAL									{ $$ = ast.NewString("local") }
 		;
 

@@ -1594,9 +1594,12 @@ func (v *VariableSetStmt) SqlString() string {
 
 	case VAR_SET_DEFAULT:
 		// Handle SET var = DEFAULT or SET SESSION AUTHORIZATION DEFAULT
-		if v.Name == "session_authorization" {
+		switch v.Name {
+		case "session_authorization":
 			parts = append(parts, "SESSION", "AUTHORIZATION", "DEFAULT")
-		} else {
+		case "timezone":
+			parts = append(parts, "TIME", "ZONE", "DEFAULT")
+		default:
 			parts = append(parts, v.Name, "=", "DEFAULT")
 		}
 

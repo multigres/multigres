@@ -1150,7 +1150,7 @@
   {
     "comment": "rangetypes - Statement 233",
     "query": "set timezone to default",
-    "expected": "SET timezone = DEFAULT"
+    "expected": "SET TIME ZONE DEFAULT"
   },
   {
     "comment": "rangetypes - Statement 234",
