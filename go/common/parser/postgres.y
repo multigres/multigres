@@ -5714,7 +5714,13 @@ json_quotes_clause_opt:
 json_format_clause:
 			FORMAT_LA JSON ENCODING name
 			{
-				// Parse the encoding name and map to JsonEncoding constant
+				// Parse the encoding name and map to JsonEncoding constant.
+				// Match PostgreSQL by rejecting unknown names at parse time
+				// (gram.y json_format_clause raises ereport(ERROR) with
+				// errcode INVALID_PARAMETER_VALUE / "unrecognized JSON
+				// encoding"). The JsonFormat node only carries an enum, so
+				// preserving the raw name through to the backend would mean
+				// reshaping the AST; rejecting here is the simpler match.
 				var encoding ast.JsonEncoding
 				switch $4 {
 				case "utf8":
@@ -5724,6 +5730,7 @@ json_format_clause:
 				case "utf32":
 					encoding = ast.JS_ENC_UTF32
 				default:
+					yylex.Error(fmt.Sprintf("unrecognized JSON encoding: %s", $4))
 					encoding = ast.JS_ENC_DEFAULT
 				}
 				$$ = &ast.JsonFormat{

@@ -262,7 +262,7 @@
   {
     "comment": "sqljson - Statement 57",
     "query": "SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
-    "expected": "SELECT JSON_OBJECT( RETURNING TEXT FORMAT JSON)"
+    "error": "parse error at position 71: unrecognized JSON encoding: invalid_encoding"
   },
   {
     "comment": "sqljson - Statement 58",
@@ -563,7 +563,7 @@
   {
     "comment": "sqljson - Statement 118",
     "query": "SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
-    "expected": "SELECT JSON_ARRAY( RETURNING TEXT FORMAT JSON)"
+    "error": "parse error at position 70: unrecognized JSON encoding: invalid_encoding"
   },
   {
     "comment": "sqljson - Statement 119",
