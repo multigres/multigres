@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
@@ -43,7 +44,7 @@ import (
 //
 // For the default tablegroup, this function also creates the multischema global
 // tables (tablegroup, tablegroup_table, shard).
-func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
+func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
 
 	if err := pm.createSchema(ctx); err != nil {
@@ -54,7 +55,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.rules.createRuleTables(ctx); err != nil {
+	if err := pm.rules.createRuleTables(ctx, policy); err != nil {
 		return err
 	}
 

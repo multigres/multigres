@@ -161,6 +161,31 @@ func BuildSafeProposal(
 	return proposal, nil
 }
 
+// CheckProposalPossible checks whether a safe leadership proposal is feasible
+// given current cached statuses, without requiring nodes to have accepted the
+// revocation. It filters to nodes that could accept (via ValidateRevocation),
+// simulates their acceptance so BuildSafeProposal can evaluate quorum and
+// eligible-leader constraints, and returns an error if no viable proposal exists.
+func CheckProposalPossible(
+	revocation *clustermetadatapb.TermRevocation,
+	statuses []*clustermetadatapb.ConsensusStatus,
+	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
+) error {
+	var candidates []*clustermetadatapb.ConsensusStatus
+	for _, s := range statuses {
+		if ValidateRevocation(s, revocation) == nil {
+			sc := proto.Clone(s).(*clustermetadatapb.ConsensusStatus)
+			sc.TermRevocation = revocation
+			candidates = append(candidates, sc)
+		}
+	}
+	if len(candidates) == 0 {
+		return errors.New("no nodes could accept the proposed revocation")
+	}
+	_, err := BuildSafeProposal(revocation, candidates, buildProposal)
+	return err
+}
+
 // validateProposal checks that the returned proposal is consistent with the
 // recruitment result and the set of recruited nodes.
 func validateProposal(

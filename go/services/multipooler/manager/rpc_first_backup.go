@@ -75,7 +75,10 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast.
-	if _, err := pm.loadDurabilityPolicy(ctx); err != nil {
+	// The policy is also written into the sentinel row of current_rule so all
+	// subsequent rule reads carry a non-nil DurabilityPolicy.
+	policy, err := pm.loadDurabilityPolicy(ctx)
+	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
@@ -133,7 +136,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	if err := pm.createSidecarSchema(ctx); err != nil {
+	if err := pm.createSidecarSchema(ctx, policy); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to create multigres schema")
 	}
 

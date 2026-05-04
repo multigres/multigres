@@ -255,7 +255,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	if nodePosition, err := pm.rules.observePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get rule history during revoke; candidate selection may be suboptimal",
 			"term", term, "error", err)
-	} else if nodePosition != nil {
+	} else {
 		response.WalPosition.LeadershipTerm = nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm()
 		pids, pidErr := toPoolerIDs(nodePosition.GetRule().GetCohortMembers())
 		if pidErr != nil {

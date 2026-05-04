@@ -182,7 +182,7 @@ func (mo *MultiOrch) Init() error {
 	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections, transportCreds)
 
 	// Create coordinator for consensus operations
-	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)
+	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger, mo.cfg.GetUseNewConsensusFlow())
 
 	// Create and start recovery engine
 	mo.recoveryEngine = recovery.NewEngine(

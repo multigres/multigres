@@ -54,7 +54,7 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		nil, nil, nil, "0/1",
+		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "0/1",
 	}}
 	return cols, row
 }

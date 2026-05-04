@@ -1474,7 +1474,7 @@ func TestAppointLeader(t *testing.T) {
 			},
 		}))
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
@@ -1572,7 +1572,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			RequiredCount: 2,
 		})
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
@@ -1609,7 +1609,7 @@ func TestAppointInitialLeader(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		err := c.AppointInitialLeader(ctx, "shard0", nil, "testdb")
 		require.Error(t, err)
@@ -1626,7 +1626,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			Name: "testdb",
 		}))
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
@@ -1648,7 +1648,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			RequiredCount: 3,
 		})
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
