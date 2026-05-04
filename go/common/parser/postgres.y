@@ -5785,6 +5785,17 @@ json_table_column_definition:
 					strNode := $3.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($4)
+				jsonTableCol.Quotes = ast.JsonQuotes($5)
+				if $6 != nil {
+					behaviors := $6.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename json_format_clause
@@ -5802,6 +5813,17 @@ json_table_column_definition:
 				if $3 != nil {
 					jsonTableCol.Format = $3.(*ast.JsonFormat)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($5)
+				jsonTableCol.Quotes = ast.JsonQuotes($6)
+				if $7 != nil {
+					behaviors := $7.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename EXISTS json_table_column_path_clause_opt
@@ -5812,6 +5834,9 @@ json_table_column_definition:
 				if $4 != nil {
 					strNode := $4.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				if $5 != nil {
+					jsonTableCol.OnError = $5.(*ast.JsonBehavior)
 				}
 				$$ = jsonTableCol
 			}
