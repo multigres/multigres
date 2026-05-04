@@ -15,10 +15,7 @@ import type {
   MultiPooler,
   PoolerType,
 } from "./clustermetadata.generated";
-import type {
-  ConsolidatorStats,
-  QueryRegistrySnapshot,
-} from "./multigatewaymanagerdata.generated";
+import type { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata.generated";
 import type { Status } from "./multipoolermanagerdata.generated";
 
 export const protobufPackage = "multiadmin";
@@ -75,7 +72,8 @@ export interface GetDatabaseResponse {
 }
 
 /** GetCellNamesRequest requests all cell names */
-export interface GetCellNamesRequest {}
+export interface GetCellNamesRequest {
+}
 
 /** GetCellNamesResponse contains all cell names */
 export interface GetCellNamesResponse {
@@ -83,7 +81,8 @@ export interface GetCellNamesResponse {
 }
 
 /** GetDatabaseNamesRequest requests all database names */
-export interface GetDatabaseNamesRequest {}
+export interface GetDatabaseNamesRequest {
+}
 
 /** GetDatabaseNamesResponse contains all database names */
 export interface GetDatabaseNamesResponse {
@@ -270,7 +269,9 @@ export interface BackupInfo {
   /** status of the backup */
   status: BackupStatus;
   /** backup_time is when the backup was created */
-  backup_time?: string | undefined;
+  backup_time?:
+    | string
+    | undefined;
   /** backup_size_bytes is the size of the backup in bytes */
   backup_size_bytes: number;
   /** multipooler_service_id is the ID of the multipooler that reported the backup */
@@ -288,7 +289,9 @@ export interface GetPoolerStatusRequest {
 /** GetPoolerStatusResponse contains the pooler's unified status */
 export interface GetPoolerStatusResponse {
   /** status contains the pooler's unified status from MultiPoolerManager.Status */
-  status?: Status | undefined;
+  status?:
+    | Status
+    | undefined;
   /** consensus_status is the pooler's current consensus state, forwarded from StatusResponse. */
   consensus_status?: ConsensusStatus | undefined;
 }
@@ -296,7 +299,9 @@ export interface GetPoolerStatusResponse {
 /** SetPostgresRestartsEnabledRequest requests to enable or disable automatic PostgreSQL restarts on a pooler */
 export interface SetPostgresRestartsEnabledRequest {
   /** pooler_id identifies which pooler to update (required) */
-  pooler_id?: ID | undefined;
+  pooler_id?:
+    | ID
+    | undefined;
   /** enabled controls whether automatic restarts are enabled (true) or suppressed (false) */
   enabled: boolean;
 }
@@ -305,7 +310,8 @@ export interface SetPostgresRestartsEnabledRequest {
  * SetPostgresRestartsEnabledResponse confirms that the flag was updated
  * Errors are returned via gRPC status codes, not in the response body
  */
-export interface SetPostgresRestartsEnabledResponse {}
+export interface SetPostgresRestartsEnabledResponse {
+}
 
 /**
  * GetGatewayQueriesRequest specifies which gateway to query and how to bound
@@ -313,7 +319,9 @@ export interface SetPostgresRestartsEnabledResponse {}
  */
 export interface GetGatewayQueriesRequest {
   /** gateway_id identifies which gateway to query (required) */
-  gateway_id?: ID | undefined;
+  gateway_id?:
+    | ID
+    | undefined;
   /**
    * limit caps the number of fingerprints returned, sorted by call count
    * descending. 0 means no limit.
@@ -353,9 +361,7 @@ export interface MultiAdminService {
   /** GetCellNames retrieves all cell names in the cluster */
   GetCellNames(request: GetCellNamesRequest): Promise<GetCellNamesResponse>;
   /** GetDatabaseNames retrieves all database names in the cluster */
-  GetDatabaseNames(
-    request: GetDatabaseNamesRequest,
-  ): Promise<GetDatabaseNamesResponse>;
+  GetDatabaseNames(request: GetDatabaseNamesRequest): Promise<GetDatabaseNamesResponse>;
   /** GetGateways retrieves gateways filtered by cells */
   GetGateways(request: GetGatewaysRequest): Promise<GetGatewaysResponse>;
   /** GetPoolers retrieves poolers filtered by cells and/or database */
@@ -365,13 +371,9 @@ export interface MultiAdminService {
   /** Backup starts an async backup of a specific shard */
   Backup(request: BackupRequest): Promise<BackupResponse>;
   /** RestoreFromBackup starts an async restore of a specific shard from a backup */
-  RestoreFromBackup(
-    request: RestoreFromBackupRequest,
-  ): Promise<RestoreFromBackupResponse>;
+  RestoreFromBackup(request: RestoreFromBackupRequest): Promise<RestoreFromBackupResponse>;
   /** GetBackupJobStatus checks the status of a backup or restore job */
-  GetBackupJobStatus(
-    request: GetBackupJobStatusRequest,
-  ): Promise<GetBackupJobStatusResponse>;
+  GetBackupJobStatus(request: GetBackupJobStatusRequest): Promise<GetBackupJobStatusResponse>;
   /** GetBackups lists backup artifacts with optional filtering */
   GetBackups(request: GetBackupsRequest): Promise<GetBackupsResponse>;
   /** ExpireBackups removes old backups according to retention policy */
@@ -380,30 +382,22 @@ export interface MultiAdminService {
    * GetPoolerStatus retrieves the unified status of a specific pooler.
    * This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
    */
-  GetPoolerStatus(
-    request: GetPoolerStatusRequest,
-  ): Promise<GetPoolerStatusResponse>;
+  GetPoolerStatus(request: GetPoolerStatusRequest): Promise<GetPoolerStatusResponse>;
   /**
    * SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
    * This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
    */
-  SetPostgresRestartsEnabled(
-    request: SetPostgresRestartsEnabledRequest,
-  ): Promise<SetPostgresRestartsEnabledResponse>;
+  SetPostgresRestartsEnabled(request: SetPostgresRestartsEnabledRequest): Promise<SetPostgresRestartsEnabledResponse>;
   /**
    * GetGatewayQueries retrieves the per-fingerprint query registry of a
    * specific multigateway. This proxies the request to the target gateway's
    * MultiGatewayManager.GetQueryRegistry RPC.
    */
-  GetGatewayQueries(
-    request: GetGatewayQueriesRequest,
-  ): Promise<GetGatewayQueriesResponse>;
+  GetGatewayQueries(request: GetGatewayQueriesRequest): Promise<GetGatewayQueriesResponse>;
   /**
    * GetGatewayConsolidator retrieves the prepared-statement consolidator
    * snapshot of a specific multigateway. This proxies the request to the
    * target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
    */
-  GetGatewayConsolidator(
-    request: GetGatewayConsolidatorRequest,
-  ): Promise<GetGatewayConsolidatorResponse>;
+  GetGatewayConsolidator(request: GetGatewayConsolidatorRequest): Promise<GetGatewayConsolidatorResponse>;
 }

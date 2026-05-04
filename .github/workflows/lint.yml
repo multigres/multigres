@@ -80,6 +80,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Node.js
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version-file: web/multiadmin/package.json
+          cache: pnpm
+          cache-dependency-path: web/multiadmin/pnpm-lock.yaml
+
+      - name: Enable pnpm via Corepack
+        run: corepack enable pnpm
+
       - name: Validate generated files
         run: make validate-generated-files
         shell: bash

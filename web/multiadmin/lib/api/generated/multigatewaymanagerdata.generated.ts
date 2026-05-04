@@ -35,32 +35,48 @@ export interface QueryStatSnapshot {
    * total_duration is the cumulative wall-clock time spent executing this
    * fingerprint's queries.
    */
-  total_duration?: Duration | undefined;
+  total_duration?:
+    | Duration
+    | undefined;
   /** average_duration is total_duration / calls. */
-  average_duration?: Duration | undefined;
+  average_duration?:
+    | Duration
+    | undefined;
   /** min_duration is the smallest observed execution duration. */
-  min_duration?: Duration | undefined;
+  min_duration?:
+    | Duration
+    | undefined;
   /** max_duration is the largest observed execution duration. */
-  max_duration?: Duration | undefined;
+  max_duration?:
+    | Duration
+    | undefined;
   /**
    * p50_duration is the median execution duration computed from the
    * per-fingerprint histogram.
    */
-  p50_duration?: Duration | undefined;
+  p50_duration?:
+    | Duration
+    | undefined;
   /**
    * p99_duration is the 99th-percentile execution duration computed from the
    * per-fingerprint histogram.
    */
-  p99_duration?: Duration | undefined;
+  p99_duration?:
+    | Duration
+    | undefined;
   /** total_rows is the cumulative row count returned across all executions. */
   total_rows: number;
   /** last_seen is the timestamp of the most recent execution. */
-  last_seen?: string | undefined;
+  last_seen?:
+    | string
+    | undefined;
   /**
    * sample_interval is the cadence at which the trend slices below were
    * captured. Empty when trend sampling is disabled.
    */
-  sample_interval?: Duration | undefined;
+  sample_interval?:
+    | Duration
+    | undefined;
   /** call_rate_trend holds calls/s samples, oldest first. */
   call_rate_trends: number[];
   /** total_time_ms_trend holds duration-ms-per-second-of-wall-clock samples. */

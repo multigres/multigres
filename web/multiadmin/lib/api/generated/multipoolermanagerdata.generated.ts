@@ -6,13 +6,7 @@
 
 /* eslint-disable */
 import type { Duration } from "../google/protobuf/duration-wire";
-import type {
-  AvailabilityStatus,
-  ConsensusStatus,
-  ID,
-  MultiPooler,
-  PoolerType,
-} from "./clustermetadata.generated";
+import type { AvailabilityStatus, ConsensusStatus, ID, MultiPooler, PoolerType } from "./clustermetadata.generated";
 
 export const protobufPackage = "multipoolermanagerdata";
 
@@ -148,11 +142,15 @@ export interface StandbyReplicationStatus {
   /** Result of pg_get_wal_replay_pause_state() */
   wal_replay_pause_state: string;
   /** Replication lag (optional, may not always be available) */
-  lag?: Duration | undefined;
+  lag?:
+    | Duration
+    | undefined;
   /** Result of pg_last_xact_replay_timestamp() */
   last_xact_replay_timestamp: string;
   /** Primary connection info parsed from primary_conninfo setting */
-  primary_conn_info?: PrimaryConnInfo | undefined;
+  primary_conn_info?:
+    | PrimaryConnInfo
+    | undefined;
   /**
    * WAL receiver status from pg_stat_wal_receiver.status
    * Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
@@ -164,13 +162,17 @@ export interface StandbyReplicationStatus {
    * primary. From pg_stat_wal_receiver.last_msg_receive_time. Null if WAL
    * receiver is not running.
    */
-  last_msg_receive_time?: string | undefined;
+  last_msg_receive_time?:
+    | string
+    | undefined;
   /**
    * How often the standby sends status messages to the primary.
    * From current_setting('wal_receiver_status_interval').
    * Used to derive the heartbeat staleness threshold dynamically.
    */
-  wal_receiver_status_interval?: Duration | undefined;
+  wal_receiver_status_interval?:
+    | Duration
+    | undefined;
   /**
    * How long the standby waits without receiving a message from the primary
    * before terminating the WAL receiver connection.
@@ -187,12 +189,15 @@ export interface WaitForLSNRequest {
   timeout?: Duration | undefined;
 }
 
-export interface WaitForLSNResponse {}
+export interface WaitForLSNResponse {
+}
 
 /** Start PostgreSQL replication (calls pg_wal_replay_resume) */
-export interface StartReplicationRequest {}
+export interface StartReplicationRequest {
+}
 
-export interface StartReplicationResponse {}
+export interface StartReplicationResponse {
+}
 
 /** SetPrimaryConnInfo sets the primary connection info for a standby server */
 export interface SetPrimaryConnInfoRequest {
@@ -200,7 +205,9 @@ export interface SetPrimaryConnInfoRequest {
    * Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
    * The postgres port is extracted from port_map["postgres"].
    */
-  primary?: MultiPooler | undefined;
+  primary?:
+    | MultiPooler
+    | undefined;
   /** Whether to stop replication before making changes */
   stop_replication_before: boolean;
   /** Whether to start replication after making changes */
@@ -211,7 +218,8 @@ export interface SetPrimaryConnInfoRequest {
   force: boolean;
 }
 
-export interface SetPrimaryConnInfoResponse {}
+export interface SetPrimaryConnInfoResponse {
+}
 
 /** StopReplication stops WAL replay on standby */
 export interface StopReplicationRequest {
@@ -271,9 +279,13 @@ export interface Status {
   /** Pooler type from topology (PRIMARY or REPLICA) */
   pooler_type: PoolerType;
   /** Primary status information (only populated if pooler is acting as primary AND db is connected) */
-  primary_status?: PrimaryStatus | undefined;
+  primary_status?:
+    | PrimaryStatus
+    | undefined;
   /** Replication status information (only populated if pooler is acting as standby AND db is connected) */
-  replication_status?: StandbyReplicationStatus | undefined;
+  replication_status?:
+    | StandbyReplicationStatus
+    | undefined;
   /** Whether this pooler has been initialized (has data directory and multigres schema) */
   is_initialized: boolean;
   /** Whether data directory exists */
@@ -304,7 +316,9 @@ export interface Status {
    * How long the current action has been running.
    * Only meaningful when postgres_action != UNSPECIFIED.
    */
-  postgres_action_duration?: Duration | undefined;
+  postgres_action_duration?:
+    | Duration
+    | undefined;
   /**
    * Cohort members from the most recent multigres.rule_history record.
    * Empty if the table has no records or the database is unreachable.
@@ -321,10 +335,13 @@ export interface Status {
 }
 
 /** Status gets unified status that works for both PRIMARY and REPLICA poolers */
-export interface StatusRequest {}
+export interface StatusRequest {
+}
 
 export interface StatusResponse {
-  status?: Status | undefined;
+  status?:
+    | Status
+    | undefined;
   /**
    * Availability status for nodes that are or have been primary. Wraps
    * LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
@@ -334,7 +351,9 @@ export interface StatusResponse {
    * equal the coordinator term of the committed rule (via ConsensusStatus)
    * to ensure signals from previous election cycles are ignored.
    */
-  availability_status?: AvailabilityStatus | undefined;
+  availability_status?:
+    | AvailabilityStatus
+    | undefined;
   /**
    * ConsensusStatus snapshot for this pooler. Used by multiorch to derive the
    * primary term (via commonconsensus.PrimaryTerm) and to detect divergence
@@ -351,7 +370,9 @@ export interface StatusResponse {
  */
 export interface ManagerHealthStreamClientMessage {
   /** Sent once at stream open to identify the orchestrator. */
-  start?: ManagerHealthStreamStartRequest | undefined;
+  start?:
+    | ManagerHealthStreamStartRequest
+    | undefined;
   /**
    * Requests an immediate health snapshot from the pooler.
    * Used by the orchestrator to trigger fresh state on demand (e.g. in tests).
@@ -369,7 +390,9 @@ export interface ManagerHealthStreamStartRequest {
    * a snapshot when no state-change broadcast has occurred.
    * Zero means use the server default (currently 5s).
    */
-  snapshot_interval?: Duration | undefined;
+  snapshot_interval?:
+    | Duration
+    | undefined;
   /**
    * staleness_timeout is the window after which the client will treat
    * the stream as stale and reconnect. The server echoes the actual value it
@@ -384,7 +407,8 @@ export interface ManagerHealthStreamStartRequest {
  * ManagerHealthStreamPollRequest triggers an immediate health snapshot.
  * The message carries no payload; its presence on the stream is the signal.
  */
-export interface ManagerHealthStreamPollRequest {}
+export interface ManagerHealthStreamPollRequest {
+}
 
 /**
  * ManagerHealthStreamStartResponse is the first message the server sends after
@@ -393,7 +417,9 @@ export interface ManagerHealthStreamPollRequest {}
  */
 export interface ManagerHealthStreamStartResponse {
   /** snapshot_interval is the per-stream proactive snapshot interval. */
-  snapshot_interval?: Duration | undefined;
+  snapshot_interval?:
+    | Duration
+    | undefined;
   /**
    * staleness_timeout is the staleness window that will be echoed in
    * every subsequent ManagerHealthSnapshot.timeout_seconds.
@@ -408,7 +434,9 @@ export interface ManagerHealthStreamStartResponse {
  */
 export interface ManagerHealthStreamResponse {
   /** Sent once immediately after the start message is received. */
-  start?: ManagerHealthStreamStartResponse | undefined;
+  start?:
+    | ManagerHealthStreamStartResponse
+    | undefined;
   /** Full health snapshot, sent on connection, state change, poll, or heartbeat. */
   snapshot?: ManagerHealthSnapshot | undefined;
 }
@@ -420,13 +448,17 @@ export interface ManagerHealthStreamResponse {
  */
 export interface ManagerHealthSnapshot {
   /** Full health state of the pooler. */
-  status?: StatusResponse | undefined;
+  status?:
+    | StatusResponse
+    | undefined;
   /**
    * The duration the orchestrator should use to detect a stale or dead stream.
    * If no message is received within this duration, the pooler should be marked
    * unhealthy.
    */
-  timeout?: Duration | undefined;
+  timeout?:
+    | Duration
+    | undefined;
   /** Why this snapshot was sent. Useful for diagnostics and testing. */
   trigger: SnapshotTrigger;
 }
@@ -443,7 +475,9 @@ export interface EmergencyDemoteRequest {
    */
   consensus_term: number;
   /** Drain timeout - how long to wait for in-flight queries (default: 5s) */
-  drain_timeout?: Duration | undefined;
+  drain_timeout?:
+    | Duration
+    | undefined;
   /** Force the operation even if term validation fails */
   force: boolean;
 }
@@ -468,7 +502,9 @@ export interface EmergencyDemoteResponse {
  */
 export interface DemoteStalePrimaryRequest {
   /** Source multipooler (the correct primary) to rewind to */
-  source?: MultiPooler | undefined;
+  source?:
+    | MultiPooler
+    | undefined;
   /** Consensus term from the correct primary */
   consensus_term: number;
   /** Force the operation even if term validation fails */
@@ -508,7 +544,9 @@ export interface PromoteRequest {
    * Synchronous replication configuration to apply after promotion
    * This rewires the cohort for the new topology
    */
-  sync_replication_config?: ConfigureSynchronousReplicationRequest | undefined;
+  sync_replication_config?:
+    | ConfigureSynchronousReplicationRequest
+    | undefined;
   /**
    * Force the operation even if term validation fails
    * Should only be used in recovery scenarios
@@ -517,7 +555,9 @@ export interface PromoteRequest {
   /** Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap") */
   reason: string;
   /** Coordinator ID that ran this election */
-  coordinator_id?: ID | undefined;
+  coordinator_id?:
+    | ID
+    | undefined;
   /** List of poolers that were in the cohort */
   cohort_members: ID[];
   /** List of poolers that accepted the term during BeginTerm */
@@ -554,7 +594,8 @@ export interface ConfigureSynchronousReplicationRequest {
   force: boolean;
 }
 
-export interface ConfigureSynchronousReplicationResponse {}
+export interface ConfigureSynchronousReplicationResponse {
+}
 
 /** UpdateSynchronousStandbyList updates the synchronous standby list */
 export interface UpdateSynchronousStandbyListRequest {
@@ -575,7 +616,8 @@ export interface UpdateSynchronousStandbyListRequest {
   coordinator_id?: ID | undefined;
 }
 
-export interface UpdateSynchronousStandbyListResponse {}
+export interface UpdateSynchronousStandbyListResponse {
+}
 
 /** BackupRequest requests a backup */
 export interface BackupRequest {
@@ -627,7 +669,8 @@ export interface RestoreFromBackupRequest {
 }
 
 /** RestoreFromBackupResponse contains the result of a restore operation */
-export interface RestoreFromBackupResponse {}
+export interface RestoreFromBackupResponse {
+}
 
 /** GetBackupsRequest requests backup information */
 export interface GetBackupsRequest {
@@ -743,4 +786,5 @@ export interface SetPostgresRestartsEnabledRequest {
  * SetMonitorResponse confirms monitoring was updated
  * Errors are returned via gRPC status codes, not in the response body
  */
-export interface SetPostgresRestartsEnabledResponse {}
+export interface SetPostgresRestartsEnabledResponse {
+}

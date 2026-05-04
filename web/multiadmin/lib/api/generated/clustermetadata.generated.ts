@@ -132,7 +132,9 @@ export interface Database {
   /** Name of the database */
   name: string;
   /** Backup location configuration */
-  backup_location?: BackupLocation | undefined;
+  backup_location?:
+    | BackupLocation
+    | undefined;
   /** List of cell identifiers where this database should be deployed */
   cells: string[];
   /**
@@ -149,7 +151,9 @@ export interface Database {
  */
 export interface ShardInitClaim {
   /** The coordinator that claimed this shard initialization. */
-  claimer_id?: ID | undefined;
+  claimer_id?:
+    | ID
+    | undefined;
   /**
    * The cohort of poolers the claimer will use for initial leader appointment.
    * Persisted so that a crash-retry uses the same cohort for idempotency.
@@ -199,7 +203,9 @@ export interface S3Backup {
 /** MultiPooler represents metadata about a running multipooler component instance in the cluster. */
 export interface MultiPooler {
   /** id is the unique identifier of the multipooler in the cluster. */
-  id?: ID | undefined;
+  id?:
+    | ID
+    | undefined;
   /** Database name. */
   database: string;
   /** TableGroup name. */
@@ -210,7 +216,9 @@ export interface MultiPooler {
    */
   shard: string;
   /** If range based sharding is used, range for the pooler's shard. */
-  key_range?: KeyRange | undefined;
+  key_range?:
+    | KeyRange
+    | undefined;
   /** PoolerType is the kind of pooler: PRIMARY or REPLICA */
   type: PoolerType;
   /** PoolerServingStatus is the current type of the pooler. */
@@ -236,7 +244,9 @@ export interface MultiPooler_PortMapEntry {
 /** MultiGateway represents metadata about a running multigateway component instance in the cluster. */
 export interface MultiGateway {
   /** id is the unique name of the multi gateway in the cluster. */
-  id?: ID | undefined;
+  id?:
+    | ID
+    | undefined;
   /** Fully qualified domain name of the host. */
   hostname: string;
   /** Map of named ports. Normally this should include postgres and grpc. */
@@ -256,7 +266,9 @@ export interface MultiGateway_PortMapEntry {
 /** MultiOrch represents information about a running instance of multiorch. */
 export interface MultiOrch {
   /** id is the unique name of the MultiOrch in the cluster. */
-  id?: ID | undefined;
+  id?:
+    | ID
+    | undefined;
   /** Fully qualified domain name of the host. */
   hostname: string;
   /** Map of named ports. These are ports that MultiOrc exposes. */
@@ -347,7 +359,9 @@ export interface RuleNumber {
  * them.
  */
 export interface ShardRule {
-  rule_number?: RuleNumber | undefined;
+  rule_number?:
+    | RuleNumber
+    | undefined;
   /**
    * The consensus leader for this rule, through which all transactions (including rules) are
    * written to the WAL.
@@ -355,9 +369,13 @@ export interface ShardRule {
   leader_id?: ID | undefined;
   cohort_members: ID[];
   /** What nodes need to acknowledge a write before it's considered durable. */
-  durability_policy?: DurabilityPolicy | undefined;
+  durability_policy?:
+    | DurabilityPolicy
+    | undefined;
   /** Which coordinator or pooler facilitated applying the rule. */
-  coordinator_id?: ID | undefined;
+  coordinator_id?:
+    | ID
+    | undefined;
   /**
    * At what time the coordinator or pooler began trying to apply the rule,
    * from the coordinator's perspective.
@@ -379,7 +397,9 @@ export interface ShardRule {
  */
 export interface PoolerPosition {
   /** The highest shard rule this pooler has committed to local WAL. */
-  rule?: ShardRule | undefined;
+  rule?:
+    | ShardRule
+    | undefined;
   /**
    * The current real-time WAL head at the time of reading. Note that this is likely
    * beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
@@ -441,7 +461,9 @@ export interface TermRevocation {
    * Retained for idempotency: the same coordinator at the same term is re-accepted;
    * a different coordinator at the same term is refused.
    */
-  accepted_coordinator_id?: ID | undefined;
+  accepted_coordinator_id?:
+    | ID
+    | undefined;
   /**
    * When the coordinator created this term, set by the coordinator before
    * recruiting. All poolers that accept the same recruitment store the same value.
@@ -469,18 +491,24 @@ export interface TermRevocation {
  */
 export interface ConsensusStatus {
   /** term_revocation records the highest coordinator term this pooler has revoked for. */
-  term_revocation?: TermRevocation | undefined;
+  term_revocation?:
+    | TermRevocation
+    | undefined;
   /**
    * current_position is the highest rule this pooler has committed to local WAL
    * and the latest WAL position.
    */
-  current_position?: PoolerPosition | undefined;
+  current_position?:
+    | PoolerPosition
+    | undefined;
   /**
    * highest_known_rule is the most recent rule this pooler is aware of. May be
    * ahead of current_position when the pooler has forward knowledge of an
    * upcoming rule that has not yet been replicated or written.
    */
-  highest_known_rule?: HighestKnownRule | undefined;
+  highest_known_rule?:
+    | HighestKnownRule
+    | undefined;
   /**
    * id identifies the pooler that produced this status. Makes ConsensusStatus
    * self-describing when passed around without a surrounding envelope.

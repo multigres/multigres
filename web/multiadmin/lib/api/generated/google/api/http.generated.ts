@@ -308,22 +308,34 @@ export interface HttpRule {
    * Maps to HTTP GET. Used for listing and getting information about
    * resources.
    */
-  get?: string | undefined;
+  get?:
+    | string
+    | undefined;
   /** Maps to HTTP PUT. Used for replacing a resource. */
-  put?: string | undefined;
+  put?:
+    | string
+    | undefined;
   /** Maps to HTTP POST. Used for creating a resource or performing an action. */
-  post?: string | undefined;
+  post?:
+    | string
+    | undefined;
   /** Maps to HTTP DELETE. Used for deleting a resource. */
-  delete?: string | undefined;
+  delete?:
+    | string
+    | undefined;
   /** Maps to HTTP PATCH. Used for updating a resource. */
-  patch?: string | undefined;
+  patch?:
+    | string
+    | undefined;
   /**
    * The custom pattern is used for specifying an HTTP method that is not
    * included in the `pattern` field, such as HEAD, or "*" to leave the
    * HTTP method unspecified for this rule. The wild-card rule is useful
    * for services that provide content to Web (HTML) clients.
    */
-  custom?: CustomHttpPattern | undefined;
+  custom?:
+    | CustomHttpPattern
+    | undefined;
   /**
    * The name of the request field whose value is mapped to the HTTP request
    * body, or `*` for mapping all request fields not captured by the path
