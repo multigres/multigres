@@ -118,7 +118,7 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 }
 
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
@@ -531,7 +531,7 @@ func TestBeginTerm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
@@ -588,7 +588,7 @@ func TestBeginTerm(t *testing.T) {
 	// Run save failure tests
 	for _, tt := range saveFailureTests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
@@ -792,7 +792,7 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 			require.NoError(t, err)
 
 			// Set initial term
-			ctx := context.Background()
+			ctx := t.Context()
 			ctx = setActionLockHeld(ctx)
 			if tt.initialTerm > 0 {
 				err = cs.UpdateTermAndSave(ctx, tt.initialTerm)
@@ -871,7 +871,7 @@ func TestConsensusStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			frs := &fakeRuleStore{pos: tt.fakePos}
 			pm, _ := setupManagerWithMockDB(t, mock.NewQueryService(), frs)
@@ -1067,7 +1067,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 			t.Cleanup(func() { ts.Close() })
@@ -1451,7 +1451,7 @@ func TestRecruit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			mockQueryService := mock.NewQueryService()
 			tt.setupMocks(mockQueryService)
@@ -1833,7 +1833,7 @@ func TestPropose(t *testing.T) {
 			expectErrContains: "not in standby mode",
 		},
 		{
-			// primary_conninfo is set (Prose may have already succeeded):
+			// primary_conninfo is set (Propose may have already succeeded):
 			// caught by the standby-state precondition check.
 			name:        "ProposeFails_PrimaryConninfoSet",
 			initialTerm: recruitedTerm,
@@ -1903,7 +1903,7 @@ func TestPropose(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			mockQueryService := mock.NewQueryService()
 			tt.setupMocks(mockQueryService)
