@@ -242,8 +242,10 @@ func stripQuotes(value string) string {
 }
 
 // ReadPostgresServerConfig populates pgConfig from postgresql.conf at
-// pgConfig.Path, following postgres include directives so the in-memory struct
-// matches what postgres will load at runtime.
+// pgConfig.Path. include / include_if_exists / include_dir directives are
+// followed recursively (an included file may itself include further files), up
+// to maxIncludeDepth, so the in-memory struct matches what postgres will load
+// at runtime.
 func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Duration) (*PostgresServerConfig, error) {
 	f, err := os.Open(pgConfig.Path)
 	if waitTime != 0 {

@@ -431,12 +431,12 @@ timeout: 30
 	require.NoError(t, err)
 }
 
-// TestExtraPostgresConfWithInclude validates --extra-postgres-conf end-to-end:
+// TestPgInitdbExtraConfWithInclude validates --pg-initdb-extra-conf end-to-end:
 // the extra file uses postgres' `include` directive to point at a separate
 // overrides file, and the running server reports the override values via SHOW.
 // This exercises both pgctld's append step at init and postgres' own include
 // resolution at startup.
-func TestExtraPostgresConfWithInclude(t *testing.T) {
+func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration tests in short mode")
 	}
@@ -467,7 +467,7 @@ func TestExtraPostgresConfWithInclude(t *testing.T) {
 	initCmd := executil.Command(t.Context(), "pgctld", "init",
 		"--pooler-dir", dataDir,
 		"--pg-port", strconv.Itoa(port),
-		"--extra-postgres-conf", extra,
+		"--pg-initdb-extra-conf", extra,
 	)
 	setupTestEnv(initCmd, dataDir)
 	initOut, err := initCmd.CombinedOutput()
