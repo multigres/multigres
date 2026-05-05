@@ -395,6 +395,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 		poolerType         clustermetadatapb.PoolerType
 		primaryTerm        int64
 		resignedLeaderTerm int64
+		inconsistentGUC    bool
 		expectedAction     remedialAction
 	}{
 		{
@@ -516,6 +517,17 @@ func TestDetermineRemedialAction(t *testing.T) {
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
 		},
+		{
+			name: "postgres_primary_with_stale_guc",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       true,
+			},
+			poolerType:      clustermetadatapb.PoolerType_PRIMARY,
+			inconsistentGUC: true,
+			expectedAction:  remedialActionReconcileGUC,
+		},
 	}
 
 	for _, tt := range tests {
@@ -527,6 +539,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			}
 			pm.consensusState = NewConsensusState("", nil)
 			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
+			pm.rules = &fakeRuleStore{inconsistentGUC: tt.inconsistentGUC}
 			tt.state.primaryTerm = tt.primaryTerm
 
 			got := pm.determineRemedialAction(tt.state)

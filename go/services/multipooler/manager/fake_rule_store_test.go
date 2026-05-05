@@ -60,12 +60,13 @@ func (noopSyncStandbyManager) NeedsApply(_ commonconsensus.PolicyWithCohort) (bo
 // the sequence is exhausted. This is useful for simulating a position that
 // changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu          sync.Mutex
-	pos         *clustermetadatapb.PoolerPosition
-	posSequence []*clustermetadatapb.PoolerPosition
-	observeErr  error
-	updateErr   error
-	updates     []*ruleUpdateBuilder
+	mu              sync.Mutex
+	pos             *clustermetadatapb.PoolerPosition
+	posSequence     []*clustermetadatapb.PoolerPosition
+	observeErr      error
+	updateErr       error
+	updates         []*ruleUpdateBuilder
+	inconsistentGUC bool
 }
 
 func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
@@ -104,6 +105,14 @@ func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder)
 	}
 	return f.pos, nil
 }
+
+func (f *fakeRuleStore) hasInconsistentGUC() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inconsistentGUC
+}
+
+func (f *fakeRuleStore) reconcileGUC(_ context.Context, _ bool) error { return nil }
 
 // assertPromoteRecorded asserts that exactly one updateRule call was made with
 // eventType "promotion" and returns the update so callers can inspect its fields.

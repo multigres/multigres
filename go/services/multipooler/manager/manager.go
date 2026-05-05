@@ -1574,6 +1574,7 @@ const (
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
 	remedialActionCreateFirstBackup
+	remedialActionReconcileGUC
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1772,7 +1773,11 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 				return remedialActionAdjustTypeToReplica
 			}
 		}
-		return remedialActionNone // Pooler type already matches
+		// Pooler type already matches; check for a stale GUC that needs re-applying.
+		if pm.rules.hasInconsistentGUC() {
+			return remedialActionReconcileGUC
+		}
+		return remedialActionNone
 	}
 
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
@@ -1886,6 +1891,13 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			if err := pm.restoreAndStartPostgres(ctx); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 			}
+		}
+
+	case remedialActionReconcileGUC:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
+		if err := pm.rules.reconcileGUC(ctx, !state.isPrimary); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
 		}
 	}
 }
