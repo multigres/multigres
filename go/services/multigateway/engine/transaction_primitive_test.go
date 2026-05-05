@@ -207,6 +207,32 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	require.True(t, state.TxnStartTime.IsZero(), "COMMIT should clear TxnStartTime")
 }
 
+// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
+// failed state, so any SET / RESET issued before the failure must revert.
+// Verify the gateway matches: COMMIT in TxnStatusFailed restores
+// SessionSettings from the BEGIN-level snapshot.
+func TestTransactionPrimitive_Commit_FailedTxn_RevertsSessionSettings(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	state := handler.NewMultiGatewayConnectionState()
+	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.BeginTransaction()
+	state.SetSessionVariable("datestyle", "German")
+
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.NoError(t, err)
+	v, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "ISO, MDY", v, "COMMIT on aborted txn must revert SET like ROLLBACK")
+	require.Equal(t, 0, state.SavepointDepth())
+}
+
 func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	conn := newTxTestConn()

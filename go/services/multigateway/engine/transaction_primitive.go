@@ -152,9 +152,16 @@ func (t *TransactionPrimitive) executeCommit(
 ) error {
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
-	// Drop the savepoint stack and clear SET LOCAL overrides; current values
-	// of non-LOCAL SETs become persistent session state.
-	state.CommitTransaction()
+	// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
+	// failed state, so SET / RESET issued before the failure must revert
+	// rather than persist. For a healthy COMMIT, drop the savepoint stack and
+	// clear SET LOCAL overrides — current values of non-LOCAL SETs become
+	// persistent session state.
+	if conn.TxnStatus() == protocol.TxnStatusFailed {
+		state.RollbackTransaction()
+	} else {
+		state.CommitTransaction()
+	}
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
