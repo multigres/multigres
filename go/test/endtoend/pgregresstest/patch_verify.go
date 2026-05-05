@@ -250,25 +250,14 @@ func applyPatch(ctx context.Context, original []byte, patchPath string) ([]byte,
 	return os.ReadFile(dstPath)
 }
 
-// normalizeWhitespace canonicalises whitespace inside `input` so byte-level
-// comparison is stable across platforms. Each line gets:
-//   - all runs of `[ \t]+` collapsed to a single space;
-//   - leading and trailing whitespace stripped.
-//
-// Newlines are preserved as separators. Trailing newlines on the file are
+// normalizeWhitespace canonicalises whitespace so byte-level comparison is
+// stable across platforms. Each line has runs of `[ \t]+` collapsed to a
+// single space and leading/trailing whitespace stripped. Newlines are
 // preserved.
 //
-// Why this exists: in practice, patches generated against psql output on
-// macOS (BSD diff) drift when verified on Linux (GNU diff). PR #952 surfaced
-// this when locally-generated patches for `sqljson_queryfuncs` and
-// `sqljson_jsontable` passed locally but produced residual hunks in CI —
-// most visibly caret-position lines under `LINE N:` error blocks where the
-// only difference between the two sides was the amount of leading whitespace.
-// Both diff implementations document `-b` as ignoring whitespace amount, so
-// the exact behavioral divergence is undocumented and possibly version- or
-// edge-case specific; rather than trace it down, we sidestep it by doing
-// the whitespace canonicalisation here in Go and invoking plain `diff -U3`
-// against bytes that have no whitespace ambiguity left to resolve.
+// Why: BSD diff (macOS) and GNU diff (Linux) drift on `-b` for some
+// whitespace-only changes. Normalising here lets us drop `-b` and invoke
+// plain `diff -U3` against bytes with no whitespace ambiguity left.
 func normalizeWhitespace(input []byte) []byte {
 	if len(input) == 0 {
 		return input
