@@ -512,7 +512,7 @@ func (c *Coordinator) EstablishLeadership(
 			cohortIDs = append(cohortIDs, p.MultiPooler.Id)
 		}
 	}
-	leaderCfg, err := policy.BuildLeaderDurabilityPostgresConfig(c.logger, cohortIDs, candidate.MultiPooler.Id)
+	leaderCfg, err := policy.BuildSyncReplicationConfig(c.logger, cohortIDs, candidate.MultiPooler.Id)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
@@ -521,7 +521,7 @@ func (c *Coordinator) EstablishLeadership(
 	// is a bug, not a legitimate "no config needed" signal — refuse to proceed.
 	if leaderCfg == nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			"BuildLeaderDurabilityPostgresConfig returned nil config without error")
+			"BuildSyncReplicationConfig returned nil config without error")
 	}
 	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
 		SynchronousCommit: leaderCfg.SyncCommit,

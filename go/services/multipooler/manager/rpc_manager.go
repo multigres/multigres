@@ -485,7 +485,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 // The caller must hold the action lock.
 func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	ctx context.Context,
-	cfg *commonconsensus.LeaderDurabilityPostgresConfig,
+	cfg *commonconsensus.SyncReplicationConfig,
 ) error {
 	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
 	if err != nil {

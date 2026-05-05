@@ -220,7 +220,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 	}
 }
 
-func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
+func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 	logger := testLogger()
 
 	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp1", "cell-b"),
 			id("mp2", "cell-c"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
@@ -249,7 +249,7 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp2", "us-west-1b"),
 			id("mp3", "us-west-1c"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 1, cfg.NumSync)
@@ -270,7 +270,7 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp4", "cell-c"),
 			id("mp5", "cell-d"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync)
@@ -289,11 +289,9 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp2", "us-west-1a"),
 			id("mp3", "us-west-1a"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
-		require.Error(t, err)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.Nil(t, cfg)
-		require.Contains(t, err.Error(), "no eligible standbys in different cells")
-		require.Contains(t, err.Error(), "leader_cell=us-west-1a")
+		require.EqualError(t, err, "cannot establish synchronous replication: no eligible standbys in different cells (primary_cell=us-west-1a)")
 	})
 
 	t.Run("insufficient different-cell standbys returns error", func(t *testing.T) {
@@ -305,12 +303,9 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp2", "cell-a"), // excluded
 			id("mp3", "cell-b"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
-		require.Error(t, err)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.Nil(t, cfg)
-		require.Contains(t, err.Error(), "insufficient different-cell standbys")
-		require.Contains(t, err.Error(), "required 3 standbys")
-		require.Contains(t, err.Error(), "available 1")
+		require.EqualError(t, err, "cannot establish synchronous replication: insufficient different-cell standbys (required 3 standbys, available 1)")
 	})
 
 	t.Run("N=2 with 3 different-cell standbys includes all", func(t *testing.T) {
@@ -322,7 +317,7 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			id("mp2", "us-west-1b"),
 			id("mp3", "us-west-1c"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 1, cfg.NumSync, "num_sync should be N-1")
@@ -340,7 +335,7 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 			leader,
 			id("mp1", "cell-b"),
 		}
-		cfg, err := p.BuildLeaderDurabilityPostgresConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)

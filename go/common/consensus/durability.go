@@ -64,13 +64,12 @@ type DurabilityPolicy interface {
 	//     commit outside our recruitment.
 	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
 
-	// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config
-	// the new primary must apply to satisfy this policy's durability
-	// obligations.
+	// BuildSyncReplicationConfig returns the Postgres-level config the primary
+	// must apply to satisfy this policy's durability obligations.
 	//
 	// cohort is the full set of poolers participating in the term, including
-	// the leader. The method derives the eligible standby set per policy
-	// (e.g., MultiCellPolicy excludes the leader's cell). Passing the full
+	// the primary. The method derives the eligible standby set per policy
+	// (e.g., MultiCellPolicy excludes the primary's cell). Passing the full
 	// cohort keeps the caller-side contract simple.
 	//
 	// On success the config is always non-nil — every promotion explicitly
@@ -82,24 +81,24 @@ type DurabilityPolicy interface {
 	// dropping any stale sync configuration the new primary may have
 	// inherited from a prior role. Returns an error when the cohort cannot
 	// satisfy the policy's num_sync requirement.
-	BuildLeaderDurabilityPostgresConfig(
+	BuildSyncReplicationConfig(
 		logger *slog.Logger,
 		cohort []*clustermetadatapb.ID,
-		leader *clustermetadatapb.ID,
-	) (*LeaderDurabilityPostgresConfig, error)
+		primary *clustermetadatapb.ID,
+	) (*SyncReplicationConfig, error)
 
 	// Description returns a human-readable summary of the policy.
 	Description() string
 }
 
-// LeaderDurabilityPostgresConfig is the Postgres-level configuration a new
-// leader must apply to satisfy a durability policy.
+// SyncReplicationConfig is the Postgres-level configuration a primary must
+// apply to satisfy a durability policy.
 //
 // It captures only the durability-meaningful outputs of the policy — the
 // commit level, the standby acknowledgement method, the count, and the
 // eligible standby set. RPC plumbing concerns (reload-vs-restart, etc.) live
 // at the call site that translates this into a wire request.
-type LeaderDurabilityPostgresConfig struct {
+type SyncReplicationConfig struct {
 	SyncCommit     multipoolermanagerdatapb.SynchronousCommitLevel
 	SyncMethod     multipoolermanagerdatapb.SynchronousMethod
 	NumSync        int
@@ -160,6 +159,111 @@ func cohortIntersect(cohort []*clustermetadatapb.ID, statuses []*clustermetadata
 		}
 	}
 	return result
+}
+
+// PolicyWithCohort bundles a DurabilityPolicy with the cohort it applies to.
+type PolicyWithCohort struct {
+	Policy DurabilityPolicy
+	Cohort []*clustermetadatapb.ID
+}
+
+// NewPolicyWithCohort constructs a PolicyWithCohort from a proto DurabilityPolicy and cohort.
+// Returns an error if the proto cannot be converted to a concrete policy implementation.
+func NewPolicyWithCohort(cohort []*clustermetadatapb.ID, dp *clustermetadatapb.DurabilityPolicy) (PolicyWithCohort, error) {
+	policy, err := NewPolicyFromProto(dp)
+	if err != nil {
+		return PolicyWithCohort{}, fmt.Errorf("invalid durability policy: %w", err)
+	}
+	return PolicyWithCohort{Policy: policy, Cohort: cohort}, nil
+}
+
+// PolicyTransition holds the computed GUC policies for a leader-led rule change.
+// Both is applied before the WAL write, satisfying both the old and new policy
+// simultaneously. Incoming is applied after the WAL write.
+type PolicyTransition struct {
+	Both     PolicyWithCohort
+	Incoming PolicyWithCohort
+}
+
+// intersectStandbys returns the IDs from a that also appear in b.
+func intersectStandbys(a, b []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	bKeys := poolerKeysOf(b)
+	result := make([]*clustermetadatapb.ID, 0, len(a))
+	for _, id := range a {
+		if _, ok := bKeys[topoclient.ClusterIDString(id)]; ok {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// cohortIsSubsetOf reports whether every element of a appears in b.
+func cohortIsSubsetOf(a, b []*clustermetadatapb.ID) bool {
+	return len(intersectStandbys(a, b)) == len(a)
+}
+
+// BuildPolicyTransition computes the PolicyTransition for a leader-led rule
+// change where only N or the cohort changes, not both simultaneously.
+//
+// Returns an error for unsupported transitions: mixed policy types, both N and
+// cohort changing at once, or cohorts with no subset relationship.
+//
+// For same-N transitions Both uses the smaller cohort (the subset), ensuring any
+// ack satisfies both the old and new policy. For same-cohort transitions Both uses
+// the larger N, ensuring the WAL record is acknowledged under the stricter policy.
+// When outgoing and incoming are identical Both matches incoming.
+//
+// Both AtLeastNPolicy and MultiCellPolicy are supported; mixing the two types
+// returns an error.
+func BuildPolicyTransition(outgoing, incoming PolicyWithCohort) (*PolicyTransition, error) {
+	outN, outFamily := policyFamily(outgoing.Policy)
+	inN, inFamily := policyFamily(incoming.Policy)
+	if outFamily == "" || inFamily == "" {
+		return nil, fmt.Errorf("unsupported leader-led rule change: policies must be AtLeastN or MultiCellAtLeastN (got %T and %T)", outgoing.Policy, incoming.Policy)
+	}
+	if outFamily != inFamily {
+		return nil, fmt.Errorf("unsupported leader-led rule change: policy types must match (got %T and %T)", outgoing.Policy, incoming.Policy)
+	}
+
+	cohortSame := sameCohort(outgoing.Cohort, incoming.Cohort)
+	nSame := outN == inN
+
+	if cohortSame && nSame {
+		return &PolicyTransition{Both: incoming, Incoming: incoming}, nil
+	}
+	if !cohortSame && !nSame {
+		return nil, errors.New("unsupported leader-led rule change: both N and cohort changed simultaneously")
+	}
+
+	if nSame {
+		// Cohort changed: Both uses the subset cohort.
+		if cohortIsSubsetOf(incoming.Cohort, outgoing.Cohort) {
+			return &PolicyTransition{Both: incoming, Incoming: incoming}, nil
+		}
+		if cohortIsSubsetOf(outgoing.Cohort, incoming.Cohort) {
+			return &PolicyTransition{Both: outgoing, Incoming: incoming}, nil
+		}
+		return nil, errors.New("unsupported leader-led rule change: neither cohort is a subset of the other")
+	}
+
+	// Same cohort, N changed: Both uses the larger N.
+	if inN > outN {
+		return &PolicyTransition{Both: incoming, Incoming: incoming}, nil
+	}
+	return &PolicyTransition{Both: outgoing, Incoming: incoming}, nil
+}
+
+// policyFamily returns the RequiredCount and a string tag identifying the policy
+// family for AtLeastNPolicy and MultiCellPolicy. Returns (0, "") for unsupported types.
+func policyFamily(p DurabilityPolicy) (n int, family string) {
+	switch v := p.(type) {
+	case AtLeastNPolicy:
+		return v.N, "at_least_n"
+	case MultiCellPolicy:
+		return v.N, "multi_cell_at_least_n"
+	default:
+		return 0, ""
+	}
 }
 
 // sameCohort reports whether a and b represent the same set of pooler IDs.
