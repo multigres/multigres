@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -355,6 +356,28 @@ func (c *Config) PgSSLMode() (client.SSLMode, error) {
 // PostgreSQL server certificate. Empty unless the operator set it.
 func (c *Config) PgSSLRootCert() string {
 	return c.pgSSLRootCert.Get()
+}
+
+// ValidatePGSSL checks the libpq-style sslmode + sslrootcert flags at startup
+// so a typo or missing CA bundle aborts the multipooler before the connection
+// pool manager opens — preventing a silent downgrade to plaintext.
+//
+// host is the address the multipooler will dial postgres on (only used to
+// validate verify-full). Pass an empty host when the multipooler is configured
+// for a Unix socket; this function only runs the SSL validation when host is
+// non-empty.
+func (c *Config) ValidatePGSSL(host string) error {
+	if host == "" {
+		return nil
+	}
+	mode, err := client.ParseSSLMode(c.pgSSLMode.Get())
+	if err != nil {
+		return fmt.Errorf("--pg-client-sslmode: %w", err)
+	}
+	if _, err := client.BuildTLSConfig(mode, c.pgSSLRootCert.Get(), host); err != nil {
+		return fmt.Errorf("--pg-client-sslmode=%s: %w", mode, err)
+	}
+	return nil
 }
 
 // AdminCapacity returns the configured admin pool capacity.

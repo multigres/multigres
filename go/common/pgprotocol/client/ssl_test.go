@@ -40,7 +40,7 @@ func TestParseSSLMode(t *testing.T) {
 		{"disable", SSLModeDisable, false},
 		{"DISABLE", SSLModeDisable, false},
 		{"  prefer  ", SSLModePrefer, false},
-		{"allow", SSLModeAllow, false},
+		{"allow", "", true}, // not implemented; rejected to avoid silent disable-equivalent behavior
 		{"require", SSLModeRequire, false},
 		{"verify-ca", SSLModeVerifyCA, false},
 		{"verify-full", SSLModeVerifyFull, false},
@@ -68,7 +68,6 @@ func TestParseSSLMode(t *testing.T) {
 func TestSSLModeFlags(t *testing.T) {
 	tlsAttempts := map[SSLMode]bool{
 		SSLModeDisable:    false,
-		SSLModeAllow:      false,
 		SSLModePrefer:     true,
 		SSLModeRequire:    true,
 		SSLModeVerifyCA:   true,
@@ -76,7 +75,6 @@ func TestSSLModeFlags(t *testing.T) {
 	}
 	tlsRequired := map[SSLMode]bool{
 		SSLModeDisable:    false,
-		SSLModeAllow:      false,
 		SSLModePrefer:     false,
 		SSLModeRequire:    true,
 		SSLModeVerifyCA:   true,
@@ -94,15 +92,26 @@ func TestSSLModeFlags(t *testing.T) {
 	}
 }
 
-func TestBuildTLSConfig_DisableAndAllow(t *testing.T) {
-	for _, mode := range []SSLMode{SSLModeDisable, SSLModeAllow} {
-		got, err := BuildTLSConfig(mode, "", "")
-		if err != nil {
-			t.Fatalf("BuildTLSConfig(%s): unexpected error %v", mode, err)
-		}
-		if got != nil {
-			t.Errorf("BuildTLSConfig(%s) = %+v, want nil", mode, got)
-		}
+func TestBuildTLSConfig_Disable(t *testing.T) {
+	got, err := BuildTLSConfig(SSLModeDisable, "", "")
+	if err != nil {
+		t.Fatalf("BuildTLSConfig(disable): unexpected error %v", err)
+	}
+	if got != nil {
+		t.Errorf("BuildTLSConfig(disable) = %+v, want nil", got)
+	}
+}
+
+func TestBuildTLSConfig_AllowRejected(t *testing.T) {
+	if _, err := BuildTLSConfig(SSLModeAllow, "", ""); err == nil {
+		t.Error("BuildTLSConfig(allow): want error (mode not supported), got nil")
+	}
+}
+
+func TestBuildTLSConfig_VerifyFullRequiresHost(t *testing.T) {
+	caPath, _, _ := writeTestCA(t, "host.example")
+	if _, err := BuildTLSConfig(SSLModeVerifyFull, caPath, ""); err == nil {
+		t.Error("BuildTLSConfig(verify-full, host=\"\"): want error, got nil")
 	}
 }
 

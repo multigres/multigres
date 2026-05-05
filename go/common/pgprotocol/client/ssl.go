@@ -54,6 +54,11 @@ const (
 
 // ParseSSLMode parses the string form of an sslmode value.
 // Empty input returns SSLModePrefer (libpq default).
+//
+// SSLModeAllow is rejected: libpq's "allow" semantics require a
+// plaintext-then-TLS retry loop on a server-side rejection, which is not
+// implemented here. Accepting the string would silently behave like "disable",
+// breaking the libpq parity an operator would expect.
 func ParseSSLMode(s string) (SSLMode, error) {
 	switch SSLMode(strings.ToLower(strings.TrimSpace(s))) {
 	case "":
@@ -61,7 +66,7 @@ func ParseSSLMode(s string) (SSLMode, error) {
 	case SSLModeDisable:
 		return SSLModeDisable, nil
 	case SSLModeAllow:
-		return SSLModeAllow, nil
+		return "", errors.New("sslmode=allow is not supported (no plaintext→TLS retry loop); use disable or prefer")
 	case SSLModePrefer:
 		return SSLModePrefer, nil
 	case SSLModeRequire:
@@ -71,13 +76,11 @@ func ParseSSLMode(s string) (SSLMode, error) {
 	case SSLModeVerifyFull:
 		return SSLModeVerifyFull, nil
 	default:
-		return "", fmt.Errorf("invalid sslmode %q (want disable|allow|prefer|require|verify-ca|verify-full)", s)
+		return "", fmt.Errorf("invalid sslmode %q (want disable|prefer|require|verify-ca|verify-full)", s)
 	}
 }
 
 // AttemptsTLS reports whether the mode wants the SSLRequest negotiation step.
-// allow is omitted: it only attempts TLS after a plaintext rejection, which is
-// handled by the higher-level dial loop, not the SSLRequest path.
 func (m SSLMode) AttemptsTLS() bool {
 	switch m {
 	case SSLModePrefer, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
@@ -88,7 +91,7 @@ func (m SSLMode) AttemptsTLS() bool {
 }
 
 // RequiresTLS reports whether the mode must error if the server declines SSL.
-// prefer/allow are tolerant; the rest are not.
+// prefer is the only tolerant mode that reaches the negotiation path.
 func (m SSLMode) RequiresTLS() bool {
 	switch m {
 	case SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
@@ -100,19 +103,23 @@ func (m SSLMode) RequiresTLS() bool {
 
 // BuildTLSConfig constructs a *tls.Config matching libpq's sslmode semantics.
 //
-//   - disable/allow → returns (nil, nil); the dial path won't negotiate TLS for
-//     these modes (allow's plaintext-then-TLS retry is the dial-loop's job).
+//   - disable → returns (nil, nil); no TLS attempt.
 //   - prefer/require → encryption only, no certificate verification.
 //   - verify-ca → chain validated against rootCertPath; hostname not checked.
 //   - verify-full → chain validated and ServerName=host (SAN match, with CN
 //     fallback for libpq parity since Go's verifier removed CN matching in 1.17).
 //
-// rootCertPath is required for verify-ca / verify-full. host is the target
-// server hostname, used as ServerName under verify-full.
+// allow is rejected by ParseSSLMode and never reaches this function. host must
+// be non-empty for verify-full; if empty, the function returns an error rather
+// than silently building a config whose hostname check is guaranteed to fail.
+//
+// rootCertPath is required for verify-ca / verify-full.
 func BuildTLSConfig(mode SSLMode, rootCertPath, host string) (*tls.Config, error) {
 	switch mode {
-	case SSLModeDisable, SSLModeAllow:
+	case SSLModeDisable:
 		return nil, nil
+	case SSLModeAllow:
+		return nil, errors.New("sslmode=allow is not supported")
 	case SSLModePrefer, SSLModeRequire:
 		// libpq parity: require/prefer perform no cert verification — encryption only.
 		return &tls.Config{
@@ -120,6 +127,9 @@ func BuildTLSConfig(mode SSLMode, rootCertPath, host string) (*tls.Config, error
 			InsecureSkipVerify: true, //nolint:gosec // libpq parity: require/prefer perform no cert verification
 		}, nil
 	case SSLModeVerifyCA, SSLModeVerifyFull:
+		if mode == SSLModeVerifyFull && host == "" {
+			return nil, errors.New("sslmode=verify-full requires a non-empty host for SAN matching")
+		}
 		pool, err := loadCertPool(rootCertPath)
 		if err != nil {
 			return nil, err
