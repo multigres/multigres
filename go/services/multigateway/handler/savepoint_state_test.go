@@ -290,3 +290,51 @@ func TestConnectionState_RollbackToUnknown_NoOp(t *testing.T) {
 	require.Equal(t, "German", v, "no-op preserves current state")
 	require.Equal(t, 2, s.SavepointDepth())
 }
+
+// If a SAVEPOINT-style frame somehow lands on the stack outside a
+// transaction (e.g. driver issued SAVEPOINT before BEGIN, or implicit-txn
+// edge case), BeginTransaction must discard the stale frame and start a
+// fresh BEGIN-level frame so a later ROLLBACK reverts to the pre-BEGIN
+// value, not the pre-stale-savepoint value.
+func TestConnectionState_BeginAfterStaleSavepointFrame_DiscardsStale(t *testing.T) {
+	s := NewMultiGatewayConnectionState()
+	s.SetSessionVariable("datestyle", "ISO, MDY")
+
+	// Simulate a stray savepoint frame outside any transaction.
+	s.PushSavepoint("stale")
+	require.Equal(t, 1, s.SavepointDepth())
+
+	// Mutate after the stale frame but before BEGIN.
+	s.SetSessionVariable("datestyle", "German")
+
+	s.BeginTransaction()
+	require.Equal(t, 1, s.SavepointDepth(), "stale frame must be discarded; only BEGIN-level frame remains")
+	require.Equal(t, 1, s.statementTimeout.SnapshotDepth(), "variable snapshot stack stays in lockstep")
+
+	// SET inside the txn, then ROLLBACK.
+	s.SetSessionVariable("datestyle", "Postgres")
+	s.RollbackTransaction()
+
+	// Must revert to pre-BEGIN value ("German"), not pre-stale-savepoint ("ISO, MDY").
+	v, ok := s.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "German", v, "rollback must revert to value at BEGIN, not at stale savepoint")
+	require.Equal(t, 0, s.SavepointDepth())
+}
+
+// Genuine nested BEGIN must remain a no-op so we don't lose the original
+// BEGIN-level snapshot.
+func TestConnectionState_NestedBegin_PreservesOriginalFrame(t *testing.T) {
+	s := NewMultiGatewayConnectionState()
+	s.SetSessionVariable("datestyle", "ISO, MDY")
+
+	s.BeginTransaction()
+	s.SetSessionVariable("datestyle", "German")
+
+	s.BeginTransaction() // PG would emit a warning; we must not lose the frame.
+	require.Equal(t, 1, s.SavepointDepth())
+
+	s.RollbackTransaction()
+	v, _ := s.GetSessionVariable("datestyle")
+	require.Equal(t, "ISO, MDY", v, "rollback after nested BEGIN must still revert to original pre-BEGIN value")
+}

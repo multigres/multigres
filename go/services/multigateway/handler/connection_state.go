@@ -335,14 +335,19 @@ func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
 
 // BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
 // ROLLBACK can revert SET / RESET commands issued inside the transaction.
-// Idempotent if a frame is already on the stack — mirrors PostgreSQL's
-// "transaction already in progress" warning behavior for nested BEGIN.
+// A genuine nested BEGIN (depth-0 frame already present with name=="") is a
+// no-op, mirroring PostgreSQL's "transaction already in progress" warning.
+// Any other pre-existing frames are stale (e.g. a SAVEPOINT that somehow ran
+// outside a txn block); discard them and start a fresh BEGIN-level frame so
+// rollback semantics match the new transaction, not leftover state.
 func (m *MultiGatewayConnectionState) BeginTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.savepoints) > 0 {
+	if len(m.savepoints) > 0 && m.savepoints[0].name == "" {
 		return
 	}
+	m.savepoints = m.savepoints[:0]
+	m.statementTimeout.ClearSnapshots()
 	m.pushFrameLocked("")
 }
 
