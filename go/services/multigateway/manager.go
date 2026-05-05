@@ -25,8 +25,8 @@ import (
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	multigatewaymanagerpb "github.com/multigres/multigres/go/pb/multigatewaymanager"
 	multigatewaymanagerdatapb "github.com/multigres/multigres/go/pb/multigatewaymanagerdata"
-	"github.com/multigres/multigres/go/services/multigateway/internal/handler"
-	"github.com/multigres/multigres/go/services/multigateway/internal/handler/queryregistry"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
 
 // ManagerServer implements multigatewaymanagerpb.MultiGatewayManagerServer,
