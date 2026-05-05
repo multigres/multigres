@@ -73,8 +73,16 @@ type Config struct {
 	// Parameters are additional connection parameters.
 	Parameters map[string]string
 
+	// SSLMode controls libpq-style sslmode behavior on TCP connections.
+	// Empty string is treated as SSLModeDisable; only consulted when SocketFile
+	// is unset. The dial path uses this together with TLSConfig to decide
+	// whether to send SSLRequest, whether to fall back to plaintext on refusal,
+	// and which verification rules apply.
+	SSLMode SSLMode
+
 	// TLSConfig is the TLS configuration for SSL connections.
-	// Only used for TCP connections. If nil, SSL is not used.
+	// Only used for TCP connections. Pair with SSLMode; for prefer/require/
+	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.
 	TLSConfig *tls.Config
 
 	// DialTimeout is the timeout for establishing the connection.
