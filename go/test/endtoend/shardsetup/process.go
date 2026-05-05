@@ -87,6 +87,26 @@ type ProcessInstance struct {
 	// target database when InitDataDir runs on this pgctld instance.
 	InitDbSQLFiles []string
 
+	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets appended to
+	// the generated config at init time (pgctld --pg-initdb-extra-conf).
+	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
+	PgInitdbExtraConfFiles []string
+
+	// PgHbaTemplate is an alternate pg_hba.conf template path passed to pgctld
+	// via --pg-hba-template. Used by WithMultipoolerPGTLS to relax auth on
+	// 127.0.0.1 so the multipooler's per-user pools can dial over TLS without
+	// SCRAM passthrough plumbing.
+	PgHbaTemplate string
+
+	// SocketFile, PgClientSSLMode, and PgClientSSLRootCert configure the
+	// multipooler → postgres dial. SocketFile is set to the default Unix socket
+	// path during instance creation; setting it to the empty string forces a
+	// TCP dial against the multipooler's hostname so the libpq-style sslmode
+	// negotiation actually fires.
+	SocketFile          string
+	PgClientSSLMode     string
+	PgClientSSLRootCert string
+
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
 }
@@ -149,6 +169,14 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		args = append(args, "--init-db-sql-file", file)
 	}
 
+	for _, file := range p.PgInitdbExtraConfFiles {
+		args = append(args, "--pg-initdb-extra-conf", file)
+	}
+
+	if p.PgHbaTemplate != "" {
+		args = append(args, "--pg-hba-template", p.PgHbaTemplate)
+	}
+
 	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
@@ -173,9 +201,10 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, cell %s", p.Name, p.Binary, p.GrpcPort, p.Cell)
 
-	// Build command arguments
-	// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
-	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
+	// Build command arguments. p.SocketFile defaults to the standard Unix
+	// socket path during instance creation; tests that need to exercise the
+	// TCP path (e.g. PG TLS) clear it before Start to omit --socket-file and
+	// force a TCP dial.
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--http-port", strconv.Itoa(p.HttpPort),
@@ -185,7 +214,6 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.PoolerDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--socket-file", socketFile, // Unix socket for trust authentication
 		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
@@ -194,6 +222,15 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 		"--hostname", "localhost",
 		"--log-output", p.LogFile,
 		"--log-level", p.logLevelOrDefault(),
+	}
+	if p.SocketFile != "" {
+		args = append(args, "--socket-file", p.SocketFile)
+	}
+	if p.PgClientSSLMode != "" {
+		args = append(args, "--pg-client-sslmode", p.PgClientSSLMode)
+	}
+	if p.PgClientSSLRootCert != "" {
+		args = append(args, "--pg-client-sslrootcert", p.PgClientSSLRootCert)
 	}
 
 	// Add pgBackRest certificate paths and port if configured

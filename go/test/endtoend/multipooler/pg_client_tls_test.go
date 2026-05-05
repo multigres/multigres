@@ -14,46 +14,75 @@
 
 package multipooler
 
-import "testing"
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"testing"
+	"time"
 
-// TestPGClientTLS_VerifyFull is a scaffold for the MUL-370 integration test.
+	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+)
+
+// TestPGClientTLS_VerifyFull boots a shard where postgres is provisioned with
+// TLS via pgctld --pg-initdb-extra-conf and the multipooler dials it over
+// TCP with sslmode=verify-full. It then asserts that the connections
+// multipooler holds in its admin and per-user pools are actually encrypted by
+// inspecting pg_stat_ssl on the postgres side.
 //
-// Acceptance from MUL-370:
-//   - Multipooler connects to PG with each sslmode value; negotiation matches libpq.
-//   - verify-full rejects a server cert whose SAN/CN doesn't match the target hostname.
-//   - Integration test with a TLS-enabled PG instance.
-//
-// What's still missing before this can run:
-//
-//  1. shardsetup.WithMultipoolerPGTLS() option that:
-//     a. Generates a CA + server cert (CN=localhost, SAN=localhost) using
-//     provisioner/local.GenerateCA / GenerateCert (already used by the
-//     multigateway TLS test).
-//     b. Writes a postgresql.conf snippet enabling SSL:
-//     ssl = on
-//     ssl_cert_file = '<server.crt>'
-//     ssl_key_file  = '<server.key>'
-//     ssl_ca_file   = '<ca.crt>'
-//     c. Passes the snippet to pgctld via --pg-initdb-extra-conf so postgres
-//     starts with TLS enabled. Cert+key files must be readable by the
-//     postgres process (mode 0600 owned by the running user).
-//     d. Adds --pg-client-sslmode=verify-full and --pg-client-sslrootcert=<ca>
-//     to the multipooler argv.
-//
-//  2. The Unix-socket short-circuit in client/startup.go means the multipooler
-//     still has to dial postgres over TCP for TLS to be exercised. The fixture
-//     currently uses Unix sockets — switch this test to TCP via Host/Port on
-//     ConnectionConfig.
-//
-// Once those are in place, this test should:
-//
-//   - Boot the cluster with WithMultipoolerPGTLS().
-//   - Issue a SELECT 1 through the multipooler; assert success.
-//   - Inspect pg_stat_ssl on the postgres side to confirm the connection used
-//     SSL (ssl=true and the expected cipher).
-//   - Cover negative cases per sslmode: verify-full against a cert whose SAN
-//     doesn't match the host should fail at handshake; require should
-//     succeed; disable should round-trip plaintext.
+// This is the integration counterpart to the libpq-parity unit tests in
+// pgprotocol/client/ssl_test.go and exercises the wiring added for MUL-370.
 func TestPGClientTLS_VerifyFull(t *testing.T) {
-	t.Skip("MUL-370 follow-up: needs shardsetup WithMultipoolerPGTLS() option (PG-side TLS provisioning)")
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerPGTLS(),
+	)
+	defer cleanup()
+
+	require.NotNil(t, setup.MultipoolerPGTLSCertPaths, "expected PG TLS assets to be provisioned")
+
+	primary := setup.GetPrimary(t)
+	require.NotNil(t, primary, "expected a primary multipooler")
+
+	// Drive a query through the multipooler so it opens at least one regular
+	// pool connection to postgres. This is the connection we want to confirm
+	// went over TLS.
+	mpClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	require.NoError(t, err, "create multipooler client")
+	defer mpClient.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	_, err = mpClient.Pooler.ExecuteQuery(ctx, "SELECT 1", 1)
+	require.NoError(t, err, "SELECT 1 through multipooler")
+
+	// Open a direct admin connection to postgres (also over TLS) to read
+	// pg_stat_ssl. We trust the same CA the multipooler trusts and require
+	// verify-full, so this connection itself proves the postgres TLS listener
+	// is up before we even check pg_stat_ssl.
+	dsn := fmt.Sprintf(
+		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=verify-full sslrootcert=%s",
+		primary.Pgctld.PgPort,
+		shardsetup.TestPostgresPassword,
+		setup.MultipoolerPGTLSCertPaths.CACertFile,
+	)
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err, "open admin TLS connection")
+	defer db.Close()
+	require.NoError(t, db.PingContext(ctx), "ping postgres over TLS")
+
+	// pg_stat_ssl has one row per active backend. At least one — the
+	// multipooler connections we just exercised — must report ssl=true.
+	var sslBackends int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM pg_stat_ssl
+		WHERE ssl = true
+		  AND pid <> pg_backend_pid()
+	`).Scan(&sslBackends), "query pg_stat_ssl")
+
+	require.Greater(t, sslBackends, 0, "expected at least one TLS-encrypted multipooler backend in pg_stat_ssl")
 }
