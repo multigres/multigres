@@ -278,7 +278,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD)")
 
 	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
-	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|allow|prefer|require|verify-ca|verify-full (libpq parity)")
+	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
 	fs.String("pg-client-sslrootcert", c.pgSSLRootCert.Default(), "PEM CA bundle used to verify the PostgreSQL server certificate (required for verify-ca and verify-full)")
 
 	// Admin pool flags (shared across all users)
