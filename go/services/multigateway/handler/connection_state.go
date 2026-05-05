@@ -107,9 +107,25 @@ type MultiGatewayConnectionState struct {
 	// Parsed at SET time to avoid repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
 
+	// savepoints is the stack of per-savepoint snapshots driving GUC revert
+	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings;
+	// gateway-managed variables maintain parallel snapshot stacks of equal depth
+	// (lockstep invariant). Index 0, when present, is the BEGIN-level frame
+	// (name=""); indices 1+ correspond to user SAVEPOINTs.
+	savepoints []savepointFrame
+
 	// targetReplica is true when this connection arrived on the replica-reads
 	// listener port. Set once at connection initialization, never changed.
 	targetReplica bool
+}
+
+// savepointFrame snapshots the SessionSettings map at the moment a savepoint
+// (or BEGIN-level frame) was pushed. Gateway-managed variable snapshots live
+// on each variable directly; the depth on this stack and on each variable's
+// stack are always identical.
+type savepointFrame struct {
+	name            string
+	sessionSettings map[string]string
 }
 
 type ShardState struct {
@@ -281,6 +297,140 @@ func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout.ResetLocal()
+}
+
+// snapshotSessionSettingsLocked returns a copy of SessionSettings (or nil if
+// empty) for storing on a savepoint frame. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) snapshotSessionSettingsLocked() map[string]string {
+	if len(m.SessionSettings) == 0 {
+		return nil
+	}
+	cp := make(map[string]string, len(m.SessionSettings))
+	maps.Copy(cp, m.SessionSettings)
+	return cp
+}
+
+// findSavepointLocked returns the index of the most recent savepoint with the
+// given name (case-sensitive match — matching PostgreSQL's GUC behavior on
+// case-folded identifiers, which the parser already canonicalizes). Returns
+// -1 if not found. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) findSavepointLocked(name string) int {
+	for i := len(m.savepoints) - 1; i >= 0; i-- {
+		if m.savepoints[i].name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// pushFrameLocked snapshots SessionSettings and every gateway-managed variable
+// onto their respective stacks under the given savepoint name. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
+	m.savepoints = append(m.savepoints, savepointFrame{
+		name:            name,
+		sessionSettings: m.snapshotSessionSettingsLocked(),
+	})
+	m.statementTimeout.Snapshot()
+}
+
+// BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
+// ROLLBACK can revert SET / RESET commands issued inside the transaction.
+// Idempotent if a frame is already on the stack — mirrors PostgreSQL's
+// "transaction already in progress" warning behavior for nested BEGIN.
+func (m *MultiGatewayConnectionState) BeginTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) > 0 {
+		return
+	}
+	m.pushFrameLocked("")
+}
+
+// PushSavepoint snapshots state under the given savepoint name. Called after
+// the backend has accepted the SAVEPOINT command.
+func (m *MultiGatewayConnectionState) PushSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pushFrameLocked(name)
+}
+
+// ReleaseSavepoint drops the named savepoint frame and any frames above it,
+// keeping the current (in-memory) values. PostgreSQL's RELEASE merges any
+// state changes from the released sub-transaction into the parent scope.
+// If `name` is not on the stack, this is a no-op (the backend would have
+// already rejected the RELEASE).
+func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return
+	}
+	m.savepoints = m.savepoints[:idx]
+	m.statementTimeout.PopFrom(idx)
+}
+
+// RollbackToSavepoint restores SessionSettings and every gateway-managed
+// variable from the snapshot under `name`, popping any intermediate frames.
+// The named frame stays on the stack so a subsequent ROLLBACK TO `name` can
+// be issued again — matching PostgreSQL's behavior of leaving the savepoint
+// active after rollback.
+func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return
+	}
+	m.SessionSettings = nil
+	if m.savepoints[idx].sessionSettings != nil {
+		m.SessionSettings = make(map[string]string, len(m.savepoints[idx].sessionSettings))
+		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
+	}
+	m.savepoints = m.savepoints[:idx+1]
+	m.statementTimeout.RestoreFromDepth(idx)
+}
+
+// CommitTransaction drops all savepoint frames (current values become
+// persistent session state) and clears any SET LOCAL overrides on
+// gateway-managed variables — SET LOCAL doesn't survive transaction boundaries.
+func (m *MultiGatewayConnectionState) CommitTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.savepoints = nil
+	m.statementTimeout.ClearSnapshots()
+	m.statementTimeout.ResetLocal()
+}
+
+// RollbackTransaction reverts all SET / RESET commands issued inside the
+// transaction by restoring SessionSettings and every gateway-managed variable
+// from the BEGIN-level (depth 0) snapshot. If no transaction is in progress
+// (savepoints empty), this falls back to clearing local overrides only.
+func (m *MultiGatewayConnectionState) RollbackTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 {
+		m.statementTimeout.ResetLocal()
+		return
+	}
+	m.SessionSettings = nil
+	if m.savepoints[0].sessionSettings != nil {
+		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
+		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
+	}
+	m.statementTimeout.RestoreFromDepth(0)
+	m.statementTimeout.ClearSnapshots()
+	m.statementTimeout.ResetLocal()
+	m.savepoints = nil
+}
+
+// SavepointDepth returns the current size of the savepoint stack. Exposed for
+// tests; in production code, transaction state should be queried via
+// conn.IsInTransaction() / conn.TxnStatus().
+func (m *MultiGatewayConnectionState) SavepointDepth() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.savepoints)
 }
 
 // GetStatementTimeout returns the effective statement timeout:

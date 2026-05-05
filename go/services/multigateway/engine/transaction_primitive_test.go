@@ -152,7 +152,7 @@ func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testin
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -172,7 +172,7 @@ func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_START, "START TRANSACTION", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_START, "", "START TRANSACTION", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -193,7 +193,7 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -212,7 +212,7 @@ func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -232,7 +232,7 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -252,7 +252,7 @@ func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -271,7 +271,7 @@ func TestTransactionPrimitive_Rollback_WithReservedConnections(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -291,7 +291,7 @@ func TestTransactionPrimitive_Rollback_ConcludeTransactionError(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -311,7 +311,7 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_SAVEPOINT, "SAVEPOINT sp1", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_SAVEPOINT, "sp1", "SAVEPOINT sp1", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -322,7 +322,7 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 }
 
 func TestTransactionPrimitive_StringAndGetters(t *testing.T) {
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "my_tg", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "my_tg", nil)
 
 	require.Equal(t, "Transaction(BEGIN)", tp.String())
 	require.Equal(t, "my_tg", tp.GetTableGroup())
