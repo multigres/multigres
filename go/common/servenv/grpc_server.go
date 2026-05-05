@@ -457,7 +457,17 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 		}
 	}()
 
-	sv.OnTermSync(func() {
+	// We use OnClose instead of OnTermSync because gRPC's GracefulStop() can
+	// block until all connections are closed, which may take some time. Using
+	// OnClose allows the server to begin shutting down immediately when the
+	// process receives a termination signal, while still allowing for a
+	// graceful shutdown of gRPC connections.
+	//
+	// If we used OnTermSync, the process would block waiting for all in-flight
+	// gRPC requests to finish before it could begin shutting down, including
+	// the health streams. However, multiorch needs the health stream to finish
+	// the shutdown.
+	sv.OnClose(func() {
 		slog.Info("Initiated graceful stop of gRPC server")
 		g.Server.GracefulStop()
 		slog.Info("gRPC server stopped")

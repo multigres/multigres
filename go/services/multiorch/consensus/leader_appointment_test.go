@@ -1577,12 +1577,14 @@ func TestAppointInitialLeader(t *testing.T) {
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		mp1.Status.IsInitialized = true
+		mp1.Status.PostgresRunning = true
 		mp1.Status.PostgresReady = true
 		mp1.Status.PostgresRunning = true
 		mp1.ConsensusStatus = &clustermetadatapb.ConsensusStatus{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}}
 
 		mp2 := createMockNode(fakeClient, "mp2", 0, "0/1000000", true, nil)
 		mp2.Status.IsInitialized = true
+		mp2.Status.PostgresRunning = true
 		mp2.Status.PostgresReady = true
 		mp2.Status.PostgresRunning = true
 		mp2.ConsensusStatus = &clustermetadatapb.ConsensusStatus{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}}

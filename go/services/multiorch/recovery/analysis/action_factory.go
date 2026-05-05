@@ -26,14 +26,20 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
+// ShutdownPrimaryFunc is the callback type used by ShutdownPrimaryAction to trigger
+// a graceful leader switchover. It is an alias for actions.ShutdownPrimaryCallback so
+// callers in the recovery package can reference it without importing recovery/actions directly.
+type ShutdownPrimaryFunc = actions.ShutdownPrimaryCallback
+
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
-	config      *config.Config
-	poolerStore *store.PoolerStore
-	rpcClient   rpcclient.MultiPoolerClient
-	topoStore   topoclient.Store
-	coordinator *consensus.Coordinator
-	logger      *slog.Logger
+	config          *config.Config
+	poolerStore     *store.PoolerStore
+	rpcClient       rpcclient.MultiPoolerClient
+	topoStore       topoclient.Store
+	coordinator     *consensus.Coordinator
+	logger          *slog.Logger
+	shutdownPrimary ShutdownPrimaryFunc
 }
 
 // NewRecoveryActionFactory creates a factory for recovery actions.
@@ -73,9 +79,21 @@ func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
 	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
-// NewDemoteStaleLeaderAction creates an action to demote a stale primary.
+// NewDemoteStaleLeaderAction creates an action to demote a stale leader.
 func (f *RecoveryActionFactory) NewDemoteStaleLeaderAction() types.RecoveryAction {
 	return actions.NewDemoteStaleLeaderAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+}
+
+// NewShutdownPrimaryAction creates an action that triggers a graceful leader switchover.
+func (f *RecoveryActionFactory) NewShutdownPrimaryAction() types.RecoveryAction {
+	return actions.NewShutdownPrimaryAction(f.shutdownPrimary, f.logger)
+}
+
+// SetShutdownPrimary sets the callback used by ShutdownPrimaryAction. Called after
+// the factory is constructed to break the circular dependency between the factory
+// and the Engine (which implements ShutdownPrimary).
+func (f *RecoveryActionFactory) SetShutdownPrimary(fn ShutdownPrimaryFunc) {
+	f.shutdownPrimary = fn
 }
 
 // Logger returns the factory's logger for use by analyzers.

@@ -217,6 +217,7 @@ type Engine struct {
 	// Action factory for creating recovery actions
 	actionFactory *analysis.RecoveryActionFactory
 
+	// Consensus coordinator for leader election
 	coordinator *consensus.Coordinator
 
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
@@ -296,6 +297,10 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
+	// Wire the ShutdownPrimary callback after the factory is constructed.
+	// This breaks the circular dependency: factory is in a sub-package of recovery
+	// and cannot import Engine directly.
+	engine.actionFactory.SetShutdownPrimary(engine.shutdownPrimaryCallback)
 
 	// Create deadline tracker for grace periods
 	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
@@ -552,7 +557,7 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	// recovery cycle. Without the wait, the cycle would run against stale store
 	// data because Poll() is asynchronous — snapshots arrive after the RPC returns.
 	re.logger.DebugContext(ctx, "TriggerRecoveryNow: polling all poolers and waiting for snapshots")
-	re.pollAndWaitForNewSnapshots(ctx)
+	re.pollAndWaitForNewSnapshots(ctx, nil)
 
 	// Expire all grace period deadlines so the next recovery cycle acts on
 	// detected problems immediately instead of waiting. This matches the
@@ -624,14 +629,36 @@ func (re *Engine) pollAllPoolers() {
 	})
 }
 
-// pollAndWaitForNewSnapshots sends poll requests to all poolers and blocks
-// until each pooler that had an active stream delivers at least one new
-// snapshot, or until pollResponseWait elapses or the context is cancelled.
+// pollShardPoolers sends a poll request on the active health stream for every
+// pooler in the given shard. Fire-and-forget; snapshots arrive asynchronously.
+func (re *Engine) pollShardPoolers(shardKey *clustermetadatapb.ShardKey) {
+	re.poolerStore.Range(func(poolerID string, p *multiorchdatapb.PoolerHealthState) bool {
+		// This should never happen since we only track poolers with metadata,
+		// but guard against nil just in case. If we encounter a nil entry, we
+		// return true to keep iterating rather than stopping the loop.
+		if p == nil || p.MultiPooler == nil {
+			return true
+		}
+		if p.MultiPooler.Database == shardKey.Database &&
+			p.MultiPooler.TableGroup == shardKey.TableGroup &&
+			p.MultiPooler.Shard == shardKey.Shard {
+			_ = re.healthStream.Poll(p.MultiPooler.Id)
+		}
+		return true
+	})
+}
+
+// pollAndWaitForNewSnapshots sends poll requests and blocks until each pooler
+// that had an active stream delivers at least one new snapshot, or until
+// pollResponseWait elapses or the context is cancelled.
+//
+// If shardKey is non-nil, only poolers in that shard are polled and waited on.
+// If nil, all poolers are polled (used by TriggerRecoveryNow).
 //
 // This bridges the gap between the asynchronous Poll() call and the recovery
 // cycle that follows: without the wait, the cycle would run against store data
 // that predates the poll.
-func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
+func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context, shardKey *clustermetadatapb.ShardKey) {
 	type poolerBaseline struct {
 		id       string
 		baseline int64
@@ -640,13 +667,24 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 	// Capture snapshot counters for poolers with active streams before polling.
 	var baselines []poolerBaseline
 	re.poolerStore.Range(func(poolerID string, ph *multiorchdatapb.PoolerHealthState) bool {
-		if ph != nil && ph.StreamConnected {
-			baselines = append(baselines, poolerBaseline{poolerID, ph.StreamSnapshotsReceived})
+		if ph == nil || !ph.StreamConnected {
+			return true
 		}
+		if shardKey != nil && (ph.MultiPooler == nil ||
+			ph.MultiPooler.Database != shardKey.Database ||
+			ph.MultiPooler.TableGroup != shardKey.TableGroup ||
+			ph.MultiPooler.Shard != shardKey.Shard) {
+			return true
+		}
+		baselines = append(baselines, poolerBaseline{poolerID, ph.StreamSnapshotsReceived})
 		return true
 	})
 
-	re.pollAllPoolers()
+	if shardKey != nil {
+		re.pollShardPoolers(shardKey)
+	} else {
+		re.pollAllPoolers()
+	}
 
 	if len(baselines) == 0 {
 		return

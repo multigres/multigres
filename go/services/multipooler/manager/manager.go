@@ -37,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -156,6 +157,10 @@ type MultiPoolerManager struct {
 	// When set, the monitor continues to run and detect problems but skips the start action.
 	// False by default (restarts enabled); tests and demos set it during controlled failovers.
 	postgresRestartsDisabled atomic.Bool
+
+	// shutdownOnce ensures performGracefulShutdown runs at most once, even when both
+	// SIGTERM and the Shutdown RPC race to trigger it.
+	shutdownOnce sync.Once
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
@@ -380,7 +385,7 @@ func (pm *MultiPoolerManager) Open() {
 			// Broadcast postgres health transitions so orchestrators learn
 			// about changes immediately without waiting for the next 30-second
 			// heartbeat. This is especially important for:
-			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
+			//   - postgres going down: allows LeaderIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
 				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
@@ -1338,7 +1343,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 // is accepting connections. Both conditions are required: pg_is_in_recovery()=false
 // confirms the WAL-level promotion, and postgres_ready=true confirms clients can
 // connect. Clearing promotionInProgress only when both are true ensures multiorch's
-// PrimaryIsDeadAnalyzer suppression window matches the full visibility gap.
+// LeaderIsDeadAnalyzer suppression window matches the full visibility gap.
 func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -1475,6 +1480,23 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 		return nil
+	})
+
+	// OnTermSync: signal graceful shutdown via the health stream so multiorch can
+	// orchestrate a controlled failover before postgres stops.
+	//
+	// PRIMARY path: signal STOPPING (multiorch will call EmergencyDemote, which stops
+	// postgres). Wait up to 45 s for postgres to stop; stop it ourselves on timeout
+	// so the process always exits cleanly.
+	//
+	// REPLICA path: stop postgres directly — no failover coordination needed.
+	//
+	// If the Shutdown RPC already called performGracefulShutdown, the sync.Once
+	// makes this a no-op (postgres is already stopped before SIGTERM fires).
+	senv.OnTermSync(func() {
+		// pm.ctx may already be cancelled when OnTermSync fires. Detach so shutdown
+		// work is not skipped due to cancellation, while preserving trace context.
+		pm.performGracefulShutdown(ctxutil.Detach(pm.ctx))
 	})
 }
 
@@ -1725,10 +1747,14 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 
 	// Postgres is running: Check if pooler type needs adjustment
 	if currentState.postgresRunning {
-		if currentState.isPrimary && pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+		currentType := pm.getPoolerType()
+		// STOPPING is an intentional transient state set by OnTermSync to signal
+		// multiorch. Do not overwrite it — the monitor would otherwise race against
+		// the shutdown path and restore PRIMARY before EmergencyDemote can run.
+		if currentState.isPrimary && currentType != clustermetadatapb.PoolerType_PRIMARY && currentType != clustermetadatapb.PoolerType_STOPPING {
 			return remedialActionAdjustTypeToPrimary
 		}
-		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+		if !currentState.isPrimary && currentType == clustermetadatapb.PoolerType_PRIMARY {
 			return remedialActionAdjustTypeToReplica
 		}
 		// Postgres is standby and type is already REPLICA, but check if the resignation

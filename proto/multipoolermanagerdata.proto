@@ -737,3 +737,18 @@ message SetPostgresRestartsEnabledRequest {
 message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }
+
+// ShutdownRequest requests a graceful pooler shutdown identical to SIGTERM.
+// The pooler signals STOPPING (if PRIMARY), waits for multiorch to orchestrate
+// failover, then exits the process.
+message ShutdownRequest {
+  // Human-readable reason for the shutdown (e.g. "operator request", "rolling restart").
+  // Used for logging and audit trails only.
+  string reason = 1;
+}
+
+// ShutdownResponse confirms that the graceful shutdown sequence has been initiated.
+// The pooler process will exit shortly after this response is delivered.
+message ShutdownResponse {
+  // Empty - success indicated by no error
+}

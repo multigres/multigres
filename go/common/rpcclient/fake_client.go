@@ -81,6 +81,9 @@ type FakeClient struct {
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
 
+	// WaitForLSNErrors to return - keyed by pooler ID (overrides Errors for WaitForLSN only)
+	WaitForLSNErrors map[string]error
+
 	// CallLog tracks which methods were called for verification in tests
 	CallLog []string
 
@@ -115,6 +118,7 @@ func NewFakeClient() *FakeClient {
 		RewindToSourceResponses:             make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
 		SetPostgresRestartsEnabledResponses: make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                              make(map[string]error),
+		WaitForLSNErrors:                    make(map[string]error),
 		CallLog:                             make([]string, 0),
 		PromoteRequests:                     make(map[string]*multipoolermanagerdatapb.PromoteRequest),
 		ProposeRequests:                     make(map[string]*consensusdatapb.ProposeRequest),
@@ -376,6 +380,12 @@ func (f *FakeClient) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.M
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("WaitForLSN", poolerID)
 
+	f.mu.RLock()
+	lsnErr := f.WaitForLSNErrors[poolerID]
+	f.mu.RUnlock()
+	if lsnErr != nil {
+		return nil, lsnErr
+	}
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
 	}

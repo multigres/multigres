@@ -209,6 +209,14 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
 	mp.connPoolConfig.RegisterFlags(flags)
+
+	// The graceful-shutdown sequence for a PRIMARY must complete before the
+	// process exits: drain (10s) + standby catchup (30s) + postgres stop.
+	// Override the servenv default of 10s so OnTermSync isn't abandoned early.
+	if f := flags.Lookup("onterm-timeout"); f != nil {
+		_ = f.Value.Set("120s")
+		f.DefValue = "120s"
+	}
 }
 
 // Init initializes the multipooler. If any services fail to start,

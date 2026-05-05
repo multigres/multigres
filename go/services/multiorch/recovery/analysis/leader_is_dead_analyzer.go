@@ -57,6 +57,15 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
+	// Leader is gracefully stopping and is reachable. LeaderIsStoppingAnalyzer
+	// handles the election of a new leader and will suppress LeaderIsDead until
+	// the old leader is fully stopped. If the leader is not reachable, we will
+	// fall through to the code below and treat it as unreachable, which might
+	// mark it as dead if enough time passes.
+	if sa.LeaderIsStopping && sa.LeaderReachable {
+		return nil, nil
+	}
+
 	// No initialized replica to confirm the leader is dead — skip to avoid false positives
 	// when the shard has no postgres standby that has joined the cluster yet.
 	if !sa.HasInitializedReplica {
