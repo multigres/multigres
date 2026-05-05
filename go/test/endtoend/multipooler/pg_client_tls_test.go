@@ -36,6 +36,10 @@ import (
 // This is the integration counterpart to the libpq-parity unit tests in
 // pgprotocol/client/ssl_test.go and exercises the wiring added for MUL-370.
 func TestPGClientTLS_VerifyFull(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerPGTLS(),
 	)
