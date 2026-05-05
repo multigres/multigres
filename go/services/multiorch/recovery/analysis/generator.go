@@ -126,9 +126,9 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 			return true // skip nil entries
 		}
 
-		database := pooler.MultiPooler.Database
-		tableGroup := pooler.MultiPooler.TableGroup
-		shard := pooler.MultiPooler.Shard
+		database := pooler.MultiPooler.GetShardKey().GetDatabase()
+		tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+		shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 		// Initialize nested maps if needed
 		if poolersByShard[database] == nil {
@@ -162,9 +162,9 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
@@ -192,9 +192,9 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*Shar
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok || len(poolers) == 0 {

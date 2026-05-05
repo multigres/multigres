@@ -18,6 +18,8 @@ import (
 	"context"
 	"log/slog"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 
@@ -113,9 +115,7 @@ func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) [
 			return true // continue
 		}
 
-		if pooler.MultiPooler.Database == shardKey.Database &&
-			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
-			pooler.MultiPooler.Shard == shardKey.Shard {
+		if proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			poolers = append(poolers, pooler)
 		}
 

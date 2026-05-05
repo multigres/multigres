@@ -240,14 +240,14 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.Database)
+	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.GetShardKey().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.multipooler.Database)
+			"database %s has no durability_policy configured", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

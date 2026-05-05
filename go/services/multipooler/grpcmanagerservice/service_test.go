@@ -50,12 +50,14 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	}
 
 	multipooler := &clustermetadata.MultiPooler{
-		Id:         serviceID,
-		Database:   "testdb",
-		Hostname:   "localhost",
-		PortMap:    map[string]int32{"grpc": 8080},
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
+		Id:       serviceID,
+		Hostname: "localhost",
+		PortMap:  map[string]int32{"grpc": 8080},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 
 	config := &manager.Config{

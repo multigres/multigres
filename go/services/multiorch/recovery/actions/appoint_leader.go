@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
@@ -136,9 +138,7 @@ func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []
 			return true // continue
 		}
 
-		if pooler.MultiPooler.Database == shardKey.Database &&
-			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
-			pooler.MultiPooler.Shard == shardKey.Shard {
+		if proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			cohort = append(cohort, pooler)
 		}
 

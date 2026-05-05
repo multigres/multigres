@@ -294,9 +294,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
 	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
-	multipooler.Database = mp.database.Get()
-	multipooler.TableGroup = mp.tableGroup.Get()
-	multipooler.Shard = mp.shard.Get()
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   mp.database.Get(),
+		TableGroup: mp.tableGroup.Get(),
+		Shard:      mp.shard.Get(),
+	}
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)

@@ -90,20 +90,24 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	// Pre-populate topology before watcher starts
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "host2",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_REPLICA,
+		Hostname: "host2",
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -152,12 +156,14 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 
 	// Add a pooler after the watcher has started
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -180,12 +186,14 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -249,22 +257,28 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 
 	// Add poolers in different databases/tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "watched"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "watched"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-db"},
-		Database:   "otherdb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-db"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "otherdb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-tg"},
-		Database:   "mydb",
-		TableGroup: "tg2",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-tg"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -309,10 +323,12 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 
 	// Add a pooler in zone1
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -323,10 +339,12 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	// Add zone2 cell and a pooler in it
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone2", Name: "pooler2"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone2", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	ok = waitForCondition(t, 5*time.Second, func() bool {
@@ -349,10 +367,12 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
