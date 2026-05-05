@@ -514,6 +514,12 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			Port:       pgPort,
 			Database:   pm.multipooler.Database,
 		}
+		// When no Unix socket is configured, fall back to a TCP dial against
+		// the multipooler's own hostname. Postgres is colocated with pgctld on
+		// the same host, so the multipooler's hostname always points at it.
+		if connConfig.SocketFile == "" {
+			connConfig.Host = pm.multipooler.GetHostname()
+		}
 		// Apply libpq-style TLS settings on the multipooler → postgres leg.
 		// TLS is honored only on TCP dials; Unix-socket connections always run
 		// plaintext, matching libpq behavior.
