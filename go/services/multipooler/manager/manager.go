@@ -291,7 +291,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
-	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService(), newSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new

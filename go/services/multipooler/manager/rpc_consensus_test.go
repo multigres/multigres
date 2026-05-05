@@ -1127,7 +1127,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 			tt.setupQueryMock(mockQueryService)
 			pm.qsc = &mockPoolerController{queryService: mockQueryService}
-			pm.rules = newRuleStore(logger, mockQueryService)
+			pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			pm.Start(senv)

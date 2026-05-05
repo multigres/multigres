@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -33,6 +34,21 @@ func testBootstrapPolicy() *clustermetadatapb.DurabilityPolicy {
 		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 		RequiredCount: 2,
 	}
+}
+
+// noopSyncStandbyManager is a SyncStandbyManager test double that does nothing.
+type noopSyncStandbyManager struct{}
+
+func (noopSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) Clear(_ context.Context) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) NeedsApply(_ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
 }
 
 // fakeRuleStore is a test double for ruleStorer that returns a preset position

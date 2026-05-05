@@ -29,7 +29,7 @@ import (
 func TestQueryRuleHistory(t *testing.T) {
 	t.Run("returns records ordered newest first", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService)
+		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
 
 		leaderAppName := "zone1_leader-1"
 		coordID := "zone1_coordinator-1"
@@ -93,7 +93,7 @@ func TestQueryRuleHistory(t *testing.T) {
 
 	t.Run("returns empty slice when no records exist", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService)
+		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
 
 		mockQueryService.AddQueryPatternOnce(
 			"SELECT coordinator_term, leader_subterm, event_type",
@@ -116,7 +116,7 @@ func TestQueryRuleHistory(t *testing.T) {
 
 	t.Run("propagates query error", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService)
+		rs := newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
 
 		mockQueryService.AddQueryPatternOnceWithError(
 			"SELECT coordinator_term, leader_subterm, event_type",

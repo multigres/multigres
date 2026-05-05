@@ -227,7 +227,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, qs)
+	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
 	if err := rs.createRuleTables(ctx, testBootstrapPolicy()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create rule tables: %w", err)
@@ -248,7 +248,7 @@ func newTestRuleStore(ctx context.Context, t *testing.T) (*ruleStore, *client.Co
 	conn, err := pgTestFixture.newClientConn(ctx)
 	require.NoError(t, err)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, &connQueryService{conn: conn})
+	rs := newRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
 	return rs, conn
 }
 
@@ -265,7 +265,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, qs)
+	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
 	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy()))
 }
 
@@ -333,7 +333,7 @@ func TestRuleStorePG_ObservePosition_InitialRowMissing(t *testing.T) {
 
 func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -357,7 +357,7 @@ func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testin
 
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -375,7 +375,7 @@ func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_SameTermIncrementsSubterm(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -395,7 +395,7 @@ func TestRuleStorePG_UpdateRule_SameTermIncrementsSubterm(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_NewTermResetsSubterm(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -419,7 +419,7 @@ func TestRuleStorePG_UpdateRule_NewTermResetsSubterm(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_StaleTermRejected(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -435,12 +435,12 @@ func TestRuleStorePG_UpdateRule_StaleTermRejected(t *testing.T) {
 	// Attempt to write with stale term 1.
 	_, err = rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "stale", now))
 	require.Error(t, err, "writing with a stale term must fail")
-	assert.Contains(t, err.Error(), "already at equal or higher position")
+	assert.Contains(t, err.Error(), "rule update rejected for term 1")
 }
 
 func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -484,7 +484,7 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_HistoryFields(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -550,7 +550,7 @@ func TestRuleStorePG_UpdateRule_HistoryFields(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_CASSuccess(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -576,7 +576,7 @@ func TestRuleStorePG_UpdateRule_CASSuccess(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_CASConflict(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -599,7 +599,7 @@ func TestRuleStorePG_UpdateRule_CASConflict(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_HistoryRecorded(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -630,12 +630,20 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
 
+	lock := NewActionLock()
 	for i := range goroutines {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 
-			conn, err := pgTestFixture.newClientConn(ctx)
+			gCtx, lockErr := lock.Acquire(t.Context(), "goroutine-test")
+			if lockErr != nil {
+				errs[idx] = fmt.Errorf("acquire lock: %w", lockErr)
+				return
+			}
+			defer lock.Release(gCtx)
+
+			conn, err := pgTestFixture.newClientConn(gCtx)
 			if err != nil {
 				errs[idx] = fmt.Errorf("connect: %w", err)
 				return
@@ -643,8 +651,8 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 			defer conn.Close()
 
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			rs := newRuleStore(logger, &connQueryService{conn: conn})
-			_, errs[idx] = rs.updateRule(ctx,
+			rs := newRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
+			_, errs[idx] = rs.updateRule(gCtx,
 				newRuleUpdate(1, coordinatorID, "config_change",
 					fmt.Sprintf("concurrent write %d", idx), now),
 			)
@@ -675,7 +683,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -693,6 +701,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
 		testPoolerID(t, "zone2", "member-2"),
 	}
 	now := time.Now()
+	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
 	_, err := rs.updateRule(ctx,
 		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
@@ -714,7 +723,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -731,6 +740,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) 
 		testPoolerID(t, "zone2", "member-2"),
 	}
 	now := time.Now()
+	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
 	// Write rule with durability policy.
 	_, err := rs.updateRule(ctx,
@@ -757,7 +767,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) 
 
 func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -774,6 +784,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
 		testPoolerID(t, "zone2", "member-2"),
 	}
 	now := time.Now()
+	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
 	_, err := rs.updateRule(ctx,
 		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
@@ -792,7 +803,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
 
 func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing.T) {
 	skipIfNoPG(t)
-	ctx := t.Context()
+	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)
 
 	rs, conn := newTestRuleStore(ctx, t)
@@ -828,4 +839,20 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing
 func testPoolerID(t *testing.T, cell, name string) *clustermetadatapb.ID {
 	t.Helper()
 	return &clustermetadatapb.ID{Cell: cell, Name: name}
+}
+
+// bootstrapRuleState performs an externally-certified write to establish a
+// post-bootstrap state. Use this in tests that focus on rule transitions starting
+// from a non-sentinel state; the sentinel→first-rule bootstrap transition is handled
+// by the Propose RPC with external certification and is not what those tests cover.
+func bootstrapRuleState(ctx context.Context, t *testing.T, rs *ruleStore, policy *clustermetadatapb.DurabilityPolicy, cohort []*clustermetadatapb.ID) {
+	t.Helper()
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-bootstrap")
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(1, coordinatorID, "promotion", "bootstrap", time.Now()).
+			withDurabilityPolicy(policy).
+			withCohort(cohort).
+			withExternallyCertified(),
+	)
+	require.NoError(t, err)
 }
