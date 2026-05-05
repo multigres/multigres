@@ -28,6 +28,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -512,6 +513,24 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			SocketFile: pm.config.SocketFilePath,
 			Port:       pgPort,
 			Database:   pm.multipooler.Database,
+		}
+		// Apply libpq-style TLS settings on the multipooler → postgres leg.
+		// TLS is honored only on TCP dials; Unix-socket connections always run
+		// plaintext, matching libpq behavior.
+		if connConfig.SocketFile == "" {
+			sslMode, err := pm.config.ConnPoolConfig.PgSSLMode()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-sslmode; defaulting to disable", "error", err)
+				sslMode = client.SSLModeDisable
+			}
+			tlsCfg, err := client.BuildTLSConfig(sslMode, pm.config.ConnPoolConfig.PgSSLRootCert(), connConfig.Host)
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "failed to build PG client TLS config; falling back to plaintext", "error", err, "sslmode", sslMode)
+				sslMode = client.SSLModeDisable
+				tlsCfg = nil
+			}
+			connConfig.SSLMode = sslMode
+			connConfig.TLSConfig = tlsCfg
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")

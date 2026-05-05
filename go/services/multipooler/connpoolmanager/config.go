@@ -15,12 +15,14 @@
 package connpoolmanager
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -42,6 +44,14 @@ type ConnectionConfig struct {
 
 	// Database is the database name to connect to.
 	Database string
+
+	// SSLMode controls libpq-style sslmode for the multipooler → PostgreSQL leg.
+	// Only honored on TCP connections (SocketFile == "").
+	SSLMode client.SSLMode
+
+	// TLSConfig is the *tls.Config built from SSLMode + sslrootcert. Nil for
+	// disable/allow; non-nil otherwise. Only honored on TCP connections.
+	TLSConfig *tls.Config
 }
 
 // Config holds viper-backed configuration values for the connection pool manager.
@@ -57,6 +67,12 @@ type Config struct {
 	// Configured via POSTGRES_USER / POSTGRES_PASSWORD environment variables.
 	pgUser     viperutil.Value[string]
 	pgPassword viperutil.Value[string]
+
+	// --- PostgreSQL TLS (multipooler → postgres leg) ---
+	// libpq-style server verification. Mode + optional CA bundle. Client cert
+	// auth (sslcert/sslkey) and CRLs are deferred — see MUL-383.
+	pgSSLMode     viperutil.Value[string]
+	pgSSLRootCert viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -170,6 +186,16 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
 		}),
 
+		// PostgreSQL TLS — libpq parity. Default "prefer" mirrors libpq.
+		pgSSLMode: viperutil.Configure(reg, "connpool.pg.sslmode", viperutil.Options[string]{
+			Default:  string(client.SSLModePrefer),
+			FlagName: "pg-client-sslmode",
+		}),
+		pgSSLRootCert: viperutil.Configure(reg, "connpool.pg.sslrootcert", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-client-sslrootcert",
+		}),
+
 		// Admin pool (shared across all users)
 		adminCapacity: viperutil.Configure(reg, "connpool.admin.capacity", viperutil.Options[int64]{
 			Default:  adminCapacity,
@@ -250,6 +276,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (env: CONNPOOL_ADMIN_USER or POSTGRES_USER)")
 	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD)")
 
+	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
+	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|allow|prefer|require|verify-ca|verify-full (libpq parity)")
+	fs.String("pg-client-sslrootcert", c.pgSSLRootCert.Default(), "PEM CA bundle used to verify the PostgreSQL server certificate (required for verify-ca and verify-full)")
+
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
 
@@ -280,6 +310,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	viperutil.BindFlags(fs,
 		c.pgUser,
 		c.pgPassword,
+		c.pgSSLMode,
+		c.pgSSLRootCert,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -310,6 +342,19 @@ func (c *Config) PgUser() string {
 // Set via POSTGRES_PASSWORD environment variable.
 func (c *Config) PgPassword() string {
 	return c.pgPassword.Get()
+}
+
+// PgSSLMode parses and returns the configured libpq-style sslmode.
+// An invalid value returns the parser error so the caller can fail startup
+// rather than silently downgrading to plaintext.
+func (c *Config) PgSSLMode() (client.SSLMode, error) {
+	return client.ParseSSLMode(c.pgSSLMode.Get())
+}
+
+// PgSSLRootCert returns the configured CA bundle path used to verify the
+// PostgreSQL server certificate. Empty unless the operator set it.
+func (c *Config) PgSSLRootCert() string {
+	return c.pgSSLRootCert.Get()
 }
 
 // AdminCapacity returns the configured admin pool capacity.
