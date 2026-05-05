@@ -58,6 +58,15 @@ type Config struct {
 	// Password is the user's password (optional for trust auth).
 	Password string
 
+	// ScramClientKey and ScramServerKey enable SCRAM-SHA-256 passthrough
+	// authentication. When both are set, the client uses them to produce a
+	// valid SCRAM proof without knowing the plaintext password. Both must
+	// be 32 bytes (HMAC-SHA-256 output). If set, they take precedence over
+	// Password when the server requests SASL. Leave nil for the standard
+	// password-based path.
+	ScramClientKey []byte
+	ScramServerKey []byte
+
 	// Database is the database name to connect to.
 	Database string
 

@@ -186,6 +186,13 @@ message RecruitResponse {
 // itself; all others configure replication toward the new primary.
 message ProposeRequest {
   CoordinatorProposal proposal = 1;
+
+  // Human-readable reason for this proposal (e.g. "dead_primary", "bootstrap").
+  string reason = 2;
+
+  // IDs of cohort members that accepted the term revocation during recruitment.
+  // Used to record which nodes acknowledged the proposal in the rule history.
+  repeated clustermetadata.ID accepted_node_ids = 3;
 }
 
 // ProposeResponse carries the pooler's state after applying a ProposeRequest.

@@ -20,12 +20,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func TestClaimShardInitialization(t *testing.T) {
-	shardKey := types.ShardKey{Database: "mydb", TableGroup: "tg0", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "mydb", TableGroup: "tg0", Shard: "0"}
 	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
 	cohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},

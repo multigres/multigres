@@ -442,6 +442,9 @@ func (c *Conn) authenticateSCRAM() error {
 		return fmt.Errorf("failed to handle client-final-message: %w", err)
 	}
 
+	// Capture keys for SCRAM passthrough to the backing PostgreSQL.
+	c.scramClientKey, c.scramServerKey = auth.ExtractedKeys()
+
 	// Send AuthenticationSASLFinal with server signature.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
 		return fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)

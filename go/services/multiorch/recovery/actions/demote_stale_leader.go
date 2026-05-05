@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -105,7 +106,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale leader action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
 		"stale_leader", poolerIDStr)
 
 	// Get the stale leader from the store
@@ -164,7 +165,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		"lsn_position", demoteResp.LsnPosition)
 
 	a.logger.InfoContext(ctx, "demote stale leader action completed",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
 		"demoted_leader", poolerIDStr)
 
 	return nil
@@ -172,7 +173,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 
 // findCorrectLeader finds the current leader in the shard and returns it along with its term.
 // The correct leader is the one with the highest LeaderTerm.
-func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
+func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
 	var correctLeader *multiorchdatapb.PoolerHealthState
 	var maxLeaderTerm int64
 
@@ -211,7 +212,7 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey commontypes.ShardKe
 	})
 
 	if correctLeader == nil {
-		return nil, 0, fmt.Errorf("no current leader found in shard %s", shardKey.String())
+		return nil, 0, fmt.Errorf("no current leader found in shard %s", commontypes.FormatShardKey(shardKey))
 	}
 
 	consensusTerm := correctLeader.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()

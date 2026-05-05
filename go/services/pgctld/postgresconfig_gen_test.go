@@ -15,6 +15,9 @@
 package pgctld
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,48 +31,32 @@ func TestNewPostgresServerConfig(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
 	tests := []struct {
-		name          string
-		poolerId      string
-		port          int
-		wantPort      int
-		wantCluster   string
-		wantDataDir   string
-		wantSocketDir string
+		name        string
+		poolerId    string
+		wantCluster string
+		wantDataDir string
 	}{
 		{
-			name:          "basic config creation",
-			poolerId:      "test-pooler-1",
-			port:          5432,
-			wantPort:      5432,
-			wantCluster:   "main",
-			wantDataDir:   tempDir + "/pg_data",
-			wantSocketDir: tempDir + "/pg_sockets",
+			name:        "basic config creation",
+			poolerId:    "test-pooler-1",
+			wantCluster: "main",
+			wantDataDir: tempDir + "/pg_data",
 		},
 		{
-			name:          "custom port",
-			poolerId:      "pooler-2",
-			port:          5433,
-			wantPort:      5433,
-			wantCluster:   "main",
-			wantDataDir:   tempDir + "/pg_data",
-			wantSocketDir: tempDir + "/pg_sockets",
+			name:        "second pooler",
+			poolerId:    "pooler-2",
+			wantCluster: "main",
+			wantDataDir: tempDir + "/pg_data",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := GeneratePostgresServerConfig(tempDir, tt.port, "postgres")
+			config, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{})
 			require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
-			assert.Equal(t, tt.wantPort, config.Port, "Port should match expected value")
-
 			assert.Equal(t, tt.wantCluster, config.ClusterName, "ClusterName should match expected value")
-
 			assert.Equal(t, tt.wantDataDir, config.DataDir, "DataDir should match expected value")
-
-			assert.Equal(t, "localhost", config.ListenAddresses, "ListenAddresses should be localhost")
-
-			assert.Equal(t, tt.wantSocketDir, config.UnixSocketDirectories, "UnixSocketDirectories should match expected value")
 		})
 	}
 }
@@ -98,7 +85,7 @@ func TestMakePostgresConf(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
-	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
+	config, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{})
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	tests := []struct {
@@ -107,11 +94,6 @@ func TestMakePostgresConf(t *testing.T) {
 		want     []string
 		wantNot  []string
 	}{
-		{
-			name:     "port template",
-			template: "port = {{.Port}}",
-			want:     []string{"port = 5432"},
-		},
 		{
 			name:     "cluster name template",
 			template: "cluster_name = '{{.ClusterName}}'",
@@ -128,31 +110,15 @@ func TestMakePostgresConf(t *testing.T) {
 			want:     []string{"max_connections = 60"},
 		},
 		{
-			name:     "listen addresses template",
-			template: "listen_addresses = '{{.ListenAddresses}}'",
-			want:     []string{"listen_addresses = 'localhost'"},
-		},
-		{
-			name:     "unix socket directories template",
-			template: "unix_socket_directories = '{{.UnixSocketDirectories}}'",
-			want:     []string{"unix_socket_directories = '" + tempDir + "/pg_sockets'"},
-		},
-		{
 			name: "complex template",
 			template: `# PostgreSQL Configuration
-port = {{.Port}}
 max_connections = {{.MaxConnections}}
-listen_addresses = '{{.ListenAddresses}}'
 data_directory = '{{.DataDir}}'
-cluster_name = '{{.ClusterName}}'
-unix_socket_directories = '{{.UnixSocketDirectories}}'`,
+cluster_name = '{{.ClusterName}}'`,
 			want: []string{
-				"port = 5432",
 				"max_connections = 60",
-				"listen_addresses = 'localhost'",
 				"data_directory = '" + tempDir + "/pg_data'",
 				"cluster_name = 'main'",
-				"unix_socket_directories = '" + tempDir + "/pg_sockets'",
 				"# PostgreSQL Configuration",
 			},
 		},
@@ -180,7 +146,7 @@ func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
-	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
+	config, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{})
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	tests := []struct {
@@ -203,4 +169,66 @@ func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 			assert.Error(t, err, "MakePostgresConf should return error for invalid template")
 		})
 	}
+}
+
+func TestGeneratePostgresServerConfigExtraConfFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
+
+	extraDir := t.TempDir()
+	extraA := filepath.Join(extraDir, "a.conf")
+	extraB := filepath.Join(extraDir, "b.conf")
+
+	// Extra A overrides shared_buffers; extra B overrides it again so the last
+	// file wins. Also adds a setting not in the template at all.
+	require.NoError(t, os.WriteFile(extraA, []byte("shared_buffers = 128MB\n"), 0o644))
+	require.NoError(t, os.WriteFile(extraB, []byte("shared_buffers = 256MB\nlog_min_duration_statement = 500\n"), 0o644))
+
+	cfg, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{extraA, extraB})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(cfg.Path)
+	require.NoError(t, err)
+	content := string(raw)
+
+	// Source-attribution headers are present in append order.
+	idxA := strings.Index(content, "## "+extraA)
+	idxB := strings.Index(content, "## "+extraB)
+	require.GreaterOrEqual(t, idxA, 0, "extra A header should be present")
+	require.GreaterOrEqual(t, idxB, 0, "extra B header should be present")
+	assert.Greater(t, idxB, idxA, "extra B should be appended after extra A")
+
+	// Last-write-wins: the in-memory struct reflects the value postgres will see.
+	assert.Equal(t, "256MB", cfg.SharedBuffers)
+
+	// Settings absent from the template still land in the file.
+	assert.Contains(t, content, "log_min_duration_statement = 500")
+}
+
+func TestGeneratePostgresServerConfigExtraConfFollowsInclude(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
+
+	extraDir := t.TempDir()
+	overrides := filepath.Join(extraDir, "overrides.conf")
+	extraFile := filepath.Join(extraDir, "extra.conf")
+
+	require.NoError(t, os.WriteFile(overrides, []byte("shared_buffers = 512MB\n"), 0o644))
+	require.NoError(t, os.WriteFile(extraFile, []byte("include '"+overrides+"'\n"), 0o644))
+
+	cfg, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{extraFile})
+	require.NoError(t, err)
+
+	// Postgres follows include directives at runtime, so our in-memory struct
+	// must too — otherwise it disagrees with what the server actually loads.
+	assert.Equal(t, "512MB", cfg.SharedBuffers)
+}
+
+func TestGeneratePostgresServerConfigExtraConfFileMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
+
+	_, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{"/does/not/exist.conf"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/does/not/exist.conf")
 }

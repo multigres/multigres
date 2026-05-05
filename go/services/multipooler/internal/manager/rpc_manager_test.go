@@ -938,10 +938,10 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	pm.mu.Unlock()
 
 	update := fakeRules.assertPromoteRecorded(t)
-	assert.Equal(t, "dead_primary", update.Reason)
-	prototest.AssertEqual(t, coordinatorID, update.CoordinatorID)
-	prototest.RequireElementsMatch(t, cohortMembers, update.CohortMembers)
-	prototest.RequireElementsMatch(t, acceptedMembers, update.AcceptedMembers)
+	assert.Equal(t, "dead_primary", update.GetReason())
+	prototest.AssertEqual(t, coordinatorID, update.GetCoordinatorID())
+	prototest.RequireElementsMatch(t, cohortMembers, update.GetCohortMembers())
+	prototest.RequireElementsMatch(t, acceptedMembers, update.GetAcceptedMembers())
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 

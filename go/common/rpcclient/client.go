@@ -149,6 +149,10 @@ type MultiPoolerClient interface {
 	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
 	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
 
+	// Propose sends a role assignment to a recruited pooler: promote to primary (if designated
+	// leader) or point replication at the new primary (if replica).
+	Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error)
+
 	// ConsensusStatus gets the consensus status of the multipooler.
 	// This may be called frequently for monitoring, so implementations cache connections.
 	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)

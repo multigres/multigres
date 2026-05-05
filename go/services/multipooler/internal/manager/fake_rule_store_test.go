@@ -81,6 +81,6 @@ func (f *fakeRuleStore) assertPromoteRecorded(t *testing.T) *consensus.RuleUpdat
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	require.Len(t, f.updates, 1, "expected exactly one UpdateRule call for promotion")
-	assert.Equal(t, "promotion", f.updates[0].EventType)
+	assert.Equal(t, "promotion", f.updates[0].GetEventType())
 	return f.updates[0]
 }

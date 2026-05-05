@@ -30,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -442,7 +441,7 @@ func TestWithBackupLease_ReturnsNodeExistsWhenHeld(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 	defer ts.Close()
 
-	shardKey := commontypes.ShardKey{
+	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,

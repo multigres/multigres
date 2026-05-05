@@ -466,3 +466,52 @@ func TestIsConnectionError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsAuthenticationError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+
+		// Class 28 — Invalid Authorization Specification.
+		{
+			name:     "28P01 invalid_password",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01"},
+			expected: true,
+		},
+		{
+			name:     "28000 invalid_authorization_specification",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28000"},
+			expected: true,
+		},
+		{
+			name:     "wrapped 28P01",
+			err:      fmt.Errorf("dial: %w", &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01"}),
+			expected: true,
+		},
+
+		// Other classes must not be misclassified as auth errors.
+		{
+			name:     "08006 connection_failure",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "08006"},
+			expected: false,
+		},
+		{
+			name:     "42601 syntax_error",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "42601"},
+			expected: false,
+		},
+
+		// Non-pg errors.
+		{name: "generic error", err: errors.New("boom"), expected: false},
+		{name: "EOF", err: io.EOF, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsAuthenticationError(tt.err))
+		})
+	}
+}

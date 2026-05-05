@@ -103,19 +103,20 @@ type ruleNumber struct {
 type RuleUpdateBuilder struct {
 	// required
 	termNumber    int64
-	CoordinatorID *clustermetadatapb.ID
-	EventType     string
-	Reason        string
+	coordinatorID *clustermetadatapb.ID
+	eventType     string
+	reason        string
 	createdAt     time.Time
 
 	// optional; nil means keep the existing value in current_rule
-	leaderID      *clustermetadatapb.ID
-	CohortMembers []*clustermetadatapb.ID
+	leaderID         *clustermetadatapb.ID
+	cohortMembers    []*clustermetadatapb.ID
+	durabilityPolicy *clustermetadatapb.DurabilityPolicy
 
 	// history-only optional fields
 	walPosition     string
 	operation       string
-	AcceptedMembers []*clustermetadatapb.ID
+	acceptedMembers []*clustermetadatapb.ID
 
 	force        bool
 	previousRule *ruleNumber // for compare-and-swap; nil means no check
@@ -124,12 +125,26 @@ type RuleUpdateBuilder struct {
 func NewRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventType, reason string, createdAt time.Time) *RuleUpdateBuilder {
 	return &RuleUpdateBuilder{
 		termNumber:    termNumber,
-		CoordinatorID: coordinatorID,
-		EventType:     eventType,
-		Reason:        reason,
+		coordinatorID: coordinatorID,
+		eventType:     eventType,
+		reason:        reason,
 		createdAt:     createdAt,
 	}
 }
+
+// The Get* methods below expose builder fields for inspection in tests outside this package.
+// They exist only because RuleUpdateBuilder lives in a separate package from its callers.
+func (b *RuleUpdateBuilder) GetEventType() string                      { return b.eventType }
+func (b *RuleUpdateBuilder) GetReason() string                         { return b.reason }
+func (b *RuleUpdateBuilder) GetTermNumber() int64                      { return b.termNumber }
+func (b *RuleUpdateBuilder) GetCoordinatorID() *clustermetadatapb.ID   { return b.coordinatorID }
+func (b *RuleUpdateBuilder) GetLeaderID() *clustermetadatapb.ID        { return b.leaderID }
+func (b *RuleUpdateBuilder) GetCohortMembers() []*clustermetadatapb.ID { return b.cohortMembers }
+func (b *RuleUpdateBuilder) GetWALPosition() string                    { return b.walPosition }
+func (b *RuleUpdateBuilder) GetDurabilityPolicy() *clustermetadatapb.DurabilityPolicy {
+	return b.durabilityPolicy
+}
+func (b *RuleUpdateBuilder) GetAcceptedMembers() []*clustermetadatapb.ID { return b.acceptedMembers }
 
 func (b *RuleUpdateBuilder) WithLeader(id *clustermetadatapb.ID) *RuleUpdateBuilder {
 	b.leaderID = id
@@ -137,7 +152,7 @@ func (b *RuleUpdateBuilder) WithLeader(id *clustermetadatapb.ID) *RuleUpdateBuil
 }
 
 func (b *RuleUpdateBuilder) WithCohort(members []*clustermetadatapb.ID) *RuleUpdateBuilder {
-	b.CohortMembers = members
+	b.cohortMembers = members
 	return b
 }
 
@@ -152,7 +167,12 @@ func (b *RuleUpdateBuilder) WithOperation(op string) *RuleUpdateBuilder {
 }
 
 func (b *RuleUpdateBuilder) WithAcceptedMembers(members []*clustermetadatapb.ID) *RuleUpdateBuilder {
-	b.AcceptedMembers = members
+	b.acceptedMembers = members
+	return b
+}
+
+func (b *RuleUpdateBuilder) WithDurabilityPolicy(policy *clustermetadatapb.DurabilityPolicy) *RuleUpdateBuilder {
+	b.durabilityPolicy = policy
 	return b
 }
 
@@ -219,7 +239,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context) error {
 		coordinator_id            TEXT,
 		wal_position              TEXT,
 		accepted_members          TEXT[],
-		Reason                    TEXT NOT NULL,
+		reason                    TEXT NOT NULL,
 		cohort_members            TEXT[] NOT NULL,
 		durability_policy_name    TEXT,
 		durability_quorum_type    TEXT,
@@ -288,11 +308,6 @@ func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.Po
 		return nil, mterrors.Wrap(err, "failed to scan current position")
 	}
 
-	// coordinator_term=0 is the sentinel initial state; no rule has been applied yet.
-	if coordinatorTerm == 0 {
-		return nil, nil
-	}
-
 	var coordinatorIDStrVal string
 	if coordinatorIDStr != nil {
 		coordinatorIDStrVal = *coordinatorIDStr
@@ -337,7 +352,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		// context's deadline and causing subsequent GUC changes to fail.
 		rs.logger.InfoContext(ctx, "Skipping rule update in force mode",
 			"coordinator_term", update.termNumber,
-			"event_type", update.EventType)
+			"event_type", update.eventType)
 		return nil, nil
 	}
 
@@ -353,8 +368,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 
 	// Convert optional cohort; nil slice becomes SQL NULL, triggering COALESCE to keep existing.
 	var cohortParam []string
-	if update.CohortMembers != nil {
-		pids, err := ToReplicaIDs(update.CohortMembers)
+	if update.cohortMembers != nil {
+		pids, err := ToReplicaIDs(update.cohortMembers)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "invalid cohort member ID")
 		}
@@ -362,15 +377,15 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	}
 
 	var acceptedParam []string
-	if len(update.AcceptedMembers) > 0 {
-		pids, err := ToReplicaIDs(update.AcceptedMembers)
+	if len(update.acceptedMembers) > 0 {
+		pids, err := ToReplicaIDs(update.acceptedMembers)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "invalid accepted member ID")
 		}
 		acceptedParam = ReplicaIDsToAppNames(pids)
 	}
 
-	coordinatorIDStr := topoclient.ClusterIDString(update.CoordinatorID)
+	coordinatorIDStr := topoclient.ClusterIDString(update.coordinatorID)
 
 	// For compare-and-swap: pass the expected term/subterm as SQL parameters.
 	// NULL causes the WHERE clause to skip the check, allowing any current state.
@@ -384,6 +399,31 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	// replication is functioning - it must wait long enough for standbys to connect and acknowledge.
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 	defer cancel()
+
+	var dpName, dpQuorumType string
+	var dpRequiredCount *int64
+	if dp := update.durabilityPolicy; dp != nil {
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+		if len(update.cohortMembers) > 0 {
+			policy, err := consensus.NewPolicyFromProto(dp)
+			if err != nil {
+				return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", err)
+			}
+			if err := policy.CheckAchievable(update.cohortMembers); err != nil {
+				return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", err)
+			}
+		}
+		dpName = dp.PolicyName
+		dpQuorumType = dp.QuorumType.String()
+		rc := int64(dp.RequiredCount)
+		dpRequiredCount = &rc
+	}
+	// TODO: It'd be nice to validate that the rule is achievable if only one of the cohort
+	// or durability policy is modified, but we'd have to look up the previous rule first.
 
 	result, err := rs.queryService.QueryArgs(execCtx, `
 		WITH
@@ -400,7 +440,10 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		           $10::text[]      AS accepted_members,
 		           $11::bigint      AS cas_coordinator_term,
 		           $12::bigint      AS cas_leader_subterm,
-		           $13::timestamptz AS created_at
+		           $13::timestamptz AS created_at,
+		           $14::text        AS durability_policy_name,
+		           $15::text        AS durability_quorum_type,
+		           $16::int         AS durability_required_count
 		  ),
 		  locked AS (
 		    -- FOR UPDATE serializes concurrent writes at the database level, complementing
@@ -409,6 +452,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		    -- next_leader_subterm: 0 when starting a new coordinator term, otherwise increment within term.
 		    SELECT current_rule.coordinator_term, current_rule.leader_subterm,
 		           current_rule.leader_id, current_rule.cohort_members,
+		           current_rule.durability_policy_name, current_rule.durability_quorum_type,
+		           current_rule.durability_required_count,
 		           CASE WHEN params.coordinator_term > current_rule.coordinator_term THEN 0
 		                ELSE current_rule.leader_subterm + 1
 		           END AS next_leader_subterm
@@ -422,12 +467,15 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		  ),
 		  updated AS (
 		    UPDATE multigres.current_rule
-		    SET coordinator_term = params.coordinator_term,
-		        leader_subterm     = locked.next_leader_subterm,
-		        leader_id        = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
-		        coordinator_id   = NULLIF(params.coordinator_id, ''),
-		        cohort_members   = COALESCE(params.cohort_members, locked.cohort_members),
-		        created_at       = params.created_at
+		    SET coordinator_term          = params.coordinator_term,
+		        leader_subterm            = locked.next_leader_subterm,
+		        leader_id                 = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
+		        coordinator_id            = NULLIF(params.coordinator_id, ''),
+		        cohort_members            = COALESCE(params.cohort_members, locked.cohort_members),
+		        durability_policy_name    = COALESCE(NULLIF(params.durability_policy_name, ''), locked.durability_policy_name),
+		        durability_quorum_type    = COALESCE(NULLIF(params.durability_quorum_type, ''), locked.durability_quorum_type),
+		        durability_required_count = COALESCE(params.durability_required_count, locked.durability_required_count),
+		        created_at                = params.created_at
 		    FROM locked, params
 		    -- Correlates the update target to the specific shard row. If locked is empty
 		    -- (any condition above failed), the cross-join produces zero rows here too.
@@ -440,7 +488,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		  inserted AS (
 		    INSERT INTO multigres.rule_history
 		      (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
-		       wal_position, operation, reason, cohort_members, accepted_members, created_at)
+		       wal_position, operation, reason, cohort_members, accepted_members,
+		       durability_policy_name, durability_quorum_type, durability_required_count, created_at)
 		    SELECT updated.coordinator_term, updated.leader_subterm,
 		           params.event_type,
 		           updated.leader_id,
@@ -448,6 +497,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		           NULLIF(params.wal_position, ''), NULLIF(params.operation, ''), params.reason,
 		           updated.cohort_members,
 		           params.accepted_members,
+		           updated.durability_policy_name, updated.durability_quorum_type,
+		           updated.durability_required_count,
 		           params.created_at
 		    FROM updated, params
 		    RETURNING coordinator_term
@@ -466,17 +517,20 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		FROM updated, inserted`,
 		[]byte("0"),
 		update.termNumber,
-		update.EventType,
+		update.eventType,
 		leaderStr,
 		coordinatorIDStr,
 		update.walPosition,
 		update.operation,
-		update.Reason,
+		update.reason,
 		cohortParam,
 		acceptedParam,
 		previousTerm,
 		previousSubterm,
 		update.createdAt,
+		dpName,
+		dpQuorumType,
+		dpRequiredCount,
 	)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to write rule history record")

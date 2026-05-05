@@ -1,0 +1,8 @@
+--- a
++++ b
+@@ -230,3 +230,5 @@
+ ALTER TABLE articles DROP CONSTRAINT articles_pkey RESTRICT;
+ EXECUTE foo;  -- fail
+ ERROR:  column "articles.keywords" must appear in the GROUP BY clause or be used in an aggregate function
++LINE 1: EXECUTE foo;
++                   ^
