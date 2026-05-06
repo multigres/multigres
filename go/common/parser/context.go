@@ -40,6 +40,7 @@
 package parser
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -991,6 +992,17 @@ func (ctx *ParseContext) ScanBuf() []byte {
 	buf := make([]byte, len(ctx.scanBuf))
 	copy(buf, ctx.scanBuf)
 	return buf
+}
+
+// HasPrefixAtScanPos reports whether scanBuf at the current scan position
+// starts with needle. Avoids copying the entire buffer (as ScanBuf does) so
+// repeated lookups inside hot scanning loops stay zero-alloc.
+func (ctx *ParseContext) HasPrefixAtScanPos(needle []byte) bool {
+	pos := ctx.scanPos
+	if len(ctx.scanBuf)-pos < len(needle) {
+		return false
+	}
+	return bytes.Equal(ctx.scanBuf[pos:pos+len(needle)], needle)
 }
 
 func (ctx *ParseContext) SetScanPos(pos int) {

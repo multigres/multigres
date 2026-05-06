@@ -32,7 +32,7 @@
   {
     "comment": "sqljson_jsontable - Statement 7",
     "query": "SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ())",
-    "error": "parse error at position 46: syntax error"
+    "error": "parse error at position 45: syntax error"
   },
   {
     "comment": "sqljson_jsontable - Statement 8",
@@ -503,7 +503,7 @@
   {
     "comment": "sqljson_jsontable - Statement 103",
     "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on empty))",
-    "error": "parse error at position 84: syntax error"
+    "error": "parse error at position 83: syntax error"
   },
   {
     "comment": "sqljson_jsontable - Statement 104",

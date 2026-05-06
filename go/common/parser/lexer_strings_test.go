@@ -555,12 +555,13 @@ func TestStringConcatenation(t *testing.T) {
 			tokenType: SCONST,
 		},
 		{
-			// Multi-byte Unicode whitespace (U+00A0 NBSP) between continuation
-			// parts must be advanced by its full rune length. A bare \n must
-			// also still be present, otherwise concatenation is disallowed.
-			name:      "Continuation across NBSP plus newline",
+			// PostgreSQL only treats `[ \t\n\r\f]` as whitespace between
+			// continuation parts (scan.l), so a non-ASCII space like NBSP
+			// breaks the lookahead before the newline is even seen and the
+			// scanner returns just the first part.
+			name:      "Continuation does not honor NBSP as whitespace",
 			input:     "'a'\xc2\xa0\n'b'",
-			expected:  "ab",
+			expected:  "a",
 			tokenType: SCONST,
 		},
 	}

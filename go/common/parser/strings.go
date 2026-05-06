@@ -320,31 +320,31 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	return delimiter.String(), nil
 }
 
-// isDollarQuoteStartChar checks if character can start a dollar-quote tag
-// Equivalent to dolq_start pattern - postgres/src/backend/parser/scan.l:290
+// isDollarQuoteStartChar checks if character can start a dollar-quote tag.
+// Equivalent to the dolq_start pattern in postgres/src/backend/parser/scan.l:290:
+// `[A-Za-z\200-\377_]`. PG's `\377` is the OCTAL escape for byte 0xFF, so the
+// high range covers single-byte high-ASCII (0x80..0xFF) — not Unicode
+// codepoints up to U+0377.
 func (l *Lexer) isDollarQuoteStartChar(ch rune) bool {
-	return unicode.IsLetter(ch) || ch == '_' || (ch >= 0x80 && ch <= 0x377)
+	return unicode.IsLetter(ch) || ch == '_' || (ch >= 0x80 && ch <= 0xFF)
 }
 
-// isDollarQuoteCont checks if character can continue a dollar-quote tag
-// Equivalent to dolq_cont pattern - postgres/src/backend/parser/scan.l:291
+// isDollarQuoteCont checks if character can continue a dollar-quote tag.
+// Equivalent to the dolq_cont pattern in postgres/src/backend/parser/scan.l:291.
+// See the note in isDollarQuoteStartChar about the 0xFF upper bound.
 func (l *Lexer) isDollarQuoteCont(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || (ch >= 0x80 && ch <= 0x377)
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || (ch >= 0x80 && ch <= 0xFF)
 }
 
 // matchesDollarDelimiter reports whether the bytes at the current scan
 // position are exactly equal to expectedDelimiter. Comparison is byte-wise:
 // `range` over a Go string yields decoded runes which would mismatch the raw
 // byte slice for multi-byte tag chars, so use a direct byte comparison.
+//
+// Hot path inside scanDollarQuotedString — every `$` triggers a call. Use the
+// zero-alloc HasPrefixAtScanPos helper to avoid copying the whole buffer.
 func (l *Lexer) matchesDollarDelimiter(expectedDelimiter string) bool {
-	ctx := l.context
-
-	pos := ctx.ScanPos()
-	buf := ctx.ScanBuf()
-	if len(buf)-pos < len(expectedDelimiter) {
-		return false
-	}
-	return string(buf[pos:pos+len(expectedDelimiter)]) == expectedDelimiter
+	return l.context.HasPrefixAtScanPos([]byte(expectedDelimiter))
 }
 
 // scanEscapeSequence processes backslash escape sequences in extended strings
@@ -558,29 +558,30 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		// Skip whitespace to look for continuation
 		// SQL requires at least one newline in the whitespace for string concatenation
 		savedPos := ctx.ScanPos()
+		savedTrackedPos, savedLine, savedCol := ctx.GetCurrentPosition()
+		restoreLookahead := func() {
+			ctx.SetScanPos(savedPos)
+			ctx.SetCurrentPosition(savedTrackedPos, savedLine, savedCol)
+		}
 		hasNewline := false
 
-		// Skip whitespace and check for newline. Multi-byte spaces (NBSP,
-		// en-quad, etc.) decode as a single rune but span several bytes, so
-		// advance by the size DecodeRune actually consumed instead of always
-		// stepping one byte.
+		// Skip whitespace and check for newline. Match PostgreSQL's whitespace
+		// definition (`[ \t\n\r\f]`, scan.l space rule) — explicitly ASCII so
+		// multi-byte Unicode spaces like NBSP do not gate continuation.
 		for !ctx.AtEOF() {
-			ch, size := ctx.CurrentRune()
-			if !unicode.IsSpace(ch) {
+			ch, _ := ctx.CurrentRune()
+			if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' && ch != '\f' {
 				break
 			}
 			if ch == '\n' {
 				hasNewline = true
 			}
-			if size <= 0 {
-				size = 1
-			}
-			ctx.AdvanceBy(size)
+			ctx.AdvanceBy(1)
 		}
 
 		// If no newline was found, string concatenation is not allowed
 		if !hasNewline {
-			ctx.SetScanPos(savedPos)
+			restoreLookahead()
 			ctx.SetState(StateInitial)
 
 			// Set final literal and return
@@ -606,7 +607,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 				ctx.AdvanceBy(1) // Skip '
 			} else {
 				// No continuation found
-				ctx.SetScanPos(savedPos)
+				restoreLookahead()
 				ctx.SetState(StateInitial)
 
 				// Set final literal and return
@@ -676,7 +677,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		}
 
 		// No continuation found - restore position and return final token
-		ctx.SetScanPos(savedPos)
+		restoreLookahead()
 		ctx.SetState(StateInitial)
 
 		// Set final literal and return

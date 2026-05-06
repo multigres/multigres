@@ -492,7 +492,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 115",
     "query": "SELECT CAST('42' AS text COLLATE \"C\")",
-    "error": "parse error at position 33: syntax error"
+    "error": "parse error at position 32: syntax error"
   },
   {
     "comment": "collate.icu.utf8 - Statement 116",

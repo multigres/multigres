@@ -7,7 +7,7 @@
   {
     "comment": "strings - Statement 2",
     "query": "SELECT 'first line' ' - next line' /* this comment is not allowed here */ ' - third line' AS \"Illegal comment within continuation\"",
-    "error": "parse error at position 36: syntax error"
+    "error": "parse error at position 34: syntax error"
   },
   {
     "comment": "strings - Statement 3",
