@@ -377,10 +377,17 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	// path writes it to the client and closes the connection — matching
 	// PG's behavior of rejecting unrecognized `replication` values before
 	// authentication runs.
+	//
+	// Strip the key from c.params after parsing: `replication` is a
+	// protocol-only startup parameter, not a GUC. Leaving it in the map
+	// would let it flow through GetStartupParams → session settings →
+	// `SET SESSION "replication" = ...` on the backend, which PG rejects
+	// as unrecognized. The same reason `options` is deleted just above.
 	replicationMode, err := parseReplicationMode(c.params["replication"])
 	if err != nil {
 		return err
 	}
+	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
 	c.logger.Info("startup message parsed",

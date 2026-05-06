@@ -1181,6 +1181,12 @@ func TestReplicationStartup_AcceptedWithRolReplication(t *testing.T) {
 	require.NoError(t, <-errCh)
 	assert.Equal(t, 1, verifier.calls)
 	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+	// Regression: `replication` is a protocol-only param, not a GUC. It
+	// must be stripped from c.params after parsing so it doesn't propagate
+	// through GetStartupParams into a `SET SESSION "replication" = ...`
+	// on the backing PostgreSQL, which PG would reject as unrecognized.
+	_, hasReplication := c.params["replication"]
+	assert.False(t, hasReplication, "replication startup param must be stripped from c.params")
 }
 
 // TestReplicationStartup_DatabaseModeAcceptedWithRolReplication exercises

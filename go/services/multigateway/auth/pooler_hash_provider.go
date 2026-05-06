@@ -146,3 +146,11 @@ func (p *PoolerHashProvider) IsReplicationRole(ctx context.Context, username, da
 
 // Ensure PoolerHashProvider implements scram.PasswordHashProvider.
 var _ scram.PasswordHashProvider = (*PoolerHashProvider)(nil)
+
+// Ensure PoolerHashProvider implements server.RoleAttributeVerifier so the
+// init.go ListenerConfig assignment fails at compile time if the interface
+// drifts. Asserted via the concrete return type of IsReplicationRole so we
+// don't take a circular import on go/common/pgprotocol/server.
+var _ interface {
+	IsReplicationRole(ctx context.Context, username, database string) (bool, error)
+} = (*PoolerHashProvider)(nil)
