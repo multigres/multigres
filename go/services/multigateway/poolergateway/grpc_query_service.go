@@ -332,7 +332,7 @@ func (g *grpcQueryService) CopyReady(
 	// Start the bidirectional stream
 	stream, err := g.client.CopyBidiExecute(ctx)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start bidirectional execute stream")
 	}
 
 	// Ensure stream is closed if we fail before adding it to copyStreams
@@ -355,7 +355,7 @@ func (g *grpcQueryService) CopyReady(
 	}
 
 	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to send INITIATE: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
 	}
 
 	g.logger.DebugContext(ctx, "sent INITIATE message", "pooler_id", g.poolerID)
@@ -363,7 +363,7 @@ func (g *grpcQueryService) CopyReady(
 	// Receive READY response
 	resp, err := stream.Recv()
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to receive READY response: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive READY response")
 	}
 
 	// Check for ERROR response
@@ -425,7 +425,7 @@ func (g *grpcQueryService) CopySendData(
 	}
 
 	if err := stream.Send(dataReq); err != nil {
-		return fmt.Errorf("failed to send DATA: %w", err)
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DATA")
 	}
 
 	g.logger.DebugContext(ctx, "sent DATA message",
@@ -467,7 +467,7 @@ func (g *grpcQueryService) CopyFinalize(
 	}
 
 	if err := stream.Send(doneReq); err != nil {
-		return nil, nil, fmt.Errorf("failed to send DONE: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DONE")
 	}
 
 	// Close send direction
@@ -483,7 +483,7 @@ func (g *grpcQueryService) CopyFinalize(
 	// Receive RESULT response
 	resp, err := stream.Recv()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to receive RESULT response: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive RESULT response")
 	}
 
 	// Check for ERROR response
