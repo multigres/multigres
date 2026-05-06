@@ -1,6 +1,6 @@
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { MultiAdminService } from "./generated/multiadminservice_connect.js";
+import { MultiAdminService } from "./generated/multiadminservice_connect";
 import type {
   GetCellNamesResponse,
   GetCellResponse,
