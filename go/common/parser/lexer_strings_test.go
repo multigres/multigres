@@ -300,6 +300,14 @@ func TestBitStrings(t *testing.T) {
 			tokenType: BCONST,
 		},
 		{
+			// Invalid UTF-8 (lone continuation byte) must advance by exactly
+			// one byte and be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Bit string with invalid UTF-8 byte preserved verbatim",
+			input:     "B'10\x8001'",
+			expected:  "b10\x8001",
+			tokenType: BCONST,
+		},
+		{
 			name:      "Case insensitive B prefix",
 			input:     "b'101010'",
 			expected:  "b101010",
@@ -353,6 +361,14 @@ func TestHexStrings(t *testing.T) {
 			name:      "Hex string with multi-byte UTF-8 char preserved",
 			input:     "X'de\xe4\xb8\xadad'",
 			expected:  "xde\xe4\xb8\xadad",
+			tokenType: XCONST,
+		},
+		{
+			// Invalid UTF-8 (lone continuation byte) must advance by one byte
+			// and be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Hex string with invalid UTF-8 byte preserved verbatim",
+			input:     "X'de\x80ad'",
+			expected:  "xde\x80ad",
 			tokenType: XCONST,
 		},
 		{

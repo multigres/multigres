@@ -437,6 +437,17 @@ func (ctx *ParseContext) CurrentChar() rune {
 	return r
 }
 
+// CurrentRune returns the current character at ScanPos along with its byte
+// length. Unlike CurrentChar + utf8.RuneLen, this preserves the size that
+// utf8.DecodeRune actually consumed, so invalid UTF-8 sequences advance by
+// exactly one byte instead of overshooting by re-encoding U+FFFD as 3 bytes.
+func (ctx *ParseContext) CurrentRune() (rune, int) {
+	if ctx.scanPos >= len(ctx.scanBuf) {
+		return 0, 0
+	}
+	return utf8.DecodeRune(ctx.scanBuf[ctx.scanPos:])
+}
+
 // PeekChar returns the next character without advancing
 func (ctx *ParseContext) PeekChar() rune {
 	if ctx.scanPos >= len(ctx.scanBuf) {

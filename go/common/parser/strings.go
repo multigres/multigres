@@ -684,20 +684,20 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 	// downstream backend produce the canonical error.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
-		ch := ctx.CurrentChar()
+		ch, size := ctx.CurrentRune()
 
 		if ch == '\'' {
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
 		}
-		ctx.AddLiteral(string(ch))
-		runeSize := utf8.RuneLen(ch)
-		if runeSize > 0 {
-			ctx.AdvanceBy(runeSize)
-		} else {
-			ctx.AdvanceBy(1)
+		if size <= 0 {
+			size = 1
 		}
+		// Append raw bytes so invalid UTF-8 is preserved verbatim instead of
+		// being re-encoded as U+FFFD (which expands to 3 bytes).
+		ctx.AddLiteral(string(ctx.PeekBytes(size)))
+		ctx.AdvanceBy(size)
 	}
 
 	if !foundClosingQuote {
@@ -733,20 +733,20 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 	// `varbit_in` emit `" " is not a valid hexadecimal digit` etc.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
-		ch := ctx.CurrentChar()
+		ch, size := ctx.CurrentRune()
 
 		if ch == '\'' {
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
 		}
-		ctx.AddLiteral(string(ch))
-		runeSize := utf8.RuneLen(ch)
-		if runeSize > 0 {
-			ctx.AdvanceBy(runeSize)
-		} else {
-			ctx.AdvanceBy(1)
+		if size <= 0 {
+			size = 1
 		}
+		// Append raw bytes so invalid UTF-8 is preserved verbatim instead of
+		// being re-encoded as U+FFFD.
+		ctx.AddLiteral(string(ctx.PeekBytes(size)))
+		ctx.AdvanceBy(size)
 	}
 
 	if !foundClosingQuote {
