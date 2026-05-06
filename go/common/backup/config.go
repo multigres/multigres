@@ -159,12 +159,6 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 			"repo1-bundle":                    "y",
 			"repo1-storage-upload-chunk-size": S3UploadChunkSize,
 			"repo1-symlink":                   "n",
-
-			// S3-specific retention policies
-			"repo1-retention-diff":      RetentionDifferential,
-			"repo1-retention-full":      RetentionFull,
-			"repo1-retention-full-type": "time",
-			"repo1-retention-history":   RetentionHistory,
 		}
 
 		// Set credential type based on configuration
@@ -206,6 +200,18 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 
 	default:
 		return nil, errors.New("unknown backup location type")
+	}
+}
+
+// DefaultRetentionConfig returns the default pgBackRest retention settings.
+// These are placed in the [global] section of pgbackrest.conf and apply to
+// all backend types (filesystem and S3).
+func DefaultRetentionConfig() map[string]string {
+	return map[string]string{
+		"repo1-retention-diff":      RetentionDifferential,
+		"repo1-retention-full":      RetentionFull,
+		"repo1-retention-full-type": RetentionFullType,
+		"repo1-retention-history":   RetentionHistory,
 	}
 }
 

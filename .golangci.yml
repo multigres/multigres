@@ -323,6 +323,11 @@ linters:
       - linters:
           - unconvert
         path: ^go/common/parser/
+      # grpc.WithBlock is deprecated upstream but still required by the etcd v3 client
+      - linters:
+          - staticcheck
+        path: ^go/common/topoclient/etcdtopo/store\.go$
+        text: "SA1019: grpc.WithBlock"
 formatters:
   enable:
     - gofumpt

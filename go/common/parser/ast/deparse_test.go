@@ -302,17 +302,17 @@ func TestRoundTripCompatibility(t *testing.T) {
 		{
 			name:     "simple DECLARE CURSOR",
 			node:     NewDeclareCursorStmt("my_cursor", CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
-			expected: "DECLARE my_cursor CURSOR FOR SELECT *",
+			expected: "DECLARE my_cursor CURSOR FOR SELECT",
 		},
 		{
 			name:     "DECLARE CURSOR with SCROLL",
 			node:     NewDeclareCursorStmt("scroll_cursor", CURSOR_OPT_SCROLL|CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
-			expected: "DECLARE scroll_cursor SCROLL CURSOR FOR SELECT *",
+			expected: "DECLARE scroll_cursor SCROLL CURSOR FOR SELECT",
 		},
 		{
 			name:     "DECLARE CURSOR with BINARY and HOLD",
 			node:     NewDeclareCursorStmt("complex_cursor", CURSOR_OPT_BINARY|CURSOR_OPT_HOLD|CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
-			expected: "DECLARE complex_cursor BINARY CURSOR WITH HOLD FOR SELECT *",
+			expected: "DECLARE complex_cursor BINARY CURSOR WITH HOLD FOR SELECT",
 		},
 		{
 			name:     "simple FETCH statement",
@@ -368,7 +368,7 @@ func TestRoundTripCompatibility(t *testing.T) {
 		{
 			name:     "simple PREPARE without parameters",
 			node:     NewPrepareStmt("simple_plan", nil, NewSelectStmt()),
-			expected: "PREPARE simple_plan AS SELECT *",
+			expected: "PREPARE simple_plan AS SELECT",
 		},
 		{
 			name: "PREPARE with one parameter",
@@ -377,7 +377,7 @@ func TestRoundTripCompatibility(t *testing.T) {
 				argtypes.Append(NewTypeName([]string{"integer"}))
 				return NewPrepareStmt("plan_with_param", argtypes, NewSelectStmt())
 			}(),
-			expected: "PREPARE plan_with_param ( integer ) AS SELECT *",
+			expected: "PREPARE plan_with_param ( integer ) AS SELECT",
 		},
 		{
 			name: "PREPARE with multiple parameters",
@@ -387,7 +387,7 @@ func TestRoundTripCompatibility(t *testing.T) {
 				argtypes.Append(NewTypeName([]string{"text"}))
 				return NewPrepareStmt("plan_multi_param", argtypes, NewSelectStmt())
 			}(),
-			expected: "PREPARE plan_multi_param ( integer, TEXT ) AS SELECT *",
+			expected: "PREPARE plan_multi_param ( integer, TEXT ) AS SELECT",
 		},
 		{
 			name:     "simple EXECUTE without parameters",

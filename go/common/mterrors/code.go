@@ -18,22 +18,26 @@ package mterrors
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSProtocolViolation     = "08P01" // protocol_violation
-	PgSSFeatureNotSupported   = "0A000" // feature_not_supported
-	PgSSInvalidParameterValue = "22023" // invalid_parameter_value
-	PgSSActiveTransaction     = "25001" // active_sql_transaction
-	PgSSInFailedTransaction   = "25P02" // in_failed_sql_transaction
-	PgSSAuthFailed            = "28P01" // invalid_authorization_specification
-	PgSSInvalidCursorName     = "34000" // invalid_cursor_name
-	PgSSSyntaxError           = "42601" // syntax_error
-	PgSSUndefinedObject       = "42704" // undefined_object
-	PgSSQueryCanceled         = "57014" // query_canceled
-	PgSSInternalError         = "XX000" // internal_error
+	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
+	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
+	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
+	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
+	PgSSAuthFailed              = "28P01" // invalid_password
+	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
+	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSSyntaxError             = "42601" // syntax_error
+	PgSSUndefinedObject         = "42704" // undefined_object
+	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSInternalError           = "XX000" // internal_error
+	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
@@ -144,6 +148,33 @@ var (
 		Format:      "connection startup failed",
 		Description: "Invalid startup message.",
 	}
+
+	MTB01 = &MTError{
+		ID: "MTB01", Severity: "ERROR",
+		Format:      "failover buffer full",
+		Description: "The request was evicted because the failover buffer is at capacity. Retry the query.",
+	}
+
+	MTB02 = &MTError{
+		ID: "MTB02", Severity: "ERROR",
+		Format:      "failover buffer timeout",
+		Description: "The request was evicted because the failover did not complete within the buffer window. Retry the query.",
+	}
+
+	MTB03 = &MTError{
+		ID: "MTB03", Severity: "ERROR",
+		Format:      "failover buffer shutting down",
+		Description: "The request was evicted because the gateway is shutting down.",
+	}
+
+	// MTF01 is returned by multipooler when a planned failover is in progress
+	// (servingStatus == SERVING_RDONLY). The gateway's classifyError uses this
+	// code to trigger failover buffering for PRIMARY queries.
+	MTF01 = &MTError{
+		ID: "MTF01", Severity: "ERROR",
+		Format:      "planned failover in progress",
+		Description: "The pooler is transitioning during a planned failover. The query will be retried automatically.",
+	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
@@ -159,6 +190,21 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	}
 }
 
+// NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
+// ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
+// (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a
+// successful CommandComplete — e.g., the WARNING emitted for `SET LOCAL`
+// outside a transaction block.
+func NewPgNotice(severity, sqlState, message, detail string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'N',
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
+	}
+}
+
 // NewUnrecognizedParameter creates a PgDiagnostic for an unrecognized configuration
 // parameter (SQLSTATE 42704 undefined_object). This matches PostgreSQL's error for
 // SHOW/SET/RESET of unknown GUC parameters.
@@ -167,16 +213,29 @@ func NewUnrecognizedParameter(name string) *PgDiagnostic {
 		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
 }
 
-// IsError checks whether err (or a wrapped cause) is an MT error matching code.
-// For *PgDiagnostic errors it compares the SQLSTATE Code field directly;
-// otherwise it falls back to substring matching on the error string.
-func IsError(err error, code string) bool {
+// NewInvalidPreparedStatementError creates a PgDiagnostic for a reference to
+// a nonexistent prepared statement. SQLSTATE 26000 (invalid_sql_statement_name).
+func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidSQLStatementName,
+		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
+}
+
+// NewInvalidPortalError creates a PgDiagnostic for a reference to
+// a nonexistent portal. SQLSTATE 34000 (invalid_cursor_name).
+func NewInvalidPortalError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidCursorName,
+		fmt.Sprintf("portal \"%s\" does not exist", name), "")
+}
+
+// IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic
+// whose SQLSTATE Code matches any of the provided codes.
+func IsErrorCode(err error, codes ...string) bool {
 	if err == nil {
 		return false
 	}
 	var diag *PgDiagnostic
 	if errors.As(err, &diag) {
-		return diag.Code == code
+		return slices.Contains(codes, diag.Code)
 	}
 	return false
 }

@@ -95,10 +95,13 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 				}
 			}
 		case "etcd_port":
-			// Run etcd health check
+			// TCP connectivity is already verified above; no HTTP check on the client port.
+			// /readyz is only available on the metrics listener (etcd_metrics_port).
+		case "etcd_metrics_port":
+			// Run etcd readiness check via /readyz on the dedicated metrics listener.
 			if serviceName == "etcd" {
-				etcdAddress := net.JoinHostPort(host, strconv.Itoa(port))
-				if err := p.checkEtcdHealth(ctx, etcdAddress); err != nil {
+				etcdMetricsAddress := net.JoinHostPort(host, strconv.Itoa(port))
+				if err := p.checkEtcdHealth(ctx, etcdMetricsAddress); err != nil {
 					return err
 				}
 			}
@@ -112,7 +115,8 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 }
 
 // checkEtcdHealth checks if etcd is ready by querying its /readyz endpoint.
-// This matches the Kubernetes readiness probe behavior.
+// address must be the host:port of etcd's metrics listener (--listen-metrics-urls),
+// not the client listener. /readyz returns 404 on the client port.
 func (p *localProvisioner) checkEtcdHealth(ctx context.Context, address string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

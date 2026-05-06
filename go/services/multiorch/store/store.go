@@ -126,3 +126,74 @@ func (s *ProtoStore[K, V]) Range(fn func(key K, value V) bool) {
 		}
 	}
 }
+
+// DoUpdateRange iterates over all key-value pairs while holding the lock and
+// allows in-place updates.
+//
+// Each value passed to the callback is the raw internal value (not a clone).
+// The callback may mutate it in place. Return the updated value to write it
+// back to the store, or nil to leave the entry unchanged. Return false to stop
+// iteration early — consistent with Range.
+//
+// The callback must not retain the pointer after it returns, and must not
+// perform any expensive or blocking operations since it runs while holding the
+// store lock.
+//
+// Example:
+//
+//	store.DoUpdateRange(func(key string, value *PoolerHealthState) (*PoolerHealthState, bool) {
+//	    value.LastSeen = timestamppb.Now()
+//	    return value, true  // write updated value and continue
+//	    return nil, true    // no update, continue
+//	    return value, false // write updated value and stop
+//	})
+func (s *ProtoStore[K, V]) DoUpdateRange(fn func(key K, value V) (V, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for k, v := range s.items {
+		var zero V
+		newValue, cont := fn(k, v)
+		if any(newValue) != any(zero) {
+			s.items[k] = newValue
+		}
+		if !cont {
+			return
+		}
+	}
+}
+
+// DoUpdate performs an atomic read-modify-write operation for a given key.
+//
+// The provided function receives a pointer to the current value and can modify
+// it in place. After the function returns, the updated value is stored back in
+// the map. This is useful for cases where you want to update a value based on
+// its current state without having to do multiple Get/Set calls. Note that the
+// function is not called if the key does not exist, so it won't create new
+// entries. This is designed for safely updating existing entries while avoiding
+// accidental creation of new ones.
+//
+// Example:
+//
+//	store.DoUpdate("pooler1", func(value *PoolerHealthState) *PoolerHealthState {
+//	    value.LastSeen = timestamppb.Now()
+//	    return value // write updated value
+//	    return nil   // no update
+//	})
+//
+// Right now we are holding a lock on the entire store for the duration of the
+// update function, but an improvement for the future could be to implement
+// finer-grained locking (e.g., per-key locks) if contention becomes an issue.
+func (s *ProtoStore[K, V]) DoUpdate(key K, fn func(value V) V) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Skip the update if the key doesn't exist to avoid accidentally creating
+	// new entries.
+	if v, ok := s.items[key]; ok {
+		var zero V
+		if newValue := fn(v); any(newValue) != any(zero) {
+			s.items[key] = newValue
+		}
+	}
+}

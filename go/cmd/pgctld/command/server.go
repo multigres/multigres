@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sync"
@@ -32,6 +31,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -143,10 +144,12 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
 	pgctldConfig := PgCtldServiceConfig{
-		Port:     s.pgCtlCmd.pgPort.Get(),
-		User:     s.pgCtlCmd.pgUser.Get(),
-		Database: s.pgCtlCmd.pgDatabase.Get(),
-		Password: s.pgCtlCmd.pgPassword.Get(),
+		Port:                 s.pgCtlCmd.pgPort.Get(),
+		User:                 s.pgCtlCmd.pgUser.Get(),
+		Database:             s.pgCtlCmd.pgDatabase.Get(),
+		Password:             s.pgCtlCmd.pgPassword.Get(),
+		InitDbSQLFiles:       s.pgCtlCmd.initDbSQLFiles.Get(),
+		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 
 	pgctldService, err := NewPgCtldService(
@@ -161,6 +164,30 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Register /ready probe: postgres socket accepting + gRPC accepting.
+	// Replication health is intentionally excluded (see pgctldReadyHandler).
+	pgSocketPath := filepath.Join(
+		pgctld.PostgresSocketDir(poolerDir),
+		fmt.Sprintf(".s.PGSQL.%d", s.pgCtlCmd.pgPort.Get()),
+	)
+	s.senv.RegisterReadyCheck(func() error {
+		if !unixSocketAccepting(pgSocketPath) {
+			return errors.New("postgres socket not accepting")
+		}
+		return nil
+	})
+
+	grpcSocketPath := s.grpcServer.SocketFile()
+	grpcBindAddress := s.grpcServer.BindAddress()
+	grpcPort := s.grpcServer.Port()
+
+	s.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
 
 	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
@@ -214,11 +241,13 @@ func reapOrphanedChildren(logger *slog.Logger) {
 // parameters. These are the most commonly passed parameters and are grouped
 // here to reduce argument lists.
 type PgCtldServiceConfig struct {
-	Port       int
-	User       string
-	Database   string
-	Password   string
-	InitdbArgs string
+	Port                 int
+	User                 string
+	Database             string
+	Password             string
+	InitdbArgs           string
+	InitDbSQLFiles       []string
+	InitdbExtraConfFiles []string
 }
 
 // PgCtldService implements the pgctld gRPC service
@@ -234,7 +263,7 @@ type PgCtldService struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
-	pgBackRestCmd    *exec.Cmd
+	pgBackRestCmd    *executil.Cmd
 	pgBackRestStatus *pb.PgBackRestStatus
 	statusMu         sync.RWMutex
 	restartCount     int32
@@ -303,6 +332,7 @@ func NewPgCtldService(
 			Pg1Port:       cfg.Port,
 			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
 			Pg1Path:       pgctld.PostgresDataDir(),
+			Pg1User:       cfg.User,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
@@ -378,11 +408,11 @@ func (s *PgCtldService) Close() {
 	s.cancel()
 
 	// Kill pgBackRest process if running
-	if s.pgBackRestCmd != nil && s.pgBackRestCmd.Process != nil {
-		s.logger.Info("Terminating pgBackRest server", "pid", s.pgBackRestCmd.Process.Pid)
-		if err := s.pgBackRestCmd.Process.Kill(); err != nil {
-			s.logger.Warn("Failed to kill pgBackRest process", "error", err)
-		}
+	if s.pgBackRestCmd != nil {
+		s.logger.Info("Terminating pgBackRest server")
+		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
+		_, _ = s.pgBackRestCmd.Stop(killCtx)
+		killCancel()
 	}
 
 	// Wait for goroutines to fully exit
@@ -392,7 +422,7 @@ func (s *PgCtldService) Close() {
 
 // startPgBackRest starts the pgBackRest TLS server process
 // Returns the command on success, or error on failure
-func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) {
+func (s *PgCtldService) startPgBackRest(ctx context.Context) (*executil.Cmd, error) {
 	configPath := s.pgbackrestServerConfigPath()
 
 	// Verify config exists
@@ -402,8 +432,8 @@ func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) 
 
 	// Build command: pgbackrest server
 	// Note: Config is passed via PGBACKREST_CONFIG environment variable
-	cmd := exec.CommandContext(ctx, "pgbackrest", "server")
-	cmd.Env = append(os.Environ(), "PGBACKREST_CONFIG="+configPath)
+	cmd := executil.Command(ctx, "pgbackrest", "server")
+	cmd.AddEnv("PGBACKREST_CONFIG=" + configPath)
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -431,7 +461,7 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 	r := retry.New(1*time.Second, 10*time.Second)
 
 	for {
-		var cmd *exec.Cmd
+		var cmd *executil.Cmd
 
 		// Try to start with retry policy (max 5 attempts)
 		for attempt, err := range r.Attempts(ctx) {
@@ -474,10 +504,10 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
 
 		case <-ctx.Done():
-			// Shutdown requested, kill process
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill() // Ignore error - process may already be dead
-			}
+			// Shutdown requested, stop process
+			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
+			_, _ = cmd.Stop(killCtx) // Ignore error - process may already be dead
+			cancel()
 			<-done // Wait for Wait() to complete
 			return
 		}
@@ -690,7 +720,10 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
-	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres",
+	// connect_timeout ensures pg_rewind fails fast if the source is not yet ready to accept
+	// connections (e.g. newly-promoted primary still in crash recovery), allowing the caller
+	// to retry rather than blocking for the OS TCP timeout.
+	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres connect_timeout=5",
 		req.GetSourceHost(), req.GetSourcePort(), s.ctldConfig.User)
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())

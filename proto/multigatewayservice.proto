@@ -36,6 +36,11 @@ message CancelQueryRequest {
   // Required: the receiving gateway verifies this matches before canceling.
   // Without it, any client that can guess a PID could cancel arbitrary queries.
   uint32 secret_key = 2;
+  // replica indicates the cancel targets a connection on the replica-reads listener.
+  // When false (default), the cancel targets the primary listener. This is needed
+  // because both listeners share the same PID prefix and may have overlapping local
+  // connection IDs — the connection type disambiguates which listener owns the PID.
+  bool replica = 3;
 }
 
 // CancelQueryResponse is empty on success.

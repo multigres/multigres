@@ -5,8 +5,7 @@
   },
   {
     "comment": "create_schema - Statement 2",
-    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE SEQUENCE schema_not_existing.seq",
-    "error": "parse error at position 70: syntax error"
+    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE SEQUENCE schema_not_existing.seq"
   },
   {
     "comment": "create_schema - Statement 3",
@@ -33,8 +32,7 @@
   },
   {
     "comment": "create_schema - Statement 8",
-    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq",
-    "error": "parse error at position 56: syntax error"
+    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq"
   },
   {
     "comment": "create_schema - Statement 9",
@@ -56,8 +54,7 @@
   },
   {
     "comment": "create_schema - Statement 13",
-    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq",
-    "error": "parse error at position 73: syntax error"
+    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq"
   },
   {
     "comment": "create_schema - Statement 14",

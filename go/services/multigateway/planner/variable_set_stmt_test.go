@@ -29,7 +29,7 @@ import (
 
 func TestPlanVariableSetStmt_SET(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -49,7 +49,7 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 
 func TestPlanVariableSetStmt_RESET(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -67,7 +67,7 @@ func TestPlanVariableSetStmt_RESET(t *testing.T) {
 
 func TestPlanVariableSetStmt_RESET_ALL(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -84,7 +84,7 @@ func TestPlanVariableSetStmt_RESET_ALL(t *testing.T) {
 
 func TestPlanVariableSetStmt_SET_LOCAL_PassesThrough(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -105,7 +105,7 @@ func TestPlanVariableSetStmt_SET_LOCAL_PassesThrough(t *testing.T) {
 
 func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -125,7 +125,7 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 
 func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{
@@ -144,7 +144,7 @@ func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
 
 func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	p := NewPlanner("default", logger)
+	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	stmt := &ast.VariableSetStmt{

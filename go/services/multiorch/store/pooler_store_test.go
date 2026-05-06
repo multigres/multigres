@@ -16,6 +16,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -23,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -60,7 +60,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	})
 
 	t.Run("finds poolers in shard", func(t *testing.T) {
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		assert.Len(t, poolers, 2)
@@ -70,7 +70,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	})
 
 	t.Run("returns empty for non-existent shard", func(t *testing.T) {
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "999"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "999"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		assert.Empty(t, poolers)
@@ -80,7 +80,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 		poolerStore.Set("nil-pooler", nil)
 		poolerStore.Set("nil-multipooler", &multiorchdatapb.PoolerHealthState{MultiPooler: nil})
 
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		// Should still find the 2 valid poolers
@@ -134,17 +134,10 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("finds healthy primary", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
-				"multipooler-cell1-primary": {
-					Response: &multipoolermanagerdatapb.StatusResponse{
-						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
-						},
-					},
-				},
-			},
-		}
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+		})
 		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
@@ -193,18 +186,9 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 		assert.Contains(t, err.Error(), "no healthy primary found")
 	})
 
-	t.Run("skips uninitialized primary", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
-				"multipooler-cell1-primary": {
-					Response: &multipoolermanagerdatapb.StatusResponse{
-						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: false, // not initialized
-						},
-					},
-				},
-			},
-		}
+	t.Run("skips pooler where PrimaryStatus fails (e.g. standby mode)", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.Errors["multipooler-cell1-primary"] = errors.New("operation not allowed: the PostgreSQL instance is in standby mode")
 		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
@@ -220,21 +204,16 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, primary)
+		assert.Contains(t, err.Error(), "no healthy primary found")
 	})
 
 	t.Run("skips unreachable primary and finds next", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{
-			// primary1 has no response configured (will error)
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
-				"multipooler-cell2-primary2": {
-					Response: &multipoolermanagerdatapb.StatusResponse{
-						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
-						},
-					},
-				},
-			},
-		}
+		fakeClient := rpcclient.NewFakeClient()
+		// primary1 PrimaryStatus returns an error (unreachable)
+		fakeClient.Errors["multipooler-cell1-primary1"] = errors.New("connection refused")
+		fakeClient.SetStatusResponse("multipooler-cell2-primary2", &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+		})
 		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
@@ -259,24 +238,13 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 	})
 
 	t.Run("returns error when multiple healthy primaries found", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
-				"multipooler-cell1-primary1": {
-					Response: &multipoolermanagerdatapb.StatusResponse{
-						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
-						},
-					},
-				},
-				"multipooler-cell2-primary2": {
-					Response: &multipoolermanagerdatapb.StatusResponse{
-						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
-						},
-					},
-				},
-			},
-		}
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.SetStatusResponse("multipooler-cell1-primary1", &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+		})
+		fakeClient.SetStatusResponse("multipooler-cell2-primary2", &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+		})
 		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
@@ -300,4 +268,84 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 		assert.Nil(t, primary)
 		assert.Contains(t, err.Error(), "multiple primaries found")
 	})
+
+	t.Run("finds primary from stale topology using health data", func(t *testing.T) {
+		// Simulates the post-failover scenario: etcd is unavailable so topology is stale.
+		// The promoted primary (promoted-replica) still has Type=REPLICA in topology but its
+		// live health snapshot reports PoolerType=PRIMARY. The stale-topology primary
+		// (stale-primary) has Type=PRIMARY in topology but PrimaryStatus fails because it
+		// is actually running as a standby after demotion.
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.Errors["multipooler-cell1-stale-primary"] = errors.New("operation not allowed: the PostgreSQL instance is in standby mode")
+		fakeClient.SetStatusResponse("multipooler-cell1-promoted-replica", &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+		})
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+
+		poolers := []*multiorchdatapb.PoolerHealthState{
+			{
+				MultiPooler: &clustermetadatapb.MultiPooler{
+					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"},
+					Type: clustermetadatapb.PoolerType_PRIMARY, // stale topology
+				},
+			},
+			{
+				MultiPooler: &clustermetadatapb.MultiPooler{
+					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "promoted-replica"},
+					Type: clustermetadatapb.PoolerType_REPLICA, // stale topology
+				},
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType: clustermetadatapb.PoolerType_PRIMARY, // health data shows it's actually primary
+				},
+			},
+		}
+
+		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
+
+		require.NoError(t, err)
+		assert.Equal(t, "promoted-replica", primary.MultiPooler.Id.Name)
+	})
+}
+
+// TestPoolerStore_DoUpdateRange verifies that DoUpdateRange atomically resets fields
+// on qualifying poolers while leaving others unchanged — mirroring the
+// queuePoolersHealthCheck use case.
+func TestPoolerStore_DoUpdateRange(t *testing.T) {
+	store := NewPoolerStore(nil, slog.Default())
+
+	// pooler1: IsUpToDate=true — should be reset to false
+	store.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		},
+		IsUpToDate: true,
+	})
+	// pooler2: IsUpToDate=false — should remain false and not be written back
+	store.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		},
+		IsUpToDate: false,
+	})
+
+	writeCount := 0
+	store.DoUpdateRange(func(key string, value *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool) {
+		if value.IsUpToDate {
+			value.IsUpToDate = false
+			writeCount++
+			return value, true // write and continue
+		}
+		return nil, true // no write, continue
+	})
+
+	// Only pooler1 should have triggered a write-back
+	require.Equal(t, 1, writeCount)
+
+	p1, ok := store.Get("pooler1")
+	require.True(t, ok)
+	require.False(t, p1.IsUpToDate, "pooler1 IsUpToDate should have been reset to false")
+
+	p2, ok := store.Get("pooler2")
+	require.True(t, ok)
+	require.False(t, p2.IsUpToDate, "pooler2 IsUpToDate should remain false")
 }

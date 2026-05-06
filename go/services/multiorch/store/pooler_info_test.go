@@ -37,7 +37,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true,
+				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
 			expected: false,
 		},
@@ -46,7 +46,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true,
+				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
 			expected: true,
 		},
@@ -55,7 +55,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    false,
+				Status:           &multipoolermanagerdatapb.Status{IsInitialized: false},
 			},
 			expected: false,
 		},
@@ -64,10 +64,10 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				IsInitialized:    true,
-				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-					Lsn: "0/123ABC",
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					IsInitialized: true,
+					PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/123ABC"},
 				},
 			},
 			expected: true,
@@ -77,10 +77,12 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    true,
-				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					LastReplayLsn: "0/123ABC",
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
+					IsInitialized: true,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						LastReplayLsn: "0/123ABC",
+					},
 				},
 			},
 			expected: true,
@@ -90,10 +92,12 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    false,
-				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					LastReplayLsn: "0/123ABC",
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
+					IsInitialized: false,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						LastReplayLsn: "0/123ABC",
+					},
 				},
 			},
 			expected: false,

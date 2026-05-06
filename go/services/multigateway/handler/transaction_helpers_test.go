@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,8 @@ func (m *trackingMockExecutor) StreamExecute(
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
-		return nil, m.errToReturn
+		// Return partial result with PlanTime, matching real executor behavior.
+		return &ExecuteResult{PlanTime: time.Microsecond}, m.errToReturn
 	}
 	// Call the callback with a result that includes a CommandTag,
 	// mimicking real executor behavior.
@@ -59,7 +61,7 @@ func (m *trackingMockExecutor) StreamExecute(
 	return &ExecuteResult{}, err
 }
 
-func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
 	return &ExecuteResult{}, nil
 }
 
@@ -104,8 +106,10 @@ func parseStmts(t *testing.T, sql string) []ast.Stmt {
 
 // newTestHandler creates a MultiGatewayHandler with the given mock executor.
 func newTestHandler(executor Executor) *MultiGatewayHandler {
+	metrics, _ := NewHandlerMetrics()
 	return &MultiGatewayHandler{
 		executor: executor,
+		metrics:  metrics,
 	}
 }
 
@@ -376,4 +380,49 @@ func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *t
 	require.NoError(t, err)
 	// Already in transaction: no initial BEGIN, but after COMMIT, new implicit segment starts
 	require.Equal(t, []string{"OTHER", "COMMIT", "BEGIN", "OTHER", "COMMIT"}, stmtDescriptions(mock.executedStmts))
+}
+
+func TestExecuteWithImplicitTransaction_BeginWithIsolationAfterQuery_RollsBackImplicitTx(t *testing.T) {
+	// Regression test: when a batch runs a query inside an implicit transaction and
+	// then issues BEGIN ISOLATION LEVEL SERIALIZABLE, Multigres must rollback the
+	// implicit transaction it opened before returning the error — otherwise the
+	// backend PostgreSQL connection is left with an open transaction and goes back
+	// into the pool in a dirty state.
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	stmts := parseStmts(t, "SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state,
+		"SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	// Implicit transaction must be rolled back before returning the error.
+	// Without the fix, ROLLBACK is missing: ["BEGIN", "OTHER"].
+	require.Equal(t, []string{"BEGIN", "OTHER", "ROLLBACK"}, stmtDescriptions(mock.executedStmts))
+}
+
+func TestExecuteWithImplicitTransaction_BeginWithIsolationInExplicitTx_DoesNotRollback(t *testing.T) {
+	// When already inside an explicit transaction (user issued BEGIN earlier),
+	// Multigres must return the same error but must NOT issue a ROLLBACK —
+	// the client owns that transaction and must decide to roll it back themselves.
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	tc := server.NewTestConn(&bytes.Buffer{})
+	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock) // already in an explicit transaction
+	stmts := parseStmts(t, "SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), tc.Conn, state,
+		"SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	// No ROLLBACK — the explicit transaction belongs to the client.
+	require.Equal(t, []string{"OTHER"}, stmtDescriptions(mock.executedStmts))
 }

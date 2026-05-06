@@ -17,9 +17,14 @@ package timer
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrStopped is sent to notification channels when the runner is stopped
+// before a cycle completes.
+var ErrStopped = errors.New("runner stopped before cycle completed")
 
 // state represents the lifecycle state of the PeriodicRunner.
 type state int
@@ -58,6 +63,9 @@ type PeriodicRunner struct {
 	timer    *time.Timer
 	wg       sync.WaitGroup
 	callback func(ctx context.Context)
+
+	// Channels to notify after next cycle completes (for WithAfterNextFullCycle)
+	cycleNotifications []chan error
 }
 
 // NewPeriodicRunner creates a PeriodicRunner with the given parent context and interval.
@@ -74,12 +82,79 @@ func NewPeriodicRunner(ctx context.Context, interval time.Duration) *PeriodicRun
 	return pr
 }
 
-// Start begins running the callback at regular intervals.
+// StartOptions configures how the PeriodicRunner starts.
+type StartOptions struct {
+	fastStart          bool       // If true, schedule callback immediately (0 delay) instead of waiting for first interval
+	onStart            func()     // Optional callback invoked when actually starting (not when already running)
+	afterNextFullCycle chan error // Optional channel to receive cycle completion status (nil = success, ErrStopped = stopped)
+}
+
+// StartOption is a functional option for StartWithOptions.
+type StartOption func(*StartOptions)
+
+// WithFastStart configures the runner to schedule the callback with minimal delay (0ms)
+// when starting from a stopped state. If the runner is already running, this option
+// has no effect. Combine with WithAfterNextFullCycle to wait for completion.
+func WithFastStart() StartOption {
+	return func(opts *StartOptions) {
+		opts.fastStart = true
+	}
+}
+
+// WithOnStart configures a callback to be invoked when the runner actually starts
+// (not when it's already running). The callback is invoked before any periodic
+// callback can execute.
+func WithOnStart(onStart func()) StartOption {
+	return func(opts *StartOptions) {
+		opts.onStart = onStart
+	}
+}
+
+// WithAfterNextFullCycle configures a channel to receive a status after the next full
+// (not yet started) cycle completes or the runner is stopped.
+//
+// The channel will receive:
+//   - nil: if the cycle completed successfully
+//   - ErrStopped: if the runner was stopped before the cycle completed
+//
+// Can be combined with WithFastStart: if stopped, fast start schedules immediately and
+// the channel receives nil after that cycle completes; if already running, the channel
+// receives a value after the next scheduled cycle completes.
+//
+// Example:
+//
+//	cycleDone := make(chan error, 1)
+//	StartWithOptions(callback, WithFastStart(), WithAfterNextFullCycle(cycleDone))
+//	select {
+//	case err := <-cycleDone:
+//	    if err == nil {
+//	        // Cycle completed successfully
+//	    } else {
+//	        // Runner was stopped (err == ErrStopped)
+//	    }
+//	case <-ctx.Done():
+//	    // Timeout or cancellation
+//	}
+func WithAfterNextFullCycle(ch chan error) StartOption {
+	return func(opts *StartOptions) {
+		opts.afterNextFullCycle = ch
+	}
+}
+
+// StartWithOptions begins running the callback at regular intervals with the given options.
 // The callback receives a context that is cancelled when Stop() is called.
-// If onStart is non-nil, it is called exactly once when actually starting
-// (not when already running), before any callback can execute.
 // Returns true if the runner was started, false if it was already running.
-func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func()) bool {
+//
+// Options:
+//   - WithFastStart(): Schedule immediate execution (0 delay) instead of waiting for first interval
+//   - WithOnStart(func()): Invoke callback when starting (not when already running)
+//   - WithAfterNextFullCycle(chan): Close channel after next full cycle completes
+func (r *PeriodicRunner) StartWithOptions(callback func(ctx context.Context), opts ...StartOption) bool {
+	options := &StartOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -89,6 +164,10 @@ func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func(
 	}
 
 	if r.state == running {
+		// Already running - register notification if requested
+		if options.afterNextFullCycle != nil {
+			r.cycleNotifications = append(r.cycleNotifications, options.afterNextFullCycle)
+		}
 		return false
 	}
 
@@ -96,17 +175,41 @@ func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func(
 	r.callback = callback
 	r.ctx, r.cancel = context.WithCancel(r.parentCtx)
 
-	if onStart != nil {
-		onStart()
+	if options.onStart != nil {
+		options.onStart()
 	}
 
-	r.scheduleNext()
+	// Register notification if requested
+	if options.afterNextFullCycle != nil {
+		r.cycleNotifications = append(r.cycleNotifications, options.afterNextFullCycle)
+	}
+
+	if options.fastStart {
+		// Schedule immediate execution (0 delay)
+		r.timer = time.AfterFunc(0, r.execute)
+	} else {
+		r.scheduleNext()
+	}
 	return true
+}
+
+// Start begins running the callback at regular intervals.
+// This is a convenience wrapper around StartWithOptions that preserves the old API.
+// The callback receives a context that is cancelled when Stop() is called.
+// If onStart is non-nil, it is called exactly once when actually starting
+// (not when already running), before any callback can execute.
+// Returns true if the runner was started, false if it was already running.
+func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func()) bool {
+	if onStart != nil {
+		return r.StartWithOptions(callback, WithOnStart(onStart))
+	}
+	return r.StartWithOptions(callback)
 }
 
 // Stop cancels the context and waits for any in-flight callback to complete.
 // After Stop returns, no more callbacks will run. Can be restarted with Start().
 // Stop is idempotent - calling it when already stopped has no effect.
+// Any pending cycle notification channels will receive ErrStopped.
 func (r *PeriodicRunner) Stop() {
 	r.mu.Lock()
 
@@ -130,11 +233,20 @@ func (r *PeriodicRunner) Stop() {
 		r.timer = nil
 	}
 
+	// Notify any pending cycle watchers that runner is stopping
+	notifications := r.cycleNotifications
+	r.cycleNotifications = nil
+
 	r.ctx = nil
 	r.cancel = nil
 	r.callback = nil
 
 	r.mu.Unlock()
+
+	// Send ErrStopped to all waiting channels
+	for _, ch := range notifications {
+		ch <- ErrStopped
+	}
 
 	// Wait for any in-flight callback to complete (outside lock to avoid deadlock)
 	r.wg.Wait()
@@ -207,16 +319,25 @@ func (r *PeriodicRunner) execute() {
 
 	// Track this execution so Stop() can wait for it to complete
 	r.wg.Add(1)
-	defer r.wg.Done()
 
-	// Capture callback and context while holding the lock
+	// Capture callback, context, and notification channels while holding the lock
 	callback := r.callback
 	ctx := r.ctx
+	notifications := r.cycleNotifications
+	r.cycleNotifications = nil // Clear for next cycle
 
 	// Release lock during callback execution to avoid blocking Stop()
 	r.mu.Unlock()
 
+	// Execute callback
 	callback(ctx)
+
+	// Notify all waiting channels that cycle completed successfully
+	for _, ch := range notifications {
+		ch <- nil
+	}
+
+	r.wg.Done()
 
 	// Re-acquire lock to schedule next execution
 	r.mu.Lock()

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -128,7 +129,7 @@ func TestQueryWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 	server.OrderMatters()
 
 	// All 3 attempts fail with connection error.
-	for range maxQueryAttempts {
+	for range constants.MaxConnPoolRetryAttempts {
 		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
 			Query: "SELECT 1",
 			Error: connErrFATAL(),
@@ -274,7 +275,7 @@ func TestQueryStreamingWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 
 	server.OrderMatters()
 
-	for range maxQueryAttempts {
+	for range constants.MaxConnPoolRetryAttempts {
 		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
 			Query: "SELECT 1",
 			Error: connErrFATAL(),
@@ -550,7 +551,7 @@ func TestQueryArgsWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 
 	server.OrderMatters()
 
-	for range maxQueryAttempts {
+	for range constants.MaxConnPoolRetryAttempts {
 		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
 			Query: "SELECT $1",
 			Error: connErrFATAL(),

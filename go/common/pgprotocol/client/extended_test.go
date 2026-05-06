@@ -414,3 +414,47 @@ func TestWriteBindWithNullParams(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), p3)
 }
+
+func TestEncodeStringArray(t *testing.T) {
+	t.Run("empty slice", func(t *testing.T) {
+		assert.Equal(t, "{}", encodeStringArray([]string{}))
+	})
+
+	t.Run("single plain element", func(t *testing.T) {
+		assert.Equal(t, `{"foo"}`, encodeStringArray([]string{"foo"}))
+	})
+
+	t.Run("multiple plain elements", func(t *testing.T) {
+		assert.Equal(t, `{"foo","bar","baz"}`, encodeStringArray([]string{"foo", "bar", "baz"}))
+	})
+
+	t.Run("element with space is quoted", func(t *testing.T) {
+		assert.Equal(t, `{"foo bar"}`, encodeStringArray([]string{"foo bar"}))
+	})
+
+	t.Run("element with comma is quoted", func(t *testing.T) {
+		assert.Equal(t, `{"foo,bar"}`, encodeStringArray([]string{"foo,bar"}))
+	})
+
+	t.Run("element with double quote is quoted and escaped", func(t *testing.T) {
+		assert.Equal(t, `{"foo\"bar"}`, encodeStringArray([]string{`foo"bar`}))
+	})
+
+	t.Run("element with backslash is quoted and escaped", func(t *testing.T) {
+		assert.Equal(t, `{"foo\\bar"}`, encodeStringArray([]string{`foo\bar`}))
+	})
+
+	t.Run("pooler ID format round-trips through ParseTextArray", func(t *testing.T) {
+		elems := []string{"zone1_pooler-1", "zone1_pooler-2", "zone1_pooler-3"}
+		encoded := encodeStringArray(elems)
+		assert.Equal(t, `{"zone1_pooler-1","zone1_pooler-2","zone1_pooler-3"}`, encoded)
+	})
+
+	t.Run("unicode elements are encoded correctly", func(t *testing.T) {
+		assert.Equal(t, `{"ᚼᛅᛁᛚ","ᚼᛅᛁᛗᚱ"}`, encodeStringArray([]string{"ᚼᛅᛁᛚ", "ᚼᛅᛁᛗᚱ"}))
+	})
+
+	t.Run("null string is quoted to avoid SQL NULL interpretation", func(t *testing.T) {
+		assert.Equal(t, `{"NULL"}`, encodeStringArray([]string{"NULL"}))
+	})
+}

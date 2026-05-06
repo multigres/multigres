@@ -59,6 +59,7 @@ func (m *mockIExecute) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
+	preparedStatement *query.PreparedStatement,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -73,6 +74,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return nil
@@ -149,6 +151,10 @@ func (m *mockIExecute) ConcludeTransaction(
 	return nil
 }
 
+func (m *mockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+	return nil
+}
+
 func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
 	return nil
 }
@@ -175,6 +181,7 @@ func TestCopyStatement_CopyInitiateError(t *testing.T) {
 		mockExec,
 		nil, // conn not used when CopyInitiate fails
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -204,6 +211,7 @@ func TestCopyStatement_WriteCopyInResponseError(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -235,6 +243,7 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -266,6 +275,7 @@ func TestCopyStatement_CopyFinalizeError(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -296,6 +306,7 @@ func TestCopyStatement_CopyFailMessage(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -327,6 +338,7 @@ func TestCopyStatement_Success(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -358,6 +370,7 @@ func TestCopyStatement_UnexpectedMessageType(t *testing.T) {
 		mockExec,
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
+		nil,
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 

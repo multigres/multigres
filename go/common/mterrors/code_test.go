@@ -82,60 +82,72 @@ func TestMTError_PgDiagnosticExtraction(t *testing.T) {
 	require.Equal(t, "something went wrong", diag.Detail)
 }
 
-func TestIsError(t *testing.T) {
+func TestIsErrorCode(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      error
-		code     string
+		codes    []string
 		expected bool
 	}{
 		{
 			name:     "nil error",
 			err:      nil,
-			code:     "MTD03",
+			codes:    []string{"MTD03"},
 			expected: false,
 		},
 		{
 			name:     "matching MT error",
 			err:      MTD03.New(),
-			code:     "MTD03",
+			codes:    []string{"MTD03"},
 			expected: true,
 		},
 		{
 			name:     "non-matching code",
 			err:      MTD03.New(),
-			code:     "MTD01",
+			codes:    []string{"MTD01"},
 			expected: false,
 		},
 		{
 			name:     "parameterized MT error",
 			err:      MTD01.New("bad query"),
-			code:     "MTD01",
+			codes:    []string{"MTD01"},
 			expected: true,
 		},
 		{
 			name:     "wrapped PgDiagnostic",
 			err:      Wrapf(MTD03.NewWithDetail("oops"), "context"),
-			code:     "MTD03",
+			codes:    []string{"MTD03"},
 			expected: true,
 		},
 		{
 			name:     "generic error",
 			err:      errors.New("some error"),
-			code:     "MTD03",
+			codes:    []string{"MTD03"},
 			expected: false,
 		},
 		{
 			name:     "NewPgError matches code",
 			err:      NewPgError("ERROR", PgSSInFailedTransaction, "aborted", ""),
-			code:     PgSSInFailedTransaction,
+			codes:    []string{PgSSInFailedTransaction},
 			expected: true,
+		},
+		{
+			name:     "matches second of multiple codes",
+			err:      MTD03.New(),
+			codes:    []string{"MTD01", "MTD03"},
+			expected: true,
+		},
+		{
+			name:     "no match among multiple codes",
+			err:      MTD03.New(),
+			codes:    []string{"MTD01", "MTD02"},
+			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, IsError(tt.err, tt.code))
+			require.Equal(t, tt.expected, IsErrorCode(tt.err, tt.codes...))
 		})
 	}
 }

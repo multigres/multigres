@@ -18,7 +18,9 @@ package rpcclient
 
 import (
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
@@ -41,11 +44,12 @@ const defaultCapacity = 100
 
 // ConnConfig holds configuration for multipooler RPC client connections.
 type ConnConfig struct {
-	cert viperutil.Value[string]
-	key  viperutil.Value[string]
-	ca   viperutil.Value[string]
-	crl  viperutil.Value[string]
-	name viperutil.Value[string]
+	cert       viperutil.Value[string]
+	key        viperutil.Value[string]
+	ca         viperutil.Value[string]
+	crl        viperutil.Value[string]
+	name       viperutil.Value[string]
+	requireTLS viperutil.Value[bool]
 }
 
 // NewConnConfig creates a new ConnConfig with default values.
@@ -76,18 +80,60 @@ func NewConnConfig(reg *viperutil.Registry) *ConnConfig {
 			FlagName: "multipooler-grpc-server-name",
 			Dynamic:  false,
 		}),
+		requireTLS: viperutil.Configure(reg, "multipooler-grpc-require-tls", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "multipooler-grpc-require-tls",
+			Dynamic:  false,
+		}),
 	}
 }
 
 // RegisterFlags registers all multipooler RPC client flags with the given FlagSet.
+//
+// Note: on multigateway these flags also govern gateway-to-gateway cancel
+// forwarding, so a single PKI configuration covers both internal hops. If you
+// need to run different PKI for gateway vs. pooler, split these into dedicated
+// flags in a follow-up.
 func (cc *ConnConfig) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("multipooler-grpc-cert", cc.cert.Default(), "the cert to use to connect to multipooler (not yet implemented)")
-	fs.String("multipooler-grpc-key", cc.key.Default(), "the key to use to connect to multipooler (not yet implemented)")
-	fs.String("multipooler-grpc-ca", cc.ca.Default(), "the server ca to use to validate multipooler servers when connecting (not yet implemented)")
-	fs.String("multipooler-grpc-crl", cc.crl.Default(), "the server crl to use to validate multipooler server certificates when connecting (not yet implemented)")
-	fs.String("multipooler-grpc-server-name", cc.name.Default(), "the server name to use to validate multipooler server certificate (not yet implemented)")
+	fs.String("multipooler-grpc-cert", cc.cert.Default(), "client certificate for mTLS when connecting to multipooler (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.String("multipooler-grpc-key", cc.key.Default(), "client private key for mTLS when connecting to multipooler (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.String("multipooler-grpc-ca", cc.ca.Default(), "CA certificate to validate multipooler server certificates (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.String("multipooler-grpc-crl", cc.crl.Default(), "certificate revocation list to validate multipooler server certificates (not yet implemented)")
+	fs.String("multipooler-grpc-server-name", cc.name.Default(), "expected server name for multipooler certificate verification (also used for gateway-to-gateway gRPC on multigateway)")
+	fs.Bool("multipooler-grpc-require-tls", cc.requireTLS.Default(), "require TLS for multipooler gRPC connections; fail startup if TLS is not configured (also applies to gateway-to-gateway gRPC on multigateway)")
 
-	viperutil.BindFlags(fs, cc.cert, cc.key, cc.ca, cc.crl, cc.name)
+	viperutil.BindFlags(fs, cc.cert, cc.key, cc.ca, cc.crl, cc.name, cc.requireTLS)
+}
+
+// TransportCredentials builds a gRPC dial option for transport security based
+// on the configured TLS flags. Returns insecure credentials when no TLS
+// parameters are set (backward compatible).
+//
+// The logger is used to emit a warning when TLS is not configured but
+// --multipooler-grpc-require-tls is not set. If logger is nil, no warning is
+// emitted. Passing the service-local structured logger keeps the warning
+// attached to whatever attributes the caller has set up (service, cell, etc).
+func (cc *ConnConfig) TransportCredentials(logger *slog.Logger) (grpc.DialOption, error) {
+	if cc == nil {
+		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
+	}
+
+	tlsConfig, err := grpccommon.BuildClientTLSConfig(
+		cc.cert.Get(), cc.key.Get(), cc.ca.Get(), cc.name.Get(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tlsConfig == nil {
+		if cc.requireTLS.Get() {
+			return nil, errors.New("multipooler gRPC TLS is required but not configured")
+		}
+		if logger != nil {
+			logger.Warn("multipooler gRPC TLS is not configured; using insecure transport", "flag", "--multipooler-grpc-require-tls")
+		}
+		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
+	}
+	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
 
 // closeFunc allows a standalone function to implement io.Closer, similar to
@@ -115,28 +161,31 @@ type cachedConn struct {
 // connCache manages a cache of gRPC connections with LRU eviction and capacity limiting.
 // This implementation is based on Vitess's cachedConnDialer for vttablet connections.
 type connCache struct {
-	m            sync.Mutex
-	conns        map[string]*cachedConn
-	evict        []*cachedConn
-	evictSorted  bool
-	connWaitSema *semaphore.Weighted
-	capacity     int
-	metrics      *Metrics
+	m              sync.Mutex
+	conns          map[string]*cachedConn
+	evict          []*cachedConn
+	evictSorted    bool
+	connWaitSema   *semaphore.Weighted
+	capacity       int
+	metrics        *Metrics
+	transportCreds grpc.DialOption // TLS or insecure transport credentials
 }
 
-// newConnCache creates a new connection cache with the default capacity.
+// newConnCache creates a new connection cache with the default capacity and insecure transport.
 func newConnCache() *connCache {
-	return newConnCacheWithCapacity(defaultCapacity)
+	return newConnCacheWithCapacity(defaultCapacity, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
-// newConnCacheWithCapacity creates a new connection cache with a specified capacity.
-func newConnCacheWithCapacity(capacity int) *connCache {
+// newConnCacheWithCapacity creates a new connection cache with a specified capacity
+// and transport credentials dial option.
+func newConnCacheWithCapacity(capacity int, transportCreds grpc.DialOption) *connCache {
 	cc := &connCache{
-		conns:        make(map[string]*cachedConn, capacity),
-		evict:        make([]*cachedConn, 0, capacity),
-		connWaitSema: semaphore.NewWeighted(int64(capacity)),
-		capacity:     capacity,
-		metrics:      NewMetrics(),
+		conns:          make(map[string]*cachedConn, capacity),
+		evict:          make([]*cachedConn, 0, capacity),
+		connWaitSema:   semaphore.NewWeighted(int64(capacity)),
+		capacity:       capacity,
+		metrics:        NewMetrics(),
+		transportCreds: transportCreds,
 	}
 
 	// Register callback for cache size observable gauge
@@ -293,7 +342,7 @@ func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *cluster
 	// Build client options with multipooler target for telemetry
 	clientOpts := []grpccommon.ClientOption{
 		grpccommon.WithDialOptions(
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			cc.transportCreds,
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				// Send a ping after this period of inactivity to detect dead connections.
 				// Matches the server-side keepalive Time to stay within server enforcement policy.
@@ -309,7 +358,6 @@ func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *cluster
 		clientOpts = append(clientOpts, grpccommon.WithAttributes(PoolerSpanAttributes(poolerID)...))
 	}
 
-	// TODO: Add proper TLS configuration for production
 	grpcConn, err := grpccommon.NewClient(addr, clientOpts...)
 	if err != nil {
 		cc.connWaitSema.Release(1)

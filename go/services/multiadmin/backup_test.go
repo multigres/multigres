@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -32,7 +34,7 @@ import (
 
 func TestGetBackupJobStatus_Success(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger)
+	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	// Create a job directly in tracker
@@ -51,7 +53,7 @@ func TestGetBackupJobStatus_Success(t *testing.T) {
 
 func TestGetBackupJobStatus_NotFound(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger)
+	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	req := &multiadminpb.GetBackupJobStatusRequest{
@@ -68,7 +70,7 @@ func TestGetBackupJobStatus_NotFound(t *testing.T) {
 
 func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger)
+	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	req := &multiadminpb.GetBackupJobStatusRequest{
@@ -85,7 +87,7 @@ func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 
 func TestRestoreFromBackup_ValidationErrors(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger)
+	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	tests := []struct {
@@ -123,7 +125,7 @@ func TestRestoreFromBackup_ValidationErrors(t *testing.T) {
 
 func TestGetBackups_ValidationErrors(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger)
+	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	tests := []struct {
@@ -162,7 +164,7 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.Default()
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	// Create a replica pooler in the topology
@@ -273,7 +275,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.Default()
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	// Create both a primary and replica pooler
@@ -359,7 +361,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		// Create a new topology with only primary pooler
 		ctx := t.Context()
 		ts := memorytopo.NewServer(ctx, "cell2")
-		server := NewMultiAdminServer(ts, logger)
+		server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		defer server.backupJobTracker.Stop()
 
 		// Only create a primary pooler (no replica)

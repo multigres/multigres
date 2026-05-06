@@ -66,7 +66,7 @@ func TestWatchTopoVersion(t *testing.T) {
 		t.Skip("Skipping etcd integration tests in short mode")
 	}
 	ctx := utils.LeakCheckContext(t)
-	etcdServerAddr, _ := StartEtcd(t)
+	etcdServerAddr, _, _ := StartEtcd(t)
 	root := "/vitess/test"
 	name := "testkey"
 	path := path.Join(root, name)
@@ -202,7 +202,7 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	peerPort := utils.GetFreePort(t)
 
 	// Start first etcd server with persistent data
-	etcdServerAddr, etcdServer := StartEtcdWithOptions(t, EtcdOptions{
+	etcdServerAddr, _, etcdServer := StartEtcdWithOptions(t, EtcdOptions{
 		ClientPort: clientPort,
 		PeerPort:   peerPort,
 		DataDir:    dataDir,
@@ -269,7 +269,7 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "ports should be released after etcd shutdown")
 
 	// Restart etcd with SAME data directory (simulates cluster recovery)
-	_, newEtcdServer := StartEtcdWithOptions(t, EtcdOptions{
+	_, _, newEtcdServer := StartEtcdWithOptions(t, EtcdOptions{
 		ClientPort: clientPort,
 		PeerPort:   peerPort,
 		DataDir:    dataDir,
@@ -308,7 +308,7 @@ func TestWatchRecursiveCompaction(t *testing.T) {
 	}
 	ctx := utils.LeakCheckContext(t)
 
-	etcdServerAddr, _ := StartEtcd(t)
+	etcdServerAddr, _, _ := StartEtcd(t)
 	root := "/vitess/test"
 
 	client, err := clientv3.New(clientv3.Config{

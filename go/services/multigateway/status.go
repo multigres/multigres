@@ -18,13 +18,11 @@
 package multigateway
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/web"
 )
 
@@ -95,55 +93,6 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
-}
-
-// handleReady serves the readiness check.
-// The gateway is ready only when both conditions are met:
-// 1. No init errors (topology registration succeeded)
-// 2. At least one pooler has been discovered (can actually serve queries)
-func (mg *MultiGateway) handleReady(w http.ResponseWriter, r *http.Request) {
-	mg.serverStatus.mu.Lock()
-	defer mg.serverStatus.mu.Unlock()
-
-	hasNoInitError := len(mg.serverStatus.InitError) == 0
-	hasPoolers := mg.poolerDiscovery.PoolerCount() > 0
-	isReady := hasNoInitError && hasPoolers
-	if !isReady {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}
-	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
-}
-
-// ConsolidatorDebugStatus contains data for the consolidator debug page.
-type ConsolidatorDebugStatus struct {
-	Title string
-	Stats preparedstatement.ConsolidatorStats
-}
-
-// handleConsolidatorDebug serves the prepared statement consolidator debug page.
-func (mg *MultiGateway) handleConsolidatorDebug(w http.ResponseWriter, r *http.Request) {
-	stats := mg.pgHandler.Consolidator().Stats()
-
-	// Check if JSON format is requested
-	if r.URL.Query().Get("format") == "json" {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(stats); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to encode JSON: %v", err), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	status := ConsolidatorDebugStatus{
-		Title: "Prepared Statement Consolidator",
-		Stats: stats,
-	}
-	if err := web.Templates.ExecuteTemplate(w, "consolidator_debug.html", &status); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}

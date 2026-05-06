@@ -58,5 +58,19 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
 	})
 
+	sv.HTTPHandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		sv.readyMu.RLock()
+		checks := sv.readyChecks
+		sv.readyMu.RUnlock()
+		for _, check := range checks {
+			if err := check(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = web.Templates.ExecuteTemplate(w, "isok.html", false)
+				return
+			}
+		}
+		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
+	})
+
 	sv.HTTPHandleFunc("/config", viperdebug.HandlerFunc(sv.reg))
 }

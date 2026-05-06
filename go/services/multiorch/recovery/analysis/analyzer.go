@@ -16,10 +16,9 @@ package analysis
 
 import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// Analyzer analyzes ReplicationAnalysis and detects problems.
+// Analyzer analyzes a ShardAnalysis and detects problems.
 type Analyzer interface {
 	// Name returns the unique name of this analyzer.
 	Name() types.CheckName
@@ -30,9 +29,9 @@ type Analyzer interface {
 	// RecoveryAction returns the action to take when this problem is detected.
 	RecoveryAction() types.RecoveryAction
 
-	// Analyze examines the ReplicationAnalysis and returns a detected problem or nil if healthy.
+	// Analyze examines the ShardAnalysis and returns any detected problems.
 	// Returns an error if the analyzer cannot perform its analysis (e.g., missing dependencies).
-	Analyze(analysis *store.ReplicationAnalysis) (*types.Problem, error)
+	Analyze(sa *ShardAnalysis) ([]types.Problem, error)
 }
 
 // defaultAnalyzers holds the global list of analyzers.
@@ -44,9 +43,9 @@ var defaultAnalyzers []Analyzer
 func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 	if defaultAnalyzers == nil {
 		return []Analyzer{
-			&ShardNeedsBootstrapAnalyzer{factory: factory},
-			&StalePrimaryAnalyzer{factory: factory},
-			&PrimaryIsDeadAnalyzer{factory: factory},
+			&ShardNeedsInitializationAnalyzer{factory: factory},
+			&StaleLeaderAnalyzer{factory: factory},
+			&LeaderIsDeadAnalyzer{factory: factory},
 			&ReplicaNotReplicatingAnalyzer{factory: factory},
 			&ReplicaNotInStandbyListAnalyzer{factory: factory},
 		}

@@ -73,3 +73,44 @@ func requireGrpcCommonNewClient(m dsl.Matcher) {
 				!m.File().PkgPath.Matches(`/grpccommon$|/test/|/testutil/|testutil$`)).
 		Report("use grpccommon.NewClient() instead of grpc.NewClient() to ensure telemetry instrumentation")
 }
+
+// disallowDirectExecCommandContext enforces use of executil.Command() for
+// graceful termination support, proper environment variable handling, and
+// trace propagation.
+func disallowDirectExecCommandContext(m dsl.Matcher) {
+	m.Import("os/exec")
+
+	// TODO: Also disallow exec.Command() with no context
+	m.Match(`exec.CommandContext($*_)`).
+		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
+		Report("use executil.Command() instead of exec.CommandContext() for graceful termination, proper env handling, and trace propagation")
+}
+
+// disallowDirectProcessTermination enforces use of executil functions
+// for consistent graceful SIGTERM -> SIGKILL termination.
+func disallowDirectProcessTermination(m dsl.Matcher) {
+	m.Import("syscall")
+
+	m.Match(`$p.Signal(syscall.SIGTERM)`, `$p.Signal(syscall.SIGKILL)`, `$p.Kill()`).
+		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
+		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
+}
+
+// disallowDirectPgctldStopInTests prevents test code from calling pgctld Stop() directly
+// in test packages that run multipooler alongside pgctld. The postgres monitor runs
+// continuously and will restart postgres immediately after it is stopped, causing races.
+// Use ShardSetup.StopPostgres instead — it disables restarts before stopping and returns
+// a resume function.
+//
+// Excluded: pgctld package tests (no multipooler running) and non-test files (e.g.
+// ShardSetup.StopPostgres itself calls Stop internally in setup.go).
+func disallowDirectPgctldStopInTests(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/pgctldservice")
+
+	m.Match(`$client.Stop($ctx, $req)`).
+		Where(
+			m["req"].Type.Is("*pgctldservice.StopRequest") &&
+				m.File().PkgPath.Matches(`/test/endtoend/`) &&
+				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
+		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
+}

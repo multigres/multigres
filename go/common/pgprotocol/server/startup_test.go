@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -251,7 +252,7 @@ func (m *mockHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -268,6 +269,10 @@ func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 }
 
 func (m *mockHandler) ConnectionClosed(conn *Conn) {}
+
+func (m *mockHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
 
 // mockHashProvider implements scram.PasswordHashProvider for testing.
 // It accepts a single password for any user/database combination.
@@ -911,4 +916,103 @@ func TestParseOptions(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// TestSCRAMAuthenticationCapturesKeys verifies that the Conn retains the
+// ClientKey and ServerKey extracted during the SCRAM handshake. These keys
+// feed the SCRAM passthrough path (multipooler → postgres) and must be
+// populated on every successful SCRAM authentication.
+func TestSCRAMAuthenticationCapturesKeys(t *testing.T) {
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	listener := testListener(t)
+	c := &Conn{
+		conn:           serverConn,
+		listener:       listener,
+		handler:        listener.handler,
+		hashProvider:   listener.hashProvider,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
+		params:         make(map[string]string),
+		txnStatus:      protocol.TxnStatusIdle,
+	}
+	c.ctx = context.Background()
+	c.logger = testLogger(t)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	params := map[string]string{
+		"user":     "scramuser",
+		"database": "scramdb",
+	}
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, params)
+	scramClientHelper(t, clientConn, "scramuser", "postgres")
+
+	require.NoError(t, <-errCh)
+
+	// SCRAM-SHA-256 keys are always 32 bytes (output of HMAC-SHA-256).
+	assert.Len(t, c.scramClientKey, 32, "ClientKey should be captured after SCRAM auth")
+	assert.Len(t, c.scramServerKey, 32, "ServerKey should be captured after SCRAM auth")
+	assert.NotEqual(t, make([]byte, 32), c.scramClientKey, "ClientKey should not be all zeros")
+	assert.NotEqual(t, make([]byte, 32), c.scramServerKey, "ServerKey should not be all zeros")
+}
+
+// TestConnCloseZeroizesSCRAMKeys verifies that Close scrubs the SCRAM
+// passthrough keys so that a later memory dump cannot recover credentials
+// from a closed session.
+func TestConnCloseZeroizesSCRAMKeys(t *testing.T) {
+	serverConn, clientConn := newPipeConnPair()
+	defer clientConn.Close()
+
+	listener := testListener(t)
+	c := &Conn{
+		conn:           serverConn,
+		listener:       listener,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
+		params:         make(map[string]string),
+		scramClientKey: []byte{1, 2, 3, 4},
+		scramServerKey: []byte{5, 6, 7, 8},
+	}
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	c.logger = testLogger(t)
+
+	// Hold references to the underlying slices to prove the bytes are scrubbed
+	// in place, not just detached.
+	clientBacking := c.scramClientKey
+	serverBacking := c.scramServerKey
+
+	require.NoError(t, c.Close())
+
+	assert.Nil(t, c.scramClientKey)
+	assert.Nil(t, c.scramServerKey)
+	assert.Equal(t, []byte{0, 0, 0, 0}, clientBacking, "ClientKey bytes must be scrubbed in place")
+	assert.Equal(t, []byte{0, 0, 0, 0}, serverBacking, "ServerKey bytes must be scrubbed in place")
+}
+
+// TestConnCloseSafeWithoutSCRAMKeys ensures Close does not panic when the
+// connection never completed SCRAM auth (keys remain nil).
+func TestConnCloseSafeWithoutSCRAMKeys(t *testing.T) {
+	serverConn, clientConn := newPipeConnPair()
+	defer clientConn.Close()
+
+	listener := testListener(t)
+	c := &Conn{
+		conn:           serverConn,
+		listener:       listener,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
+		params:         make(map[string]string),
+	}
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	c.logger = testLogger(t)
+
+	assert.NotPanics(t, func() {
+		require.NoError(t, c.Close())
+	})
 }

@@ -78,7 +78,7 @@ func TestMetrics_SetServerUp_True(t *testing.T) {
 
 	m.SetServerUp(true)
 
-	serverUp := getGaugeInt64(t, reader, "pgbackrest_server_up")
+	serverUp := getGaugeInt64(t, reader, "pgbackrest.server.up")
 	require.NotNil(t, serverUp, "pgbackrest_server_up gauge not found")
 	assert.Equal(t, int64(1), gaugeValue(serverUp), "pgbackrest_server_up should be 1 when SetServerUp(true)")
 }
@@ -88,7 +88,7 @@ func TestMetrics_SetServerUp_False(t *testing.T) {
 
 	m.SetServerUp(false)
 
-	serverUp := getGaugeInt64(t, reader, "pgbackrest_server_up")
+	serverUp := getGaugeInt64(t, reader, "pgbackrest.server.up")
 	require.NotNil(t, serverUp, "pgbackrest_server_up gauge not found")
 	assert.Equal(t, int64(0), gaugeValue(serverUp), "pgbackrest_server_up should be 0 when SetServerUp(false)")
 }
@@ -98,7 +98,7 @@ func TestMetrics_SetRestartCount(t *testing.T) {
 
 	m.SetRestartCount(42)
 
-	restarts := getGaugeInt64(t, reader, "pgbackrest_restart_count")
+	restarts := getGaugeInt64(t, reader, "pgbackrest.server.restart_count")
 	require.NotNil(t, restarts, "pgbackrest_restart_count gauge not found")
 	assert.Equal(t, int64(42), gaugeValue(restarts), "pgbackrest_restart_count should be 42")
 }
@@ -119,7 +119,7 @@ func TestMetrics_Property_ServerUpReflectsRunningState(t *testing.T) {
 
 		m.SetServerUp(running)
 
-		serverUp := getGaugeInt64(t, reader, "pgbackrest_server_up")
+		serverUp := getGaugeInt64(t, reader, "pgbackrest.server.up")
 		require.NotNil(t, serverUp, "iteration %d: pgbackrest_server_up gauge not found", i)
 
 		var expected int64
@@ -141,7 +141,7 @@ func TestMetrics_Property_RestartCountReflectsValue(t *testing.T) {
 
 		m.SetRestartCount(count)
 
-		restarts := getGaugeInt64(t, reader, "pgbackrest_restart_count")
+		restarts := getGaugeInt64(t, reader, "pgbackrest.server.restart_count")
 		require.NotNil(t, restarts, "iteration %d: pgbackrest_restart_count gauge not found", i)
 		assert.Equal(t, int64(count), gaugeValue(restarts),
 			"iteration %d: pgbackrest_restart_count should match input count=%d", i, count)
@@ -155,14 +155,14 @@ func TestMetrics_ServerUptime_PositiveWhenUp(t *testing.T) {
 
 	m.SetServerUp(true)
 
-	uptime := getGaugeInt64(t, reader, "pgbackrest_server_uptime_seconds")
+	uptime := getGaugeInt64(t, reader, "pgbackrest.server.uptime")
 	require.NotNil(t, uptime, "pgbackrest_server_uptime_seconds gauge not found")
 	assert.GreaterOrEqual(t, gaugeValue(uptime), int64(0),
 		"uptime should be >= 0 when server is up")
 
 	m.SetServerUp(false)
 
-	uptime = getGaugeInt64(t, reader, "pgbackrest_server_uptime_seconds")
+	uptime = getGaugeInt64(t, reader, "pgbackrest.server.uptime")
 	require.NotNil(t, uptime, "pgbackrest_server_uptime_seconds gauge not found")
 	assert.Equal(t, int64(0), gaugeValue(uptime),
 		"uptime should be 0 when server is down")

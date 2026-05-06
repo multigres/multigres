@@ -19,7 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,16 +30,23 @@ import (
 
 const (
 	postgresConfigWaitRetryTime = 100 * time.Millisecond
+	// maxIncludeDepth bounds recursion through postgres include directives.
+	maxIncludeDepth = 10
+
+	directiveInclude         = "include"
+	directiveIncludeIfExists = "include_if_exists"
+	directiveIncludeDir      = "include_dir"
 )
 
 // PostgresServerConfig is a memory structure that contains PostgreSQL server configuration parameters.
 // It can be used to read standard postgresql.conf files and can also be populated from an existing postgresql.conf.
+//
+// port, listen_addresses, unix_socket_directories, and data_directory are intentionally
+// absent: pgctld pins them via postgres command-line args at start, which take precedence
+// over postgresql.conf.
 type PostgresServerConfig struct {
 	// Core connection settings
-	Port                  int
-	MaxConnections        int
-	ListenAddresses       string
-	UnixSocketDirectories string
+	MaxConnections int
 
 	// File locations (template fields)
 	DataDir   string // matches {{.DataDir}} in template
@@ -119,6 +129,99 @@ func (cnf *PostgresServerConfig) lookupFloat(key string) (float64, error) {
 	return fval, nil
 }
 
+// parseConfigInto follows postgres include semantics: relative include paths
+// resolve against the including file's directory.
+func parseConfigInto(path string, configMap map[string]string, depth int) error {
+	if depth > maxIncludeDepth {
+		return fmt.Errorf("postgres config include depth exceeded reading %s", path)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening postgres config %s: %w", path, err)
+	}
+	defer f.Close()
+
+	baseDir := filepath.Dir(path)
+	buf := bufio.NewReader(f)
+
+	for {
+		line, _, err := buf.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		key, value := parseConfigLine(string(line))
+		if key == "" {
+			continue
+		}
+
+		switch key {
+		case directiveInclude, directiveIncludeIfExists:
+			target := resolveIncludePath(baseDir, value)
+			if err := parseConfigInto(target, configMap, depth+1); err != nil {
+				if key == directiveIncludeIfExists && errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return fmt.Errorf("processing %s in %s: %w", key, path, err)
+			}
+		case directiveIncludeDir:
+			if err := parseIncludeDir(resolveIncludePath(baseDir, value), configMap, depth+1); err != nil {
+				return fmt.Errorf("processing include_dir in %s: %w", path, err)
+			}
+		default:
+			configMap[key] = value
+		}
+	}
+	return nil
+}
+
+// parseConfigLine extracts a key/value from a single postgresql.conf line.
+// Returns ("", "") for comments, blanks, and malformed lines.
+func parseConfigLine(line string) (string, string) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", ""
+	}
+	if i := strings.Index(line, "="); i >= 0 {
+		return strings.TrimSpace(line[:i]), stripQuotes(strings.TrimSpace(line[i+1:]))
+	}
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return parts[0], stripQuotes(strings.Join(parts[1:], " "))
+}
+
+// parseIncludeDir mirrors postgres' include_dir: parse every *.conf in
+// lexicographic order, skipping dotfiles and directories.
+func parseIncludeDir(dir string, configMap map[string]string, depth int) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if err := parseConfigInto(filepath.Join(dir, n), configMap, depth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveIncludePath(baseDir, p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(baseDir, p)
+}
+
 // stripQuotes removes surrounding single or double quotes from a string value
 // and removes any trailing comments
 func stripQuotes(value string) string {
@@ -138,8 +241,11 @@ func stripQuotes(value string) string {
 	return value
 }
 
-// ReadPostgresServerConfig reads an existing postgresql.conf from disk and updates the passed in PostgresServerConfig object
-// with values from the config file on disk.
+// ReadPostgresServerConfig populates pgConfig from postgresql.conf at
+// pgConfig.Path. include / include_if_exists / include_dir directives are
+// followed recursively (an included file may itself include further files), up
+// to maxIncludeDepth, so the in-memory struct matches what postgres will load
+// at runtime.
 func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Duration) (*PostgresServerConfig, error) {
 	f, err := os.Open(pgConfig.Path)
 	if waitTime != 0 {
@@ -157,62 +263,19 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	f.Close()
 
-	buf := bufio.NewReader(f)
 	pgConfig.configMap = make(map[string]string)
-
-	for {
-		line, _, err := buf.ReadLine()
-		if err == io.EOF {
-			break
-		}
-		lineStr := strings.TrimSpace(string(line))
-
-		// Skip comments and empty lines
-		if strings.HasPrefix(lineStr, "#") || lineStr == "" {
-			continue
-		}
-
-		// Handle PostgreSQL config format: key = value (or key value)
-		var key, value string
-		if strings.Contains(lineStr, "=") {
-			parts := strings.SplitN(lineStr, "=", 2)
-			if len(parts) == 2 {
-				key = strings.TrimSpace(parts[0])
-				value = stripQuotes(strings.TrimSpace(parts[1]))
-			}
-		} else {
-			// Handle format without = (space separated)
-			parts := strings.Fields(lineStr)
-			if len(parts) >= 2 {
-				key = parts[0]
-				value = stripQuotes(strings.Join(parts[1:], " "))
-			}
-		}
-
-		if key != "" {
-			pgConfig.configMap[key] = value
-		}
+	if err := parseConfigInto(pgConfig.Path, pgConfig.configMap, 0); err != nil {
+		return nil, err
 	}
 
 	// Parse and map configuration values to struct fields
 	var parseErr error
 
-	// Connection settings
-	// Port and unix_socket_directories are NOT read from config file
-	// They are only set via flags/code and passed as PostgreSQL command-line parameters
-	// This ensures backups remain portable across different environments
 	if pgConfig.MaxConnections, parseErr = pgConfig.lookupInt("max_connections"); parseErr != nil {
 		pgConfig.MaxConnections = 100 // default
 	}
-	if val, err := pgConfig.lookupWithDefault("listen_addresses", pgConfig.ListenAddresses); err == nil {
-		pgConfig.ListenAddresses = val
-	}
-
-	// data_directory is NOT read from config file
-	// They are only set via flags and passed as PostgreSQL command-line parameters
-	// This ensures backups remain portable across different directory paths
 
 	// Memory settings - required in our controlled config
 	if val, err := pgConfig.lookupWithDefault("shared_buffers", ""); err != nil {

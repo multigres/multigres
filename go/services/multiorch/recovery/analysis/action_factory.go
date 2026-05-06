@@ -58,9 +58,9 @@ func NewRecoveryActionFactory(
 	}
 }
 
-// NewBootstrapShardAction creates a bootstrap shard action.
-func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
-	return actions.NewBootstrapShardAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.coordinator, f.logger)
+// NewShardInitAction creates a shard initialization action.
+func (f *RecoveryActionFactory) NewShardInitAction() types.RecoveryAction {
+	return actions.NewShardInitAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.
@@ -73,12 +73,17 @@ func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
 	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
-// NewDemoteStalePrimaryAction creates an action to demote a stale primary.
-func (f *RecoveryActionFactory) NewDemoteStalePrimaryAction() types.RecoveryAction {
-	return actions.NewDemoteStalePrimaryAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+// NewDemoteStaleLeaderAction creates an action to demote a stale primary.
+func (f *RecoveryActionFactory) NewDemoteStaleLeaderAction() types.RecoveryAction {
+	return actions.NewDemoteStaleLeaderAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
 // Logger returns the factory's logger for use by analyzers.
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger
+}
+
+// Config returns the factory's config for use by analyzers.
+func (f *RecoveryActionFactory) Config() *config.Config {
+	return f.config
 }

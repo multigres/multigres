@@ -181,13 +181,6 @@ func TestWriteRowDescription(t *testing.T) {
 			conn := createTestConn(t, &buf)
 
 			err := conn.writeRowDescription(tt.fields)
-			if len(tt.fields) == 0 {
-				// No fields means no output.
-				assert.NoError(t, err)
-				assert.Equal(t, 0, buf.Len())
-				return
-			}
-
 			assert.NoError(t, err)
 
 			// Verify message type.

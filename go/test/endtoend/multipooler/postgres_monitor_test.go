@@ -35,7 +35,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithEnabledMonitor())
+	setupPoolerTest(t, setup)
 
 	// Wait for primary manager to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
@@ -48,7 +48,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should get status from primary")
-		require.True(t, status.Status.PostgresRunning, "Postgres should be running initially")
+		require.True(t, status.Status.PostgresReady, "Postgres should be running initially")
 		t.Logf("Postgres is running initially")
 	})
 
@@ -69,17 +69,17 @@ func TestPostgresMonitorControl(t *testing.T) {
 				t.Logf("Status check failed: %v", err)
 				return false
 			}
-			return status.Status.PostgresRunning
+			return status.Status.PostgresReady
 		}, 30*time.Second, 500*time.Millisecond, "Postgres should be automatically restarted by monitoring")
 
 		t.Logf("Postgres was successfully auto-restarted")
 	})
 
-	t.Run("3. disable monitoring", func(t *testing.T) {
+	t.Run("3. disable postgres restarts", func(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
-		_, err := primaryClient.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err, "Should disable monitoring successfully")
-		t.Logf("Monitoring disabled on primary")
+		_, err := primaryClient.Manager.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err, "Should disable postgres restarts successfully")
+		t.Logf("Postgres restarts disabled on primary")
 	})
 
 	t.Run("4. kill postgres and verify it stays down", func(t *testing.T) {
@@ -87,23 +87,23 @@ func TestPostgresMonitorControl(t *testing.T) {
 		t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
 		setup.KillPostgres(t, setup.PrimaryName)
 
-		// Wait to ensure monitoring would have had time to restart it (if it were enabled)
-		time.Sleep(15 * time.Second)
-
-		// Verify postgres is still down (not auto-restarted)
-		ctx := utils.WithShortDeadline(t)
-		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		require.NoError(t, err, "Should get status from primary")
-		require.False(t, status.Status.PostgresRunning, "Postgres should NOT be restarted when monitoring is disabled")
-		t.Logf("Confirmed: Postgres stayed down (monitoring disabled)")
+		// The monitor runs every 5s; verify postgres does not restart over ~3 cycles.
+		require.Never(t, func() bool {
+			ctx := utils.WithShortDeadline(t)
+			status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+			return status.Status.PostgresReady
+		}, 15*time.Second, 500*time.Millisecond, "Postgres should NOT be restarted when restarts are disabled")
+		t.Logf("Confirmed: postgres stayed down while restarts disabled")
 	})
 
-	t.Run("5. enable monitoring and verify postgres restarts", func(t *testing.T) {
-		// Enable monitoring
+	t.Run("5. re-enable restarts and verify postgres restarts", func(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
-		_, err := primaryClient.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-		require.NoError(t, err, "Should enable monitoring successfully")
-		t.Logf("Monitoring enabled on primary")
+		_, err := primaryClient.Manager.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err, "Should re-enable postgres restarts successfully")
+		t.Logf("Postgres restarts re-enabled on primary")
 
 		// Wait for postgres to be restarted by monitoring
 		t.Logf("Waiting for postgres to be automatically restarted...")
@@ -114,9 +114,9 @@ func TestPostgresMonitorControl(t *testing.T) {
 				t.Logf("Status check failed: %v", err)
 				return false
 			}
-			return status.Status.PostgresRunning
-		}, 30*time.Second, 500*time.Millisecond, "Postgres should be restarted after enabling monitoring")
+			return status.Status.PostgresReady
+		}, 30*time.Second, 500*time.Millisecond, "Postgres should restart after re-enabling restarts")
 
-		t.Logf("Postgres was successfully restarted after enabling monitoring")
+		t.Logf("Postgres was successfully restarted after re-enabling restarts")
 	})
 }

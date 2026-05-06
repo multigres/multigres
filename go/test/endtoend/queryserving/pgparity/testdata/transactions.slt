@@ -1,0 +1,43 @@
+# Transaction semantics: commit, rollback, savepoints.
+
+statement ok
+CREATE TABLE accounts (id INT PRIMARY KEY, balance INT)
+
+statement ok
+INSERT INTO accounts VALUES (1, 100), (2, 200)
+
+statement ok
+BEGIN
+
+statement ok
+UPDATE accounts SET balance = balance + 50 WHERE id = 1
+
+query I
+SELECT balance FROM accounts WHERE id = 1
+----
+150
+
+statement ok
+ROLLBACK
+
+query I
+SELECT balance FROM accounts WHERE id = 1
+----
+100
+
+statement ok
+BEGIN
+
+statement ok
+UPDATE accounts SET balance = balance + 50 WHERE id = 1
+
+statement ok
+COMMIT
+
+query I
+SELECT balance FROM accounts WHERE id = 1
+----
+150
+
+statement ok
+DROP TABLE accounts

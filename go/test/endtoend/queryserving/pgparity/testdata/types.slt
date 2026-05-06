@@ -1,0 +1,66 @@
+# Type coverage: booleans, numerics, text, nulls, explicit casts.
+
+query T
+SELECT CAST(42 AS TEXT)
+----
+42
+
+query I
+SELECT CAST('42' AS INTEGER)
+----
+42
+
+query R
+SELECT CAST('3.14' AS DOUBLE PRECISION)
+----
+3.140
+
+query T
+SELECT CAST(true AS TEXT)
+----
+true
+
+query I
+SELECT CASE WHEN true THEN 1 ELSE 0 END
+----
+1
+
+query I
+SELECT CASE WHEN false THEN 1 ELSE 0 END
+----
+0
+
+query I
+SELECT CASE WHEN NULL = NULL THEN 1 ELSE 0 END
+----
+0
+
+query I
+SELECT CASE WHEN NULL IS NULL THEN 1 ELSE 0 END
+----
+1
+
+query I
+SELECT CASE WHEN 1 < 2 AND 2 < 3 THEN 1 ELSE 0 END
+----
+1
+
+query I
+SELECT CASE WHEN 1 > 2 OR 2 < 3 THEN 1 ELSE 0 END
+----
+1
+
+# Arithmetic with NULL returns NULL.
+query I
+SELECT 1 + NULL
+----
+NULL
+
+query T
+SELECT 'abc' || NULL
+----
+NULL
+
+# Division by zero is an error in PostgreSQL.
+statement error
+SELECT 1 / 0

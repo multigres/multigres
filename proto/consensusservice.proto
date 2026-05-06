@@ -17,18 +17,77 @@ syntax = "proto3";
 package consensus;
 
 import "consensusdata.proto";
+import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
-// MultiPoolerConsensus provides consensus APIs for leader election
+// MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 service MultiPoolerConsensus {
   // Leader Appointment Protocol
+
+  // BeginTerm initiates a new leadership term by requesting the current leader
+  // to step down. The current leader will revoke its leadership and trigger a
+  // new election, allowing the coordinator to select a new leader based on the
+  // latest replication state of the followers. This is used by MultiOrch during
+  // failover to ensure that the old leader steps down gracefully and does not
+  // continue to accept writes, which could lead to data divergence.
   rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
 
   // Status and Health
-  rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
-  rpc GetLeadershipView(consensusdata.LeadershipViewRequest) returns (consensusdata.LeadershipViewResponse);
 
-  // Replication
-  rpc CanReachPrimary(consensusdata.CanReachPrimaryRequest) returns (consensusdata.CanReachPrimaryResponse);
+  // Status provides the current status of the consensus service, including the
+  // health of the cluster, the current leader, and any ongoing elections. This
+  // is used by MultiOrch to monitor the cluster and determine if it needs to
+  // trigger failover or other recovery actions.
+  rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
+
+  // HA Operations
+
+  // EmergencyDemote demotes the current leader server
+  rpc EmergencyDemote(multipoolermanagerdata.EmergencyDemoteRequest)
+    returns (multipoolermanagerdata.EmergencyDemoteResponse);
+
+  // Promote promotes a replica to leader (Multigres-level operation)
+  rpc Promote(multipoolermanagerdata.PromoteRequest)
+    returns (multipoolermanagerdata.PromoteResponse);
+
+  // UpdateConsensusRule updates the synchronous standby list (quorum membership)
+  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
+
+  // Replication Configuration
+  
+  // TODO: combine the below RPCs into a single RPC that informs a pooler of the highest
+  // known rule replication settings.
+
+  // DemoteStalePrimary demotes a stale primary that came back after failover
+  // by rewinding to the correct primary and restarting as standby
+  // TODO: This will be replaced by informing a pooler of a newer rule version.
+  rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
+    returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
+
+  // SetPrimaryConnInfo sets the primary connection info for a standby server
+  rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
+    returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);
+
+  // RewindToSource performs pg_rewind to synchronize this server with a source.
+  // This is used to repair diverged timelines after failover.
+  rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
+    returns (multipoolermanagerdata.RewindToSourceResponse);
+
+  // New Recruit → Propose → Inform appointment protocol.
+  // These RPCs replace BeginTerm + Promote + SetPrimaryConnInfo and will be
+  // wired up to handlers in subsequent PRs.
+
+  // Recruit asks a pooler to revoke all terms below the one specified and
+  // record the coordinator's exclusive claim on that term.
+  rpc Recruit(consensusdata.RecruitRequest) returns (consensusdata.RecruitResponse);
+
+  // Propose sends a complete shard-state proposal to a pooler. The designated
+  // leader promotes its postgres; all other cohort members point replication at
+  // the new primary.
+  rpc Propose(consensusdata.ProposeRequest) returns (consensusdata.ProposeResponse);
+
+  // Inform broadcasts a decided, durable rule.
+  rpc Inform(consensusdata.InformRequest) returns (consensusdata.InformResponse);
 }

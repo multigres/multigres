@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -33,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -57,23 +57,33 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 
-	// Acquire the action lock to ensure only one mutation runs at a time
+	// Acquire the local action lock first to prevent deadlock with the distributed lease.
 	var err error
+	lockStart := time.Now()
 	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
+	pm.metrics.RecordBackupLockWait(ctx, time.Since(lockStart).Seconds())
 	if err != nil {
 		return "", err
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+	// Acquire the distributed backup lease via steal protocol.
+	// If another pooler holds the lease, revoke it and acquire a new one.
+	// This ensures the most recent backup request always wins.
+	var backupID string
+	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "backup", pm.logger, func(ctx context.Context) error {
+		var backupErr error
+		backupID, backupErr = pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+		return backupErr
+	})
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to acquire backup lease")
+	}
+	return backupID, nil
 }
 
-// backupLocked performs a backup. Caller must hold the action lock.
+// backupLocked performs a backup. Caller must hold the action lock and backup lease.
 func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return "", err
-	}
-
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
 		retBackupID, err = pm.backupLockedInner(ctx, forcePrimary, backupType, jobID, overrides)
@@ -83,7 +93,15 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 }
 
 // backupLockedInner performs the backup steps inside the parent "backup" span.
+// Caller must hold both the action lock and the backup lease.
 func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return "", err
+	}
+	if err := topoclient.AssertBackupLockHeld(ctx, pm.shardKey()); err != nil {
+		return "", mterrors.Wrap(err, "backup lease not held")
+	}
+
 	pm.metrics.IncBackupAttempts(ctx)
 	defer func() {
 		if retErr == nil {
@@ -145,21 +163,27 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		"--type=" + pgBackRestType,
 	}
 
-	// Get pg2 args for replica backups (empty for primary)
-	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one
-	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides)
+	// Get pg2 args for replica backups (empty for primary).
+	// For TLS mode, we need the PRIMARY's pgBackRest port, not the local one.
+	// Pass forcePrimary through so that a freshly-initialised node (type=UNKNOWN)
+	// that is acting as a primary can still do a local backup without pg2 args.
+	pg2Args, err := pm.GetPrimaryAsPg2Args(ctx, overrides, forcePrimary)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get primary as pg2 arguments")
 	}
 	args = append(args, pg2Args...)
 
-	// Add annotations if table_group and shard are provided
-	if tableGroup != "" {
-		args = append(args, "--annotation=table_group="+tableGroup)
+	// Reject backups with empty table_group or shard to prevent corrupt metadata.
+	// Backups missing these annotations would be silently skipped by replicas
+	// during restore, causing them to fall back to older backups.
+	if tableGroup == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "table_group is missing")
 	}
-	if shard != "" {
-		args = append(args, "--annotation=shard="+shard)
+	if shard == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "shard is missing")
 	}
+	args = append(args, "--annotation=table_group="+tableGroup)
+	args = append(args, "--annotation=shard="+shard)
 
 	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
 	args = append(args, "--annotation=multipooler_id="+multipoolerName)
@@ -169,15 +193,17 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	args = append(args, "backup")
 
-	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
+	cmd := executil.Command(ctx, "pgbackrest", args...)
 
 	// Execute backup with progress logging
 	var output []byte
+	backupStart := time.Now()
 	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
 		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
 	})
+	pm.metrics.RecordBackupDuration(ctx, time.Since(backupStart).Seconds())
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -199,7 +225,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, backup.VerifyTimeout)
 	defer verifyCancel()
 
-	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
+	verifyCmd := executil.Command(verifyCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--set="+foundBackupID,
@@ -207,11 +233,13 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	// Execute verify with progress logging
 	var verifyOutput []byte
+	verifyStart := time.Now()
 	verifyErr := telemetry.WithSpan(verifyCtx, "backup/verify", func(ctx context.Context) error {
 		var runErr error
 		verifyOutput, runErr = pm.runLongCommand(ctx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 		return runErr
 	})
+	pm.metrics.RecordBackupVerifyDuration(ctx, time.Since(verifyStart).Seconds())
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -249,28 +277,26 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	defer pm.actionLock.Release(ctx)
 
 	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		// Pause monitoring during restore to prevent interference
-		var resumeMonitor func(context.Context)
-		err := telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
-			var pauseErr error
-			resumeMonitor, pauseErr = pm.PausePostgresMonitor(ctx)
-			return pauseErr
-		})
-		if err != nil {
-			return err
-		}
-		defer resumeMonitor(ctx)
-
 		return pm.restoreFromBackupLocked(ctx, backupID)
 	})
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock
-// and monitoring must be disabled to avoid interference.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.metrics.IncRestoreAttempts(ctx)
+	restoreStart := time.Now()
+	defer func() {
+		pm.metrics.RecordRestoreDuration(ctx, time.Since(restoreStart).Seconds())
+		if retErr == nil {
+			pm.metrics.IncRestoreSuccesses(ctx)
+		} else {
+			pm.metrics.IncRestoreFailures(ctx)
+		}
+	}()
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
 
@@ -322,31 +348,24 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Set consensus term after restore.
-	// If the cluster is at a higher term,
-	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
-	var term int64 = 0
-	if err := telemetry.WithSpan(ctx, "restore/reload-consensus-term", func(ctx context.Context) error {
-		if pm.consensusState != nil {
-			pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
-			pm.loadConsensusTermFromDisk()
-			term = pm.consensusState.term.TermNumber
-
-			// Clear primary_term from backup since this is a standby restore
-			// The backup may contain a non-zero primary_term if it was taken from a primary
-			if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
-				return mterrors.Wrap(err, "failed to clear primary_term after restore")
-			}
+	// Delete the consensus term file after restore.
+	//
+	// The term file lives outside PGDATA and is not included in the backup, so
+	// its on-disk value may be ahead of what the restored PGDATA participated in.
+	// Deleting it resets the node to term 0; multiorch will advance the term to
+	// the current cluster value on first contact via BeginTerm.
+	//
+	// TODO: Revisit this when we restore backups for other reasons than to
+	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
+	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
+		pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
+		if err := pm.consensusState.DeleteTermFile(); err != nil {
+			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
 		}
-		pm.healthStreamer.UpdatePrimaryObservation(nil)
-
+		pm.healthStreamer.UpdateLeaderObservation(nil)
 		return nil
 	}); err != nil {
 		return err
-	}
-
-	if term == 0 {
-		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
 	}
 
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
@@ -357,7 +376,13 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Mark as initialized after successful restore
 	return telemetry.WithSpan(ctx, "restore/mark-initialized", func(_ context.Context) error {
-		return pm.setInitialized()
+		if err := pm.setInitialized(); err != nil {
+			return err
+		}
+		// Push an immediate health snapshot so the orchestrator learns about
+		// IsInitialized=true without waiting for the next 30-second heartbeat.
+		pm.broadcastHealth()
+		return nil
 	})
 }
 
@@ -382,7 +407,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 
 	args = append(args, "restore")
 
-	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
+	cmd := executil.Command(restoreCtx, "pgbackrest", args...)
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
@@ -482,7 +507,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	queryCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(queryCtx, "pgbackrest",
+	cmd := executil.Command(queryCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -669,7 +694,7 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath string
 // safeCombinedOutput executes a command and streams its output to avoid blocking.
 // This prevents deadlocks when commands produce large amounts of output that
 // would fill the internal pipe buffers. Returns combined stdout and stderr.
-func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
+func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -736,7 +761,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	infoCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(infoCtx, "pgbackrest",
+	cmd := executil.Command(infoCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -830,20 +855,21 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // GetPrimaryAsPg2Args returns pgbackrest CLI arguments for pg2 (primary) configuration.
 //
 // When backing up from PRIMARY: Returns empty slice - pgBackRest does local backup from pg1.
-// When backing up from REPLICA with TLS certs: Returns TLS connection parameters to primary's pgBackRest server.
+// When backing up from REPLICA with TLS certs: Returns TLS connection parameters and pg2-path
+// (resolved from topology or overrides) to the primary's pgBackRest server.
 // When backing up from REPLICA without TLS certs: Returns direct postgres connection parameters (test mode).
 //
 // Returns error if this is a replica pooler without primary information.
-//
-// This is a public method to allow testing and potential reuse by other components.
 func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	ctx context.Context,
 	overrides map[string]string,
+	forcePrimary bool,
 ) ([]string, error) {
 	poolerType := pm.getPoolerType()
 
-	// Primary poolers backup locally from pg1 - no pg2 needed
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
+	// backup locally from pg1 — no pg2 needed.
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 
@@ -868,28 +894,37 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	var args []string
 
 	if isTLSMode {
-		// TLS mode: need to get the PRIMARY's pgBackRest port from topology
-		var primaryPgBackRestPort int32
-		if primaryPoolerID != nil {
-			// Get primary pooler info from topology to find its pgBackRest port
-			primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
-			if err != nil {
-				return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
-			}
-			if port, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]; ok {
-				primaryPgBackRestPort = port
-			} else {
-				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-					"primary pooler does not have pgbackrest port configured")
-			}
-		} else {
+		// TLS mode: need to get the PRIMARY's pgBackRest port and data dir from topology
+		if primaryPoolerID == nil {
 			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 				"primary pooler ID not available")
 		}
 
-		// TLS mode base arguments - connect to PRIMARY's pgBackRest TLS server
+		primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
+		}
+
+		primaryPgBackRestPort, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]
+		if !ok {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pgbackrest port configured")
+		}
+
+		// pg2-path is required by pgBackRest even in TLS mode.
+		// Use the override if provided, otherwise read from topology.
+		pg2Path := overrides["pg2_path"]
+		if pg2Path == "" {
+			pg2Path = primaryInfo.MultiPooler.PgDataDir
+		}
+		if pg2Path == "" {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				"primary pooler does not have pg_data_dir set in topology (required for pg2-path)")
+		}
+
 		args = []string{
 			"--pg2-host=" + primaryHost,
+			"--pg2-path=" + pg2Path,
 			"--pg2-host-type=tls",
 			fmt.Sprintf("--pg2-host-port=%d", primaryPgBackRestPort),
 			"--pg2-host-ca-file=" + caFile,
@@ -920,7 +955,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 // runLongCommand executes a long-running command with periodic progress logging.
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
-func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
 	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
 	startTime := time.Now()
@@ -946,7 +981,6 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd,
 		}
 	}()
 
-	// Run command in main goroutine
 	output, err := cmd.CombinedOutput()
 
 	cancelLog()

@@ -50,12 +50,11 @@ echo ""
 echo "Press Ctrl-C to stop"
 echo ""
 
-# Create a temporary directory for dashboard provisioning
+# Create a temporary directory for dashboard provisioning config
 DASHBOARDS_DIR=$(mktemp -d)
 trap 'rm -rf "$DASHBOARDS_DIR"' EXIT
 
-# Copy dashboard to temp directory with expected name
-cp "$SCRIPT_DIR/../observability/grafana-dashboard.json" "$DASHBOARDS_DIR/multigres.json"
+DASHBOARD_JSON="$SCRIPT_DIR/../observability/grafana-dashboard.json"
 
 # Create dashboard provisioning config (replaces default otel-lgtm dashboards)
 cat >"$DASHBOARDS_DIR/dashboards.yaml" <<EOF
@@ -66,12 +65,15 @@ providers:
     type: file
     disableDeletion: false
     editable: true
+    updateIntervalSeconds: 5
     options:
       path: /otel-lgtm/multigres-dashboard.json
       foldersFromFilesStructure: false
 EOF
 
 # Run in foreground - user can kill with Ctrl-C
+# The dashboard JSON is mounted directly from the repo so edits are picked up
+# automatically (Grafana polls every updateIntervalSeconds).
 docker run \
   $INTERACTIVE_FLAGS \
   --rm \
@@ -91,5 +93,5 @@ docker run \
   -e GF_FEATURE_TOGGLES_ENABLE=traceqlEditor,traceQLStreaming,correlations \
   -v "$SCRIPT_DIR/../observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/multigres.yaml:ro" \
   -v "$DASHBOARDS_DIR/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/grafana-dashboards.yaml:ro" \
-  -v "$DASHBOARDS_DIR/multigres.json:/otel-lgtm/multigres-dashboard.json:ro" \
+  -v "$DASHBOARD_JSON:/otel-lgtm/multigres-dashboard.json:ro" \
   grafana/otel-lgtm:0.13.0

@@ -17,7 +17,10 @@ package regular
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
@@ -86,8 +89,52 @@ func (p *Pool) Get(ctx context.Context) (PooledConn, error) {
 
 // GetWithSettings returns a connection from the pool with the given settings applied.
 // The connection is already authenticated as the pool's configured user.
+//
+// When settings are non-empty, the underlying connpool issues SET commands
+// during acquisition (connpool/pool.go ApplySettings). If that first write
+// hits a stale socket — a connection PostgreSQL closed silently while it
+// sat idle in the pool — the connpool closes the conn and surfaces a
+// connection-class error. Without retry here, callers see that error
+// transparently even though a fresh socket would succeed. We retry with
+// the same regime as the reserved pool (constants.MaxConnPoolRetryAttempts
+// attempts, constants.ConnPoolRetryBackoff between them); each attempt
+// dials a replacement conn since the previous one was closed.
+//
+// Non-connection errors (timeout, malformed SETs, pool closed) propagate
+// unchanged. The settings==nil/empty fast path is unaffected: that case
+// never runs ApplySettings, so there is no acquisition-time stale-socket
+// hazard to retry.
 func (p *Pool) GetWithSettings(ctx context.Context, settings *connstate.Settings) (PooledConn, error) {
-	return p.pool.GetWithSettings(ctx, settings)
+	if settings == nil || settings.IsEmpty() {
+		return p.pool.GetWithSettings(ctx, settings)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= constants.MaxConnPoolRetryAttempts; attempt++ {
+		pooled, err := p.pool.GetWithSettings(ctx, settings)
+		if err == nil {
+			return pooled, nil
+		}
+		if !mterrors.IsConnectionError(err) {
+			return nil, err
+		}
+		lastErr = err
+
+		if attempt == constants.MaxConnPoolRetryAttempts {
+			break
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		backoffTimer := time.NewTimer(constants.ConnPoolRetryBackoff)
+		select {
+		case <-backoffTimer.C:
+		case <-ctx.Done():
+			backoffTimer.Stop()
+			return nil, context.Cause(ctx)
+		}
+	}
+	return nil, fmt.Errorf("regular connection acquisition failed after %d attempts: %w", constants.MaxConnPoolRetryAttempts, lastErr)
 }
 
 // Close closes all connections in the pool.
@@ -122,4 +169,19 @@ func (p *Pool) Requested() int64 {
 // This captures burst demand that point-in-time sampling might miss.
 func (p *Pool) PeakRequestedAndReset() int64 {
 	return p.pool.PeakRequestedAndReset()
+}
+
+// WaitCount returns the total number of times a client had to wait for a connection.
+func (p *Pool) WaitCount() int64 {
+	return p.pool.Metrics.WaitCount()
+}
+
+// WaitTime returns the total time clients spent waiting for a connection.
+func (p *Pool) WaitTime() time.Duration {
+	return p.pool.Metrics.WaitTime()
+}
+
+// GetCount returns the total number of Get() calls (connections borrowed).
+func (p *Pool) GetCount() int64 {
+	return p.pool.Metrics.GetCount()
 }

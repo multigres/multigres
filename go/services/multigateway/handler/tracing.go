@@ -47,6 +47,21 @@ func startQuerySpan(
 	)
 }
 
+// setSpanPlanAttributes enriches the active span with plan-level metadata.
+// Called from recordQueryCompletion after the executor returns.
+func setSpanPlanAttributes(ctx context.Context, planType string, tablesUsed []string) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	if planType != "" {
+		span.SetAttributes(attribute.String("db.plan.type", planType))
+	}
+	if len(tablesUsed) > 0 {
+		span.SetAttributes(attribute.StringSlice("db.tables_used", tablesUsed))
+	}
+}
+
 // recordSpanError records an error on a span with its SQLSTATE code.
 func recordSpanError(span trace.Span, err error, sqlstate string) {
 	span.RecordError(err)

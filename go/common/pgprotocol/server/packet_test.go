@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"io"
 	"net"
 	"testing"
@@ -109,60 +110,6 @@ func TestMessageReaderEOF(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 }
 
-func TestMessageWriterWriteByte(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByte(0x01)
-	w.WriteByte(0x02)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02}, buf)
-}
-
-func TestMessageWriterWriteUint16(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteUint16(0x0102)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02}, buf)
-}
-
-func TestMessageWriterWriteUint32(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteUint32(0x01020304)
-
-	buf := w.Bytes()
-	assert.Equal(t, []byte{0x01, 0x02, 0x03, 0x04}, buf)
-}
-
-func TestMessageWriterWriteString(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteString("hello")
-
-	buf := w.Bytes()
-	expected := []byte{'h', 'e', 'l', 'l', 'o', 0}
-	assert.Equal(t, expected, buf)
-}
-
-func TestMessageWriterWriteByteString(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByteString([]byte("hello"))
-
-	buf := w.Bytes()
-	// Should be: length (4 bytes) + data (5 bytes)
-	expected := []byte{0x00, 0x00, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'}
-	assert.Equal(t, expected, buf)
-}
-
-func TestMessageWriterWriteByteStringNull(t *testing.T) {
-	w := NewMessageWriter()
-	w.WriteByteString(nil)
-
-	buf := w.Bytes()
-	// Should be: length=-1 (0xFFFFFFFF)
-	expected := []byte{0xFF, 0xFF, 0xFF, 0xFF}
-	assert.Equal(t, expected, buf)
-}
-
 func TestConnWriteAndReadMessage(t *testing.T) {
 	// Create a mock connection using a bytes buffer.
 	var buf bytes.Buffer
@@ -195,6 +142,132 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 	readBody, err := conn.readMessageBody(length)
 	require.NoError(t, err)
 	assert.Equal(t, body, readBody)
+}
+
+// TestWritePacketSizeMismatchPanics verifies that writePacket panics
+// when the encoded byte count doesn't match the bodyLen passed to
+// startPacket — the safety net that catches sizing-arithmetic bugs in
+// tests instead of producing truncated packets on the wire.
+func TestWritePacketSizeMismatchPanics(t *testing.T) {
+	var netBuf bytes.Buffer
+	conn := &Conn{
+		conn:           &mockNetConn{buf: &netBuf},
+		bufferedWriter: bufio.NewWriter(&netBuf),
+	}
+
+	buf, pos := conn.startPacket(protocol.MsgQuery, 10)
+	// Encode only 1 byte instead of the promised 10.
+	pos = writeByteAt(buf, pos, 'x')
+
+	assert.PanicsWithValue(t,
+		"pgwire: packet size mismatch: encoded 6 bytes, expected 15",
+		func() { _ = conn.writePacket(buf, pos) },
+		"writePacket must panic on bodyLen vs encoded mismatch")
+}
+
+// TestReturnReadBufferIsIdempotent verifies that returnReadBuffer
+// (the defensive cleanup called from Conn.Close to handle handler
+// panics between readMessageBody and its deferred return) clears
+// inboundPoolBuf and is safe to call multiple times — a second Close
+// must not double-Put into the pool.
+func TestReturnReadBufferIsIdempotent(t *testing.T) {
+	l := newBenchListener()
+	conn := &Conn{listener: l}
+
+	// Simulate a stranded inbound buffer.
+	conn.inboundPoolBuf = l.bufPool.Get(1024)
+	require.NotNil(t, conn.inboundPoolBuf)
+
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf,
+		"returnReadBuffer must clear inboundPoolBuf so subsequent calls are no-ops")
+
+	// Second call must be a safe no-op, not a double-Put.
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf)
+}
+
+// TestReadMessageBodyReleasesStaleInbound verifies that readMessageBody
+// releases any buffer already held in inboundPoolBuf before grabbing a
+// new one. This is the defensive cleanup that prevents a leak when a
+// caller forgets returnReadBuffer or when readAndDispatchStartup
+// recurses through SSL/GSS negotiation between calls.
+func TestReadMessageBodyReleasesStaleInbound(t *testing.T) {
+	l := newBenchListener()
+
+	// Pre-stash a buffer in inboundPoolBuf as if a previous caller
+	// neglected to release it.
+	stale := l.bufPool.Get(1024)
+	require.NotNil(t, stale)
+
+	netBuf := bytes.NewBuffer([]byte{0x0A, 0x0B, 0x0C, 0x0D})
+	conn := &Conn{
+		listener:       l,
+		bufferedReader: bufio.NewReader(netBuf),
+		inboundPoolBuf: stale,
+	}
+
+	body, err := conn.readMessageBody(4)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x0A, 0x0B, 0x0C, 0x0D}, body)
+
+	// inboundPoolBuf must be set to a buffer (the new one). The stale
+	// pointer was returned to the pool — without the defensive
+	// release, it would have been silently overwritten and orphaned.
+	require.NotNil(t, conn.inboundPoolBuf)
+
+	// returnReadBuffer must release exactly one buffer (the current
+	// one); the stale was already released by readMessageBody.
+	conn.returnReadBuffer()
+	assert.Nil(t, conn.inboundPoolBuf)
+}
+
+// TestReadSASLInitialResponseReleasesBuffer verifies the
+// readSASLInitialResponse helper pairs its readMessageBody with a
+// returnReadBuffer — the missing defer that previously leaked one
+// pool buffer per SCRAM authentication.
+func TestReadSASLInitialResponseReleasesBuffer(t *testing.T) {
+	l := newBenchListener()
+
+	mechanism := []byte("SCRAM-SHA-256\x00")
+	saslData := []byte("n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL")
+	bodyLen := len(mechanism) + 4 + len(saslData)
+
+	var w bytes.Buffer
+	w.WriteByte(protocol.MsgPasswordMsg)
+	_ = binary.Write(&w, binary.BigEndian, uint32(4+bodyLen))
+	w.Write(mechanism)
+	_ = binary.Write(&w, binary.BigEndian, uint32(len(saslData)))
+	w.Write(saslData)
+
+	conn := &Conn{
+		listener:       l,
+		bufferedReader: bufio.NewReader(&w),
+	}
+
+	got, err := conn.readSASLInitialResponse()
+	require.NoError(t, err)
+	assert.Equal(t, string(saslData), got)
+	assert.Nil(t, conn.inboundPoolBuf,
+		"readSASLInitialResponse must release its read buffer via defer")
+}
+
+// TestReturnOutboundBufferIsIdempotent verifies that returnOutboundBuffer
+// (the defensive Close()-time cleanup for a panic between startPacket
+// and writePacket) clears outboundPoolBuf and is safe to call twice.
+func TestReturnOutboundBufferIsIdempotent(t *testing.T) {
+	l := newBenchListener()
+	conn := &Conn{listener: l}
+
+	conn.outboundPoolBuf = l.bufPool.Get(1024)
+	require.NotNil(t, conn.outboundPoolBuf)
+
+	conn.returnOutboundBuffer()
+	assert.Nil(t, conn.outboundPoolBuf,
+		"returnOutboundBuffer must clear outboundPoolBuf so subsequent calls are no-ops")
+
+	conn.returnOutboundBuffer()
+	assert.Nil(t, conn.outboundPoolBuf)
 }
 
 // mockNetConn is a minimal implementation of net.Conn for testing.

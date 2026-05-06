@@ -16,10 +16,12 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +30,66 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 )
+
+func TestPgIsReadyTimeoutSecs(t *testing.T) {
+	tests := []struct {
+		name     string
+		ctx      func() context.Context
+		expected int
+	}{
+		{
+			name:     "no deadline uses default",
+			ctx:      context.Background,
+			expected: int(pgIsReadyDefaultTimeout.Seconds()), // 3
+		},
+		{
+			name: "deadline well beyond default returns default",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			expected: int(pgIsReadyDefaultTimeout.Seconds()), // 3
+		},
+		{
+			name: "deadline tighter than default uses remaining minus buffer",
+			ctx: func() context.Context {
+				// 4.5 s remaining: 4.5 - 1 (buffer) = 3.5 → truncated to 3
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(4*time.Second+500*time.Millisecond))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			expected: 3,
+		},
+		{
+			name: "very tight deadline is clamped to minimum 1",
+			ctx: func() context.Context {
+				// 1.5 s remaining: 1.5 - 1 (buffer) = 0.5 → truncated to 0 → clamped to 1
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(1*time.Second+500*time.Millisecond))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			expected: 1,
+		},
+		{
+			name: "deadline already at buffer boundary is clamped to minimum 1",
+			ctx: func() context.Context {
+				// 1.1 s remaining: 1.1 - 1 (buffer) = 0.1 s → truncated to 0 → clamped to 1
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(1*time.Second+100*time.Millisecond))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			expected: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pgIsReadyTimeoutSecs(tt.ctx())
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
 
 func TestRunStatus(t *testing.T) {
 	baseDir, cleanup := testutil.TempDir(t, "pgctld_status_test")
@@ -94,7 +156,28 @@ func TestRunStatus(t *testing.T) {
 		assert.Contains(t, output, "Port: 5432")
 	})
 
-	// Test 4: No pooler directory - should get an error
+	// Test 4: Process running but pg_isready fails (simulates SIGSTOP / cgroup freeze)
+	t.Run("running_but_unresponsive", func(t *testing.T) {
+		// Override pg_isready to fail so that the process-exists-but-frozen path is exercised
+		unresponsiveBinDir := filepath.Join(baseDir, "bin_unresponsive")
+		require.NoError(t, os.MkdirAll(unresponsiveBinDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, unresponsiveBinDir)
+		testutil.MockBinary(t, unresponsiveBinDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", unresponsiveBinDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		testutil.CreatePIDFile(t, dataDir, 0 /* pid unused, real pid is used internally */)
+
+		output, err := runStatusCommand()
+		t.Logf("output: %s", output)
+		require.NoError(t, err)
+		assert.Contains(t, output, "Status: Stopped")
+	})
+
+	// Test 5: No pooler directory - should get an error
 	t.Run("no_pooler_dir", func(t *testing.T) {
 		cmd, _ := GetRootCommand()
 		cmd.SetArgs([]string{"status", "--pooler-dir", ""})

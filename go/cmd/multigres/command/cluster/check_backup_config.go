@@ -71,6 +71,7 @@ Examples:
 
 	cmd.Flags().String("backup-url", ccmd.backupURL.Default(), "S3 backup URL (format: s3://bucket/prefix)")
 	cmd.Flags().String("region", ccmd.region.Default(), "AWS region")
+	viperutil.BindFlags(cmd.Flags(), ccmd.backupURL, ccmd.region)
 
 	clusterCmd.AddCommand(cmd)
 }

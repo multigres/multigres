@@ -38,7 +38,7 @@ func TestEtcd2Topo(t *testing.T) {
 		t.Skip("Skipping topology etcd integration test in short mode")
 	}
 	// Start a single etcd in the background.
-	clientAddr, _ := etcdtopo.StartEtcd(t)
+	clientAddr, _, _ := etcdtopo.StartEtcd(t)
 
 	testIndex := 0
 	newServer := func() topoclient.Store {

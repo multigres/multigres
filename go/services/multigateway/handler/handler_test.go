@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,8 @@ type mockExecutor struct {
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	if m.streamExecuteErr != nil {
-		return nil, m.streamExecuteErr
+		// Return partial result with PlanTime, matching real executor behavior.
+		return &ExecuteResult{PlanTime: time.Microsecond}, m.streamExecuteErr
 	}
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
@@ -58,7 +60,7 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 	return &ExecuteResult{}, err
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
@@ -201,9 +203,10 @@ func TestPreparedStatementHandling(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, desc)
 
-	// 3. Duplicate named statement fails
+	// 3. Re-parsing with the same name replaces (matches PostgreSQL behavior).
+	// This is needed when Parse succeeds but Describe fails — the client retries.
 	err = handler.HandleParse(ctx, conn, "stmt1", "SELECT 2", nil)
-	require.Error(t, err)
+	require.NoError(t, err)
 
 	// 4. Unnamed statements can be overwritten
 	err = handler.HandleParse(ctx, conn, "", "SELECT 1", nil)
@@ -218,7 +221,7 @@ func TestPreparedStatementHandling(t *testing.T) {
 	// 6. Describe fails after close
 	_, err = handler.HandleDescribe(ctx, conn, 'S', "stmt1")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
 	// 7. Empty query fails
 	err = handler.HandleParse(ctx, conn, "empty", "", nil)
@@ -251,7 +254,7 @@ func TestPortalHandling(t *testing.T) {
 	// 1. Bind fails for non-existent statement
 	err = handler.HandleBind(ctx, conn, "portal1", "nonexistent", nil, nil, nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
 	// 2. Bind stores portal in connection state
 	params := [][]byte{[]byte("42")}
@@ -265,7 +268,7 @@ func TestPortalHandling(t *testing.T) {
 
 	// 4. Execute works with valid portal
 	var result *sqltypes.Result
-	err = handler.HandleExecute(ctx, conn, "portal1", 0, func(ctx context.Context, r *sqltypes.Result) error {
+	err = handler.HandleExecute(ctx, conn, "portal1", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
 		result = r
 		return nil
 	})
@@ -273,11 +276,11 @@ func TestPortalHandling(t *testing.T) {
 	require.NotNil(t, result)
 
 	// 5. Execute fails for non-existent portal
-	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, func(ctx context.Context, r *sqltypes.Result) error {
+	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
 		return nil
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidCursorName))
 
 	// 6. Close removes portal from connection state
 	err = handler.HandleClose(ctx, conn, 'P', "portal1")
@@ -286,7 +289,7 @@ func TestPortalHandling(t *testing.T) {
 	// 7. Describe fails after close
 	_, err = handler.HandleDescribe(ctx, conn, 'P', "portal1")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not exist")
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidCursorName))
 }
 
 // TestPreparedStatementConsolidation tests that same queries share the same
@@ -378,7 +381,7 @@ func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 	// Status should remain Failed
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }
@@ -441,7 +444,7 @@ func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *te
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 }
 
 // TestHandleQuery_ErrorInTransactionSetsAbortedState tests that a query error
@@ -499,13 +502,13 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	// Put connection in aborted transaction state
 	conn.SetTxnStatus(protocol.TxnStatusFailed)
 
-	err = h.HandleExecute(ctx, conn, "portal1", 0, func(_ context.Context, _ *sqltypes.Result) error {
+	err = h.HandleExecute(ctx, conn, "portal1", 0, false, func(_ context.Context, _ *sqltypes.Result) error {
 		t.Fatal("callback should not be called for aborted transaction")
 		return nil
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 }
 
 // TestConnectionClosed_ReleasesReservedConnections tests that ConnectionClosed

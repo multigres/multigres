@@ -32,6 +32,7 @@ type ServerConfigOpts struct {
 	Pg1Port       int    // Local PostgreSQL port
 	Pg1SocketPath string // Local PostgreSQL socket directory
 	Pg1Path       string // Local PostgreSQL data directory
+	Pg1User       string // PostgreSQL superuser for pgbackrest connections
 }
 
 // WriteServerConfig generates a minimal pgbackrest-server.conf for the TLS server.
@@ -62,6 +63,7 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 		Pg1SocketPath  string
 		Pg1Port        int
 		Pg1Path        string
+		Pg1User        string
 	}{
 		LogPath:        logPath,
 		ServerCertFile: filepath.Join(opts.CertDir, "pgbackrest.crt"),
@@ -71,6 +73,7 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 		Pg1SocketPath:  opts.Pg1SocketPath,
 		Pg1Port:        opts.Pg1Port,
 		Pg1Path:        opts.Pg1Path,
+		Pg1User:        opts.Pg1User,
 	}
 
 	var buf bytes.Buffer

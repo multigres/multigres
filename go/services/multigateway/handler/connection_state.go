@@ -21,7 +21,20 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
+)
+
+// pendingListenAction records a single LISTEN/UNLISTEN operation within a transaction.
+type pendingListenAction struct {
+	actionType int    // pendingListen, pendingUnlisten, or pendingUnlistenAll
+	channel    string // empty for pendingUnlistenAll
+}
+
+const (
+	pendingListen      = iota // LISTEN channel
+	pendingUnlisten           // UNLISTEN channel
+	pendingUnlistenAll        // UNLISTEN *
 )
 
 // MultiGatewayConnectionState keeps track of the information specific
@@ -59,11 +72,69 @@ type MultiGatewayConnectionState struct {
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
 
+	// PendingTempTableReservation is set by the planner (via TempTableRoute)
+	// when the current query creates a temporary object. ScatterConn consumes
+	// it to create a reserved connection with ReasonTempTable. One-shot:
+	// cleared after the reservation is created.
+	PendingTempTableReservation bool
+
+	// TxnStartTime records when the current transaction began (set at BEGIN,
+	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
+	// means no active transaction is being timed.
+	TxnStartTime time.Time
+
+	// ListenChannels tracks active LISTEN channels for this connection.
+	ListenChannels map[string]bool
+
+	// pendingActions tracks LISTEN/UNLISTEN operations inside transactions,
+	// preserving the order they were issued. Processed at COMMIT by CommitPendingListens.
+	pendingActions []pendingListenAction
+
+	// NotifCh receives notifications from the PubSubListener.
+	NotifCh chan *sqltypes.Notification
+
+	// AsyncNotifCh is the channel for the server.Conn async notification pusher.
+	AsyncNotifCh chan<- *sqltypes.Notification
+
+	// SubSync coordinates LISTEN/NOTIFY subscriptions with the notification manager.
+	// Set by the handler at connection initialization; called by engine primitives
+	// to apply subscription changes before reporting success to the client.
+	SubSync SubscriptionSync
+
 	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
 	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
 	// The default is initialized from startup params (if present) or the --statement-timeout flag.
 	// Parsed at SET time to avoid repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
+
+	// savepoints is the stack of per-savepoint snapshots driving GUC revert
+	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings;
+	// gateway-managed variables maintain parallel snapshot stacks of equal depth
+	// (lockstep invariant). Index 0, when present, is the BEGIN-level frame
+	// (name=""); indices 1+ correspond to user SAVEPOINTs.
+	//
+	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct (e.g.
+	// statementTimeout) must be wired into all six lifecycle methods —
+	// pushFrameLocked, ReleaseSavepoint, RollbackToSavepoint, BeginTransaction,
+	// CommitTransaction, RollbackTransaction — or revert semantics break for
+	// the missing variable. When a second GMV is added, refactor to a
+	// non-generic `gmvLifecycle` interface ({Snapshot, RestoreFromDepth(int),
+	// PopFrom(int), ClearSnapshots}) and iterate a `[]gmvLifecycle` registry
+	// instead of naming each variable explicitly.
+	savepoints []savepointFrame
+
+	// targetReplica is true when this connection arrived on the replica-reads
+	// listener port. Set once at connection initialization, never changed.
+	targetReplica bool
+}
+
+// savepointFrame snapshots the SessionSettings map at the moment a savepoint
+// (or BEGIN-level frame) was pushed. Gateway-managed variable snapshots live
+// on each variable directly; the depth on this stack and on each variable's
+// stack are always identical.
+type savepointFrame struct {
+	name            string
+	sessionSettings map[string]string
 }
 
 type ShardState struct {
@@ -198,12 +269,182 @@ func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.statementTimeout.Set(d)
 }
 
-// ResetStatementTimeout clears the session-level statement timeout,
-// reverting to the default (from startup params or flag).
+// ResetStatementTimeout clears both the session-level override and any
+// active transaction-local override, reverting to the default (from startup
+// params or flag). Matches PostgreSQL: RESET inside a transaction with a
+// prior SET LOCAL supersedes the LOCAL — effective value becomes the default.
 func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout.Reset()
+}
+
+// SetLocalStatementTimeout stores a transaction-local statement timeout
+// override (from SET LOCAL statement_timeout). Cleared on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocal(d)
+}
+
+// SetLocalStatementTimeoutToDefault sets the transaction-local override to
+// the server default (from SET LOCAL statement_timeout TO DEFAULT). This
+// masks any session-level override for the duration of the transaction
+// without destroying it; the session value is restored on COMMIT/ROLLBACK
+// via ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.SetLocalToDefault()
+}
+
+// ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
+// variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
+// observes the session-level (or default) value.
+func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.ResetLocal()
+}
+
+// snapshotSessionSettingsLocked returns a copy of SessionSettings (or nil if
+// empty) for storing on a savepoint frame. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) snapshotSessionSettingsLocked() map[string]string {
+	if len(m.SessionSettings) == 0 {
+		return nil
+	}
+	cp := make(map[string]string, len(m.SessionSettings))
+	maps.Copy(cp, m.SessionSettings)
+	return cp
+}
+
+// findSavepointLocked returns the index of the most recent savepoint with the
+// given name (case-sensitive match — matching PostgreSQL's GUC behavior on
+// case-folded identifiers, which the parser already canonicalizes). Returns
+// -1 if not found. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) findSavepointLocked(name string) int {
+	for i := len(m.savepoints) - 1; i >= 0; i-- {
+		if m.savepoints[i].name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// pushFrameLocked snapshots SessionSettings and every gateway-managed variable
+// onto their respective stacks under the given savepoint name. Caller must hold m.mu.
+func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
+	m.savepoints = append(m.savepoints, savepointFrame{
+		name:            name,
+		sessionSettings: m.snapshotSessionSettingsLocked(),
+	})
+	m.statementTimeout.Snapshot()
+}
+
+// BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
+// ROLLBACK can revert SET / RESET commands issued inside the transaction.
+// A genuine nested BEGIN (depth-0 frame already present with name=="") is a
+// no-op, mirroring PostgreSQL's "transaction already in progress" warning.
+// Any other pre-existing frames are stale (e.g. a SAVEPOINT that somehow ran
+// outside a txn block); discard them and start a fresh BEGIN-level frame so
+// rollback semantics match the new transaction, not leftover state.
+func (m *MultiGatewayConnectionState) BeginTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) > 0 && m.savepoints[0].name == "" {
+		return
+	}
+	m.savepoints = m.savepoints[:0]
+	m.statementTimeout.ClearSnapshots()
+	m.pushFrameLocked("")
+}
+
+// PushSavepoint snapshots state under the given savepoint name. Called after
+// the backend has accepted the SAVEPOINT command.
+func (m *MultiGatewayConnectionState) PushSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pushFrameLocked(name)
+}
+
+// ReleaseSavepoint drops the named savepoint frame and any frames above it,
+// keeping the current (in-memory) values. PostgreSQL's RELEASE merges any
+// state changes from the released sub-transaction into the parent scope.
+// If `name` is not on the stack, this is a no-op (the backend would have
+// already rejected the RELEASE).
+func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return
+	}
+	m.savepoints = m.savepoints[:idx]
+	m.statementTimeout.PopFrom(idx)
+}
+
+// RollbackToSavepoint restores SessionSettings and every gateway-managed
+// variable from the snapshot under `name`, popping any intermediate frames.
+// The named frame stays on the stack so a subsequent ROLLBACK TO `name` can
+// be issued again — matching PostgreSQL's behavior of leaving the savepoint
+// active after rollback.
+func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return
+	}
+	m.SessionSettings = nil
+	if m.savepoints[idx].sessionSettings != nil {
+		m.SessionSettings = make(map[string]string, len(m.savepoints[idx].sessionSettings))
+		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
+	}
+	m.savepoints = m.savepoints[:idx+1]
+	m.statementTimeout.RestoreFromDepth(idx)
+}
+
+// CommitTransaction drops all savepoint frames (current values become
+// persistent session state) and clears any SET LOCAL overrides on
+// gateway-managed variables — SET LOCAL doesn't survive transaction boundaries.
+func (m *MultiGatewayConnectionState) CommitTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.savepoints = nil
+	m.statementTimeout.ClearSnapshots()
+	m.statementTimeout.ResetLocal()
+}
+
+// RollbackTransaction reverts all SET / RESET commands issued inside the
+// transaction by restoring SessionSettings and every gateway-managed variable
+// from the BEGIN-level (depth 0) snapshot. If no transaction is in progress
+// (savepoints empty), this falls back to clearing local overrides only.
+func (m *MultiGatewayConnectionState) RollbackTransaction() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 {
+		m.statementTimeout.ResetLocal()
+		return
+	}
+	m.SessionSettings = nil
+	if m.savepoints[0].sessionSettings != nil {
+		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
+		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
+	}
+	m.statementTimeout.RestoreFromDepth(0)
+	m.statementTimeout.ClearSnapshots()
+	m.statementTimeout.ResetLocal()
+	m.savepoints = nil
+}
+
+// SavepointDepth returns the current size of the savepoint stack. Exposed for
+// tests; in production code, transaction state should be queried via
+// conn.IsInTransaction() / conn.TxnStatus().
+func (m *MultiGatewayConnectionState) SavepointDepth() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.savepoints)
 }
 
 // GetStatementTimeout returns the effective statement timeout:
@@ -229,6 +470,12 @@ func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Dur
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// TargetReplica returns true if this connection targets a replica.
+// Set once at connection initialization based on which port the connection arrived on.
+func (m *MultiGatewayConnectionState) TargetReplica() bool {
+	return m.targetReplica
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.
@@ -258,6 +505,19 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 	return value, exists
 }
 
+// HasTempTableReservation returns true if any shard state has a reserved
+// connection with the temp table reason set.
+func (m *MultiGatewayConnectionState) HasTempTableReservation() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState != nil && protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetStartupParams returns a copy of the startup parameters.
 // Returns nil if no startup params were set.
 func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
@@ -269,4 +529,136 @@ func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
 	params := make(map[string]string, len(m.StartupParams))
 	maps.Copy(params, m.StartupParams)
 	return params
+}
+
+// --- LISTEN/NOTIFY state tracking ---
+
+// IsListening returns true if the channel is actively listened.
+func (m *MultiGatewayConnectionState) IsListening(channel string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ListenChannels[channel]
+}
+
+// AddListenChannel registers a channel as actively listened.
+func (m *MultiGatewayConnectionState) AddListenChannel(channel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ListenChannels == nil {
+		m.ListenChannels = make(map[string]bool)
+	}
+	m.ListenChannels[channel] = true
+}
+
+// RemoveListenChannel removes a channel from active listeners.
+func (m *MultiGatewayConnectionState) RemoveListenChannel(channel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.ListenChannels, channel)
+}
+
+// ClearListenChannels removes all listen channels (UNLISTEN *).
+func (m *MultiGatewayConnectionState) ClearListenChannels() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ListenChannels = nil
+}
+
+// GetListenChannels returns a copy of the active listen channels.
+func (m *MultiGatewayConnectionState) GetListenChannels() map[string]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.ListenChannels) == 0 {
+		return nil
+	}
+	channels := make(map[string]bool, len(m.ListenChannels))
+	maps.Copy(channels, m.ListenChannels)
+	return channels
+}
+
+// AddPendingListen adds a LISTEN to the pending actions list (applied at COMMIT).
+func (m *MultiGatewayConnectionState) AddPendingListen(channel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingListen, channel: channel})
+}
+
+// AddPendingUnlisten adds an UNLISTEN to the pending actions list.
+func (m *MultiGatewayConnectionState) AddPendingUnlisten(channel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingUnlisten, channel: channel})
+}
+
+// AddPendingUnlistenAll adds an UNLISTEN * to the pending actions list.
+func (m *MultiGatewayConnectionState) AddPendingUnlistenAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingActions = append(m.pendingActions, pendingListenAction{actionType: pendingUnlistenAll})
+}
+
+// CommitPendingListens applies pending listen/unlisten actions on transaction commit.
+// Actions are processed in the order they were issued (matching PostgreSQL's
+// AtCommit_Notify behavior), then a net diff is computed against the pre-transaction
+// state to produce the subscribe/unsubscribe lists for the notification manager.
+func (m *MultiGatewayConnectionState) CommitPendingListens() (subscribes []string, unsubscribes []string, unsubscribeAll bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Snapshot starting state for net diff computation.
+	startChannels := make(map[string]bool, len(m.ListenChannels))
+	maps.Copy(startChannels, m.ListenChannels)
+
+	// Process actions in order, updating ListenChannels to the final state.
+	for _, action := range m.pendingActions {
+		switch action.actionType {
+		case pendingListen:
+			if m.ListenChannels == nil {
+				m.ListenChannels = make(map[string]bool)
+			}
+			m.ListenChannels[action.channel] = true
+		case pendingUnlisten:
+			delete(m.ListenChannels, action.channel)
+		case pendingUnlistenAll:
+			unsubscribeAll = true
+			m.ListenChannels = nil
+		}
+	}
+	m.pendingActions = nil
+
+	// Compute net diff between starting and final state.
+	if unsubscribeAll {
+		// UNLISTEN * clears everything — only report channels in the final state
+		// as new subscribes (they were added after UNLISTEN *).
+		for ch := range m.ListenChannels {
+			subscribes = append(subscribes, ch)
+		}
+	} else {
+		for ch := range m.ListenChannels {
+			if !startChannels[ch] {
+				subscribes = append(subscribes, ch)
+			}
+		}
+		for ch := range startChannels {
+			if !m.ListenChannels[ch] {
+				unsubscribes = append(unsubscribes, ch)
+			}
+		}
+	}
+
+	return subscribes, unsubscribes, unsubscribeAll
+}
+
+// DiscardPendingListens discards pending listen/unlisten state on rollback.
+func (m *MultiGatewayConnectionState) DiscardPendingListens() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingActions = nil
+}
+
+// HasPendingListens returns true if there are pending listen/unlisten changes.
+func (m *MultiGatewayConnectionState) HasPendingListens() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.pendingActions) > 0
 }

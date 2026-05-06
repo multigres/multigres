@@ -106,10 +106,11 @@ type LockType int
 const (
 	// Blocking is the default lock type when no other valid type
 	// is specified.
-	Blocking         LockType = iota
-	NonBlocking               // Uses TryLock
-	Named                     // Uses LockName
-	NamedNonBlocking          // Uses LockName semantics with TryLock fail-fast behavior
+	Blocking                LockType = iota
+	NonBlocking                      // Uses TryLock
+	Named                            // Uses LockName
+	NamedNonBlocking                 // Uses LockName semantics with TryLock fail-fast behavior
+	NamedNonBlockingWithTTL          // Uses TryLockNameWithTTL for fail-fast with custom TTL
 )
 
 func (lt LockType) String() string {
@@ -120,6 +121,8 @@ func (lt LockType) String() string {
 		return "named"
 	case NamedNonBlocking:
 		return "named non blocking"
+	case NamedNonBlockingWithTTL:
+		return "named non blocking with ttl"
 	default:
 		return "blocking"
 	}
@@ -176,6 +179,9 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 	case NamedNonBlocking:
 		lockOp = LockOpTryLockName
 		lockDescriptor, err = ts.globalTopo.TryLockName(ctx, lt.Path(), j)
+	case NamedNonBlockingWithTTL:
+		lockOp = LockOpTryLockName
+		lockDescriptor, err = ts.globalTopo.TryLockWithLease(ctx, lt.Path(), j, l.Options.ttl)
 	default:
 		if l.Options.ttl != 0 {
 			lockOp = LockOpLockWithTTL

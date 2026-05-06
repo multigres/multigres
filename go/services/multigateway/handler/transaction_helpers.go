@@ -127,6 +127,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		//     error out matching PostgreSQL behavior — SET TRANSACTION ISOLATION LEVEL
 		//     must be called before any query.
 		if ast.IsBeginStatement(stmt) {
+			wasImplicitTx := isImplicitTx
 			isImplicitTx = false
 			if txStmt, ok := stmt.(*ast.TransactionStmt); ok && txStmt.Options != nil && len(txStmt.Options.Items) > 0 {
 				if state.PendingBeginQuery != "" {
@@ -136,7 +137,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					// Backend transaction already has queries executed.
 					// PostgreSQL rejects this with SQLSTATE 25001.
 					// Rollback the implicit transaction before returning the error.
-					if isImplicitTx {
+					if wasImplicitTx {
 						_ = silentExecute(ast.NewRollbackStmt())
 					}
 					return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
@@ -149,7 +150,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			continue
 		}
 
-		// User's COMMIT/ROLLBACK - execute and prepare for next segment
+		// User's COMMIT/ROLLBACK - execute and prepare for next segment.
 		if ast.IsCommitStatement(stmt) || ast.IsRollbackStatement(stmt) {
 			if err := execute(stmt); err != nil {
 				return err
@@ -205,7 +206,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		}
 		if execErr != nil {
 			if isImplicitTx {
-				// Auto-rollback implicit transaction on failure
+				// Auto-rollback implicit transaction on failure.
 				_ = silentExecute(ast.NewRollbackStmt())
 			} else {
 				// Explicit transaction: enter aborted state.

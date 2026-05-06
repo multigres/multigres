@@ -68,6 +68,28 @@ get_sha256() {
       ;;
     esac
     ;;
+  "sqllogictest")
+    # sqllogictest-rs prebuilt binaries from risinglightdb/sqllogictest-rs releases.
+    # Upstream rust target triples (aarch64/x86_64, apple-darwin / unknown-linux-musl).
+    case "$version-$platform-$arch-$ext" in
+    "v0.29.1-apple-darwin-aarch64-tar.gz")
+      echo "a78235e0a0b4a2c01e1f5539a5898535264b9f9c3f272af94964e0bba4009de4"
+      ;;
+    "v0.29.1-apple-darwin-x86_64-tar.gz")
+      echo "597d8b8b3895f4d472914b287b4a16d95cedd4a3cbd884c956e0a8189540fc15"
+      ;;
+    "v0.29.1-unknown-linux-musl-aarch64-tar.gz")
+      echo "1bad80db31da9e363f49991fe1905720118763b06ce2954e8820aa797969f3da"
+      ;;
+    "v0.29.1-unknown-linux-musl-x86_64-tar.gz")
+      echo "db47669665f2df9483f7f409f191d84e73e14bac2c77bcb94c8654c6bc43f164"
+      ;;
+    *)
+      echo "ERROR: no SHA256 hash available for sqllogictest $version-$platform-$arch.$ext" >&2
+      exit 1
+      ;;
+    esac
+    ;;
   *)
     echo "ERROR: no SHA256 hashes for tool $tool" >&2
     exit 1

@@ -44,6 +44,7 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 		Pg1Port:       5432,
 		Pg1SocketPath: "/tmp/socket",
 		Pg1Path:       "/var/lib/postgresql/data",
+		Pg1User:       "admin",
 	}
 
 	configPath, err := WriteClientConfig(opts, backupCfg)
@@ -60,12 +61,19 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, "pgbackrest", "lock"), global.Key("lock-path").String())
 	assert.Equal(t, "zst", global.Key("compress-type").String())
 
+	// Retention settings must appear in [global] for all backend types
+	assert.Equal(t, "7", global.Key("repo1-retention-full").String())
+	assert.Equal(t, "1", global.Key("repo1-retention-diff").String())
+	assert.Equal(t, "count", global.Key("repo1-retention-full-type").String())
+	assert.Equal(t, "0", global.Key("repo1-retention-history").String())
+
 	stanza := cfg.Section("multigres")
 	assert.Equal(t, "posix", stanza.Key("repo1-type").String())
 	assert.Equal(t, "/backups", stanza.Key("repo1-path").String())
 	assert.Equal(t, "/tmp/socket", stanza.Key("pg1-socket-path").String())
 	assert.Equal(t, "5432", stanza.Key("pg1-port").String())
 	assert.Equal(t, "/var/lib/postgresql/data", stanza.Key("pg1-path").String())
+	assert.Equal(t, "admin", stanza.Key("pg1-user").String())
 
 	// Must NOT contain TLS server settings
 	for _, key := range global.Keys() {
@@ -92,6 +100,7 @@ func TestWriteClientConfig_S3(t *testing.T) {
 		Pg1Port:       5432,
 		Pg1SocketPath: "/tmp/socket",
 		Pg1Path:       "/data",
+		Pg1User:       "admin",
 	}
 
 	configPath, err := WriteClientConfig(opts, backupCfg)
@@ -104,6 +113,7 @@ func TestWriteClientConfig_S3(t *testing.T) {
 	assert.Equal(t, "s3", stanza.Key("repo1-type").String())
 	assert.Equal(t, "test-bucket", stanza.Key("repo1-s3-bucket").String())
 	assert.Equal(t, "us-west-2", stanza.Key("repo1-s3-region").String())
+	assert.Equal(t, "admin", stanza.Key("pg1-user").String())
 }
 
 func TestWriteClientConfig_CreatesDirs(t *testing.T) {
@@ -122,6 +132,7 @@ func TestWriteClientConfig_CreatesDirs(t *testing.T) {
 		Pg1Port:       5432,
 		Pg1SocketPath: "/tmp/socket",
 		Pg1Path:       "/data",
+		Pg1User:       "admin",
 	}
 
 	_, err = WriteClientConfig(opts, backupCfg)

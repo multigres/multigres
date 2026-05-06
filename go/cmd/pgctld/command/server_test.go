@@ -258,10 +258,11 @@ func TestPgCtldServiceStop(t *testing.T) {
 
 func TestPgCtldServiceStatus(t *testing.T) {
 	tests := []struct {
-		name         string
-		request      *pb.StatusRequest
-		setupDataDir func(string) string
-		expected     pb.ServerStatus
+		name          string
+		request       *pb.StatusRequest
+		setupDataDir  func(string) string
+		setupBinaries func(t *testing.T, binDir string)
+		expected      pb.ServerStatus
 	}{
 		{
 			name:    "status not initialized",
@@ -287,7 +288,26 @@ func TestPgCtldServiceStatus(t *testing.T) {
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
 			},
+			// pg_isready must succeed for the process to be reported as RUNNING.
+			setupBinaries: func(t *testing.T, binDir string) {
+				testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			},
 			expected: pb.ServerStatus_RUNNING,
+		},
+		{
+			name:    "status running but unresponsive",
+			request: &pb.StatusRequest{},
+			setupDataDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				testutil.CreatePIDFile(t, dataDir, 12345)
+				return dataDir
+			},
+			// pg_isready fails: process exists but is not accepting connections (e.g. SIGSTOP).
+			setupBinaries: func(t *testing.T, binDir string) {
+				testutil.CreateMockPostgreSQLBinaries(t, binDir)
+				testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
+			},
+			expected: pb.ServerStatus_STOPPED,
 		},
 	}
 
@@ -297,6 +317,13 @@ func TestPgCtldServiceStatus(t *testing.T) {
 			defer cleanup()
 
 			poolerDir := baseDir
+
+			if tt.setupBinaries != nil {
+				binDir := filepath.Join(baseDir, "bin")
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
+				tt.setupBinaries(t, binDir)
+				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+			}
 
 			_ = tt.setupDataDir(baseDir)
 

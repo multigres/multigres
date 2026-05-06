@@ -16,13 +16,17 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 )
@@ -57,28 +61,28 @@ func (s *MultiOrchServer) GetShardStatus(
 	req *multiorchpb.ShardStatusRequest,
 ) (*multiorchpb.ShardStatusResponse, error) {
 	// Validate that this shard is in our watch targets
-	if !s.engine.IsWatchingShard(req.Database, req.TableGroup, req.Shard) {
+	if req.ShardKey == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "shard_key is required")
+	}
+	sk := req.ShardKey
+	if !s.engine.IsWatchingShard(sk.Database, sk.TableGroup, sk.Shard) {
 		return nil, status.Errorf(codes.NotFound,
-			"shard %s/%s/%s is not in watch targets for this multiorch instance",
-			req.Database, req.TableGroup, req.Shard)
+			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
 	}
 
 	// Get all detected problems from the engine
 	allProblems := s.engine.GetDetectedProblems()
 
 	// Filter problems for the requested shard
+	skStr := commontypes.FormatShardKey(sk)
 	var shardProblems []*multiorchpb.DetectedProblem
 	for _, p := range allProblems {
-		if p.ShardKey.Database == req.Database &&
-			p.ShardKey.TableGroup == req.TableGroup &&
-			p.ShardKey.Shard == req.Shard {
+		if commontypes.FormatShardKey(p.ShardKey) == skStr {
 			shardProblems = append(shardProblems, &multiorchpb.DetectedProblem{
 				Code:        string(p.Code),
 				CheckName:   string(p.CheckName),
 				PoolerId:    p.PoolerID,
-				Database:    p.ShardKey.Database,
-				TableGroup:  p.ShardKey.TableGroup,
-				Shard:       p.ShardKey.Shard,
+				ShardKey:    p.ShardKey,
 				Description: p.Description,
 				Priority:    int32(p.Priority),
 				Scope:       string(p.Scope),
@@ -95,9 +99,72 @@ func (s *MultiOrchServer) GetShardStatus(
 	return resp, nil
 }
 
+// DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
+func (s *MultiOrchServer) DisableRecovery(_ context.Context, _ *multiorchpb.DisableRecoveryRequest) (*multiorchpb.DisableRecoveryResponse, error) {
+	s.engine.DisableRecovery()
+	return &multiorchpb.DisableRecoveryResponse{
+		Success: true,
+		Message: "recovery disabled",
+	}, nil
+}
+
+// EnableRecovery resumes the recovery loop.
+func (s *MultiOrchServer) EnableRecovery(_ context.Context, _ *multiorchpb.EnableRecoveryRequest) (*multiorchpb.EnableRecoveryResponse, error) {
+	s.engine.EnableRecovery()
+	return &multiorchpb.EnableRecoveryResponse{
+		Success: true,
+		Message: "recovery enabled",
+	}, nil
+}
+
+// GetRecoveryStatus returns whether recovery is currently enabled or disabled.
+func (s *MultiOrchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.GetRecoveryStatusRequest) (*multiorchpb.GetRecoveryStatusResponse, error) {
+	return &multiorchpb.GetRecoveryStatusResponse{
+		Enabled: s.engine.IsRecoveryEnabled(),
+	}, nil
+}
+
+// TriggerRecoveryNow immediately executes recovery cycles until no problems remain
+// or the request context times out. Returns problem codes that remain unresolved.
+func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	} else {
+		// Subtract 200ms from deadline to allow time for response overhead.
+		timeout := time.Until(deadline) - 200*time.Millisecond
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+	}
+
+	if req.MaxCycles > 1 {
+		return nil, status.Errorf(codes.InvalidArgument, "max_cycles must be 0 (unlimited) or 1 (single cycle), got %d", req.MaxCycles)
+	}
+
+	remainingProblems, err := s.engine.TriggerRecoveryNow(ctx, req.MaxCycles)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("recovery trigger failed: %v", err))
+	}
+
+	problemCodes := make([]string, 0, len(remainingProblems))
+	for _, p := range remainingProblems {
+		problemCodes = append(problemCodes, p.AnalysisType)
+	}
+
+	return &multiorchpb.TriggerRecoveryNowResponse{
+		RemainingProblemCodes: problemCodes,
+	}, nil
+}
+
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.
 func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
-	poolers := s.engine.GetPoolerHealthForShard(req.Database, req.TableGroup, req.Shard)
+	sk := req.ShardKey
+	poolers := s.engine.GetPoolerHealthForShard(sk.Database, sk.TableGroup, sk.Shard)
 
 	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))
 	for _, p := range poolers {
@@ -106,14 +173,14 @@ func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequ
 		}
 
 		// Get pooler type string
-		poolerType := p.PoolerType.String()
+		poolerType := p.GetStatus().GetPoolerType().String()
 
 		healthList = append(healthList, &multiorchpb.PoolerHealth{
-			PoolerId:        p.MultiPooler.Id,
-			Reachable:       p.IsLastCheckValid,
-			PostgresRunning: p.IsPostgresRunning,
-			PoolerType:      poolerType,
-			LastCheck:       p.LastCheckAttempted,
+			PoolerId:      p.MultiPooler.Id,
+			Reachable:     p.IsLastCheckValid,
+			PostgresReady: p.GetStatus().GetPostgresReady(),
+			PoolerType:    poolerType,
+			LastCheck:     p.LastCheckAttempted,
 		})
 	}
 

@@ -30,10 +30,10 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/tools/viperutil"
-
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/tools/timer"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func newTestTopoStore() topoclient.Store {
@@ -659,4 +659,97 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Verify new pooler still exists
 	_, ok = re.poolerStore.Get(keyNew)
 	require.True(t, ok, "new pooler should still exist")
+}
+
+func TestRecoveryDisableEnable(t *testing.T) {
+	ctx := context.Background()
+	interval := 100 * time.Millisecond
+
+	// Create minimal engine with just the recovery runner
+	runner := timer.NewPeriodicRunner(ctx, interval)
+
+	callCount := atomic.Int32{}
+	callback := func(ctx context.Context) {
+		callCount.Add(1)
+	}
+
+	// Start recovery
+	runner.Start(callback, nil)
+	require.True(t, runner.Running())
+
+	// Let it run a few times
+	time.Sleep(350 * time.Millisecond)
+	count1 := callCount.Load()
+	require.Greater(t, count1, int32(2), "should have run at least 3 times")
+
+	// Stop - should stop immediately
+	runner.Stop()
+	require.False(t, runner.Running())
+
+	// Wait and verify no more executions
+	count2 := callCount.Load()
+	time.Sleep(300 * time.Millisecond)
+	count3 := callCount.Load()
+	require.Equal(t, count2, count3, "no executions should occur while stopped")
+
+	// Restart
+	runner.Start(callback, nil)
+	require.True(t, runner.Running())
+
+	// Verify it resumes
+	time.Sleep(350 * time.Millisecond)
+	count4 := callCount.Load()
+	require.Greater(t, count4, count3, "should resume executing after restart")
+
+	// Clean up
+	runner.Stop()
+}
+
+func TestRecoveryDisableWaitsForInFlight(t *testing.T) {
+	ctx := context.Background()
+	interval := 50 * time.Millisecond
+
+	runner := timer.NewPeriodicRunner(ctx, interval)
+
+	inCallback := make(chan struct{})
+	canReturn := make(chan struct{})
+
+	callback := func(ctx context.Context) {
+		inCallback <- struct{}{}
+		<-canReturn
+	}
+
+	// Start runner
+	runner.Start(callback, nil)
+
+	// Wait for callback to start
+	<-inCallback
+
+	// Stop should block until callback completes
+	done := make(chan struct{})
+	go func() {
+		runner.Stop()
+		close(done)
+	}()
+
+	// Verify Stop is still blocking
+	select {
+	case <-done:
+		t.Fatal("Stop returned before callback completed")
+	case <-time.After(100 * time.Millisecond):
+		// Expected - still waiting
+	}
+
+	// Allow callback to complete
+	close(canReturn)
+
+	// Now Stop should return
+	select {
+	case <-done:
+		// Expected
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Stop did not return after callback completed")
+	}
+
+	require.False(t, runner.Running())
 }

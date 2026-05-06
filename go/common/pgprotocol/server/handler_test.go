@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -114,7 +115,7 @@ func (h *testHandlerWithState) HandleBind(ctx context.Context, conn *Conn, porta
 	return nil
 }
 
-func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	state := h.getConnectionState(conn)
 
 	state.mu.Lock()
@@ -216,3 +217,7 @@ func (h *testHandlerWithState) HandleSync(ctx context.Context, conn *Conn) error
 }
 
 func (h *testHandlerWithState) ConnectionClosed(conn *Conn) {}
+
+func (h *testHandlerWithState) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}

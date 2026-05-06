@@ -90,16 +90,19 @@ database, err := r.ReadString()
 numParams, err := r.ReadInt16()
 ```
 
-#### MessageWriter
+#### Packet encoding
 
-Helper for building protocol messages:
+Outbound packets are encoded in place against the bufio writer's
+internal buffer via `startPacket` / `writePacket` and `writeXxxAt`
+helpers, eliminating per-message allocations. See
+[docs/query_serving/pgwire_io_path.md](../../../docs/query_serving/pgwire_io_path.md)
+for the full design rationale.
 
 ```go
-w := server.NewMessageWriter()
-w.WriteString("postgres")
-w.WriteInt32(12345)
-w.WriteByte('I')
-messageBody := w.Bytes()
+buf, pos := c.startPacket(protocol.MsgRowDescription, bodyLen)
+pos = writeInt16At(buf, pos, fieldCount)
+pos = writeStringAt(buf, pos, fieldName)
+return c.writePacket(buf, pos)
 ```
 
 ## Performance Optimizations

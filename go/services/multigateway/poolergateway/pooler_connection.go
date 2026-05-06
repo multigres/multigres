@@ -35,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // errPoolerUninitialized is the initial error before health stream connects.
@@ -54,9 +53,13 @@ type PoolerHealth struct {
 	// ServingStatus is the serving state reported by the pooler.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// PrimaryObservation contains the pooler's view of who the primary is.
-	// Used for term-based primary reconciliation.
-	PrimaryObservation *multipoolerservice.PrimaryObservation
+	// LeaderObservation contains the pooler's view of who the consensus leader is.
+	// Used for term-based leader reconciliation.
+	LeaderObservation *multipoolerservice.LeaderObservation
+
+	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
+	// Zero on the primary or when not yet measured.
+	ReplicationLagNs int64
 
 	// LastError is the most recent error from the health stream.
 	LastError error
@@ -74,7 +77,7 @@ func (h *PoolerHealth) IsServing() bool {
 }
 
 // SimpleCopy returns a shallow copy of the PoolerHealth.
-// This is not a deep copy: pointer fields (Target, PoolerID, PrimaryObservation)
+// This is not a deep copy: pointer fields (Target, PoolerID, LeaderObservation)
 // reference the same underlying objects. This is safe because these proto objects
 // are treated as immutable - they are never modified after creation.
 // Returns a shallow copy that is safe to read concurrently.
@@ -83,12 +86,13 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 		return nil
 	}
 	return &PoolerHealth{
-		Target:             h.Target,
-		PoolerID:           h.PoolerID,
-		ServingStatus:      h.ServingStatus,
-		PrimaryObservation: h.PrimaryObservation,
-		LastError:          h.LastError,
-		LastResponse:       h.LastResponse,
+		Target:            h.Target,
+		PoolerID:          h.PoolerID,
+		ServingStatus:     h.ServingStatus,
+		LeaderObservation: h.LeaderObservation,
+		ReplicationLagNs:  h.ReplicationLagNs,
+		LastError:         h.LastError,
+		LastResponse:      h.LastResponse,
 	}
 }
 
@@ -152,6 +156,7 @@ func NewPoolerConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 	logger *slog.Logger,
+	grpcDialOpt grpc.DialOption,
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
@@ -166,7 +171,7 @@ func NewPoolerConnection(
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		grpccommon.WithDialOptions(grpcDialOpt),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
@@ -407,12 +412,13 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 
 	// Build new health snapshot from the response.
 	newHealth := &PoolerHealth{
-		Target:             response.Target,
-		PoolerID:           response.PoolerId,
-		ServingStatus:      response.ServingStatus,
-		PrimaryObservation: response.PrimaryObservation,
-		LastError:          nil,
-		LastResponse:       time.Now(),
+		Target:            response.Target,
+		PoolerID:          response.PoolerId,
+		ServingStatus:     response.ServingStatus,
+		LeaderObservation: response.LeaderObservation,
+		ReplicationLagNs:  response.ReplicationLagNs,
+		LastError:         nil,
+		LastResponse:      time.Now(),
 	}
 
 	pc.healthMu.Lock()

@@ -20,6 +20,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -27,12 +34,6 @@ import (
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/utils"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
@@ -41,7 +42,7 @@ func TestMultiAdminServerGetCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent cell
 	t.Run("non-existent cell returns NotFound", func(t *testing.T) {
@@ -101,7 +102,7 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent database
 	t.Run("non-existent database returns NotFound", func(t *testing.T) {
@@ -135,10 +136,9 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 	t.Run("existing database returns database data", func(t *testing.T) {
 		// First create a database
 		testDatabase := &clustermetadatapb.Database{
-			Name:             "testdb",
-			BackupLocation:   utils.S3BackupLocation("backup-bucket", "us-east-1"),
-			DurabilityPolicy: "none",
-			Cells:            []string{"cell1", "cell2"},
+			Name:           "testdb",
+			BackupLocation: utils.S3BackupLocation("backup-bucket", "us-east-1"),
+			Cells:          []string{"cell1", "cell2"},
 		}
 
 		err := ts.CreateDatabase(ctx, "testdb", testDatabase)
@@ -153,7 +153,6 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 		require.NotNil(t, resp.Database)
 		assert.Equal(t, "testdb", resp.Database.Name)
 		prototest.AssertEqual(t, testDatabase.BackupLocation, resp.Database.BackupLocation)
-		assert.Equal(t, "none", resp.Database.DurabilityPolicy)
 		assert.Equal(t, []string{"cell1", "cell2"}, resp.Database.Cells)
 	})
 }
@@ -162,7 +161,7 @@ func TestMultiAdminServerGetCellNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetCellNamesRequest{}
@@ -198,7 +197,7 @@ func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetDatabaseNamesRequest{}
@@ -212,8 +211,8 @@ func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
 	t.Run("returns all database names", func(t *testing.T) {
 		// Create test databases
 		databases := []*clustermetadatapb.Database{
-			{Name: "db1", DurabilityPolicy: "none", Cells: []string{"cell1"}},
-			{Name: "db2", DurabilityPolicy: "none", Cells: []string{"cell1"}},
+			{Name: "db1", Cells: []string{"cell1"}},
+			{Name: "db2", Cells: []string{"cell1"}},
 		}
 
 		for _, db := range databases {
@@ -234,7 +233,7 @@ func TestMultiAdminServerGetGateways(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get gateways with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetGatewaysRequest{}
@@ -263,7 +262,7 @@ func TestMultiAdminServerGetGatewaysMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -320,7 +319,7 @@ func TestMultiAdminServerGetPoolers(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get poolers with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetPoolersRequest{}
@@ -349,7 +348,7 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -445,7 +444,7 @@ func TestMultiAdminServerGetOrchs(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get orchestrators with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetOrchsRequest{}
@@ -474,7 +473,7 @@ func TestMultiAdminServerGetOrchsMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -519,7 +518,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
@@ -601,18 +600,18 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		expectedStatus := &multipoolermanagerdatapb.Status{
-			PoolerType:      clustermetadatapb.PoolerType_PRIMARY,
-			IsInitialized:   true,
-			PostgresRunning: true,
-			PostgresRole:    "primary",
-			WalPosition:     "0/1000000",
-			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-			ShardId: "0-inf",
+			PoolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			IsInitialized:  true,
+			PostgresReady:  true,
+			PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
+			WalPosition:    "0/1000000",
+			ShardId:        "0-inf",
 		}
 		fakeClient.SetStatusResponse(poolerKey, &multipoolermanagerdatapb.StatusResponse{
 			Status: expectedStatus,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			},
 		})
 
 		req := &multiadminpb.GetPoolerStatusRequest{
@@ -625,11 +624,11 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		require.NotNil(t, resp.Status)
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType)
 		assert.True(t, resp.Status.IsInitialized)
-		assert.True(t, resp.Status.PostgresRunning)
-		assert.Equal(t, "primary", resp.Status.PostgresRole)
+		assert.True(t, resp.Status.PostgresReady)
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, resp.Status.PostgresStatus)
 		assert.Equal(t, "0/1000000", resp.Status.WalPosition)
-		require.NotNil(t, resp.Status.ConsensusTerm)
-		assert.Equal(t, int64(1), resp.Status.ConsensusTerm.TermNumber)
+		require.NotNil(t, resp.ConsensusStatus.GetTermRevocation())
+		assert.Equal(t, int64(1), resp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm())
 	})
 
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {
@@ -666,19 +665,19 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
+func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
 	server.SetRPCClient(fakeClient)
 
 	t.Run("nil pooler_id returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{PoolerId: nil, Enabled: true}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: nil, Enabled: true}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -690,11 +689,11 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 	})
 
 	t.Run("empty cell returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "", Name: "pool1"},
 			Enabled:  true,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -706,11 +705,11 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 	})
 
 	t.Run("empty name returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: ""},
 			Enabled:  true,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -722,11 +721,11 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 	})
 
 	t.Run("non-existent pooler returns NotFound", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: "nonexistent"},
 			Enabled:  true,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -754,13 +753,13 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
-		fakeClient.SetMonitorResponse(poolerKey, &multipoolermanagerdatapb.SetMonitorResponse{})
+		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: poolerID,
 			Enabled:  true,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -785,11 +784,11 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: poolerID,
 			Enabled:  true,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -797,23 +796,23 @@ func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.Unavailable, st.Code())
-		assert.Contains(t, st.Message(), "failed to update PostgreSQL monitoring on pooler")
+		assert.Contains(t, st.Message(), "failed to update postgres restarts on pooler")
 	})
 }
 
-func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
+func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger)
+	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
 	server.SetRPCClient(fakeClient)
 
 	t.Run("nil pooler_id returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{PoolerId: nil, Enabled: false}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{PoolerId: nil, Enabled: false}
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -825,11 +824,11 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 	})
 
 	t.Run("empty cell returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "", Name: "pool1"},
 			Enabled:  false,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -841,11 +840,11 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 	})
 
 	t.Run("empty name returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: ""},
 			Enabled:  false,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -857,11 +856,11 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 	})
 
 	t.Run("non-existent pooler returns NotFound", func(t *testing.T) {
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: "nonexistent"},
 			Enabled:  false,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -889,13 +888,13 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
-		fakeClient.SetMonitorResponse(poolerKey, &multipoolermanagerdatapb.SetMonitorResponse{})
+		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: poolerID,
 			Enabled:  false,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -920,11 +919,11 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
-		req := &multiadminpb.SetPostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
 			PoolerId: poolerID,
 			Enabled:  false,
 		}
-		resp, err := server.SetPostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresRestartsEnabled(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -932,6 +931,6 @@ func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.Unavailable, st.Code())
-		assert.Contains(t, st.Message(), "failed to update PostgreSQL monitoring on pooler")
+		assert.Contains(t, st.Message(), "failed to update postgres restarts on pooler")
 	})
 }

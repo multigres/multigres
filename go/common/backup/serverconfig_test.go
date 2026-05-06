@@ -34,6 +34,7 @@ func TestWriteServerConfig(t *testing.T) {
 		Pg1Port:       5432,
 		Pg1SocketPath: "/tmp/socket",
 		Pg1Path:       "/var/lib/postgresql/data",
+		Pg1User:       "admin",
 	}
 
 	configPath, err := WriteServerConfig(opts)
@@ -57,7 +58,7 @@ func TestWriteServerConfig(t *testing.T) {
 	assert.Equal(t, "/tmp/socket", stanza.Key("pg1-socket-path").String())
 	assert.Equal(t, "5432", stanza.Key("pg1-port").String())
 	assert.Equal(t, "/var/lib/postgresql/data", stanza.Key("pg1-path").String())
-	assert.Equal(t, "postgres", stanza.Key("pg1-user").String())
+	assert.Equal(t, "admin", stanza.Key("pg1-user").String())
 	assert.Equal(t, "postgres", stanza.Key("pg1-database").String())
 
 	// Must NOT contain client-only settings
@@ -78,6 +79,7 @@ func TestWriteServerConfig_CreatesLogDir(t *testing.T) {
 		Pg1Port:       5432,
 		Pg1SocketPath: "/tmp/socket",
 		Pg1Path:       "/data",
+		Pg1User:       "admin",
 	}
 
 	_, err := WriteServerConfig(opts)

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"log/slog"
 	"net"
 	"sync"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 
@@ -35,6 +37,7 @@ import (
 
 // testHandler is a mock handler for testing extended query protocol.
 type testHandler struct {
+	queryFunc    func(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error
 	parseFunc    func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error
 	bindFunc     func(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
 	executeFunc  func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
@@ -44,6 +47,9 @@ type testHandler struct {
 }
 
 func (h *testHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+	if h.queryFunc != nil {
+		return h.queryFunc(ctx, conn, queryStr, callback)
+	}
 	return nil
 }
 
@@ -61,7 +67,7 @@ func (h *testHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	if h.executeFunc != nil {
 		return h.executeFunc(ctx, conn, portalName, maxRows, callback)
 	}
@@ -100,6 +106,10 @@ func (h *testHandler) HandleSync(ctx context.Context, conn *Conn) error {
 }
 
 func (h *testHandler) ConnectionClosed(conn *Conn) {}
+
+func (h *testHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
 
 // testConn wraps both read and write buffers for testing.
 type testConn struct {
@@ -684,6 +694,13 @@ func TestHandleDescribe(t *testing.T) {
 			err := conn.handleDescribe()
 			require.NoError(t, err) // handleDescribe writes errors to client, doesn't return them
 
+			// Describe('P') is held by handleDescribe and resolved on the next
+			// non-Execute message. Drive that resolution directly so the test
+			// observes the same wire bytes a real client would.
+			if tt.describeType == 'P' {
+				require.NoError(t, conn.resolveDeferredPortalDescribe())
+			}
+
 			if tt.expectError {
 				// Should have sent an ErrorResponse message.
 				msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
@@ -691,11 +708,10 @@ func TestHandleDescribe(t *testing.T) {
 				return
 			}
 
-			// Verify ParameterDescription message was sent (if statement has parameters).
-			msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
-
-			if len(tt.paramTypes) > 0 {
-				// ParameterDescription message
+			// ParameterDescription is only sent for statement describes ('S'),
+			// not portal describes ('P') — per PostgreSQL protocol spec.
+			if tt.describeType == 'S' {
+				msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
 				assert.Equal(t, byte(protocol.MsgParameterDescription), msgType)
 
 				// Parse parameter count (first 2 bytes of body).
@@ -708,15 +724,55 @@ func TestHandleDescribe(t *testing.T) {
 					actualOid := binary.BigEndian.Uint32(body[offset : offset+4])
 					assert.Equal(t, expectedOid, actualOid)
 				}
-
-				// NoData message should follow (since we don't return field descriptions yet).
-				msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
 			}
 
-			// Should send NoData since we don't return field descriptions yet.
+			// NoData message should follow (since we don't return field descriptions yet).
+			msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
 			assert.Equal(t, byte(protocol.MsgNoData), msgType)
 		})
 	}
+}
+
+// TestDescribePortalThenFlush exercises the Describe('P') + Flush ('H')
+// sequence that libpq uses to receive a portal description without a full
+// Sync cycle. Describe('P') is held by handleDescribe; the Flush handler
+// must drain it before flushing the write buffer, otherwise the client
+// blocks waiting for a RowDescription/NoData that was never written.
+func TestDescribePortalThenFlush(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	state := handler.getConnectionState(conn)
+	stmt := &testPreparedStatement{Name: "p_flush", Query: "SELECT 1"}
+	state.mu.Lock()
+	state.preparedStatements["p_flush"] = stmt
+	state.portals["p_flush"] = &testPortal{Name: "p_flush", Statement: stmt}
+	state.mu.Unlock()
+
+	// Build a Describe('P', "p_flush") body for handleDescribe to consume.
+	length := int32(4 + 1 + len("p_flush") + 1)
+	writeTestInt32(&readBuf, length)
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, "p_flush")
+
+	require.NoError(t, conn.handleDescribe())
+	// Nothing should have been written yet — the describe is held.
+	assert.Equal(t, 0, writeBuf.Len(), "Describe('P') must not write before resolution")
+
+	// MsgFlush has a 4-byte length on the wire (always 4: just the
+	// length field itself). handleMessage's MsgFlush case reads and
+	// discards it before flushing, so we have to feed it.
+	writeTestInt32(&readBuf, 4)
+
+	// Drive the Flush branch directly. It must resolve the deferred
+	// describe before flushing so the client sees the reply.
+	require.NoError(t, conn.handleMessage(protocol.MsgFlush))
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgNoData), msgType,
+		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
 // TestHandleClose tests the Close message handler.
@@ -842,6 +898,42 @@ func TestHandleClose(t *testing.T) {
 	}
 }
 
+// TestHandleDescribeMissingNullTerminator verifies that handleDescribe
+// rejects a body whose name field doesn't end in NUL, instead of
+// silently slicing off the trailing byte.
+func TestHandleDescribeMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Body: 'S' + "stmt" with NO null terminator. Length = 4 (length
+	// field) + 1 (type byte) + 4 (name bytes) = 9.
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleDescribe()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
+}
+
+// TestHandleCloseMissingNullTerminator verifies the same for handleClose.
+func TestHandleCloseMissingNullTerminator(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	writeTestInt32(&readBuf, 9)
+	readBuf.WriteByte('S')
+	readBuf.WriteString("stmt")
+
+	err := conn.handleClose()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing null terminator")
+}
+
 // TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
 func TestExtendedQueryProtocolWithParameters(t *testing.T) {
 	var readBuf bytes.Buffer
@@ -963,4 +1055,130 @@ func TestExtendedQueryProtocolWithNullParameter(t *testing.T) {
 	assert.Equal(t, 2, len(portal.Parameters))
 	assert.Equal(t, param1, portal.Parameters[0])
 	assert.Nil(t, portal.Parameters[1]) // NULL parameter
+}
+
+// TestParseErrorDoesNotSendReadyForQuery verifies that when HandleParse fails,
+// only ErrorResponse is sent — NOT ReadyForQuery. ReadyForQuery must only come
+// from Sync to avoid protocol desynchronization with pipelined clients (e.g., pgx).
+func TestParseErrorDoesNotSendReadyForQuery(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Write a Parse message that will trigger the error.
+	stmtName := "test_stmt"
+	queryStr := "SELECT 1"
+	length := int32(4 + len(stmtName) + 1 + len(queryStr) + 1 + 2) // length + name + query + paramCount
+	writeTestInt32(&readBuf, length)
+	writeTestString(&readBuf, stmtName)
+	writeTestString(&readBuf, queryStr)
+	writeTestInt16(&readBuf, 0) // No parameters
+
+	err := conn.handleParse()
+	require.NoError(t, err) // handleParse writes errors to client, returns nil
+
+	// Should have sent ErrorResponse.
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+
+	// Must NOT have sent ReadyForQuery — the buffer should be empty.
+	assert.Equal(t, 0, writeBuf.Len(),
+		"handleParse must not send ReadyForQuery; only Sync should")
+}
+
+// TestBindErrorDoesNotSendReadyForQuery verifies the same for HandleBind.
+func TestBindErrorDoesNotSendReadyForQuery(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		bindFunc: func(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
+			return errors.New("bind failed")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Write a Bind message that will trigger the error.
+	portalName := ""
+	stmtName := "test_stmt"
+	length := int32(4 + len(portalName) + 1 + len(stmtName) + 1 + 2 + 2 + 2) // length + portal + stmt + formatCount + paramCount + resultFormatCount
+	writeTestInt32(&readBuf, length)
+	writeTestString(&readBuf, portalName)
+	writeTestString(&readBuf, stmtName)
+	writeTestInt16(&readBuf, 0) // No parameter formats
+	writeTestInt16(&readBuf, 0) // No parameters
+	writeTestInt16(&readBuf, 0) // No result formats
+
+	err := conn.handleBind()
+	require.NoError(t, err) // handleBind writes errors to client, returns nil
+
+	// Should have sent ErrorResponse.
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+
+	// Must NOT have sent ReadyForQuery.
+	assert.Equal(t, 0, writeBuf.Len(),
+		"handleBind must not send ReadyForQuery; only Sync should")
+}
+
+// TestPipelinedParseErrorRecovery verifies that a pipelined Parse+Describe+Sync
+// produces the correct response sequence when Parse fails: ErrorResponse from
+// Parse, ErrorResponse from Describe (statement not found), then ReadyForQuery
+// from Sync. No premature ReadyForQuery that would desync pgx.
+func TestPipelinedParseErrorRecovery(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+		describeFunc: func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+			return nil, errors.New("statement not found")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Write Parse message.
+	stmtName := "test_stmt"
+	queryStr := "SELECT 1"
+	parseLen := int32(4 + len(stmtName) + 1 + len(queryStr) + 1 + 2)
+	writeTestInt32(&readBuf, parseLen)
+	writeTestString(&readBuf, stmtName)
+	writeTestString(&readBuf, queryStr)
+	writeTestInt16(&readBuf, 0)
+
+	// Write Describe message.
+	descLen := int32(4 + 1 + len(stmtName) + 1)
+	writeTestInt32(&readBuf, descLen)
+	readBuf.WriteByte('S')
+	writeTestString(&readBuf, stmtName)
+
+	// Write Sync message.
+	writeTestInt32(&readBuf, 4) // Sync has no body, just length=4
+
+	// Process all three messages.
+	err := conn.handleParse()
+	require.NoError(t, err)
+	err = conn.handleDescribe()
+	require.NoError(t, err)
+	err = conn.handleSync()
+	require.NoError(t, err)
+
+	// Expected response sequence:
+	// 1. ErrorResponse (from Parse failure)
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType, "first message should be ErrorResponse from Parse")
+
+	// 2. ErrorResponse (from Describe failure — statement not found)
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType, "second message should be ErrorResponse from Describe")
+
+	// 3. ReadyForQuery (from Sync — the only place it should appear)
+	msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType, "third message should be ReadyForQuery from Sync")
+	assert.Equal(t, byte('I'), body[0], "transaction status should be Idle")
+
+	// Buffer should be empty — no extra messages.
+	assert.Equal(t, 0, writeBuf.Len(), "no extra messages should be in the buffer")
 }

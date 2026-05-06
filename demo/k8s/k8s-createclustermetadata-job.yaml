@@ -18,7 +18,7 @@ spec:
             - --global-topo-address=etcd:2379
             - --global-topo-root=/multigres/test/global
             - --cells=zone1 # This demo is for a single zone cluster.
-            - --durability-policy=ANY_2 # multiorch does not support single node durability policies yet.
+            - --durability-policy=AT_LEAST_2 # multiorch does not support single node durability policies yet.
             - --backup-location=/backups # This path is mounted on all nodes and pods through hostPath.
       restartPolicy: OnFailure
   backoffLimit: 3

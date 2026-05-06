@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // readCredentialsFile reads and returns the contents of the credentials file
@@ -260,7 +261,7 @@ func TestCredentialRefreshWithoutS3(t *testing.T) {
 		"--config-path", tempDir,
 	}
 
-	refreshCmd := exec.CommandContext(ctx, "multigres", refreshArgs...)
+	refreshCmd := executil.Command(ctx, "multigres", refreshArgs...)
 	refreshOutput, err := refreshCmd.CombinedOutput()
 
 	// Refresh should succeed even if S3 is not accessible

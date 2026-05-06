@@ -33,31 +33,33 @@ import (
 // When a pooler event arrives, it is filtered in-memory against the engine's
 // WatchTargets before the pooler store is updated.
 type PoolerWatcher struct {
-	cache   *topoclient.PoolerCache
-	targets func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
-	store   *store.PoolerStore
-	queue   *Queue
-	logger  *slog.Logger
+	cache       *topoclient.PoolerCache
+	targets     func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
+	store       *store.PoolerStore
+	onNewPooler func(id *clustermetadatapb.ID) // called when a new pooler is first discovered
+	logger      *slog.Logger
 
 	unsub func()
 }
 
 // NewPoolerWatcher creates a new PoolerWatcher.
 // targets is a function that returns the current WatchTargets (consulted on every event).
+// onNewPooler is called when a new pooler is discovered; the pooler is already present
+// in the store when the callback fires.
 func NewPoolerWatcher(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
 	poolerStore *store.PoolerStore,
-	queue *Queue,
+	onNewPooler func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
 ) *PoolerWatcher {
 	return &PoolerWatcher{
-		cache:   topoclient.NewPoolerCache(ctx, topoStore, logger),
-		targets: targets,
-		store:   poolerStore,
-		queue:   queue,
-		logger:  logger,
+		cache:       topoclient.NewPoolerCache(ctx, topoStore, logger),
+		targets:     targets,
+		store:       poolerStore,
+		onNewPooler: onNewPooler,
+		logger:      logger,
 	}
 }
 
@@ -100,12 +102,12 @@ func (pw *PoolerWatcher) onPoolerUpserted(pooler *clustermetadatapb.MultiPooler)
 		pw.store.Set(poolerID, existing)
 		pw.logger.Debug("pooler metadata updated from topology", "pooler_id", poolerID)
 	} else {
-		// New pooler — add to store and queue for immediate health check.
+		// New pooler — add to store, then notify the caller (typically to start a health stream).
 		pw.store.Set(poolerID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: pooler,
 			IsUpToDate:  false,
 		})
-		pw.queue.Push(poolerID)
+		pw.onNewPooler(pooler.Id)
 		pw.logger.Info("new pooler discovered via watcher",
 			"pooler_id", poolerID,
 			"database", pooler.Database,

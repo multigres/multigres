@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -87,8 +88,14 @@ type Handler interface {
 	// Executes a bound portal and streams results via callback.
 	// portalName: name of the portal to execute (empty for unnamed portal)
 	// maxRows: maximum number of rows to return (0 for no limit)
+	// includeDescribe: when true, the protocol layer has folded a preceding
+	//   Describe('P') for this portal into this Execute call. The handler is
+	//   expected to ask its execution path to fetch the portal RowDescription
+	//   alongside the data rows so the streaming callback can surface Fields
+	//   on the first chunk; the protocol layer writes RowDescription (or
+	//   NoData for non-result statements) before any DataRow.
 	// callback: function called for each result chunk
-	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
+	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error
 
 	// HandleDescribe processes a Describe message ('D').
 	// Returns description of a prepared statement or portal.
@@ -98,7 +105,9 @@ type Handler interface {
 
 	// HandleClose processes a Close message ('C').
 	// Closes a prepared statement or portal.
-	// typ: 'S' for statement, 'P' for portal
+	// typ: 'S' for statement, 'P' for portal (extended protocol, silent on nonexistent)
+	//       'D' for deallocate (simple protocol, errors on nonexistent)
+	//       'A' for deallocate all (simple protocol)
 	// name: name of the statement or portal to close
 	HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error
 
@@ -111,4 +120,11 @@ type Handler interface {
 	// rolling back active transactions and releasing reserved connections.
 	// The connection's context may already be cancelled at this point.
 	ConnectionClosed(conn *Conn)
+
+	// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+	// statement registered under the given user-visible name on connID.
+	// Returns nil if no such statement exists. This is used by the planner
+	// to resolve wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE AS
+	// EXECUTE) without type-asserting to a concrete handler implementation.
+	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
 }

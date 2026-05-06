@@ -15,10 +15,13 @@
 package store
 
 import (
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
@@ -301,4 +304,33 @@ func TestProtoStore_RangeCloningBehavior(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "original_db", retrieved.MultiPooler.Database)
 	require.True(t, retrieved.IsUpToDate)
+}
+
+// TestProtoStore_DoUpdate_Concurrent verifies that concurrent DoUpdate calls do not
+// lose updates. runtime.Gosched() inside the callback maximises the conflict window
+// for a hypothetical Get+Set implementation: with DoUpdate's mutex held throughout,
+// Gosched merely queues other goroutines at the lock; with Get+Set, it fires between
+// the read and write, letting other goroutines read a stale value.
+func TestProtoStore_DoUpdate_Concurrent(t *testing.T) {
+	s := NewProtoStore[string, *wrapperspb.Int64Value]()
+	s.Set("k", wrapperspb.Int64(0))
+
+	const n = 500
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			s.DoUpdate("k", func(v *wrapperspb.Int64Value) *wrapperspb.Int64Value {
+				runtime.Gosched()
+				v.Value++
+				return v
+			})
+		}()
+	}
+	wg.Wait()
+
+	result, ok := s.Get("k")
+	require.True(t, ok)
+	require.EqualValues(t, n, result.Value)
 }

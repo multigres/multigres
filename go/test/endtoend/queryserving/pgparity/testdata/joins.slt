@@ -1,0 +1,50 @@
+# JOIN semantics — inner, left, right, and self-joins.
+
+statement ok
+CREATE TABLE users (id INT PRIMARY KEY, name TEXT)
+
+statement ok
+CREATE TABLE orders (id INT PRIMARY KEY, user_id INT, amount INT)
+
+statement ok
+INSERT INTO users VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')
+
+statement ok
+INSERT INTO orders VALUES (10, 1, 100), (11, 1, 200), (12, 2, 50)
+
+# Inner join — carol has no orders, so she's omitted.
+query TI rowsort
+SELECT u.name, o.amount FROM users u JOIN orders o ON u.id = o.user_id
+----
+alice	100
+alice	200
+bob	50
+
+# Left join — carol appears with NULL amount.
+query TI rowsort
+SELECT u.name, o.amount FROM users u LEFT JOIN orders o ON u.id = o.user_id
+----
+alice	100
+alice	200
+bob	50
+carol	NULL
+
+# Aggregation after join.
+query TI rowsort
+SELECT u.name, sum(o.amount) FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.name
+----
+alice	300
+bob	50
+carol	NULL
+
+# Subquery filter.
+query T rowsort
+SELECT name FROM users WHERE id IN (SELECT user_id FROM orders WHERE amount >= 100)
+----
+alice
+
+statement ok
+DROP TABLE orders
+
+statement ok
+DROP TABLE users

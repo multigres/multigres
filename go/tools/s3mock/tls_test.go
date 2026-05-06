@@ -25,9 +25,6 @@ func TestGenerateTLSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTLSConfig() failed: %v", err)
 	}
-	if cfg == nil {
-		t.Fatal("generateTLSConfig() returned nil config")
-	}
 	if len(cfg.Certificates) != 1 {
 		t.Fatalf("expected 1 certificate, got %d", len(cfg.Certificates))
 	}

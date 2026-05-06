@@ -26,6 +26,14 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+func TestDefaultRetentionConfig(t *testing.T) {
+	cfg := backup.DefaultRetentionConfig()
+	assert.Equal(t, "1", cfg["repo1-retention-diff"])
+	assert.Equal(t, "7", cfg["repo1-retention-full"])
+	assert.Equal(t, "count", cfg["repo1-retention-full-type"])
+	assert.Equal(t, "0", cfg["repo1-retention-history"])
+}
+
 func TestNewConfig_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
@@ -90,12 +98,6 @@ func TestConfig_PgBackRestConfig_S3_Basic(t *testing.T) {
 	assert.Equal(t, "y", pgbrCfg["repo1-bundle"])
 	assert.Equal(t, "10MiB", pgbrCfg["repo1-storage-upload-chunk-size"])
 	assert.Equal(t, "n", pgbrCfg["repo1-symlink"])
-
-	// S3-specific retention policies
-	assert.Equal(t, "1", pgbrCfg["repo1-retention-diff"])
-	assert.Equal(t, "28", pgbrCfg["repo1-retention-full"])
-	assert.Equal(t, "time", pgbrCfg["repo1-retention-full-type"])
-	assert.Equal(t, "0", pgbrCfg["repo1-retention-history"])
 }
 
 func TestConfig_PgBackRestConfig_S3_WithPrefix(t *testing.T) {

@@ -57,7 +57,7 @@ func (p *Planner) planCopyStmt(
 				"file", stmt.Filename,
 				"tablegroup", p.defaultTableGroup)
 
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
 			plan := engine.NewPlan(sql, route)
 			p.logger.Debug("created COPY FROM file plan (pass-through)", "plan", plan.String())
 			return plan, nil
@@ -78,7 +78,7 @@ func (p *Planner) planCopyStmt(
 				"file", stmt.Filename,
 				"tablegroup", p.defaultTableGroup)
 
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
 			plan := engine.NewPlan(sql, route)
 			p.logger.Debug("created COPY TO file plan (pass-through)", "plan", plan.String())
 			return plan, nil

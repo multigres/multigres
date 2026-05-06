@@ -18,21 +18,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
-)
-
-// PoolerPollStatus represents the possible status values for a pooler health check poll.
-type PoolerPollStatus string
-
-const (
-	PoolerPollStatusSuccess          PoolerPollStatus = "success"
-	PoolerPollStatusFailure          PoolerPollStatus = "failure"
-	PoolerPollStatusExceededInterval PoolerPollStatus = "exceeded_interval"
 )
 
 // Metrics holds all OpenTelemetry metrics for the recovery engine.
@@ -42,13 +32,13 @@ const (
 // This pattern is inspired by:
 // https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/semconv/v1.37.0/dbconv/metric.go
 type Metrics struct {
-	meter                    metric.Meter
-	poolerStoreSize          PoolerStoreSize
-	poolerPollDuration       PoolerPollDuration
-	healthCheckCycleDuration HealthCheckCycleDuration
-	recoveryActionDuration   RecoveryActionDuration
-	errorsTotal              ErrorsTotal
-	detectedProblems         DetectedProblems
+	meter                  metric.Meter
+	poolerStoreSize        PoolerStoreSize
+	recoveryActionDuration RecoveryActionDuration
+	errorsTotal            ErrorsTotal
+	detectedProblems       DetectedProblems
+	streamConnected        StreamConnected
+	streamSnapshotsTotal   StreamSnapshotsTotal
 }
 
 // PoolerStoreSize wraps an Int64ObservableGauge for observing pooler store size.
@@ -60,61 +50,6 @@ type PoolerStoreSize struct {
 // Inst returns the underlying metric instrument for callback registration.
 func (m PoolerStoreSize) Inst() metric.Int64ObservableGauge {
 	return m.Int64ObservableGauge
-}
-
-// PoolerPollDuration wraps a Float64Histogram for recording pooler health check durations.
-// It abstracts away attribute key names so callers don't need to know them.
-type PoolerPollDuration struct {
-	metric.Float64Histogram
-}
-
-// Record records a pooler health check duration with proper OTel attributes.
-// The dbNamespace and tablegroup parameters are automatically converted to the
-// correct attribute keys (db.namespace, tablegroup) internally.
-//
-// Parameters:
-//   - ctx: Context for the metric recording
-//   - val: How long the poll took (in seconds)
-//   - dbNamespace: The database name (becomes "db.namespace" attribute per OTel spec)
-//   - tablegroup: The table group name
-//   - status: The poll status (success, failure, or exceeded_interval)
-//   - attrs: Optional additional attributes to include in the metric
-func (m PoolerPollDuration) Record(
-	ctx context.Context,
-	val float64,
-	dbNamespace string,
-	tablegroup string,
-	status PoolerPollStatus,
-	attrs ...attribute.KeyValue,
-) {
-	m.Float64Histogram.Record(ctx, val,
-		metric.WithAttributes(
-			append(
-				attrs,
-				attribute.String("db.namespace", dbNamespace),
-				attribute.String("tablegroup", tablegroup),
-				attribute.String("status", string(status)),
-			)...,
-		))
-}
-
-// HealthCheckCycleDuration wraps a Float64Histogram for recording health check cycle durations.
-type HealthCheckCycleDuration struct {
-	metric.Float64Histogram
-}
-
-// Record records a health check cycle duration.
-//
-// Parameters:
-//   - ctx: Context for the metric recording
-//   - val: How long the cycle took (in seconds)
-//   - attrs: Optional additional attributes to include in the metric
-func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs ...attribute.KeyValue) {
-	if len(attrs) == 0 {
-		m.Float64Histogram.Record(ctx, val)
-		return
-	}
-	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
 }
 
 // RecoveryActionStatus represents the possible status values for a recovery action.
@@ -219,33 +154,6 @@ func NewMetrics() (*Metrics, error) {
 		m.poolerStoreSize = PoolerStoreSize{poolerStoreSizeGauge}
 	}
 
-	// Histogram for individual poll duration
-	// Following OTel convention: use histogram with status attribute instead of separate counters
-	pollDurationHistogram, err := m.meter.Float64Histogram(
-		"multiorch.recovery.pooler_poll.duration",
-		metric.WithDescription("Duration of individual pooler health checks"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("multiorch.recovery.pooler_poll.duration histogram: %w", err))
-		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
-	} else {
-		m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
-	}
-
-	// Histogram for health check cycle duration
-	healthCheckCycleDurationHistogram, err := m.meter.Float64Histogram(
-		"multiorch.recovery.health_check_cycle.duration",
-		metric.WithDescription("Duration of complete health check cycles"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("multiorch.recovery.health_check_cycle.duration histogram: %w", err))
-		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
-	} else {
-		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
-	}
-
 	// Histogram for recovery action duration
 	recoveryActionDurationHistogram, err := m.meter.Float64Histogram(
 		"multiorch.recovery.action.duration",
@@ -285,6 +193,32 @@ func NewMetrics() (*Metrics, error) {
 		m.detectedProblems = DetectedProblems{detectedProblemsGauge}
 	}
 
+	// Gauge for stream connection status per pooler (1 = connected, 0 = disconnected)
+	streamConnectedGauge, err := m.meter.Int64ObservableGauge(
+		"multiorch.recovery.stream.connected",
+		metric.WithDescription("Whether the ManagerHealthStream stream to the pooler is currently connected (1) or not (0)"),
+		metric.WithUnit("{bool}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("multiorch.recovery.stream.connected gauge: %w", err))
+		m.streamConnected = StreamConnected{noop.Int64ObservableGauge{}}
+	} else {
+		m.streamConnected = StreamConnected{streamConnectedGauge}
+	}
+
+	// Gauge for cumulative snapshots received per pooler
+	streamSnapshotsTotalGauge, err := m.meter.Int64ObservableGauge(
+		"multiorch.recovery.stream.snapshots_received",
+		metric.WithDescription("Cumulative number of health snapshots received from the pooler via ManagerHealthStream"),
+		metric.WithUnit("{snapshot}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("multiorch.recovery.stream.snapshots_received gauge: %w", err))
+		m.streamSnapshotsTotal = StreamSnapshotsTotal{noop.Int64ObservableGauge{}}
+	} else {
+		m.streamSnapshotsTotal = StreamSnapshotsTotal{streamSnapshotsTotalGauge}
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
@@ -308,18 +242,78 @@ func (m *Metrics) RegisterPoolerStoreSizeCallback(poolerStoreGetter func() int) 
 	return err
 }
 
-// RecordHealthCheckCycleDuration records the duration of a complete health check cycle.
-func (m *Metrics) RecordHealthCheckCycleDuration(ctx context.Context, duration time.Duration, attrs ...attribute.KeyValue) {
-	m.healthCheckCycleDuration.Record(ctx, duration.Seconds(), attrs...)
+// StreamConnected wraps an Int64ObservableGauge that reports 1 when a pooler's
+// ManagerHealthStream stream is connected, 0 when disconnected.
+// Use the Inst() method to get the underlying gauge for callback registration.
+type StreamConnected struct {
+	metric.Int64ObservableGauge
+}
+
+// Inst returns the underlying metric instrument for callback registration.
+func (m StreamConnected) Inst() metric.Int64ObservableGauge {
+	return m.Int64ObservableGauge
+}
+
+// StreamSnapshotsTotal wraps an Int64ObservableGauge that reports the cumulative
+// number of health snapshots received per pooler since the stream was started.
+// Use the Inst() method to get the underlying gauge for callback registration.
+type StreamSnapshotsTotal struct {
+	metric.Int64ObservableGauge
+}
+
+// Inst returns the underlying metric instrument for callback registration.
+func (m StreamSnapshotsTotal) Inst() metric.Int64ObservableGauge {
+	return m.Int64ObservableGauge
+}
+
+// StreamHealthData holds per-pooler stream health data for metric observation.
+type StreamHealthData struct {
+	PoolerID          string
+	DBNamespace       string
+	Shard             string
+	Connected         bool
+	SnapshotsReceived int64
 }
 
 // DetectedProblemData represents a detected problem with its attributes for metric observation.
-// Each problem is tracked at per-pooler granularity.
+// Each problem is tracked per affected entity (pooler ID or shard key).
 type DetectedProblemData struct {
 	AnalysisType string
 	DBNamespace  string
 	Shard        string
-	PoolerID     string
+	EntityID     string
+}
+
+// RegisterStreamHealthCallback registers a callback for the stream health gauges.
+// The getter is called periodically to observe current stream state for all poolers.
+// Both multiorch.recovery.stream.connected and multiorch.recovery.stream.snapshots_received
+// are updated in the same callback to keep them consistent.
+// Returns an error if callback registration fails.
+func (m *Metrics) RegisterStreamHealthCallback(getter func() []StreamHealthData) error {
+	if getter == nil {
+		return nil
+	}
+	_, err := m.meter.RegisterCallback(
+		func(ctx context.Context, observer metric.Observer) error {
+			for _, data := range getter() {
+				attrs := metric.WithAttributes(
+					attribute.String("pooler_id", data.PoolerID),
+					attribute.String("db.namespace", data.DBNamespace),
+					attribute.String("shard", data.Shard),
+				)
+				connected := int64(0)
+				if data.Connected {
+					connected = 1
+				}
+				observer.ObserveInt64(m.streamConnected.Inst(), connected, attrs)
+				observer.ObserveInt64(m.streamSnapshotsTotal.Inst(), data.SnapshotsReceived, attrs)
+			}
+			return nil
+		},
+		m.streamConnected.Inst(),
+		m.streamSnapshotsTotal.Inst(),
+	)
+	return err
 }
 
 // RegisterDetectedProblemsCallback registers a callback for the detected problems observable gauge.
@@ -338,7 +332,7 @@ func (m *Metrics) RegisterDetectedProblemsCallback(getter func() []DetectedProbl
 						attribute.String("analysis_type", data.AnalysisType),
 						attribute.String("db.namespace", data.DBNamespace),
 						attribute.String("shard", data.Shard),
-						attribute.String("pooler_id", data.PoolerID),
+						attribute.String("entity_id", data.EntityID),
 					))
 			}
 			return nil

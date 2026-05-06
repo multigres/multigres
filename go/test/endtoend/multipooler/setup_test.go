@@ -26,11 +26,13 @@
 //
 // What should stay (test-specific helpers):
 //   - getPrimaryStatusFromClient, waitForSyncConfigConvergenceWithClient, containsStandbyIDInConfig
+//     (these access sync replication config via the unified Status RPC)
 
 package multipooler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -123,7 +125,6 @@ type cleanupConfig struct {
 	pauseReplication bool
 	tablesToDrop     []string
 	gucsToReset      []string
-	enableMonitor    bool
 }
 
 // WithoutReplication returns a cleanup option that explicitly disables replication setup.
@@ -154,13 +155,6 @@ func WithResetGuc(gucs ...string) cleanupOption {
 	}
 }
 
-// WithEnabledMonitor returns a cleanup option that enables the PostgreSQL monitor.
-func WithEnabledMonitor() cleanupOption {
-	return func(c *cleanupConfig) {
-		c.enableMonitor = true
-	}
-}
-
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -184,9 +178,6 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 	}
 	if len(config.gucsToReset) > 0 {
 		shardOpts = append(shardOpts, shardsetup.WithResetGuc(config.gucsToReset...))
-	}
-	if config.enableMonitor {
-		shardOpts = append(shardOpts, shardsetup.WithEnabledMonitor())
 	}
 
 	// Register table cleanup BEFORE SetupTest so it runs AFTER GUC restoration (LIFO order).
@@ -224,15 +215,16 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 	}
 }
 
-// Helper function to get PrimaryStatus from a manager client.
+// Helper function to get PrimaryStatus from a manager client via the unified Status RPC.
 func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	statusResp, err := client.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
-	require.NoError(t, err, "PrimaryStatus should succeed")
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
 	require.NotNil(t, statusResp.Status, "Status should not be nil")
-	return statusResp.Status
+	require.NotNil(t, statusResp.Status.PrimaryStatus, "PrimaryStatus should not be nil (must be called on a primary)")
+	return statusResp.Status.PrimaryStatus
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value.
@@ -242,6 +234,22 @@ func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermana
 		status := getPrimaryStatusFromClient(t, client)
 		return checkFunc(status.SyncReplicationConfig)
 	}, 5*time.Second, 200*time.Millisecond, message)
+}
+
+// postgresIsInRecovery queries postgres directly to determine whether it is running in
+// standby (recovery) mode. Returns true for standby, false for primary.
+func postgresIsInRecovery(t *testing.T, client *shardsetup.MultiPoolerTestClient) (bool, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	resp, err := client.ExecuteQuery(ctx, "SELECT pg_is_in_recovery()", 1)
+	if err != nil {
+		return false, err
+	}
+	if len(resp.Rows) == 0 {
+		return false, errors.New("pg_is_in_recovery() returned no rows")
+	}
+	return string(resp.Rows[0].Values[0]) == "t", nil
 }
 
 // Helper function to check if a standby ID is in the config.

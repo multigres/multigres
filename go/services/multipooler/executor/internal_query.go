@@ -32,7 +32,7 @@ type InternalQueryService interface {
 	// QueryArgs executes a query with arguments and returns the result.
 	// This is a convenience method that accepts Go values as arguments and converts
 	// them to the appropriate text format for PostgreSQL.
-	// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+	// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 	// float32, float64, bool, and time.Time.
 	QueryArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
 
@@ -58,7 +58,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser())
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) err
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser())
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) err
 // QueryArgs implements InternalQueryService for simple internal queries.
 // This is a convenience method that accepts Go values as arguments and converts
 // them to the appropriate text format for PostgreSQL.
-// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 // float32, float64, bool, and time.Time.
 // Internal queries include SQL text in trace spans since they use system functions.
 func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
@@ -103,7 +103,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser())
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
 	if err != nil {
 		return nil, err
 	}

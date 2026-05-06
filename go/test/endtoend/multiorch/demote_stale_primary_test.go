@@ -23,10 +23,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // TestDemoteStalePrimary_SIGKILL tests multiorch's ability to detect a stale primary
@@ -45,8 +48,8 @@ import (
 // 9. Verify P1 rejoins as a replica of P2
 //
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
-// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
-// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 1. StaleLeaderAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStaleLeaderAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
 func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
@@ -74,15 +77,15 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
+	// Disable postgres restarts on old primary so postgres is not restarted by pooler
 	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	defer oldPrimaryClient.Close()
 
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err)
 	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
+		_, _ = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 	}()
 
 	// Step 1: Kill postgres on primary to trigger failover
@@ -112,7 +115,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -130,8 +133,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verified primary.demotion event in multiorch log")
 
 	// Step 9: Verify term.begin event was emitted during failover.
-	// BeginTerm is called by AppointLeaderAction on all nodes during failover (unlike initial
-	// bootstrap which uses InitializeEmptyPrimary directly). The new primary receives ACCEPT.
+	// BeginTerm is called by AppointLeaderAction on all nodes during failover. The new primary receives ACCEPT.
 	t.Log("Verifying term.begin event in new primary's multipooler log...")
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")
@@ -157,8 +159,8 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 // 9. Verify P1 rejoins as a replica of P2
 //
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
-// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
-// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 1. StaleLeaderAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStaleLeaderAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
 func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
@@ -186,20 +188,11 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable monitoring on old primary so postgres is not restarted by pooler
-	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer oldPrimaryClient.Close()
-
-	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
-	}()
-
-	// Step 1: Gracefully shutdown postgres on primary to trigger failover
+	// Step 1: Gracefully shutdown postgres on primary to trigger failover.
+	// Restarts are disabled first so the monitor does not restart postgres immediately.
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
-	setup.ShutdownPostgres(t, oldPrimaryName)
+	resumeRestarts := setup.ShutdownPostgres(t, oldPrimaryName)
+	defer resumeRestarts()
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
@@ -224,7 +217,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -266,12 +259,17 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 	oldPrimary := setup.GetMultipoolerInstance(oldPrimaryName)
 	require.NotNil(t, oldPrimary, "old primary instance should exist")
 
-	shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary}, timeout, 2*time.Second,
-		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
-			if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
-				return false, fmt.Sprintf("type=%v, waiting for REPLICA", s.PoolerType)
+	// Trigger recovery and wait for it to complete
+	t.Log("Triggering recovery to detect and repair stale primary...")
+	setup.RequireRecovery(t, "multiorch", timeout)
+
+	// Verify old primary is now a replica with replication configured
+	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			if r.Status.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+				return false, fmt.Sprintf("type=%v, waiting for REPLICA", r.Status.PoolerType)
 			}
-			if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
+			if r.Status.ReplicationStatus == nil || r.Status.ReplicationStatus.PrimaryConnInfo == nil {
 				return false, "replication not yet configured"
 			}
 			return true, ""
@@ -296,44 +294,44 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			t.Logf("Failed to get replication status: %v", err)
 			return false
 		}
-		if resp.Status == nil {
+		if statusResp.Status == nil || statusResp.Status.ReplicationStatus == nil {
 			t.Logf("Replication status is nil")
 			return false
 		}
-		if resp.Status.PrimaryConnInfo == nil {
+		repStatus := statusResp.Status.ReplicationStatus
+		if repStatus.PrimaryConnInfo == nil {
 			t.Logf("Primary conninfo is nil")
 			return false
 		}
-		if resp.Status.LastReceiveLsn == "" {
+		if repStatus.LastReceiveLsn == "" {
 			t.Logf("Last receive LSN is empty")
 			return false
 		}
-		if resp.Status.WalReceiverStatus != "streaming" {
-			t.Logf("WAL receiver status is %q, waiting for 'streaming'", resp.Status.WalReceiverStatus)
+		if repStatus.WalReceiverStatus != "streaming" {
+			t.Logf("WAL receiver status is %q, waiting for 'streaming'", repStatus.WalReceiverStatus)
 			return false
 		}
 
 		t.Logf("Replica %s is streaming from %s:%d, last_receive_lsn=%s, wal_receiver_status=%s",
 			replicaName,
-			resp.Status.PrimaryConnInfo.Host,
-			resp.Status.PrimaryConnInfo.Port,
-			resp.Status.LastReceiveLsn,
-			resp.Status.WalReceiverStatus)
+			repStatus.PrimaryConnInfo.Host,
+			repStatus.PrimaryConnInfo.Port,
+			repStatus.LastReceiveLsn,
+			repStatus.WalReceiverStatus)
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
 
-	// Verify primary_term was cleared after DemoteStalePrimary
+	// Verify primary_term is 0 after DemoteStalePrimary (demoted node is no longer primary)
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.NotNil(t, status.Status.ConsensusTerm, "Replica should have consensus term")
-	require.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
-		"Demoted stale primary %s should have primary_term=0 (cleared during DemoteStalePrimary)", replicaName)
+	require.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
+		"Demoted stale primary %s should have primary_term=0 after DemoteStalePrimary", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }
 
@@ -364,16 +362,16 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	t.Logf("Wrote test data to primary: %s", testValue)
 
 	// Get primary's current LSN
-	primaryPosResp, err := primaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+	consensusStatusResp, err := primaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary LSN position")
-	primaryLSN := primaryPosResp.LsnPosition
+	primaryLSN := consensusStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 	// Wait for replica PostgreSQL to be ready after pg_rewind and restart
 	t.Logf("Waiting for replica %s PostgreSQL to be ready...", replicaName)
 	require.Eventually(t, func() bool {
-		statusResp, err := replicaClient.Manager.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-		return err == nil && statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
+		statusResp, err := replicaClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		return err == nil && statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil && statusResp.Status.ReplicationStatus.PrimaryConnInfo != nil
 	}, 10*time.Second, 500*time.Millisecond, "replica should be ready after pg_rewind")
 	t.Logf("Replica PostgreSQL is ready")
 

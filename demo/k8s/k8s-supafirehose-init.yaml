@@ -35,6 +35,9 @@ spec:
       containers:
         - name: init
           image: postgres:15-alpine
+          env:
+            - name: PGPASSWORD
+              value: "postgres"
           command:
             - sh
             - -c

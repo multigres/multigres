@@ -106,15 +106,11 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		req := &multipoolermanagerdatapb.StateRequest{}
-		resp, err := client.State(ctx, req)
+		resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			return false
 		}
-		if resp.State == "error" {
-			t.Fatalf("Manager failed to initialize: %s", resp.ErrorMessage)
-		}
-		return resp.State == "ready"
+		return resp.Status != nil && resp.Status.PostgresReady
 	}, 30*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
 
 	t.Logf("Manager %s is ready", manager.Name)

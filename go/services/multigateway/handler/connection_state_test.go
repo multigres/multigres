@@ -276,3 +276,117 @@ func TestMultiGatewayConnectionState_PortalInfoIntegrity(t *testing.T) {
 	retrievedParams := sqltypes.ParamsFromProto(retrieved.ParamLengths, retrieved.ParamValues)
 	require.Equal(t, params, retrievedParams)
 }
+
+func TestCommitPendingListens(t *testing.T) {
+	tests := []struct {
+		name           string
+		activeChannels []string // channels active before the transaction
+		actions        func(state *MultiGatewayConnectionState)
+		wantSubs       []string
+		wantUnsubs     []string
+		wantAll        bool
+	}{
+		{
+			name: "listen_then_unlisten_same_channel",
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingListen("x")
+				s.AddPendingUnlisten("x")
+			},
+		},
+		{
+			name:           "unlisten_then_listen_same_channel",
+			activeChannels: []string{"x"},
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingUnlisten("x")
+				s.AddPendingListen("x")
+			},
+		},
+		{
+			name: "listen_new_channel",
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingListen("x")
+			},
+			wantSubs: []string{"x"},
+		},
+		{
+			name:           "unlisten_active_channel",
+			activeChannels: []string{"x"},
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingUnlisten("x")
+			},
+			wantUnsubs: []string{"x"},
+		},
+		{
+			name:           "unlisten_all_then_listen",
+			activeChannels: []string{"x"},
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingUnlistenAll()
+				s.AddPendingListen("y")
+			},
+			wantSubs: []string{"y"},
+			wantAll:  true,
+		},
+		{
+			name:           "listen_then_unlisten_all",
+			activeChannels: []string{"x"},
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingListen("y")
+				s.AddPendingUnlistenAll()
+			},
+			wantAll: true,
+		},
+		{
+			name: "duplicate_listen",
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingListen("x")
+				s.AddPendingListen("x")
+			},
+			wantSubs: []string{"x"},
+		},
+		{
+			name:           "mixed_unlisten_all",
+			activeChannels: []string{"z"},
+			actions: func(s *MultiGatewayConnectionState) {
+				s.AddPendingListen("x")
+				s.AddPendingUnlistenAll()
+				s.AddPendingListen("y")
+			},
+			wantSubs: []string{"y"},
+			wantAll:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMultiGatewayConnectionState()
+			for _, ch := range tt.activeChannels {
+				state.AddListenChannel(ch)
+			}
+
+			tt.actions(state)
+			require.True(t, state.HasPendingListens())
+
+			subs, unsubs, all := state.CommitPendingListens()
+
+			require.ElementsMatch(t, tt.wantSubs, subs, "subscribes mismatch")
+			require.ElementsMatch(t, tt.wantUnsubs, unsubs, "unsubscribes mismatch")
+			require.Equal(t, tt.wantAll, all, "unsubscribeAll mismatch")
+			require.False(t, state.HasPendingListens(), "pending actions should be cleared")
+		})
+	}
+}
+
+func TestDiscardPendingListens(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	state.AddListenChannel("x")
+	state.AddPendingListen("y")
+	state.AddPendingUnlisten("x")
+
+	require.True(t, state.HasPendingListens())
+	state.DiscardPendingListens()
+	require.False(t, state.HasPendingListens())
+
+	// ListenChannels should be unchanged after discard.
+	require.True(t, state.IsListening("x"))
+	require.False(t, state.IsListening("y"))
+}

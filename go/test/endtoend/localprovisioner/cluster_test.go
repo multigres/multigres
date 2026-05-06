@@ -48,6 +48,7 @@ import (
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
@@ -124,21 +125,26 @@ func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
 	return config
 }
 
-// killProcessByPID kills a process by PID using kill -9
+// killProcessByPID kills a process and its process group by PID using kill -9.
+// Sending SIGKILL to the process group (negative PID) ensures child processes
+// such as postgres under pgctld are also terminated.
 func killProcessByPID(pid int) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid PID: %d", pid)
 	}
 
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("failed to find process %d: %w", pid, err)
-	}
+	// Kill the entire process group so children (e.g. postgres under pgctld)
+	// are terminated alongside the service. Services started with Setpgid: true
+	// have PGID == PID, so this kills the group leader and all its children.
+	// Ignore errors: the group may not exist if the process already exited.
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
 
-	// Use kill -9 (SIGKILL) to forcefully terminate
-	err = process.Signal(syscall.SIGKILL)
-	if err != nil {
-		return fmt.Errorf("failed to kill process %d: %w", pid, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	killErr, _ := executil.KillPID(ctx, pid)
+	if killErr != nil {
+		return fmt.Errorf("failed to kill process %d: %w", pid, killErr)
 	}
 
 	return nil
@@ -871,8 +877,7 @@ func TestClusterLifecycle(t *testing.T) {
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		t.Skip("TODO(sougou): Disabling this till we fix leader election after restart")
 		// Setup test directory
-		clusterSetup, cleanup := setupTestCluster(t)
-		t.Cleanup(cleanup)
+		clusterSetup := setupTestCluster(t)
 		tempDir := clusterSetup.TempDir
 		configFile := clusterSetup.ConfigFile
 		testPorts := clusterSetup.PortConfig
@@ -1093,9 +1098,9 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Logf("zone2 pooler status: %s", zone2StatusOutput)
 
 		// Verify both outputs contain expected status fields
-		assert.Contains(t, zone1StatusOutput, "postgres_running", "zone1 getpoolerstatus should return postgres_running")
+		assert.Contains(t, zone1StatusOutput, "postgres_ready", "zone1 getpoolerstatus should return postgres_ready")
 		assert.Contains(t, zone1StatusOutput, "is_initialized", "zone1 getpoolerstatus should return is_initialized")
-		assert.Contains(t, zone2StatusOutput, "postgres_running", "zone2 getpoolerstatus should return postgres_running")
+		assert.Contains(t, zone2StatusOutput, "postgres_ready", "zone2 getpoolerstatus should return postgres_ready")
 		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
 
 		// Verify pooler types are correctly set in CLI output
@@ -1371,7 +1376,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// Setup test ports (only need 1 zone for port conflict test)
 		testPorts := getTestPortConfig(t, 1)
 
-		// Intentionally occupy the multipooler gRPC port to create a conflict
+		// Intentionally occupy the multipooler gRPC port to create a conflict.
 		conflictPort := testPorts.Zones[0].MultipoolerGRPCPort
 		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
@@ -1410,8 +1415,7 @@ func TestTCPPasswordAuthentication(t *testing.T) {
 		t.Skip("etcd binary not found in PATH")
 	}
 
-	clusterSetup, cleanup := setupTestCluster(t)
-	defer cleanup()
+	clusterSetup := setupTestCluster(t)
 
 	pgPort := clusterSetup.PortConfig.Zones[0].PgctldPGPort
 
@@ -1630,7 +1634,7 @@ type testClusterSetup struct {
 // and verifying all services are up and responding. Returns a testClusterSetup
 // with resources and a cleanup function that must be called when done (typically
 // via t.Cleanup).
-func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
+func setupTestCluster(t *testing.T) *testClusterSetup {
 	t.Helper()
 
 	// Setup test directory
@@ -1640,8 +1644,11 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	// Track for log dumping on test failure
 	lastTestClusterTempDir = tempDir
 
-	// Create cleanup function
-	cleanup := func() {
+	// Register cleanup via t.Cleanup so it is guaranteed to run even when
+	// setupTestCluster exits early via t.FailNow() / runtime.Goexit(). A plain
+	// "defer cleanup()" in the caller would never be registered in that case,
+	// leaving services running and their ports returned to the pool.
+	t.Cleanup(func() {
 		if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
 			t.Logf("Warning: cleanup failed: %v", cleanupErr)
 		}
@@ -1652,7 +1659,7 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 		} else {
 			os.RemoveAll(tempDir)
 		}
-	}
+	})
 
 	t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
@@ -1735,5 +1742,5 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 		ConfigFile:  configFile,
 		Database:    database,
 		ReadyPGPort: readyPort,
-	}, cleanup
+	}
 }

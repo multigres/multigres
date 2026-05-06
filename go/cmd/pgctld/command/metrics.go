@@ -48,19 +48,19 @@ func NewMetrics() (*Metrics, error) {
 
 	var err error
 	m.serverUp, err = meter.Int64ObservableGauge(
-		"pgbackrest_server_up",
+		"pgbackrest.server.up",
 		metric.WithDescription("1 if the pgBackRest TLS server is running, 0 if not"),
 	)
 	errs = append(errs, err)
 
 	m.restartCount, err = meter.Int64ObservableGauge(
-		"pgbackrest_restart_count",
+		"pgbackrest.server.restart_count",
 		metric.WithDescription("Cumulative number of times the pgBackRest TLS server has been restarted"),
 	)
 	errs = append(errs, err)
 
 	m.serverUptime, err = meter.Int64ObservableGauge(
-		"pgbackrest_server_uptime_seconds",
+		"pgbackrest.server.uptime",
 		metric.WithDescription("Seconds since the pgBackRest TLS server last started, 0 if down"),
 	)
 	errs = append(errs, err)

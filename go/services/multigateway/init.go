@@ -33,13 +33,18 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
+	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -67,16 +72,44 @@ type MultiGateway struct {
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
 	pgHandler *handler.MultiGatewayHandler
+	// pgReplicaPort is the optional port for replica-reads connections.
+	// When set, a second listener accepts connections that are allowed to read from replicas.
+	pgReplicaPort viperutil.Value[int]
+	// pgReplicaListener is the optional replica-reads listener
+	pgReplicaListener *server.Listener
+	// pgReplicaLowLagMs is the preferred replication lag threshold (ms) for replicas.
+	// Replicas at or below this lag are considered "healthy" and preferred.
+	pgReplicaLowLagMs viperutil.Value[int]
+	// pgReplicaHighLagToleranceMs is the absolute maximum replication lag (ms).
+	// Replicas above this are never selected. 0 means no upper bound.
+	pgReplicaHighLagToleranceMs viperutil.Value[int]
 	// cancelManager handles cross-gateway query cancellation
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
 	executor *executor.Executor
+	// buffer holds requests during PRIMARY failovers
+	buffer *buffer.Buffer
+	// bufferConfig holds buffer configuration
+	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
+	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
+	planCacheMemory viperutil.Value[int]
+	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
+	// tracking (0 disables fingerprint labeling and the registry RPCs).
+	queryMetricsMemory viperutil.Value[int]
+	// queryMetricsSQLMaxBytes is the maximum bytes of representative normalized
+	// SQL stored per tracked fingerprint.
+	queryMetricsSQLMaxBytes viperutil.Value[int]
+	// queryRegistry tracks per-fingerprint query statistics; shared across
+	// primary and replica handlers so metrics aggregate to the same bucket.
+	queryRegistry *queryregistry.Registry
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
+	connConfig *rpcclient.ConnConfig
 	// topoConfig holds topology configuration
 	topoConfig   *topoclient.TopoConfig
 	ts           topoclient.Store
@@ -121,6 +154,24 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
 		}),
+		planCacheMemory: viperutil.Configure(reg, "plan-cache-memory", viperutil.Options[int]{
+			Default:  4 * 1024 * 1024, // 4 MB
+			FlagName: "plan-cache-memory",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
+		}),
+		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
+			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
+			FlagName: "query-metrics-memory",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_QUERY_METRICS_MEMORY"},
+		}),
+		queryMetricsSQLMaxBytes: viperutil.Configure(reg, "query-metrics-sql-max-bytes", viperutil.Options[int]{
+			Default:  4096,
+			FlagName: "query-metrics-sql-max-bytes",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_QUERY_METRICS_SQL_MAX_BYTES"},
+		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-tls-cert-file",
@@ -133,16 +184,35 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
 		}),
-		grpcServer: servenv.NewGrpcServer(reg),
-		senv:       servenv.NewServEnv(reg),
-		topoConfig: topoclient.NewTopoConfig(reg),
+		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "pg-replica-port",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_REPLICA_PORT"},
+		}),
+		pgReplicaLowLagMs: viperutil.Configure(reg, "low-replication-lag-ms", viperutil.Options[int]{
+			Default:  30000,
+			FlagName: "low-replication-lag-ms",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_LOW_REPLICATION_LAG_MS"},
+		}),
+		pgReplicaHighLagToleranceMs: viperutil.Configure(reg, "high-replication-lag-tolerance-ms", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "high-replication-lag-tolerance-ms",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_MS"},
+		}),
+		bufferConfig: buffer.NewConfig(reg),
+		grpcServer:   servenv.NewGrpcServer(reg),
+		senv:         servenv.NewServEnv(reg),
+		connConfig:   rpcclient.NewConnConfig(reg),
+		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
-				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
 			},
 		},
 	}
@@ -168,6 +238,12 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
+	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
+	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
+	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
+	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
+	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
+	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -176,9 +252,17 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.statementTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
+		mg.pgReplicaPort,
+		mg.pgReplicaLowLagMs,
+		mg.pgReplicaHighLagToleranceMs,
+		mg.planCacheMemory,
+		mg.queryMetricsMemory,
+		mg.queryMetricsSQLMaxBytes,
 	)
+	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
+	mg.connConfig.RegisterFlags(fs)
 	mg.topoConfig.RegisterFlags(fs)
 }
 
@@ -220,23 +304,55 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.poolerDiscovery.Start()
 	logger.InfoContext(ctx, "Global pooler discovery started", "local_cell", mg.cell.Get())
 
+	// Build transport credentials for multipooler gRPC connections.
+	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
+	if err != nil {
+		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+	}
+
 	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
+	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
+	lowLagMs := mg.pgReplicaLowLagMs.Get()
+	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
+	if lowLagMs > 0 || highToleranceMs > 0 {
+		loadBalancer.SetReplicationLagThresholds(
+			time.Duration(lowLagMs)*time.Millisecond,
+			time.Duration(highToleranceMs)*time.Millisecond,
+		)
+	}
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
 
+	// Create failover buffer if enabled.
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
+	}
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+		// Stop buffering when the streaming health check detects a new primary.
+		// This is a direct signal from the pooler's health stream — more reliable
+		// and lower latency than topology-based propagation via etcd.
+		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
+			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
+				TableGroup: tableGroup,
+				Shard:      shard,
+			})
+		})
+		logger.InfoContext(ctx, "Failover buffering enabled")
+	}
+
 	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, logger)
+	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
 
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
-	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
+	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 
 	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
+	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
@@ -255,6 +371,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
+	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
+	}
 
 	// Reuse existing PID prefix on re-registration.
 	existingGW, err := mg.ts.GetMultiGateway(context.TODO(), multigateway.Id)
@@ -295,8 +414,46 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	pidPrefix := multigateway.PidPrefix
 	logger.InfoContext(ctx, "registered gateway", "pid_prefix", pidPrefix)
 
+	// Construct the per-query-shape metrics registry. Shared across primary
+	// and replica handlers so a query hitting either listener aggregates to
+	// the same stats bucket.
+	// Start from DefaultConfig so SampleInterval / TrendWindowSamples are
+	// populated; only the operator-tunable size knobs come from flags.
+	registryCfg := queryregistry.DefaultConfig()
+	registryCfg.MaxMemoryBytes = mg.queryMetricsMemory.Get()
+	registryCfg.MaxSQLLength = mg.queryMetricsSQLMaxBytes.Get()
+	mg.queryRegistry = queryregistry.New(registryCfg)
+	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
+		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
+	}
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
+
+	// Wire LISTEN/NOTIFY notification manager.
+	// Uses a lazy client getter that resolves the primary pooler connection
+	// from the load balancer at subscribe time (after pooler discovery).
+	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
+	if notifMetricsErr != nil {
+		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
+	}
+	notifMgr := poolergateway.NewGRPCNotificationManager(
+		func() multipoolerpb.MultiPoolerServiceClient {
+			conn, err := loadBalancer.GetConnection(&querypb.Target{
+				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.ServiceClient()
+		},
+		logger,
+		notifMetrics,
+	)
+	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,
@@ -310,18 +467,67 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
 	}
 
+	// Optionally create a second listener for replica-reads connections.
+	var replicaCancelFn func(pid, secret uint32) bool
+	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+		replicaHandler.SetTargetReplica(true)
+		replicaHandler.SetQueryRegistry(mg.queryRegistry)
+		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
+		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
+			Address:      replicaAddr,
+			Handler:      replicaHandler,
+			GatewayID:    pidPrefix,
+			HashProvider: hashProvider,
+			TLSConfig:    pgTLSConfig,
+			Logger:       logger,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
+		}
+		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
+		if lowLagMs > 0 || highToleranceMs > 0 {
+			logger.InfoContext(ctx, "replica replication lag thresholds configured",
+				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
+		}
+	}
+
+	// Register client connection metrics.
+	gatewayMetrics, err := NewGatewayMetrics()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
+	}
+	if gatewayMetrics != nil {
+		var replicaConnCount func() int
+		if mg.pgReplicaListener != nil {
+			replicaConnCount = mg.pgReplicaListener.ConnectionCount
+		}
+		if err := gatewayMetrics.RegisterClientConnectionsCallback(mg.pgListener.ConnectionCount, replicaConnCount); err != nil {
+			logger.WarnContext(ctx, "failed to register client connections callback", "error", err)
+		}
+	}
+
 	// Set up cross-gateway cancel request handling.
+	// The cancel manager routes to the correct listener based on the connection
+	// type (primary vs replica) carried in the cancel request / gRPC forward.
 	mg.cancelManager = NewCancelManager(
 		mg.pgListener.CancelLocalConnection,
+		replicaCancelFn,
 		pidPrefix,
 		mg.ts,
 		logger,
+		poolerTransportCreds,
 	)
-	mg.pgListener.SetCancelHandler(mg.cancelManager)
-	// Register the gRPC service via OnRun because grpcServer.Server is only
+	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
+	if mg.pgReplicaListener != nil {
+		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+	}
+	// Register gRPC services via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
+	managerServer := NewManagerServer(mg.queryRegistry, mg.pgHandler)
 	mg.senv.OnRun(func() {
 		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
 
 	// Start the PostgreSQL listener in a goroutine
@@ -332,18 +538,43 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 	}()
 
+	// Start the replica listener if configured.
+	if mg.pgReplicaListener != nil {
+		go func() {
+			replicaPort := mg.pgReplicaPort.Get()
+			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
+			if err := mg.pgReplicaListener.Serve(); err != nil {
+				logger.Error("replica PostgreSQL listener error", "error", err)
+			}
+		}()
+	}
+
 	logger.InfoContext(ctx, "multigateway starting up",
 		"cell", mg.cell.Get(),
 		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),
+		"pg_replica_port", mg.pgReplicaPort.Get(),
 		"pid_prefix", pidPrefix,
 	)
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
-	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
-	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
+
+	// The gateway is ready only when both conditions are met:
+	// 1. No init errors (topology registration succeeded)
+	// 2. At least one pooler has been discovered (can actually serve queries)
+	mg.senv.RegisterReadyCheck(func() error {
+		mg.serverStatus.mu.Lock()
+		defer mg.serverStatus.mu.Unlock()
+		if len(mg.serverStatus.InitError) > 0 {
+			return errors.New(mg.serverStatus.InitError)
+		}
+		if mg.poolerDiscovery.PoolerCount() == 0 {
+			return errors.New("no poolers discovered")
+		}
+		return nil
+	})
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()
@@ -377,9 +608,33 @@ func (mg *MultiGateway) Shutdown() {
 		}
 	}
 
+	// Stop replica PostgreSQL listener (if running)
+	if mg.pgReplicaListener != nil {
+		if err := mg.pgReplicaListener.Close(); err != nil {
+			mg.senv.GetLogger().Error("error closing replica PostgreSQL listener", "error", err)
+		} else {
+			mg.senv.GetLogger().Info("replica PostgreSQL listener stopped")
+		}
+	}
+
 	// Close cancel manager's gRPC connections
 	if mg.cancelManager != nil {
 		mg.cancelManager.Close()
+	}
+
+	// Close executor (plan cache cleanup)
+	if mg.executor != nil {
+		mg.executor.Close()
+	}
+
+	// Close per-query-shape metrics registry.
+	if mg.queryRegistry != nil {
+		mg.queryRegistry.Close()
+	}
+
+	// Stop failover buffer
+	if mg.buffer != nil {
+		mg.buffer.Shutdown()
 	}
 
 	// Close pooler gateway connections
@@ -478,27 +733,4 @@ func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 		NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
 	}, nil
-}
-
-// poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
-type poolerSystemDiscovererAdapter struct {
-	pg *poolergateway.PoolerGateway
-}
-
-func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
-	client, err := a.pg.SystemClientFunc()(ctx, database)
-	if err != nil {
-		return nil, err
-	}
-	return &poolerSystemClientWrapper{client: client}, nil
-}
-
-// poolerSystemClientWrapper wraps the generated gRPC client to match auth.PoolerSystemClient interface.
-// The gRPC client has ...grpc.CallOption, but auth.PoolerSystemClient doesn't.
-type poolerSystemClientWrapper struct {
-	client multipoolerpb.MultiPoolerServiceClient
-}
-
-func (w *poolerSystemClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	return w.client.GetAuthCredentials(ctx, req)
 }

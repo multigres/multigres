@@ -161,10 +161,6 @@ type QuorumType int32
 const (
 	// QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
 	QuorumType_QUORUM_TYPE_UNKNOWN QuorumType = 0
-	// Deprecated: use QUORUM_TYPE_AT_LEAST_N
-	QuorumType_QUORUM_TYPE_ANY_N QuorumType = 1
-	// Deprecated: use QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
-	QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N QuorumType = 2
 	// QUORUM_TYPE_AT_LEAST_N requires at least N nodes from the discovered cohort to acknowledge
 	QuorumType_QUORUM_TYPE_AT_LEAST_N QuorumType = 3
 	// QUORUM_TYPE_MULTI_CELL_AT_LEAST_N requires nodes from multiple cells (availability zones)
@@ -176,15 +172,11 @@ const (
 var (
 	QuorumType_name = map[int32]string{
 		0: "QUORUM_TYPE_UNKNOWN",
-		1: "QUORUM_TYPE_ANY_N",
-		2: "QUORUM_TYPE_MULTI_CELL_ANY_N",
 		3: "QUORUM_TYPE_AT_LEAST_N",
 		4: "QUORUM_TYPE_MULTI_CELL_AT_LEAST_N",
 	}
 	QuorumType_value = map[string]int32{
 		"QUORUM_TYPE_UNKNOWN":               0,
-		"QUORUM_TYPE_ANY_N":                 1,
-		"QUORUM_TYPE_MULTI_CELL_ANY_N":      2,
 		"QUORUM_TYPE_AT_LEAST_N":            3,
 		"QUORUM_TYPE_MULTI_CELL_AT_LEAST_N": 4,
 	}
@@ -217,59 +209,65 @@ func (QuorumType) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
 }
 
-// AsyncReplicationFallbackMode defines the behavior when insufficient standbys are available
-// for synchronous replication to meet the quorum requirement
-type AsyncReplicationFallbackMode int32
+// LeadershipSignal describes a leader's self-reported status for its current term.
+// Only published by nodes that are or were the consensus leader (leader_term != 0).
+// 0 (UNKNOWN) means the field was not intentionally set.
+type LeadershipSignal int32
 
 const (
-	// ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN represents an unknown or uninitialized mode
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN AsyncReplicationFallbackMode = 0
-	// ASYNC_REPLICATION_FALLBACK_MODE_ALLOW permits falling back to async replication
-	// when no standby servers are available. This is the default behavior.
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW AsyncReplicationFallbackMode = 1
-	// ASYNC_REPLICATION_FALLBACK_MODE_REJECT rejects the leader appointment
-	// if synchronous replication cannot be established to meet quorum requirements
-	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT AsyncReplicationFallbackMode = 2
+	LeadershipSignal_LEADERSHIP_SIGNAL_UNKNOWN LeadershipSignal = 0
+	// Node is actively and healthily serving as leader for leader_term.
+	// Published each poll cycle so the coordinator can distinguish a confirmed
+	// healthy leader from one that restarted and hasn't re-published yet.
+	LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE LeadershipSignal = 1
+	// Node is requesting demotion from leadership for leader_term. Coordinator
+	// should trigger an immediate failover rather than waiting for a heartbeat
+	// timeout. The node may continue as a follower after demotion.
+	//
+	// Staleness check: coordinator verifies leadership_status.leader_term matches
+	// the node's known leader_term before acting, to ignore signals left over from
+	// a previous failover cycle.
+	LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION LeadershipSignal = 2
 )
 
-// Enum value maps for AsyncReplicationFallbackMode.
+// Enum value maps for LeadershipSignal.
 var (
-	AsyncReplicationFallbackMode_name = map[int32]string{
-		0: "ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN",
-		1: "ASYNC_REPLICATION_FALLBACK_MODE_ALLOW",
-		2: "ASYNC_REPLICATION_FALLBACK_MODE_REJECT",
+	LeadershipSignal_name = map[int32]string{
+		0: "LEADERSHIP_SIGNAL_UNKNOWN",
+		1: "LEADERSHIP_SIGNAL_ACTIVE",
+		2: "LEADERSHIP_SIGNAL_REQUESTING_DEMOTION",
 	}
-	AsyncReplicationFallbackMode_value = map[string]int32{
-		"ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN": 0,
-		"ASYNC_REPLICATION_FALLBACK_MODE_ALLOW":   1,
-		"ASYNC_REPLICATION_FALLBACK_MODE_REJECT":  2,
+	LeadershipSignal_value = map[string]int32{
+		"LEADERSHIP_SIGNAL_UNKNOWN":             0,
+		"LEADERSHIP_SIGNAL_ACTIVE":              1,
+		"LEADERSHIP_SIGNAL_REQUESTING_DEMOTION": 2,
 	}
 )
 
-func (x AsyncReplicationFallbackMode) Enum() *AsyncReplicationFallbackMode {
-	p := new(AsyncReplicationFallbackMode)
+func (x LeadershipSignal) Enum() *LeadershipSignal {
+	p := new(LeadershipSignal)
 	*p = x
 	return p
 }
 
-func (x AsyncReplicationFallbackMode) String() string {
+func (x LeadershipSignal) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (AsyncReplicationFallbackMode) Descriptor() protoreflect.EnumDescriptor {
+func (LeadershipSignal) Descriptor() protoreflect.EnumDescriptor {
 	return file_clustermetadata_proto_enumTypes[3].Descriptor()
 }
 
-func (AsyncReplicationFallbackMode) Type() protoreflect.EnumType {
+func (LeadershipSignal) Type() protoreflect.EnumType {
 	return &file_clustermetadata_proto_enumTypes[3]
 }
 
-func (x AsyncReplicationFallbackMode) Number() protoreflect.EnumNumber {
+func (x LeadershipSignal) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use AsyncReplicationFallbackMode.Descriptor instead.
-func (AsyncReplicationFallbackMode) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use LeadershipSignal.Descriptor instead.
+func (LeadershipSignal) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
 }
 
@@ -327,7 +325,7 @@ func (x ID_ComponentType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ID_ComponentType.Descriptor instead.
 func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{9, 0}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{11, 0}
 }
 
 // TopoConfig defines the connection parameters for a topology service.
@@ -473,12 +471,13 @@ type Database struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Backup location configuration
 	BackupLocation *BackupLocation `protobuf:"bytes,2,opt,name=backup_location,json=backupLocation,proto3" json:"backup_location,omitempty"`
-	// Durability policy used for consensus
-	DurabilityPolicy string `protobuf:"bytes,3,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
 	// List of cell identifiers where this database should be deployed
-	Cells         []string `protobuf:"bytes,4,rep,name=cells,proto3" json:"cells,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Cells []string `protobuf:"bytes,3,rep,name=cells,proto3" json:"cells,omitempty"`
+	// bootstrap_durability_policy is the durability policy applied when
+	// initializing this database for the first time. Set at database creation.
+	BootstrapDurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=bootstrap_durability_policy,json=bootstrapDurabilityPolicy,proto3" json:"bootstrap_durability_policy,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Database) Reset() {
@@ -525,16 +524,74 @@ func (x *Database) GetBackupLocation() *BackupLocation {
 	return nil
 }
 
-func (x *Database) GetDurabilityPolicy() string {
-	if x != nil {
-		return x.DurabilityPolicy
-	}
-	return ""
-}
-
 func (x *Database) GetCells() []string {
 	if x != nil {
 		return x.Cells
+	}
+	return nil
+}
+
+func (x *Database) GetBootstrapDurabilityPolicy() *DurabilityPolicy {
+	if x != nil {
+		return x.BootstrapDurabilityPolicy
+	}
+	return nil
+}
+
+// ShardInitClaim records which coordinator claimed the right to initialize a shard
+// and the cohort it intends to use. Stored as a create-if-not-exists node in the
+// global topology so that only one coordinator can initialize a given shard.
+type ShardInitClaim struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The coordinator that claimed this shard initialization.
+	ClaimerId *ID `protobuf:"bytes,1,opt,name=claimer_id,json=claimerId,proto3" json:"claimer_id,omitempty"`
+	// The cohort of poolers the claimer will use for initial leader appointment.
+	// Persisted so that a crash-retry uses the same cohort for idempotency.
+	CohortMembers []*ID `protobuf:"bytes,2,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardInitClaim) Reset() {
+	*x = ShardInitClaim{}
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardInitClaim) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardInitClaim) ProtoMessage() {}
+
+func (x *ShardInitClaim) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardInitClaim.ProtoReflect.Descriptor instead.
+func (*ShardInitClaim) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ShardInitClaim) GetClaimerId() *ID {
+	if x != nil {
+		return x.ClaimerId
+	}
+	return nil
+}
+
+func (x *ShardInitClaim) GetCohortMembers() []*ID {
+	if x != nil {
+		return x.CohortMembers
 	}
 	return nil
 }
@@ -553,7 +610,7 @@ type BackupLocation struct {
 
 func (x *BackupLocation) Reset() {
 	*x = BackupLocation{}
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +622,7 @@ func (x *BackupLocation) String() string {
 func (*BackupLocation) ProtoMessage() {}
 
 func (x *BackupLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +635,7 @@ func (x *BackupLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupLocation.ProtoReflect.Descriptor instead.
 func (*BackupLocation) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BackupLocation) GetLocation() isBackupLocation_Location {
@@ -633,7 +690,7 @@ type FilesystemBackup struct {
 
 func (x *FilesystemBackup) Reset() {
 	*x = FilesystemBackup{}
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -645,7 +702,7 @@ func (x *FilesystemBackup) String() string {
 func (*FilesystemBackup) ProtoMessage() {}
 
 func (x *FilesystemBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -658,7 +715,7 @@ func (x *FilesystemBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilesystemBackup.ProtoReflect.Descriptor instead.
 func (*FilesystemBackup) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FilesystemBackup) GetPath() string {
@@ -694,7 +751,7 @@ type S3Backup struct {
 
 func (x *S3Backup) Reset() {
 	*x = S3Backup{}
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +763,7 @@ func (x *S3Backup) String() string {
 func (*S3Backup) ProtoMessage() {}
 
 func (x *S3Backup) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +776,7 @@ func (x *S3Backup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use S3Backup.ProtoReflect.Descriptor instead.
 func (*S3Backup) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *S3Backup) GetBucket() string {
@@ -790,7 +847,7 @@ type MultiPooler struct {
 
 func (x *MultiPooler) Reset() {
 	*x = MultiPooler{}
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -802,7 +859,7 @@ func (x *MultiPooler) String() string {
 func (*MultiPooler) ProtoMessage() {}
 
 func (x *MultiPooler) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -815,7 +872,7 @@ func (x *MultiPooler) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiPooler.ProtoReflect.Descriptor instead.
 func (*MultiPooler) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MultiPooler) GetId() *ID {
@@ -913,7 +970,7 @@ type MultiGateway struct {
 
 func (x *MultiGateway) Reset() {
 	*x = MultiGateway{}
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -925,7 +982,7 @@ func (x *MultiGateway) String() string {
 func (*MultiGateway) ProtoMessage() {}
 
 func (x *MultiGateway) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -938,7 +995,7 @@ func (x *MultiGateway) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiGateway.ProtoReflect.Descriptor instead.
 func (*MultiGateway) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MultiGateway) GetId() *ID {
@@ -969,6 +1026,71 @@ func (x *MultiGateway) GetPidPrefix() uint32 {
 	return 0
 }
 
+// ShardKey uniquely identifies a shard in the cluster.
+// This is a centralized message used across all services to identify shards.
+type ShardKey struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Database name.
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// TableGroup name.
+	TableGroup string `protobuf:"bytes,2,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
+	// Shard name. If range based sharding is used, it should match key_range.
+	Shard         string `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardKey) Reset() {
+	*x = ShardKey{}
+	mi := &file_clustermetadata_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardKey) ProtoMessage() {}
+
+func (x *ShardKey) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardKey.ProtoReflect.Descriptor instead.
+func (*ShardKey) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ShardKey) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *ShardKey) GetTableGroup() string {
+	if x != nil {
+		return x.TableGroup
+	}
+	return ""
+}
+
+func (x *ShardKey) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
 // MultiOrch represents information about a running instance of multiorch.
 type MultiOrch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -984,7 +1106,7 @@ type MultiOrch struct {
 
 func (x *MultiOrch) Reset() {
 	*x = MultiOrch{}
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1118,7 @@ func (x *MultiOrch) String() string {
 func (*MultiOrch) ProtoMessage() {}
 
 func (x *MultiOrch) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1131,7 @@ func (x *MultiOrch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiOrch.ProtoReflect.Descriptor instead.
 func (*MultiOrch) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MultiOrch) GetId() *ID {
@@ -1049,7 +1171,7 @@ type ID struct {
 
 func (x *ID) Reset() {
 	*x = ID{}
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1061,7 +1183,7 @@ func (x *ID) String() string {
 func (*ID) ProtoMessage() {}
 
 func (x *ID) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1074,7 +1196,7 @@ func (x *ID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ID.ProtoReflect.Descriptor instead.
 func (*ID) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ID) GetComponent() ID_ComponentType {
@@ -1111,7 +1233,7 @@ type KeyRange struct {
 
 func (x *KeyRange) Reset() {
 	*x = KeyRange{}
-	mi := &file_clustermetadata_proto_msgTypes[10]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1123,7 +1245,7 @@ func (x *KeyRange) String() string {
 func (*KeyRange) ProtoMessage() {}
 
 func (x *KeyRange) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[10]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1136,7 +1258,7 @@ func (x *KeyRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyRange.ProtoReflect.Descriptor instead.
 func (*KeyRange) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *KeyRange) GetStart() []byte {
@@ -1158,24 +1280,26 @@ func (x *KeyRange) GetEnd() []byte {
 // and replicated via postgres streaming replication.
 type DurabilityPolicy struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// policy_name references Database.durability_policy (e.g., "any-two")
+	// policy_name is a human-readable identifier (e.g., "AT_LEAST_2")
 	PolicyName string `protobuf:"bytes,1,opt,name=policy_name,json=policyName,proto3" json:"policy_name,omitempty"`
 	// policy_version allows policy evolution over time
 	PolicyVersion int64 `protobuf:"varint,2,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
-	// quorum_rule defines the actual quorum requirements
-	QuorumRule *QuorumRule `protobuf:"bytes,3,opt,name=quorum_rule,json=quorumRule,proto3" json:"quorum_rule,omitempty"`
-	// is_active indicates if this is the current active policy
-	IsActive bool `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	// Audit timestamps
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// quorum_type determines which quorum algorithm to use
+	QuorumType QuorumType `protobuf:"varint,3,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
+	// required_count is the number of nodes/cells required for quorum
+	//   - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
+	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
+	//     with at least one node from each cell
+	RequiredCount int32 `protobuf:"varint,4,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
+	// description is a human-readable summary of this policy
+	Description   string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DurabilityPolicy) Reset() {
 	*x = DurabilityPolicy{}
-	mi := &file_clustermetadata_proto_msgTypes[11]
+	mi := &file_clustermetadata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1187,7 +1311,7 @@ func (x *DurabilityPolicy) String() string {
 func (*DurabilityPolicy) ProtoMessage() {}
 
 func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[11]
+	mi := &file_clustermetadata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,7 +1324,7 @@ func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DurabilityPolicy.ProtoReflect.Descriptor instead.
 func (*DurabilityPolicy) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DurabilityPolicy) GetPolicyName() string {
@@ -1217,68 +1341,58 @@ func (x *DurabilityPolicy) GetPolicyVersion() int64 {
 	return 0
 }
 
-func (x *DurabilityPolicy) GetQuorumRule() *QuorumRule {
+func (x *DurabilityPolicy) GetQuorumType() QuorumType {
 	if x != nil {
-		return x.QuorumRule
+		return x.QuorumType
 	}
-	return nil
+	return QuorumType_QUORUM_TYPE_UNKNOWN
 }
 
-func (x *DurabilityPolicy) GetIsActive() bool {
+func (x *DurabilityPolicy) GetRequiredCount() int32 {
 	if x != nil {
-		return x.IsActive
+		return x.RequiredCount
 	}
-	return false
+	return 0
 }
 
-func (x *DurabilityPolicy) GetCreatedAt() *timestamppb.Timestamp {
+func (x *DurabilityPolicy) GetDescription() string {
 	if x != nil {
-		return x.CreatedAt
+		return x.Description
 	}
-	return nil
+	return ""
 }
 
-func (x *DurabilityPolicy) GetUpdatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.UpdatedAt
-	}
-	return nil
+// RuleNumber uniquely identifies a shard rule — the outcome of a coordinator
+// writing a cluster state change to rule_history. Every change (promotion,
+// cohort membership, durability policy) produces a new RuleNumber.
+//
+// Compared lexicographically: higher coordinator_term takes precedence; within
+// the same coordinator_term, higher leader_subterm takes precedence. leader_subterm
+// resets to 0 when coordinator_term increases, so subterms alone are not
+// globally unique.
+type RuleNumber struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CoordinatorTerm int64                  `protobuf:"varint,1,opt,name=coordinator_term,json=coordinatorTerm,proto3" json:"coordinator_term,omitempty"`
+	LeaderSubterm   int64                  `protobuf:"varint,2,opt,name=leader_subterm,json=leaderSubterm,proto3" json:"leader_subterm,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
-// QuorumRule defines how many nodes are required for quorum
-type QuorumRule struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// quorum_type determines which quorum algorithm to use
-	QuorumType QuorumType `protobuf:"varint,1,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
-	// required_count: number of nodes/cells required
-	//   - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
-	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
-	//     with at least one node from each cell
-	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
-	// Human-readable description
-	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	// async_fallback defines behavior when insufficient standbys are available
-	// for synchronous replication. Defaults to ALLOW if unset.
-	AsyncFallback AsyncReplicationFallbackMode `protobuf:"varint,4,opt,name=async_fallback,json=asyncFallback,proto3,enum=clustermetadata.AsyncReplicationFallbackMode" json:"async_fallback,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *QuorumRule) Reset() {
-	*x = QuorumRule{}
-	mi := &file_clustermetadata_proto_msgTypes[12]
+func (x *RuleNumber) Reset() {
+	*x = RuleNumber{}
+	mi := &file_clustermetadata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *QuorumRule) String() string {
+func (x *RuleNumber) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*QuorumRule) ProtoMessage() {}
+func (*RuleNumber) ProtoMessage() {}
 
-func (x *QuorumRule) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[12]
+func (x *RuleNumber) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1289,37 +1403,536 @@ func (x *QuorumRule) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use QuorumRule.ProtoReflect.Descriptor instead.
-func (*QuorumRule) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{12}
+// Deprecated: Use RuleNumber.ProtoReflect.Descriptor instead.
+func (*RuleNumber) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *QuorumRule) GetQuorumType() QuorumType {
+func (x *RuleNumber) GetCoordinatorTerm() int64 {
 	if x != nil {
-		return x.QuorumType
-	}
-	return QuorumType_QUORUM_TYPE_UNKNOWN
-}
-
-func (x *QuorumRule) GetRequiredCount() int32 {
-	if x != nil {
-		return x.RequiredCount
+		return x.CoordinatorTerm
 	}
 	return 0
 }
 
-func (x *QuorumRule) GetDescription() string {
+func (x *RuleNumber) GetLeaderSubterm() int64 {
 	if x != nil {
-		return x.Description
+		return x.LeaderSubterm
+	}
+	return 0
+}
+
+// ShardRule is the complete, authoritative description of shard state at a
+// specific rule number. Leader identity, cohort membership, and durability
+// policy are only meaningful together and relative to the rule that established
+// them.
+type ShardRule struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RuleNumber *RuleNumber            `protobuf:"bytes,1,opt,name=rule_number,json=ruleNumber,proto3" json:"rule_number,omitempty"`
+	// The consensus leader for this rule, through which all transactions (including rules) are
+	// written to the WAL.
+	LeaderId      *ID   `protobuf:"bytes,2,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	CohortMembers []*ID `protobuf:"bytes,3,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	// What nodes need to acknowledge a write before it's considered durable.
+	DurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
+	// Which coordinator or pooler facilitated applying the rule.
+	CoordinatorId *ID `protobuf:"bytes,5,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	// At what time the coordinator or pooler began trying to apply the rule,
+	// from the coordinator's perspective.
+	CreationTime  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=creation_time,json=creationTime,proto3" json:"creation_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardRule) Reset() {
+	*x = ShardRule{}
+	mi := &file_clustermetadata_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardRule) ProtoMessage() {}
+
+func (x *ShardRule) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardRule.ProtoReflect.Descriptor instead.
+func (*ShardRule) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ShardRule) GetRuleNumber() *RuleNumber {
+	if x != nil {
+		return x.RuleNumber
+	}
+	return nil
+}
+
+func (x *ShardRule) GetLeaderId() *ID {
+	if x != nil {
+		return x.LeaderId
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCohortMembers() []*ID {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
+func (x *ShardRule) GetDurabilityPolicy() *DurabilityPolicy {
+	if x != nil {
+		return x.DurabilityPolicy
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCoordinatorId() *ID {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return nil
+}
+
+func (x *ShardRule) GetCreationTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreationTime
+	}
+	return nil
+}
+
+// PoolerPosition describes a pooler's committed position in logical and physical
+// time. It captures the highest ShardRule this pooler has replicated (or written,
+// for a leader) and the latest WAL position.
+//
+// Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
+// coordinator can determine which pooler is most advanced when selecting a
+// promotion candidate.
+//
+// Comparison: prefer the pooler with the higher rule (coordinator_term first,
+// then leader_subterm). Break ties by LSN.
+type PoolerPosition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The highest shard rule this pooler has committed to local WAL.
+	Rule *ShardRule `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	// The current real-time WAL head at the time of reading. Note that this is likely
+	// beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
+	// For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
+	Lsn           string `protobuf:"bytes,2,opt,name=lsn,proto3" json:"lsn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolerPosition) Reset() {
+	*x = PoolerPosition{}
+	mi := &file_clustermetadata_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolerPosition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolerPosition) ProtoMessage() {}
+
+func (x *PoolerPosition) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolerPosition.ProtoReflect.Descriptor instead.
+func (*PoolerPosition) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *PoolerPosition) GetRule() *ShardRule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+func (x *PoolerPosition) GetLsn() string {
+	if x != nil {
+		return x.Lsn
 	}
 	return ""
 }
 
-func (x *QuorumRule) GetAsyncFallback() AsyncReplicationFallbackMode {
+// HighestKnownRule is the most recent ShardRule this pooler is aware of,
+// which could be beyond the end of this pooler's WAL / PoolerPosition.
+//
+// If a pooler is disconnected from replication due to network partitions
+// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
+// to learn the latest shard state.
+//
+// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
+// may represent a rule that the coordinator is _about_ to write that doesn't exist in
+// any WAL entries yet.
+//
+// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
+// settings so that nodes can participate in replication. Nodes with out-of-date information
+// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
+// pooler has incorrect replication settings.
+type HighestKnownRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rule          *ShardRule             `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HighestKnownRule) Reset() {
+	*x = HighestKnownRule{}
+	mi := &file_clustermetadata_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HighestKnownRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HighestKnownRule) ProtoMessage() {}
+
+func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[17]
 	if x != nil {
-		return x.AsyncFallback
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
 	}
-	return AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HighestKnownRule.ProtoReflect.Descriptor instead.
+func (*HighestKnownRule) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *HighestKnownRule) GetRule() *ShardRule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+// TermRevocation records that this pooler has revoked participation in all terms
+// strictly below revoked_below_term. Two things are revoked:
+//
+//  1. Consensus participation: the pooler will refuse BeginTerm or other coordinator
+//     requests for any term < revoked_below_term, and for revoked_below_term itself
+//     from a different coordinator than accepted_coordinator_id.
+//
+//  2. Replication participation: a revoked primary must stop accepting writes; a
+//     revoked replica must clear primary_conninfo. Replication participation resumes
+//     once the pooler's highest known rule reaches or exceeds revoked_below_term
+//     (i.e. the rule for that term has replicated through).
+//     TODO: It's currently technically possible to begin a term without revoking
+//     replication, but we plan to remove that capability and this message is named
+//     for what we intend to do rather than what we currently do.
+//
+// Re-sending an identical recruitment is idempotent. A higher-term recruitment
+// supersedes lower ones automatically.
+//
+// Persisted to local disk before responding; survives process restarts.
+type TermRevocation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// All terms strictly below this value are revoked. The pooler has accepted
+	// the coordinator's exclusive right to act at this term.
+	RevokedBelowTerm int64 `protobuf:"varint,1,opt,name=revoked_below_term,json=revokedBelowTerm,proto3" json:"revoked_below_term,omitempty"`
+	// The coordinator (multiorch instance) that recruited this revocation.
+	// Retained for idempotency: the same coordinator at the same term is re-accepted;
+	// a different coordinator at the same term is refused.
+	AcceptedCoordinatorId *ID `protobuf:"bytes,2,opt,name=accepted_coordinator_id,json=acceptedCoordinatorId,proto3" json:"accepted_coordinator_id,omitempty"`
+	// When the coordinator created this term, set by the coordinator before
+	// recruiting. All poolers that accept the same recruitment store the same value.
+	// TODO: populate once BeginTermRequest carries this timestamp.
+	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *TermRevocation) Reset() {
+	*x = TermRevocation{}
+	mi := &file_clustermetadata_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TermRevocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TermRevocation) ProtoMessage() {}
+
+func (x *TermRevocation) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TermRevocation.ProtoReflect.Descriptor instead.
+func (*TermRevocation) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *TermRevocation) GetRevokedBelowTerm() int64 {
+	if x != nil {
+		return x.RevokedBelowTerm
+	}
+	return 0
+}
+
+func (x *TermRevocation) GetAcceptedCoordinatorId() *ID {
+	if x != nil {
+		return x.AcceptedCoordinatorId
+	}
+	return nil
+}
+
+func (x *TermRevocation) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CoordinatorInitiatedAt
+	}
+	return nil
+}
+
+// ConsensusStatus is a pooler's complete view of its position in the distributed
+// system. It combines three layers with different durability and precision guarantees:
+//
+//  1. term_revocation (disk-backed, authoritative)
+//     Written to local disk before responding; survives process restarts.
+//     Records the highest coordinator term accepted and the coordinator's identity.
+//
+//  2. current_position (postgres-WAL-backed, authoritative)
+//     The highest ShardRule committed to local WAL (from rule_history) and the
+//     current LSN. Authoritative because postgres WAL is durable and ordered.
+//
+//  3. highest_known_rule (best-effort, coordinator-provided)
+//     The most recent rule the coordinator is about to establish or has recently
+//     established. May be ahead of current_position; not persisted and may be
+//     stale after restarts.
+type ConsensusStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// term_revocation records the highest coordinator term this pooler has revoked for.
+	TermRevocation *TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
+	// current_position is the highest rule this pooler has committed to local WAL
+	// and the latest WAL position.
+	CurrentPosition *PoolerPosition `protobuf:"bytes,2,opt,name=current_position,json=currentPosition,proto3" json:"current_position,omitempty"`
+	// highest_known_rule is the most recent rule this pooler is aware of. May be
+	// ahead of current_position when the pooler has forward knowledge of an
+	// upcoming rule that has not yet been replicated or written.
+	HighestKnownRule *HighestKnownRule `protobuf:"bytes,3,opt,name=highest_known_rule,json=highestKnownRule,proto3" json:"highest_known_rule,omitempty"`
+	// id identifies the pooler that produced this status. Makes ConsensusStatus
+	// self-describing when passed around without a surrounding envelope.
+	Id            *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsensusStatus) Reset() {
+	*x = ConsensusStatus{}
+	mi := &file_clustermetadata_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsensusStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsensusStatus) ProtoMessage() {}
+
+func (x *ConsensusStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsensusStatus.ProtoReflect.Descriptor instead.
+func (*ConsensusStatus) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ConsensusStatus) GetTermRevocation() *TermRevocation {
+	if x != nil {
+		return x.TermRevocation
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetCurrentPosition() *PoolerPosition {
+	if x != nil {
+		return x.CurrentPosition
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetHighestKnownRule() *HighestKnownRule {
+	if x != nil {
+		return x.HighestKnownRule
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetId() *ID {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+// LeadershipStatus is published only by nodes that are or have been the consensus leader.
+// It lets the coordinator distinguish an actively healthy leader, a leader
+// requesting demotion, and a node that has never held leadership.
+type LeadershipStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The leader_term at which this node was most recently appointed.
+	// Non-zero only on nodes that have been appointed as leader.
+	LeaderTerm    int64            `protobuf:"varint,1,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
+	Signal        LeadershipSignal `protobuf:"varint,2,opt,name=signal,proto3,enum=clustermetadata.LeadershipSignal" json:"signal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeadershipStatus) Reset() {
+	*x = LeadershipStatus{}
+	mi := &file_clustermetadata_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeadershipStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeadershipStatus) ProtoMessage() {}
+
+func (x *LeadershipStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeadershipStatus.ProtoReflect.Descriptor instead.
+func (*LeadershipStatus) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *LeadershipStatus) GetLeaderTerm() int64 {
+	if x != nil {
+		return x.LeaderTerm
+	}
+	return 0
+}
+
+func (x *LeadershipStatus) GetSignal() LeadershipSignal {
+	if x != nil {
+		return x.Signal
+	}
+	return LeadershipSignal_LEADERSHIP_SIGNAL_UNKNOWN
+}
+
+// AvailabilityStatus carries best-effort operational fitness signals for a pooler.
+// Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
+// on-disk state), AvailabilityStatus is in-memory and may be absent after a
+// process restart. Coordinators must treat absence as "unknown," not "unfit."
+//
+// Signals are re-derivable from continuous health polling, so process restarts
+// do not create permanent unavailability. See LeadershipSignal for re-derivation
+// rules.
+//
+// Sources: self-reported by the pooler (fast path) or synthesized by the
+// coordinator from observed health state.
+// TODO: coordinator should synthesize AvailabilityStatus into
+// PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
+// regardless of source.
+type AvailabilityStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// leadership_status is only set by poolers that are or have been the consensus leader.
+	LeadershipStatus *LeadershipStatus `protobuf:"bytes,1,opt,name=leadership_status,json=leadershipStatus,proto3" json:"leadership_status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AvailabilityStatus) Reset() {
+	*x = AvailabilityStatus{}
+	mi := &file_clustermetadata_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AvailabilityStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AvailabilityStatus) ProtoMessage() {}
+
+func (x *AvailabilityStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AvailabilityStatus.ProtoReflect.Descriptor instead.
+func (*AvailabilityStatus) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *AvailabilityStatus) GetLeadershipStatus() *LeadershipStatus {
+	if x != nil {
+		return x.LeadershipStatus
+	}
+	return nil
 }
 
 var File_clustermetadata_proto protoreflect.FileDescriptor
@@ -1334,12 +1947,16 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"\xab\x01\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"\xe1\x01\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
-	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12+\n" +
-	"\x11durability_policy\x18\x03 \x01(\tR\x10durabilityPolicy\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\"\x8e\x01\n" +
+	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12\x14\n" +
+	"\x05cells\x18\x03 \x03(\tR\x05cells\x12a\n" +
+	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\"\x80\x01\n" +
+	"\x0eShardInitClaim\x122\n" +
+	"\n" +
+	"claimer_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tclaimerId\x12:\n" +
+	"\x0ecohort_members\x18\x02 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\"\x8e\x01\n" +
 	"\x0eBackupLocation\x12C\n" +
 	"\n" +
 	"filesystem\x18\x01 \x01(\v2!.clustermetadata.FilesystemBackupH\x00R\n" +
@@ -1382,7 +1999,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"pid_prefix\x18\x04 \x01(\rR\tpidPrefix\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xcc\x01\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"]\n" +
+	"\bShardKey\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
+	"\vtable_group\x18\x02 \x01(\tR\n" +
+	"tableGroup\x12\x14\n" +
+	"\x05shard\x18\x03 \x01(\tR\x05shard\"\xcc\x01\n" +
 	"\tMultiOrch\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12B\n" +
@@ -1401,25 +2023,47 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\tMULTIORCH\x10\x03\"2\n" +
 	"\bKeyRange\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\fR\x03end\"\xab\x02\n" +
+	"\x03end\x18\x02 \x01(\fR\x03end\"\xe1\x01\n" +
 	"\x10DurabilityPolicy\x12\x1f\n" +
 	"\vpolicy_name\x18\x01 \x01(\tR\n" +
 	"policyName\x12%\n" +
 	"\x0epolicy_version\x18\x02 \x01(\x03R\rpolicyVersion\x12<\n" +
-	"\vquorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
-	"quorumRule\x12\x1b\n" +
-	"\tis_active\x18\x04 \x01(\bR\bisActive\x129\n" +
-	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
-	"\n" +
-	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xe9\x01\n" +
-	"\n" +
-	"QuorumRule\x12<\n" +
-	"\vquorum_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.QuorumTypeR\n" +
+	"\vquorum_type\x18\x03 \x01(\x0e2\x1b.clustermetadata.QuorumTypeR\n" +
 	"quorumType\x12%\n" +
-	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*@\n" +
+	"\x0erequired_count\x18\x04 \x01(\x05R\rrequiredCount\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\"^\n" +
+	"\n" +
+	"RuleNumber\x12)\n" +
+	"\x10coordinator_term\x18\x01 \x01(\x03R\x0fcoordinatorTerm\x12%\n" +
+	"\x0eleader_subterm\x18\x02 \x01(\x03R\rleaderSubterm\"\x84\x03\n" +
+	"\tShardRule\x12<\n" +
+	"\vrule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\n" +
+	"ruleNumber\x120\n" +
+	"\tleader_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12:\n" +
+	"\x0ecohort_members\x18\x03 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\x12N\n" +
+	"\x11durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x10durabilityPolicy\x12:\n" +
+	"\x0ecoordinator_id\x18\x05 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\x12?\n" +
+	"\rcreation_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fcreationTime\"R\n" +
+	"\x0ePoolerPosition\x12.\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x12\x10\n" +
+	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"B\n" +
+	"\x10HighestKnownRule\x12.\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"\xe1\x01\n" +
+	"\x0eTermRevocation\x12,\n" +
+	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
+	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +
+	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\x9d\x02\n" +
+	"\x0fConsensusStatus\x12H\n" +
+	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
+	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12O\n" +
+	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule\x12#\n" +
+	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"n\n" +
+	"\x10LeadershipStatus\x12\x1f\n" +
+	"\vleader_term\x18\x01 \x01(\x03R\n" +
+	"leaderTerm\x129\n" +
+	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"d\n" +
+	"\x12AvailabilityStatus\x12N\n" +
+	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus*@\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1431,18 +2075,16 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03*\xa1\x01\n" +
+	"\aRESTORE\x10\x03*h\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
-	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +
-	"\x11QUORUM_TYPE_ANY_N\x10\x01\x12 \n" +
-	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02\x12\x1a\n" +
+	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16QUORUM_TYPE_AT_LEAST_N\x10\x03\x12%\n" +
-	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*\xa2\x01\n" +
-	"\x1cAsyncReplicationFallbackMode\x12+\n" +
-	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
-	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +
-	"&ASYNC_REPLICATION_FALLBACK_MODE_REJECT\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
+	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*z\n" +
+	"\x10LeadershipSignal\x12\x1d\n" +
+	"\x19LEADERSHIP_SIGNAL_UNKNOWN\x10\x00\x12\x1c\n" +
+	"\x18LEADERSHIP_SIGNAL_ACTIVE\x10\x01\x12)\n" +
+	"%LEADERSHIP_SIGNAL_REQUESTING_DEMOTION\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once
@@ -1457,55 +2099,79 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 }
 
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_clustermetadata_proto_goTypes = []any{
-	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
-	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
-	(QuorumType)(0),                   // 2: clustermetadata.QuorumType
-	(AsyncReplicationFallbackMode)(0), // 3: clustermetadata.AsyncReplicationFallbackMode
-	(ID_ComponentType)(0),             // 4: clustermetadata.ID.ComponentType
-	(*GlobalTopoConfig)(nil),          // 5: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),                      // 6: clustermetadata.Cell
-	(*Database)(nil),                  // 7: clustermetadata.Database
-	(*BackupLocation)(nil),            // 8: clustermetadata.BackupLocation
-	(*FilesystemBackup)(nil),          // 9: clustermetadata.FilesystemBackup
-	(*S3Backup)(nil),                  // 10: clustermetadata.S3Backup
-	(*MultiPooler)(nil),               // 11: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),              // 12: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),                 // 13: clustermetadata.MultiOrch
-	(*ID)(nil),                        // 14: clustermetadata.ID
-	(*KeyRange)(nil),                  // 15: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),          // 16: clustermetadata.DurabilityPolicy
-	(*QuorumRule)(nil),                // 17: clustermetadata.QuorumRule
-	nil,                               // 18: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 19: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 20: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
+	(PoolerType)(0),               // 0: clustermetadata.PoolerType
+	(PoolerServingStatus)(0),      // 1: clustermetadata.PoolerServingStatus
+	(QuorumType)(0),               // 2: clustermetadata.QuorumType
+	(LeadershipSignal)(0),         // 3: clustermetadata.LeadershipSignal
+	(ID_ComponentType)(0),         // 4: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil),      // 5: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),                  // 6: clustermetadata.Cell
+	(*Database)(nil),              // 7: clustermetadata.Database
+	(*ShardInitClaim)(nil),        // 8: clustermetadata.ShardInitClaim
+	(*BackupLocation)(nil),        // 9: clustermetadata.BackupLocation
+	(*FilesystemBackup)(nil),      // 10: clustermetadata.FilesystemBackup
+	(*S3Backup)(nil),              // 11: clustermetadata.S3Backup
+	(*MultiPooler)(nil),           // 12: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),          // 13: clustermetadata.MultiGateway
+	(*ShardKey)(nil),              // 14: clustermetadata.ShardKey
+	(*MultiOrch)(nil),             // 15: clustermetadata.MultiOrch
+	(*ID)(nil),                    // 16: clustermetadata.ID
+	(*KeyRange)(nil),              // 17: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),      // 18: clustermetadata.DurabilityPolicy
+	(*RuleNumber)(nil),            // 19: clustermetadata.RuleNumber
+	(*ShardRule)(nil),             // 20: clustermetadata.ShardRule
+	(*PoolerPosition)(nil),        // 21: clustermetadata.PoolerPosition
+	(*HighestKnownRule)(nil),      // 22: clustermetadata.HighestKnownRule
+	(*TermRevocation)(nil),        // 23: clustermetadata.TermRevocation
+	(*ConsensusStatus)(nil),       // 24: clustermetadata.ConsensusStatus
+	(*LeadershipStatus)(nil),      // 25: clustermetadata.LeadershipStatus
+	(*AvailabilityStatus)(nil),    // 26: clustermetadata.AvailabilityStatus
+	nil,                           // 27: clustermetadata.MultiPooler.PortMapEntry
+	nil,                           // 28: clustermetadata.MultiGateway.PortMapEntry
+	nil,                           // 29: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil), // 30: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	8,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
-	9,  // 1: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
-	10, // 2: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
-	14, // 3: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	15, // 4: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	0,  // 5: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	1,  // 6: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	18, // 7: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	14, // 8: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	19, // 9: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	14, // 10: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	20, // 11: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	4,  // 12: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	17, // 13: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
-	21, // 14: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
-	21, // 15: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 16: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
-	3,  // 17: clustermetadata.QuorumRule.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	9,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
+	18, // 1: clustermetadata.Database.bootstrap_durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	16, // 2: clustermetadata.ShardInitClaim.claimer_id:type_name -> clustermetadata.ID
+	16, // 3: clustermetadata.ShardInitClaim.cohort_members:type_name -> clustermetadata.ID
+	10, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
+	11, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
+	16, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	17, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	0,  // 8: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	1,  // 9: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	27, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	16, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	28, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	16, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	29, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
+	19, // 17: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	16, // 18: clustermetadata.ShardRule.leader_id:type_name -> clustermetadata.ID
+	16, // 19: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	18, // 20: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	16, // 21: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	30, // 22: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	20, // 23: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
+	20, // 24: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	16, // 25: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
+	30, // 26: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	23, // 27: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	21, // 28: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	22, // 29: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	16, // 30: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 31: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	25, // 32: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -1513,7 +2179,7 @@ func file_clustermetadata_proto_init() {
 	if File_clustermetadata_proto != nil {
 		return
 	}
-	file_clustermetadata_proto_msgTypes[3].OneofWrappers = []any{
+	file_clustermetadata_proto_msgTypes[4].OneofWrappers = []any{
 		(*BackupLocation_Filesystem)(nil),
 		(*BackupLocation_S3)(nil),
 	}
@@ -1523,7 +2189,7 @@ func file_clustermetadata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   16,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

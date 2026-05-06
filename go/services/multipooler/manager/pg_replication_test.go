@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,101 +34,233 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestGenerateApplicationName(t *testing.T) {
+// mustPoolerIDFromAppName constructs a poolerID from a "cell_name" application name string.
+// Panics if parsing or construction fails; for use in tests only.
+func mustPoolerIDFromAppName(appName string) poolerID {
+	id, err := parseApplicationName(appName)
+	if err != nil {
+		panic(err)
+	}
+	pid, err := newPoolerID(id)
+	if err != nil {
+		panic(err)
+	}
+	return pid
+}
+
+func TestNewPoolerID(t *testing.T) {
 	tests := []struct {
-		name        string
-		id          *clustermetadatapb.ID
-		expected    applicationName
-		expectError bool
+		name            string
+		id              *clustermetadatapb.ID
+		expectedAppName string // always asserted, including error cases
+		expectError     bool
 	}{
 		{
-			name: "standard ID",
-			id: &clustermetadatapb.ID{
-				Cell: "us-west",
-				Name: "replica-1",
-			},
-			expected: applicationName("us-west_replica-1"),
+			name:            "standard ID",
+			id:              &clustermetadatapb.ID{Cell: "us-west", Name: "replica-1"},
+			expectedAppName: "us-west_replica-1",
 		},
 		{
-			name: "single character values",
-			id: &clustermetadatapb.ID{
-				Cell: "a",
-				Name: "b",
-			},
-			expected: applicationName("a_b"),
+			name:            "single character values",
+			id:              &clustermetadatapb.ID{Cell: "a", Name: "b"},
+			expectedAppName: "a_b",
 		},
 		{
-			name: "hyphenated names",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: "primary-db-001",
-			},
-			expected: applicationName("us-east-1a_primary-db-001"),
+			name:            "hyphenated names",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: "primary-db-001"},
+			expectedAppName: "us-east-1a_primary-db-001",
 		},
 		{
-			name: "numeric values",
-			id: &clustermetadatapb.ID{
-				Cell: "zone1",
-				Name: "pooler-001",
-			},
-			expected: applicationName("zone1_pooler-001"),
+			name:            "numeric values",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "pooler-001"},
+			expectedAppName: "zone1_pooler-001",
 		},
 		{
-			name: "exactly 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 52), // "us-east-1a_" (11) + 52 = 63
-			},
-			expected: applicationName("us-east-1a_" + strings.Repeat("x", 52)),
+			name:            "exactly 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 52)}, // 11+52=63
+			expectedAppName: "us-east-1a_" + strings.Repeat("x", 52),
+		},
+		// Error cases: approximate appName returned alongside the error.
+		{
+			name:            "nil ID",
+			id:              nil,
+			expectError:     true,
+			expectedAppName: "<nil>",
 		},
 		{
-			name: "exceeds 63 characters",
-			id: &clustermetadatapb.ID{
-				Cell: "us-east-1a",
-				Name: strings.Repeat("x", 53), // "us-east-1a_" (11) + 53 = 64
-			},
-			expectError: true,
+			name:            "empty cell",
+			id:              &clustermetadatapb.ID{Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "<unknown>_replica-1",
+		},
+		{
+			name:            "empty name",
+			id:              &clustermetadatapb.ID{Cell: "zone1"},
+			expectError:     true,
+			expectedAppName: "zone1_<unknown>",
+		},
+		{
+			name:            "cell contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "us_west", Name: "replica-1"},
+			expectError:     true,
+			expectedAppName: "us_west_replica-1",
+		},
+		{
+			name:            "name contains underscore",
+			id:              &clustermetadatapb.ID{Cell: "zone1", Name: "replica_1"},
+			expectError:     true,
+			expectedAppName: "zone1_replica_1",
+		},
+		{
+			name:            "exceeds 63 characters",
+			id:              &clustermetadatapb.ID{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // 11+53=64
+			expectError:     true,
+			expectedAppName: "us-east-1a_" + strings.Repeat("x", 53), // full string returned, not truncated
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := generateApplicationName(tt.id)
+			result, err := newPoolerID(tt.id)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				assert.Equal(t, tt.id, result.id)
+			}
+			assert.Equal(t, tt.expectedAppName, result.appName)
+		})
+	}
+}
+
+func TestPoolerIDFromAppName(t *testing.T) {
+	tests := []struct {
+		name         string
+		appName      string
+		expectedCell string
+		expectedName string
+		expectError  bool
+	}{
+		{
+			name:         "standard app name",
+			appName:      "us-west_replica-1",
+			expectedCell: "us-west",
+			expectedName: "replica-1",
+		},
+		{
+			name:         "zone with hyphens and numbers",
+			appName:      "us-east-1a_primary-db-001",
+			expectedCell: "us-east-1a",
+			expectedName: "primary-db-001",
+		},
+		{
+			name:         "simple zone and name",
+			appName:      "zone1_pooler-001",
+			expectedCell: "zone1",
+			expectedName: "pooler-001",
+		},
+		{
+			name:         "no underscore - best-effort ID uses appName as Name",
+			appName:      "nounderscore",
+			expectedName: "nounderscore", // best-effort: raw appName preserved in Name
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := poolerIDFromAppName(tt.appName)
+			if tt.expectError {
+				require.Error(t, err)
+				// Best-effort ID is always returned: caller can include it rather than drop the member
+				require.NotNil(t, result.id)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedName, result.id.Name, "Name should preserve raw appName")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedCell, result.id.Cell)
+				assert.Equal(t, tt.expectedName, result.id.Name)
+				assert.Equal(t, tt.appName, result.appName)
 			}
 		})
 	}
 }
 
+func TestToPoolerIDs(t *testing.T) {
+	t.Run("all valid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			{Cell: "zone2", Name: "replica-2"},
+		}
+		result, err := toPoolerIDs(ids)
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "zone2_replica-2", result[1].appName)
+	})
+
+	t.Run("nil slice", func(t *testing.T) {
+		result, err := toPoolerIDs(nil)
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("invalid entry returns approximate value and error", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[1]")
+		// Full slice returned despite the error.
+		require.Len(t, result, 2)
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "<nil>", result[1].appName)
+	})
+
+	t.Run("first error is reported when multiple entries are invalid", func(t *testing.T) {
+		ids := []*clustermetadatapb.ID{
+			nil,
+			{Cell: "zone1", Name: "replica-1"},
+			nil,
+		}
+		result, err := toPoolerIDs(ids)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids[0]") // first error, not ids[2]
+		require.Len(t, result, 3)
+		assert.Equal(t, "<nil>", result[0].appName)
+		assert.Equal(t, "zone1_replica-1", result[1].appName)
+		assert.Equal(t, "<nil>", result[2].appName)
+	})
+}
+
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
 		name     string
-		names    []applicationName
+		names    []poolerID
 		expected string
 	}{
 		{
 			name:     "empty list",
-			names:    []applicationName{},
+			names:    []poolerID{},
 			expected: "",
 		},
 		{
 			name:     "single standby",
-			names:    []applicationName{"zone1_replica-1"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected: `"zone1_replica-1"`,
 		},
 		{
 			name:     "multiple standbys",
-			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected: `"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"`,
 		},
 		{
 			name:     "two standbys",
-			names:    []applicationName{"east_standby-a", "west_standby-b"},
+			names:    []poolerID{mustPoolerIDFromAppName("east_standby-a"), mustPoolerIDFromAppName("west_standby-b")},
 			expected: `"east_standby-a", "west_standby-b"`,
 		},
 	}
@@ -144,7 +277,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 		name        string
 		method      multipoolermanagerdatapb.SynchronousMethod
 		numSync     int32
-		names       []applicationName
+		names       []poolerID
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -153,7 +286,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "empty standby list returns empty string",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []applicationName{},
+			names:       []poolerID{},
 			expected:    "",
 			expectError: false,
 		},
@@ -161,7 +294,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with single standby",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    `FIRST 1 ("zone1_replica-1")`,
 			expectError: false,
 		},
@@ -169,7 +302,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     2,
-			names:       []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected:    `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
 			expectError: false,
 		},
@@ -177,7 +310,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1", "zone2_replica-2"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2")},
 			expected:    `ANY 1 ("zone1_replica-1", "zone2_replica-2")`,
 			expectError: false,
 		},
@@ -185,7 +318,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with three standbys and numSync=2",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     2,
-			names:       []applicationName{"a_1", "b_2", "c_3"},
+			names:       []poolerID{mustPoolerIDFromAppName("a_1"), mustPoolerIDFromAppName("b_2"), mustPoolerIDFromAppName("c_3")},
 			expected:    `ANY 2 ("a_1", "b_2", "c_3")`,
 			expectError: false,
 		},
@@ -193,7 +326,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "invalid method returns error",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
 			numSync:     1,
-			names:       []applicationName{"zone1_replica-1"},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    "",
 			expectError: true,
 			errorMsg:    "invalid synchronous method",
@@ -257,7 +390,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name: "empty cell returns error",
@@ -265,7 +398,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "", Name: "replica-1"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name: "empty name returns error",
@@ -273,7 +406,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone1", Name: ""},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 		{
 			name: "underscore in cell returns error",
@@ -314,7 +447,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone2", Name: "replica_2"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: name contains underscore",
+			errorMsg:    "ids[1]: name contains underscore",
 		},
 		{
 			name: "exceeds 63 character limit",
@@ -322,7 +455,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // "us-east-1a_" (11) + 53 = 64
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: application name",
+			errorMsg:    "ids[0]: application name",
 		},
 	}
 
@@ -512,51 +645,51 @@ func TestSyncReplicationConfigMatches(t *testing.T) {
 }
 
 func TestApplyAddOperation(t *testing.T) {
-	s1 := applicationName("zone1_replica-1")
-	s2 := applicationName("zone2_replica-2")
-	s3 := applicationName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []applicationName
-		incoming []applicationName
-		expected []applicationName
+		current  []poolerID
+		incoming []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "add to empty list",
-			current:  []applicationName{},
-			incoming: []applicationName{s1},
-			expected: []applicationName{s1},
+			current:  []poolerID{},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "add new standby to existing list",
-			current:  []applicationName{s1},
-			incoming: []applicationName{s2},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "add multiple new standbys",
-			current:  []applicationName{s1},
-			incoming: []applicationName{s2, s3},
-			expected: []applicationName{s1, s2, s3},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "idempotent - add existing standby",
-			current:  []applicationName{s1, s2},
-			incoming: []applicationName{s1},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - add mix of existing and new",
-			current:  []applicationName{s1, s2},
-			incoming: []applicationName{s2, s3},
-			expected: []applicationName{s1, s2, s3},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "add empty list does nothing",
-			current:  []applicationName{s1},
-			incoming: []applicationName{},
-			expected: []applicationName{s1},
+			current:  []poolerID{s1},
+			incoming: []poolerID{},
+			expected: []poolerID{s1},
 		},
 	}
 
@@ -569,57 +702,57 @@ func TestApplyAddOperation(t *testing.T) {
 }
 
 func TestApplyRemoveOperation(t *testing.T) {
-	s1 := applicationName("zone1_replica-1")
-	s2 := applicationName("zone2_replica-2")
-	s3 := applicationName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []applicationName
-		remove   []applicationName
-		expected []applicationName
+		current  []poolerID
+		remove   []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "remove from single item list",
-			current:  []applicationName{s1},
-			remove:   []applicationName{s1},
-			expected: []applicationName{},
+			current:  []poolerID{s1},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 		{
 			name:     "remove one from multiple",
-			current:  []applicationName{s1, s2, s3},
-			remove:   []applicationName{s2},
-			expected: []applicationName{s1, s3},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s2},
+			expected: []poolerID{s1, s3},
 		},
 		{
 			name:     "remove multiple standbys",
-			current:  []applicationName{s1, s2, s3},
-			remove:   []applicationName{s1, s3},
-			expected: []applicationName{s2},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s1, s3},
+			expected: []poolerID{s2},
 		},
 		{
 			name:     "idempotent - remove non-existent standby",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{s3},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s3},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - remove mix of existing and non-existent",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{s2, s3},
-			expected: []applicationName{s1},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s2, s3},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "remove empty list does nothing",
-			current:  []applicationName{s1, s2},
-			remove:   []applicationName{},
-			expected: []applicationName{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "remove from empty list",
-			current:  []applicationName{},
-			remove:   []applicationName{s1},
-			expected: []applicationName{},
+			current:  []poolerID{},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 	}
 
@@ -627,37 +760,6 @@ func TestApplyRemoveOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := applyRemoveOperation(tt.current, tt.remove)
 			assert.ElementsMatch(t, tt.expected, result)
-		})
-	}
-}
-
-func TestApplyReplaceOperation(t *testing.T) {
-	tests := []struct {
-		name     string
-		names    []applicationName
-		expected []applicationName
-	}{
-		{
-			name:     "replace with single standby",
-			names:    []applicationName{"zone1_replica-1"},
-			expected: []applicationName{"zone1_replica-1"},
-		},
-		{
-			name:     "replace with multiple standbys",
-			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
-			expected: []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
-		},
-		{
-			name:     "replace with empty list",
-			names:    []applicationName{},
-			expected: []applicationName{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := applyReplaceOperation(tt.names)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -948,7 +1050,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		name              string
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
-		names             []applicationName
+		names             []poolerID
 		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
@@ -956,7 +1058,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "FIRST method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []applicationName{"cell1_pooler1", "cell1_pooler2"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell1_pooler2")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -966,7 +1068,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "ANY method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:           2,
-			names:             []applicationName{"cell1_pooler1", "cell2_pooler2", "cell2_pooler3"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell2_pooler2"), mustPoolerIDFromAppName("cell2_pooler3")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -976,7 +1078,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "db exec error",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []applicationName{"cell1_pooler1"},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("exec error"))
 			},
@@ -1167,7 +1269,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1]: nil",
+			errorMsg:    "ids[1]: nil ID",
 		},
 		{
 			name:    "Invalid empty cell",
@@ -1180,7 +1282,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty cell",
+			errorMsg:    "ids[0]: empty cell",
 		},
 		{
 			name:    "Invalid empty name",
@@ -1193,7 +1295,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0]: empty name",
+			errorMsg:    "ids[0]: empty name",
 		},
 	}
 
@@ -1231,8 +1333,8 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1270,8 +1372,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1323,13 +1425,13 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				// Second query for waitForReplicationPause
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1347,8 +1449,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
@@ -1385,8 +1487,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
 				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", errors.New("pause failed"))
 			},
 			expectError:   true,
@@ -1548,8 +1650,8 @@ func TestQueryReplicationStatus(t *testing.T) {
 			name: "All fields with valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming", "2025-01-15 10:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1561,14 +1663,19 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.NotNil(t, status.PrimaryConnInfo)
 				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.LastMsgReceiveTime)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "NULL LSN values (primary server case)",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"", "", "f", "not paused", "", "", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"", "", "f", "not paused", "", "", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1578,14 +1685,17 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "not paused", status.WalReplayPauseState)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus, "WalReceiverStatus should be empty on primary")
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{
 			name: "Paused replication with valid LSNs",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1", "streaming", "2025-01-15 11:00:05+00", "10s", "60s"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1600,14 +1710,18 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.Equal(t, "replicator", status.PrimaryConnInfo.User)
 				assert.Equal(t, "standby1", status.PrimaryConnInfo.ApplicationName)
 				assert.Equal(t, "streaming", status.WalReceiverStatus)
+				assert.NotNil(t, status.WalReceiverStatusInterval)
+				assert.Equal(t, 10*time.Second, status.WalReceiverStatusInterval.AsDuration())
+				assert.NotNil(t, status.WalReceiverTimeout)
+				assert.Equal(t, 60*time.Second, status.WalReceiverTimeout.AsDuration())
 			},
 		},
 		{
 			name: "Mixed NULL and valid values",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
-					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432", "", nil, nil, nil}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1616,6 +1730,9 @@ func TestQueryReplicationStatus(t *testing.T) {
 				assert.False(t, status.IsWalReplayPaused)
 				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 				assert.Empty(t, status.WalReceiverStatus)
+				assert.Nil(t, status.LastMsgReceiveTime)
+				assert.Nil(t, status.WalReceiverStatusInterval)
+				assert.Nil(t, status.WalReceiverTimeout)
 			},
 		},
 		{

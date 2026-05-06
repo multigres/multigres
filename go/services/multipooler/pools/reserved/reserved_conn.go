@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -40,9 +41,10 @@ type Conn struct {
 	// pooled is the underlying pooled regular connection.
 	pooled regular.PooledConn
 
-	// ConnID is the unique identifier for this reservation.
+	// connID is the unique identifier for this reservation.
 	// Clients use this to resume their session across requests.
-	ConnID int64
+	// Exposed via the ConnID() accessor.
+	connID int64
 
 	// pool is a back-reference to the owning pool.
 	// Used for Release operations.
@@ -66,14 +68,25 @@ type Conn struct {
 func newConn(pooled regular.PooledConn, connID int64, pool *Pool) *Conn {
 	return &Conn{
 		pooled: pooled,
-		ConnID: connID,
+		connID: connID,
 		pool:   pool,
 	}
+}
+
+// ConnID returns the unique identifier for this reservation.
+func (c *Conn) ConnID() int64 {
+	return c.connID
 }
 
 // Conn returns the underlying regular connection.
 func (c *Conn) Conn() *regular.Conn {
 	return c.pooled.Conn
+}
+
+// TxnStatus returns the underlying PG protocol transaction status from the
+// most recent ReadyForQuery message.
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
+	return c.pooled.Conn.TxnStatus()
 }
 
 // State returns the connection's state.
@@ -326,6 +339,12 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 	return c.pooled.Conn.BindAndDescribe(ctx, stmtName, params, paramFormats, resultFormats)
 }
 
+// BindDescribeAndExecute fuses Bind+Describe(P)+Execute+Sync into a single
+// backend round trip.
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+	return c.pooled.Conn.BindDescribeAndExecute(ctx, portalName, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+}
+
 // DescribePrepared describes a prepared statement.
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
 	return c.pooled.Conn.DescribePrepared(ctx, name)
@@ -365,4 +384,23 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	return c.pooled.Conn.Execute(ctx, portalName, maxRows, callback)
+}
+
+// --- LISTEN/NOTIFY operations ---
+
+// SendQuery writes a simple query message without reading the response.
+// Used for LISTEN/UNLISTEN commands in the split read/write pattern.
+func (c *Conn) SendQuery(sql string) error {
+	return c.pooled.Conn.RawConn().SendQuery(sql)
+}
+
+// ReadRawMessage reads the next raw PostgreSQL protocol message.
+// Returns the message type byte and body.
+func (c *Conn) ReadRawMessage() (byte, []byte, error) {
+	return c.pooled.Conn.RawConn().ReadRawMessage()
+}
+
+// ParseNotification parses a NotificationResponse message body.
+func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
+	return c.pooled.Conn.RawConn().ParseNotification(body)
 }

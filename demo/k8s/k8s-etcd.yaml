@@ -12,6 +12,9 @@ spec:
     - name: peer
       port: 2380
       targetPort: 2380
+    - name: metrics
+      port: 2381
+      targetPort: 2381
   selector:
     app: etcd
   clusterIP: None
@@ -44,11 +47,26 @@ spec:
             - --initial-advertise-peer-urls=http://etcd-0.etcd:2380
             - --initial-cluster=etcd-0=http://etcd-0.etcd:2380
             - --initial-cluster-state=new
+            - --listen-metrics-urls=http://0.0.0.0:2381
           ports:
             - containerPort: 2379
               name: client
             - containerPort: 2380
               name: peer
+            - containerPort: 2381
+              name: metrics
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 2381
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 2381
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: etcd-data
               mountPath: /var/lib/etcd

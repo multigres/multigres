@@ -199,6 +199,12 @@ func scanValue(val []byte, dest any) error {
 		return fmt.Errorf("cannot parse %q as time.Time", s)
 	case *[]byte:
 		*d = val
+	case *[]string:
+		parsed, err := sqltypes.ParseTextArray(s)
+		if err != nil {
+			return err
+		}
+		*d = parsed
 	default:
 		return fmt.Errorf("unsupported destination type: %T", dest)
 	}

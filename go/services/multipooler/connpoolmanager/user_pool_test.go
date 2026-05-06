@@ -138,7 +138,7 @@ func TestUserPool_NewReservedConn(t *testing.T) {
 	require.NotNil(t, conn)
 
 	// Verify connection has a unique ID.
-	assert.Greater(t, conn.ConnID, int64(0))
+	assert.Greater(t, conn.ConnID(), int64(0))
 
 	// Verify stats.
 	stats := pool.Stats()
@@ -187,12 +187,12 @@ func TestUserPool_GetReservedConn(t *testing.T) {
 	// Create a reserved connection.
 	conn, err := pool.NewReservedConn(ctx, nil)
 	require.NoError(t, err)
-	connID := conn.ConnID
+	connID := conn.ConnID()
 
 	// Retrieve by ID.
 	retrieved, ok := pool.GetReservedConn(connID)
 	require.True(t, ok)
-	assert.Equal(t, connID, retrieved.ConnID)
+	assert.Equal(t, connID, retrieved.ConnID())
 
 	conn.Release(reserved.ReleaseCommit)
 }
@@ -346,7 +346,7 @@ func TestUserPool_MultipleReservedConnections(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify unique IDs.
-	assert.NotEqual(t, conn1.ConnID, conn2.ConnID)
+	assert.NotEqual(t, conn1.ConnID(), conn2.ConnID())
 
 	// Verify stats.
 	stats := pool.Stats()

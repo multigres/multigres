@@ -168,8 +168,8 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 	ctx, span := telemetry.Tracer().Start(ctx, opName+" postgresql", attrs...)
 	defer span.End()
 
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Send the Query message.
 	if err := c.writeQueryMessage(queryStr); err != nil {
@@ -189,9 +189,13 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 
 // writeQueryMessage writes a 'Q' (Query) message.
 func (c *Conn) writeQueryMessage(queryStr string) error {
-	w := NewMessageWriter()
-	w.WriteString(queryStr)
-	return c.writeMessage(protocol.MsgQuery, w.Bytes())
+	bodyLen := len(queryStr) + 1 // null terminator
+	buf, pos := c.startPacket(protocol.MsgQuery, bodyLen)
+	pos = writeStringAt(buf, pos, queryStr)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	return c.flush()
 }
 
 // processQueryResponses processes all responses to a query until ReadyForQuery.
@@ -313,6 +317,21 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 					Notices: []*mterrors.PgDiagnostic{notice},
 				}
 				firstErr = callback(ctx, noticeResult)
+			}
+
+		case protocol.MsgNotificationResponse:
+			// NotificationResponse ('A') can arrive at any time on connections that
+			// have issued LISTEN. Parse and deliver via callback as a notification result.
+			if callback != nil && firstErr == nil {
+				notif, err := c.parseNotificationResponse(body)
+				if err != nil {
+					firstErr = err
+				} else {
+					notifResult := &sqltypes.Result{
+						Notifications: []*sqltypes.Notification{notif},
+					}
+					firstErr = callback(ctx, notifResult)
+				}
 			}
 
 		case protocol.MsgParameterStatus:
@@ -573,4 +592,77 @@ func (c *Conn) parseError(body []byte) error {
 // parseNotice parses a NoticeResponse message into a mterrors.PgDiagnostic.
 func (c *Conn) parseNotice(body []byte) *mterrors.PgDiagnostic {
 	return parseDiagnosticFields(protocol.MsgNoticeResponse, body)
+}
+
+// parseNotificationResponse parses a NotificationResponse ('A') message.
+// Format: Int32(pid) + String(channel) + String(payload)
+func (c *Conn) parseNotificationResponse(body []byte) (*sqltypes.Notification, error) {
+	reader := NewMessageReader(body)
+	pid, err := reader.ReadInt32()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read notification PID: %w", err)
+	}
+	channel, err := reader.ReadString()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read notification channel: %w", err)
+	}
+	payload, err := reader.ReadString()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read notification payload: %w", err)
+	}
+	return &sqltypes.Notification{
+		PID:     pid,
+		Channel: channel,
+		Payload: payload,
+	}, nil
+}
+
+// SendQuery writes a simple query message without reading the response.
+// The caller must arrange for response messages to be read separately.
+// This enables split read/write patterns where one goroutine reads messages
+// while another writes commands (e.g., PubSubListener's LISTEN/UNLISTEN).
+func (c *Conn) SendQuery(sql string) error {
+	return c.writeQueryMessage(sql)
+}
+
+// ParseNotification parses a NotificationResponse ('A') message body.
+// This is the exported counterpart of parseNotificationResponse, enabling
+// callers that read raw messages to parse notifications themselves.
+func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
+	return c.parseNotificationResponse(body)
+}
+
+// WaitForNotification blocks until a NotificationResponse message is received
+// from PostgreSQL. This is used by the shared PubSubListener to read async
+// notifications on a dedicated listener connection.
+//
+// The context can be used to cancel the wait. Note that cancellation may leave
+// the connection in an unusable state if a partial read occurred.
+//
+// Returns the parsed notification, or an error if the connection is closed,
+// context is cancelled, or an unexpected message is received.
+func (c *Conn) WaitForNotification(ctx context.Context) (*sqltypes.Notification, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		msgType, body, err := c.readMessage()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read message: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgNotificationResponse:
+			return c.parseNotificationResponse(body)
+		case protocol.MsgParameterStatus:
+			// Ignore parameter status updates
+			continue
+		case protocol.MsgNoticeResponse:
+			// Ignore notices
+			continue
+		default:
+			return nil, fmt.Errorf("unexpected message type %c while waiting for notification", msgType)
+		}
+	}
 }

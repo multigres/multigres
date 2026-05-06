@@ -23,9 +23,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
@@ -40,6 +39,23 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
+}
+
+// waitForReplicationBroken polls until the instance's primary_conninfo host is empty,
+// indicating replication is no longer configured or streaming.
+func waitForReplicationBroken(t *testing.T, inst *shardsetup.MultipoolerInstance, timeout time.Duration) {
+	t.Helper()
+	shardsetup.EventuallyPoolerCondition(t,
+		[]*shardsetup.MultipoolerInstance{inst},
+		timeout, 500*time.Millisecond,
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			if r.Status.GetReplicationStatus().GetPrimaryConnInfo().GetHost() != "" {
+				return false, "primary_conninfo host still set: " + r.Status.GetReplicationStatus().GetPrimaryConnInfo().GetHost()
+			}
+			return true, ""
+		},
+		"replication should be broken (primary_conninfo cleared) within %v", timeout,
+	)
 }
 
 // waitForShardReady polls until one node is an initialized primary, expectedStandbyCount nodes
@@ -63,7 +79,7 @@ func waitForShardReady(t *testing.T, setup *shardsetup.ShardSetup, expectedStand
 				}
 				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 					primaryStatus = &statuses[i]
-				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
+				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresReady {
 					replicaStatuses[r.Name] = &statuses[i]
 				}
 			}

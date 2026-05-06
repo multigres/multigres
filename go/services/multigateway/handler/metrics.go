@@ -57,6 +57,7 @@ func (m QueryDuration) Record(
 	protocol string,
 	errorType string,
 	status QueryStatus,
+	queryFingerprint string,
 ) {
 	m.Float64Histogram.Record(ctx, val,
 		metric.WithAttributes(
@@ -65,6 +66,7 @@ func (m QueryDuration) Record(
 			attribute.String("db.query.protocol", protocol),
 			attribute.String("error.type", errorType),
 			attribute.String("status", string(status)),
+			attribute.String("query.fingerprint", queryFingerprint),
 		))
 }
 
@@ -80,6 +82,7 @@ func (m QueryErrors) Add(
 	errorSource string,
 	dbNamespace string,
 	operationName string,
+	queryFingerprint string,
 ) {
 	m.Int64Counter.Add(ctx, 1,
 		metric.WithAttributes(
@@ -87,6 +90,7 @@ func (m QueryErrors) Add(
 			attribute.String("error.source", errorSource),
 			attribute.String("db.namespace", dbNamespace),
 			attribute.String("db.operation.name", operationName),
+			attribute.String("query.fingerprint", queryFingerprint),
 		))
 }
 
@@ -101,11 +105,13 @@ func (m RowsReturned) Record(
 	val float64,
 	dbNamespace string,
 	operationName string,
+	queryFingerprint string,
 ) {
 	m.Float64Histogram.Record(ctx, val,
 		metric.WithAttributes(
 			attribute.String("db.namespace", dbNamespace),
 			attribute.String("db.operation.name", operationName),
+			attribute.String("query.fingerprint", queryFingerprint),
 		))
 }
 

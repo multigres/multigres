@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -278,6 +279,95 @@ touch "$2/pg_hba.conf"
 		argsOut := string(argsBytes)
 		assert.Contains(t, argsOut, "--locale-provider=icu")
 		assert.Contains(t, argsOut, "--icu-locale=en_US.UTF-8")
+	})
+}
+
+func TestRunInitDbSQLFiles(t *testing.T) {
+	t.Run("executes each file in order with expected psql args", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_init_sql_test")
+		defer cleanup()
+
+		argsLog := filepath.Join(baseDir, "psql-args.log")
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "psql", `echo "$@" >> `+argsLog)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		fileA := filepath.Join(baseDir, "a.sql")
+		fileB := filepath.Join(baseDir, "b.sql")
+		require.NoError(t, os.WriteFile(fileA, []byte("CREATE TABLE a();"), 0o644))
+		require.NoError(t, os.WriteFile(fileB, []byte("CREATE TABLE b();"), 0o644))
+
+		logger := slog.New(slog.DiscardHandler)
+		pg := &pgInstance{
+			socketDir: "/tmp",
+			port:      5432,
+			user:      "postgres",
+			logger:    logger,
+		}
+		err := runInitDbSQLFiles(logger, pg, "mydb", []string{fileA, fileB})
+		require.NoError(t, err)
+
+		logBytes, err := os.ReadFile(argsLog)
+		require.NoError(t, err)
+		lines := strings.Split(strings.TrimSpace(string(logBytes)), "\n")
+		require.Len(t, lines, 2, "expected one psql invocation per file")
+
+		assert.Contains(t, lines[0], fileA, "first invocation should reference a.sql")
+		assert.Contains(t, lines[1], fileB, "second invocation should reference b.sql")
+		for _, line := range lines {
+			assert.Contains(t, line, "ON_ERROR_STOP=1")
+			assert.Contains(t, line, "-d mydb")
+		}
+	})
+
+	t.Run("returns error on missing file without invoking psql", func(t *testing.T) {
+		logger := slog.New(slog.DiscardHandler)
+		// nil pgInstance is safe here: os.Stat runs before the first psql call.
+		err := runInitDbSQLFiles(logger, nil, "mydb", []string{"/nonexistent/file.sql"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not accessible")
+	})
+
+	t.Run("aborts on first file failure and skips remaining", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_init_sql_fail_test")
+		defer cleanup()
+
+		runLog := filepath.Join(baseDir, "psql-runs.log")
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "psql", `
+echo "$@" >> `+runLog+`
+if [[ "$*" == *"fail.sql"* ]]; then
+    echo "mock psql: simulated failure" >&2
+    exit 1
+fi
+`)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		failFile := filepath.Join(baseDir, "fail.sql")
+		nextFile := filepath.Join(baseDir, "next.sql")
+		require.NoError(t, os.WriteFile(failFile, []byte("BAD"), 0o644))
+		require.NoError(t, os.WriteFile(nextFile, []byte("OK"), 0o644))
+
+		logger := slog.New(slog.DiscardHandler)
+		pg := &pgInstance{
+			socketDir: "/tmp",
+			port:      5432,
+			user:      "postgres",
+			logger:    logger,
+		}
+		err := runInitDbSQLFiles(logger, pg, "mydb", []string{failFile, nextFile})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "fail.sql")
+
+		logBytes, err := os.ReadFile(runLog)
+		require.NoError(t, err)
+		got := string(logBytes)
+		assert.Contains(t, got, "fail.sql", "first file should have been invoked")
+		assert.NotContains(t, got, "next.sql", "remaining files must not be invoked after a failure")
 	})
 }
 

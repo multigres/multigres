@@ -20,7 +20,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -73,8 +72,40 @@ func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHea
 	s.health.rangeHealth(fn)
 }
 
+// DoUpdate performs an atomic read-modify-write on a pooler's health state.
+//
+// The provided function receives the current value (or nil if not present) and
+// returns the new value to store. This is useful for safely updating state
+// based on the existing state without needing to do multiple Get/Set calls.
+//
+// Note that the function should not do any expensive or blocking calls since it
+// is executed while holding the store lock.
+func (s *PoolerStore) DoUpdate(key string, fn func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState) {
+	s.health.doUpdate(key, fn)
+}
+
+// DoUpdateRange iterates over all poolers while holding the lock and allows
+// in-place updates.
+//
+// Each value passed to the callback is the raw internal value (not a clone).
+// Return the updated value to write it back, or nil to leave it unchanged.
+// Return false to stop iteration early, consistent with Range. The callback
+// must not retain the pointer after it returns, and must not perform any
+// expensive or blocking operations since it runs while holding the store lock.
+//
+// Example:
+//
+//	store.DoUpdateRange(func(key string, value *PoolerHealthState) (*PoolerHealthState, bool) {
+//	    value.LastSeen = timestamppb.Now()
+//	    return value, true // write and continue
+//	})
+func (s *PoolerStore) DoUpdateRange(fn func(key string, value *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool)) {
+	s.health.doUpdateRange(fn)
+}
+
+// IsInitialized returns true if the pooler has been initialized.
 // FindPoolersInShard returns all poolers belonging to the given shard.
-func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
+func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
 	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -123,6 +154,15 @@ func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb
 // FindHealthyPrimary finds a healthy, initialized primary in the given pooler slice.
 // It verifies health by making an RPC call to each candidate.
 // Returns an error if multiple primaries are found (likely a stale primary that needs to be demoted).
+//
+// Candidate selection uses a union of topology type and live health-stream data because
+// topology (from etcd) can be stale when etcd is unavailable after a failover. A pooler
+// is considered a candidate if either:
+//   - its topology type is PRIMARY (MultiPooler.Type), or
+//   - its most recent health-stream snapshot reports it is running as PRIMARY (Status.PoolerType).
+//
+// Each candidate is then verified via Status RPC; only nodes whose live PoolerType
+// is PRIMARY are accepted, so stale topology entries running as standby are skipped.
 func (s *PoolerStore) FindHealthyPrimary(
 	ctx context.Context,
 	poolers []*multiorchdatapb.PoolerHealthState,
@@ -130,12 +170,21 @@ func (s *PoolerStore) FindHealthyPrimary(
 	var healthyPrimary *multiorchdatapb.PoolerHealthState
 
 	for _, pooler := range poolers {
-		if pooler.MultiPooler == nil ||
-			pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+		if pooler.MultiPooler == nil {
 			continue
 		}
 
-		// Verify it's actually reachable and healthy via RPC
+		// Accept candidates indicated as PRIMARY by topology OR live health data.
+		// Topology can be stale when etcd is unavailable; health data can lag during
+		// role transitions. Using the union avoids missing the actual primary in either case.
+		isTopologyPrimary := pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY
+		isHealthPrimary := pooler.Status != nil && pooler.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY
+		if !isTopologyPrimary && !isHealthPrimary {
+			continue
+		}
+
+		// Verify via Status RPC — check the live PoolerType to skip stale candidates
+		// (e.g. topology says PRIMARY but postgres is running as standby after a failover).
 		statusResp, err := s.rpcClient.Status(ctx, pooler.MultiPooler,
 			&multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
@@ -144,21 +193,19 @@ func (s *PoolerStore) FindHealthyPrimary(
 				"error", err)
 			continue
 		}
-
-		if statusResp == nil || statusResp.Status == nil {
-			s.logger.WarnContext(ctx, "primary returned nil status",
-				"pooler", pooler.MultiPooler.Id.Name)
+		if statusResp.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+			s.logger.WarnContext(ctx, "pooler is not running as primary, skipping",
+				"pooler", pooler.MultiPooler.Id.Name,
+				"pooler_type", statusResp.GetStatus().GetPoolerType())
 			continue
 		}
 
-		if statusResp.Status.IsInitialized {
-			if healthyPrimary != nil {
-				return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-					"multiple primaries found: %s and %s (stale primary needs demotion)",
-					healthyPrimary.MultiPooler.Id.Name, pooler.MultiPooler.Id.Name)
-			}
-			healthyPrimary = pooler
+		if healthyPrimary != nil {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"multiple primaries found: %s and %s (stale primary needs demotion)",
+				healthyPrimary.MultiPooler.Id.Name, pooler.MultiPooler.Id.Name)
 		}
+		healthyPrimary = pooler
 	}
 
 	if healthyPrimary == nil {

@@ -17,7 +17,6 @@ package multipooler
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -80,14 +79,15 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
 	os.Unsetenv("AWS_SESSION_TOKEN") // ensure no stale session token
 
-	// Isolated shard: 2 multipoolers + 1 multiorch for failover, S3 backend
+	// Isolated shard: 3 multipoolers + 1 multiorch for failover, S3 backend.
+	// 3 nodes are required so that AT_LEAST_2 quorum can be satisfied after the primary is killed.
 	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiOrchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithS3Backup("multigres", "us-east-1", s3Server.Endpoint()),
-		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -116,21 +116,17 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	require.NotNil(t, standbyInst, "expected a standby instance")
 	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
-	// Disable postgres monitoring on all nodes so that multipooler does not
+	// Disable postgres restarts on all nodes so that multipooler does not
 	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
 	for name, inst := range setup.Multipoolers {
 		mc := createBackupClient(t, inst.Multipooler.GrpcPort)
-		_, err := mc.SetMonitor(t.Context(), &multipoolermanagerdata.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err, "failed to disable monitoring on %s", name)
-		t.Logf("Disabled postgres monitoring on %s", name)
+		_, err := mc.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdata.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err, "failed to disable postgres restarts on %s", name)
+		t.Logf("Disabled postgres restarts on %s", name)
 	}
 
 	// Tag the backup so we can check its specific status after failure.
 	const testJobID = "failover-test-backup"
-
-	// pg2-path is required even in TLS mode (pgBackRest 2.58+).
-	// Pass the primary's pg_data directory so pgBackRest can connect to it remotely.
-	primaryPg2Path := filepath.Join(primary.Pgctld.PoolerDir, "pg_data")
 
 	// Start a full backup from the standby in a goroutine (it will block inside s3mock).
 	// The standby connects to the primary's pgBackRest TLS server (pg2-host-type=tls).
@@ -139,9 +135,8 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, err := backupClient.Backup(ctx, &multipoolermanagerdata.BackupRequest{
-			Type:      "full",
-			JobId:     testJobID,
-			Overrides: map[string]string{"pg2_path": primaryPg2Path},
+			Type:  "full",
+			JobId: testJobID,
 		})
 		backupErrCh <- err
 	}()
@@ -197,7 +192,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 			}
 			if resp.Status.IsInitialized &&
 				resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
-				resp.Status.PostgresRunning {
+				resp.Status.PostgresReady {
 				t.Logf("New primary elected: %s", name)
 				return true
 			}

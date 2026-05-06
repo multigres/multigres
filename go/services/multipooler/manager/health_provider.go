@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -33,10 +34,6 @@ const (
 	// defaultRecommendedStalenessTimeout is the duration clients should use
 	// to detect a stale/dead health stream.
 	defaultRecommendedStalenessTimeout = 90 * time.Second
-
-	// defaultHealthHeartbeatInterval is the interval between periodic health
-	// broadcasts when no state changes occur.
-	defaultHealthHeartbeatInterval = 30 * time.Second
 )
 
 // healthStreamer streams health information to subscribers.
@@ -48,21 +45,30 @@ type healthStreamer struct {
 
 	mu sync.Mutex
 
+	// queryServer, if set, is waited on before broadcasting SERVING
+	// transitions. This ensures the query server has updated its type
+	// before the gateway discovers the new state.
+	queryServer poolerserver.PoolerController
+
 	// Immutable fields (set once via Init)
 	poolerID   *clustermetadatapb.ID
 	tableGroup string
 	shard      string
 
 	// Mutable fields (updated via typed methods)
-	servingStatus      clustermetadatapb.PoolerServingStatus
-	poolerType         clustermetadatapb.PoolerType
-	primaryObservation *poolerserver.PrimaryObservation
+	servingStatus     clustermetadatapb.PoolerServingStatus
+	poolerType        clustermetadatapb.PoolerType
+	leaderObservation *poolerserver.LeaderObservation
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
 
 	// recommendedStalenessTimeout is advertised to clients
 	recommendedStalenessTimeout time.Duration
+
+	// replicationLagNs holds the most recent replication lag in nanoseconds.
+	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
+	replicationLagNs atomic.Int64
 }
 
 // newHealthStreamer creates a new health streamer with the given identity.
@@ -78,20 +84,36 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 	}
 }
 
-// UpdatePrimaryObservation updates the primary observation (term + primary ID)
+// SetQueryServer sets the query server that the healthStreamer waits on before
+// broadcasting SERVING transitions. Must be called before any state transitions.
+func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
+	hs.queryServer = qs
+}
+
+// UpdateLeaderObservation updates the primary observation (term + primary ID)
 // and broadcasts to clients.
-func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObservation) {
+func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObservation) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	hs.primaryObservation = obs
+	hs.leaderObservation = obs
 	hs.broadcastLocked()
 }
 
 // OnStateChange updates both poolerType and servingStatus atomically with a single
 // broadcast. This implements the StateAware interface so the healthStreamer can be
 // registered with StateManager.
+//
+// For SERVING transitions, it waits for the query server (via queryReadyGate)
+// to finish updating before broadcasting. This prevents the gateway from
+// discovering the new primary before the pooler can actually serve that type.
+// NOT_SERVING transitions broadcast immediately so the gateway can start
+// buffering without delay.
 func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
+		hs.queryServer.AwaitStateChange(ctx, poolerType, servingStatus)
+	}
+
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
@@ -110,6 +132,13 @@ func (hs *healthStreamer) Broadcast() {
 	hs.broadcastLocked()
 }
 
+// SetReplicationLag updates the replication lag reported in the health stream.
+// Called by the manager's heartbeat loop with the latest measured lag.
+// Safe to call concurrently with any method.
+func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
+	hs.replicationLagNs.Store(lagNs)
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
@@ -120,8 +149,9 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		},
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
-		PrimaryObservation:          hs.primaryObservation,
+		LeaderObservation:           hs.leaderObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
+		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}
 }
 
@@ -135,9 +165,15 @@ func (hs *healthStreamer) broadcastLocked() {
 		select {
 		case ch <- state:
 		default:
-			// Buffer full - close the channel to force client reconnect.
-			// This ensures clients don't operate on stale state indefinitely.
-			// See Vitess healthStreamer for rationale.
+			// If the buffer is full, the channel is closed to force client
+			// reconnect. This ensures clients don't operate on stale state
+			// indefinitely. This can happen if the client is too slow to
+			// process updates or if there are too many updates in a short time
+			// (e.g. due to flapping). The client should reconnect and receive
+			// the latest state.
+			//
+			// TODO: consider adding a metric for this to detect if clients are
+			// falling behind frequently.
 			hs.logger.Warn("Health stream buffer full, closing channel to force reconnect")
 			close(ch)
 			delete(hs.clients, ch)
@@ -224,9 +260,14 @@ func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Refresh replication lag before broadcasting so clients see
+			// up-to-date lag without requiring a separate state-change event.
 			if pm.healthStreamer != nil {
-				pm.healthStreamer.Broadcast()
+				if lag, err := pm.ReplicationLag(ctx); err == nil {
+					pm.healthStreamer.SetReplicationLag(lag.Nanoseconds())
+				}
 			}
+			pm.broadcastHealth()
 		}
 	}
 }
