@@ -18,33 +18,31 @@ import "reactflow/dist/style.css";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/api";
 import type { MultiGateway, MultiPoolerWithStatus, ID } from "@/lib/api";
+import { PoolerType } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 // Utility functions for smart data comparison
-function getStableId(id?: ID): string {
-  return id ? `${id.component}:${id.cell}:${id.name}` : "";
+function getStableId(id?: { cell: string; name: string }): string {
+  return id ? `${id.cell}:${id.name}` : "";
 }
 
 // Helper function to format WAL position (LSN)
 function formatWalPosition(pooler: MultiPoolerWithStatus): string {
   if (!pooler.status) return "N/A";
 
-  // For primary: show current LSN from primary_status
-  if (pooler.type === "PRIMARY" && pooler.status.primary_status?.lsn) {
-    return pooler.status.primary_status.lsn;
+  if (pooler.type === PoolerType.PRIMARY && pooler.status.primaryStatus?.lsn) {
+    return pooler.status.primaryStatus.lsn;
   }
 
-  // For replica: show last replay LSN from replication_status
   if (
-    pooler.type === "REPLICA" &&
-    pooler.status.replication_status?.last_replay_lsn
+    pooler.type === PoolerType.REPLICA &&
+    pooler.status.replicationStatus?.lastReplayLsn
   ) {
-    return pooler.status.replication_status.last_replay_lsn;
+    return pooler.status.replicationStatus.lastReplayLsn;
   }
 
-  // Fallback to wal_position if available
-  if (pooler.status.wal_position) {
-    return pooler.status.wal_position;
+  if (pooler.status.walPosition) {
+    return pooler.status.walPosition;
   }
 
   return "N/A";
@@ -55,11 +53,11 @@ function isReplicaConnected(
   replica: MultiPoolerWithStatus,
   primary: MultiPoolerWithStatus,
 ): boolean {
-  if (!primary.status?.primary_status?.connected_followers || !replica.id) {
+  if (!primary.status?.primaryStatus?.connectedFollowers || !replica.id) {
     return false;
   }
 
-  return primary.status.primary_status.connected_followers.some(
+  return primary.status.primaryStatus.connectedFollowers.some(
     (follower) =>
       follower.cell === replica.id?.cell && follower.name === replica.id?.name,
   );
@@ -70,7 +68,7 @@ function countConnectedReplicas(
   primary: MultiPoolerWithStatus,
   replicas: MultiPoolerWithStatus[],
 ): number {
-  if (!primary.status?.primary_status?.connected_followers) {
+  if (!primary.status?.primaryStatus?.connectedFollowers) {
     return 0;
   }
 
@@ -86,7 +84,7 @@ function hasPrimaryStatus(primary: MultiPoolerWithStatus): boolean {
   }
 
   // Check if postgres is running and we have primary status
-  if (!primary.status.postgres_running || !primary.status.primary_status) {
+  if (!primary.status.postgresRunning || !primary.status.primaryStatus) {
     return false;
   }
 
@@ -118,18 +116,21 @@ function formatReplicationLag(pooler: MultiPoolerWithStatus): string {
 
   // Only show lag for replicas
   if (
-    pooler.type === "REPLICA" &&
-    pooler.status.replication_status?.last_xact_replay_timestamp
+    pooler.type === PoolerType.REPLICA &&
+    pooler.status.replicationStatus?.lastXactReplayTimestamp
   ) {
     return calculateLagFromTimestamp(
-      pooler.status.replication_status.last_xact_replay_timestamp,
+      pooler.status.replicationStatus.lastXactReplayTimestamp,
     );
   }
 
   return "N/A";
 }
 
-function hasDataChanged<T extends { id?: ID }>(prev: T[], next: T[]): boolean {
+function hasDataChanged<T extends { id?: { cell: string; name: string } }>(
+  prev: T[],
+  next: T[],
+): boolean {
   // Check topology structure change (nodes added/removed)
   if (prev.length !== next.length) return true;
 
@@ -180,7 +181,7 @@ function PoolerTypeBadge({ type }: { type: "primary" | "replica" }) {
 }
 
 function isPrimary(pooler: MultiPoolerWithStatus): boolean {
-  return pooler.type === "PRIMARY";
+  return pooler.type === PoolerType.PRIMARY;
 }
 
 export function TopologyGraph({
@@ -342,7 +343,7 @@ export function TopologyGraph({
     >();
 
     poolers.forEach((pooler) => {
-      const key = `${pooler.database || ""}/${pooler.table_group || "default"}/${pooler.shard || "0-"}`;
+      const key = `${pooler.database || ""}/${pooler.tableGroup || "default"}/${pooler.shard || "0-"}`;
       if (!poolerGroups.has(key)) {
         poolerGroups.set(key, { primaries: [], replicas: [] });
       }

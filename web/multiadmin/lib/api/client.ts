@@ -20,7 +20,6 @@ import type {
   GetPoolerStatusResponse,
   GetGatewayQueriesResponse,
   GetGatewayConsolidatorResponse,
-  ID,
 } from "./types";
 
 export interface ApiClientConfig {
@@ -166,15 +165,15 @@ export class MultiAdminClient {
     if (request.database) {
       params.append("database", request.database);
     }
-    if (request.table_group) {
-      params.append("table_group", request.table_group);
+    if (request.tableGroup) {
+      params.append("table_group", request.tableGroup);
     }
     if (request.shard) {
       params.append("shard", request.shard);
     }
     const query = params.toString();
     return this.fetch<GetBackupJobStatusResponse>(
-      `/api/v1/jobs/${encodeURIComponent(request.job_id)}${query ? `?${query}` : ""}`,
+      `/api/v1/jobs/${encodeURIComponent(request.jobId)}${query ? `?${query}` : ""}`,
     );
   }
 
@@ -183,8 +182,8 @@ export class MultiAdminClient {
     if (request?.database) {
       params.append("database", request.database);
     }
-    if (request?.table_group) {
-      params.append("table_group", request.table_group);
+    if (request?.tableGroup) {
+      params.append("table_group", request.tableGroup);
     }
     if (request?.shard) {
       params.append("shard", request.shard);
@@ -200,7 +199,10 @@ export class MultiAdminClient {
 
   // Pooler Status operations
 
-  async getPoolerStatus(poolerId: ID): Promise<GetPoolerStatusResponse> {
+  async getPoolerStatus(poolerId: {
+    cell: string;
+    name: string;
+  }): Promise<GetPoolerStatusResponse> {
     return this.fetch<GetPoolerStatusResponse>(
       `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`,
     );
@@ -209,7 +211,7 @@ export class MultiAdminClient {
   // Gateway diagnostics
 
   async getGatewayQueries(
-    gatewayId: ID,
+    gatewayId: { cell: string; name: string },
     options?: { limit?: number; minCalls?: number },
   ): Promise<GetGatewayQueriesResponse> {
     const params = new URLSearchParams();
@@ -222,9 +224,10 @@ export class MultiAdminClient {
     );
   }
 
-  async getGatewayConsolidator(
-    gatewayId: ID,
-  ): Promise<GetGatewayConsolidatorResponse> {
+  async getGatewayConsolidator(gatewayId: {
+    cell: string;
+    name: string;
+  }): Promise<GetGatewayConsolidatorResponse> {
     return this.fetch<GetGatewayConsolidatorResponse>(
       `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/consolidator`,
     );

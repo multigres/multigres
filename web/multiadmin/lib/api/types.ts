@@ -1,7 +1,7 @@
 // Re-exports from generated proto types. Do not edit manually — regenerate with: make proto
 
 // Multiadmin service API types: requests, responses, enums
-export * from "./generated/multiadminservice.generated";
+export * from "./generated/multiadminservice_pb.js";
 
 // Cluster topology types
 export type {
@@ -13,12 +13,12 @@ export type {
   MultiOrch,
   ConsensusStatus,
   AvailabilityStatus,
-} from "./generated/clustermetadata.generated";
+} from "./generated/clustermetadata_pb.js";
 export {
   ID_ComponentType,
   PoolerType,
   PoolerServingStatus,
-} from "./generated/clustermetadata.generated";
+} from "./generated/clustermetadata_pb.js";
 
 // Gateway diagnostics types
 export type {
@@ -26,7 +26,7 @@ export type {
   QueryRegistrySnapshot,
   ConsolidatorStats,
   ConsolidatorPreparedStatement,
-} from "./generated/multigatewaymanagerdata.generated";
+} from "./generated/multigatewaymanagerdata_pb.js";
 
 // Pooler status types (proxied through GetPoolerStatusResponse)
 export type {
@@ -35,15 +35,17 @@ export type {
   StandbyReplicationStatus,
   SynchronousReplicationConfiguration,
   PrimaryConnInfo,
-} from "./generated/multipoolermanagerdata.generated";
+} from "./generated/multipoolermanagerdata_pb.js";
 export {
   PostgresStatus,
   PostgresAction,
-} from "./generated/multipoolermanagerdata.generated";
+} from "./generated/multipoolermanagerdata_pb.js";
 
-// Enriched pooler combining topology metadata with live status (not a proto type)
-import type { MultiPooler } from "./generated/clustermetadata.generated";
-import type { Status } from "./generated/multipoolermanagerdata.generated";
-export interface MultiPoolerWithStatus extends MultiPooler {
-  status?: Status;
+// Enriched pooler combining topology metadata with live status (not a proto type).
+// Uses PlainMessage<MultiPooler> so plain objects from JSON parsing satisfy this type.
+import type { PlainMessage } from "@bufbuild/protobuf";
+import type { MultiPooler } from "./generated/clustermetadata_pb.js";
+import type { Status } from "./generated/multipoolermanagerdata_pb.js";
+export interface MultiPoolerWithStatus extends PlainMessage<MultiPooler> {
+  status?: PlainMessage<Status>;
 }

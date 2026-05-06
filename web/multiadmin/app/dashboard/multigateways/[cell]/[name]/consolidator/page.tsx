@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/lib/api/context";
-import { ID_ComponentType } from "@/lib/api/types";
 import type { ConsolidatorStats } from "@/lib/api/types";
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -39,7 +38,6 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
     async function load() {
       try {
         const { stats } = await api.getGatewayConsolidator({
-          component: ID_ComponentType.MULTIGATEWAY,
           cell: cellName,
           name: gatewayName,
         });
@@ -67,7 +65,7 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
   }, [api, cellName, gatewayName]);
 
   const filteredStatements = useMemo(() => {
-    const all = stats?.prepared_statements || [];
+    const all = stats?.preparedStatements || [];
     if (!filter.trim()) return all;
     const q = filter.toLowerCase();
     return all.filter(
@@ -110,13 +108,13 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
           <div className="px-4 lg:px-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <SummaryCard
               label="Unique statements"
-              value={stats.unique_statements}
+              value={stats.uniqueStatements}
             />
             <SummaryCard
               label="Total references"
-              value={stats.total_references}
+              value={stats.totalReferences}
             />
-            <SummaryCard label="Connections" value={stats.connection_count} />
+            <SummaryCard label="Connections" value={stats.connectionCount} />
           </div>
 
           <div className="px-4 lg:px-6">
