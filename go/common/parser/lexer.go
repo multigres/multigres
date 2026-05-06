@@ -1789,6 +1789,14 @@ func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 
+	// Reject identifier-continuation chars immediately after the radix body.
+	// Upstream emits this via the {hexinteger}{identifier} junk pattern at
+	// scan.l:1066, so e.g. `0x0o` errors instead of tokenizing as `0x0` AS `o`.
+	if err := l.checkTrailingJunk(); err != nil {
+		text := l.context.GetCurrentText(startScanPos)
+		return NewStringToken(ICONST, text, startPos, text), nil //nolint:nilerr // Error is collected via context, not returned
+	}
+
 	text := l.context.GetCurrentText(startScanPos)
 	return l.processIntegerLiteral(text, startPos), nil
 }

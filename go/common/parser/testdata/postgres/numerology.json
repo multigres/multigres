@@ -121,7 +121,7 @@
   {
     "comment": "numerology - Statement 29",
     "query": "SELECT 0x0o",
-    "expected": "SELECT 0 AS o"
+    "error": "trailing junk after numeric literal"
   },
   {
     "comment": "numerology - Statement 30",
@@ -171,7 +171,7 @@
   {
     "comment": "numerology - Statement 39",
     "query": "SELECT 0b0x",
-    "expected": "SELECT 0 AS x"
+    "error": "trailing junk after numeric literal"
   },
   {
     "comment": "numerology - Statement 40",
@@ -186,7 +186,7 @@
   {
     "comment": "numerology - Statement 42",
     "query": "SELECT 0o0x",
-    "expected": "SELECT 0 AS x"
+    "error": "trailing junk after numeric literal"
   },
   {
     "comment": "numerology - Statement 43",
@@ -201,7 +201,7 @@
   {
     "comment": "numerology - Statement 45",
     "query": "SELECT 0x0y",
-    "expected": "SELECT 0 AS y"
+    "error": "trailing junk after numeric literal"
   },
   {
     "comment": "numerology - Statement 46",
