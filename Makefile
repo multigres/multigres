@@ -87,6 +87,8 @@ pb: $(PROTO_SRCS)
 	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
+	--plugin=$(MTROOT)/bin/protoc-gen-connect-go --connect-go_out=. \
+	--connect-go_opt=module=github.com/multigres/multigres \
 	--plugin=$(MTROOT)/bin/protoc-gen-grpc-gateway --grpc-gateway_out=. \
 	--grpc-gateway_opt=logtostderr=true \
 	--grpc-gateway_opt=generate_unbound_methods=true \
