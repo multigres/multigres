@@ -397,8 +397,17 @@ func (l *Lexer) scanEscapeSequence() error {
 		return l.scanUnicodeEscape(8)
 	default:
 		if ch >= '0' && ch <= '7' {
-			// Octal escape \nnn - postgres/src/backend/parser/scan.l:278
-			ctx.SetScanPos(ctx.ScanPos() - 1) // Back up to reprocess first octal digit
+			// Octal escape \nnn - postgres/src/backend/parser/scan.l:278.
+			// Rewind both scanPos and the tracked currentPosition/column so
+			// scanOctalEscape sees the first digit at the right offset and
+			// downstream error positions stay accurate. The digit is ASCII,
+			// so a single-byte / single-column rewind is sufficient.
+			ctx.SetScanPos(ctx.ScanPos() - 1)
+			pos, line, col := ctx.GetCurrentPosition()
+			if col > 1 {
+				col--
+			}
+			ctx.SetCurrentPosition(pos-1, line, col)
 			return l.scanOctalEscape()
 		} else {
 			// Literal character after backslash
