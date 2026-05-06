@@ -1151,12 +1151,12 @@
   {
     "comment": "xml - Statement 243",
     "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes \u003c\u003e '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)) as proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/proc' PASSING proc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
-    "expected": "SELECT * FROM z EXCEPT SELECT * FROM x"
+    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes \u003c\u003e '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)) AS proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/proc' PASSING proc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
     "comment": "xml - Statement 244",
     "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes \u003c\u003e '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc), y AS (SELECT xmlelement(name data, xmlagg(xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)))) as doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
-    "expected": "SELECT * FROM z EXCEPT SELECT * FROM x"
+    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes \u003c\u003e '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc), y AS (SELECT XMLELEMENT(NAME data, xmlagg(XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)))) AS doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
     "comment": "xml - Statement 245",
