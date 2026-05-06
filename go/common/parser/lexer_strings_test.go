@@ -291,6 +291,15 @@ func TestBitStrings(t *testing.T) {
 			tokenType: BCONST,
 		},
 		{
+			// Multi-byte UTF-8 chars must advance by their full rune length;
+			// stripping only one byte would leave continuation bytes to be
+			// re-read as garbled replacement characters.
+			name:      "Bit string with multi-byte UTF-8 char preserved",
+			input:     "B'10\xe4\xb8\xad01'",
+			expected:  "b10\xe4\xb8\xad01",
+			tokenType: BCONST,
+		},
+		{
 			name:      "Case insensitive B prefix",
 			input:     "b'101010'",
 			expected:  "b101010",
@@ -337,6 +346,13 @@ func TestHexStrings(t *testing.T) {
 			name:      "Hex string with whitespace preserved verbatim",
 			input:     "X'dead beef'",
 			expected:  "xdead beef",
+			tokenType: XCONST,
+		},
+		{
+			// Multi-byte UTF-8 chars must advance by their full rune length.
+			name:      "Hex string with multi-byte UTF-8 char preserved",
+			input:     "X'de\xe4\xb8\xadad'",
+			expected:  "xde\xe4\xb8\xadad",
 			tokenType: XCONST,
 		},
 		{

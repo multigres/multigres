@@ -692,7 +692,12 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 			break
 		}
 		ctx.AddLiteral(string(ch))
-		ctx.AdvanceBy(1)
+		runeSize := utf8.RuneLen(ch)
+		if runeSize > 0 {
+			ctx.AdvanceBy(runeSize)
+		} else {
+			ctx.AdvanceBy(1)
+		}
 	}
 
 	if !foundClosingQuote {
@@ -736,7 +741,12 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 			break
 		}
 		ctx.AddLiteral(string(ch))
-		ctx.AdvanceBy(1)
+		runeSize := utf8.RuneLen(ch)
+		if runeSize > 0 {
+			ctx.AdvanceBy(runeSize)
+		} else {
+			ctx.AdvanceBy(1)
+		}
 	}
 
 	if !foundClosingQuote {
