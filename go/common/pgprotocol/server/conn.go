@@ -116,6 +116,14 @@ type Conn struct {
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool
 
+	// tlsHandshakeComplete is set true once handleSSLRequest has accepted
+	// SSL ('S') AND the TLS handshake has finished — i.e., c.conn has been
+	// reassigned to the *tls.Conn. Used during the auth-timeout error path
+	// to decide whether plaintext writes are still intelligible to the
+	// client. Tracking this explicitly (rather than type-asserting c.conn)
+	// keeps the check robust if c.conn is ever wrapped in instrumentation.
+	tlsHandshakeComplete bool
+
 	// gssDone indicates that a GSSENCRequest has already been handled
 	// for this connection. Prevents double negotiation.
 	gssDone bool
@@ -550,10 +558,8 @@ func (c *Conn) serve() error {
 			// other startup states (raw plaintext or fully upgraded
 			// TLS) the write is intelligible to the client.
 			canReplyCleanly := true
-			if c.sslDone && c.tlsConfig != nil {
-				if _, isTLS := c.conn.(*tls.Conn); !isTLS {
-					canReplyCleanly = false
-				}
+			if c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete {
+				canReplyCleanly = false
 			}
 			if canReplyCleanly {
 				// Brief grace window: long enough to flush the error

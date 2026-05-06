@@ -131,6 +131,7 @@ func (c *Conn) handleSSLRequest() error {
 	// through TLS.
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
+	c.tlsHandshakeComplete = true
 
 	c.logger.Info("TLS connection established",
 		"version", tlsConn.ConnectionState().Version,

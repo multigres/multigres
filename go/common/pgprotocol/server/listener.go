@@ -23,6 +23,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -277,7 +278,15 @@ func (l *Listener) handleConnection(conn *Conn) {
 
 	// Serve the connection (startup + command loop).
 	if err := conn.serve(); err != nil {
-		if !errors.Is(err, io.EOF) {
+		switch {
+		case errors.Is(err, io.EOF):
+			// Client closed cleanly — no log.
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			// Auth timeout already logged at Warn from serve()
+			// with full context (timeout, remote_addr). Skip the
+			// redundant Error log here so a stalled client doesn't
+			// produce two entries per connection.
+		default:
 			conn.logger.Error("connection error", "error", err)
 		}
 	}
