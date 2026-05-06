@@ -1,4 +1,4 @@
-// Copyright 2026 Supabase, Inc.
+// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -75,6 +75,9 @@ const (
 	// MultiPoolerManagerExpireBackupsProcedure is the fully-qualified name of the MultiPoolerManager's
 	// ExpireBackups RPC.
 	MultiPoolerManagerExpireBackupsProcedure = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
+	// MultiPoolerManagerVerifyBackupsProcedure is the fully-qualified name of the MultiPoolerManager's
+	// VerifyBackups RPC.
+	MultiPoolerManagerVerifyBackupsProcedure = "/multipoolermanager.MultiPoolerManager/VerifyBackups"
 	// MultiPoolerManagerSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
 	// MultiPoolerManager's SetPostgresRestartsEnabled RPC.
 	MultiPoolerManagerSetPostgresRestartsEnabledProcedure = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
@@ -106,6 +109,9 @@ type MultiPoolerManagerClient interface {
 	GetBackupByJobId(context.Context, *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error)
 	// ExpireBackups removes backups that exceed the configured retention policy.
 	ExpireBackups(context.Context, *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error)
+	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
+	// a periodic backup-integrity check; not scoped to any single backup.
+	VerifyBackups(context.Context, *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -193,6 +199,12 @@ func NewMultiPoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multiPoolerManagerMethods.ByName("ExpireBackups")),
 			connect.WithClientOptions(opts...),
 		),
+		verifyBackups: connect.NewClient[multipoolermanagerdata.VerifyBackupsRequest, multipoolermanagerdata.VerifyBackupsResponse](
+			httpClient,
+			baseURL+MultiPoolerManagerVerifyBackupsProcedure,
+			connect.WithSchema(multiPoolerManagerMethods.ByName("VerifyBackups")),
+			connect.WithClientOptions(opts...),
+		),
 		setPostgresRestartsEnabled: connect.NewClient[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse](
 			httpClient,
 			baseURL+MultiPoolerManagerSetPostgresRestartsEnabledProcedure,
@@ -219,6 +231,7 @@ type multiPoolerManagerClient struct {
 	getBackups                 *connect.Client[multipoolermanagerdata.GetBackupsRequest, multipoolermanagerdata.GetBackupsResponse]
 	getBackupByJobId           *connect.Client[multipoolermanagerdata.GetBackupByJobIdRequest, multipoolermanagerdata.GetBackupByJobIdResponse]
 	expireBackups              *connect.Client[multipoolermanagerdata.ExpireBackupsRequest, multipoolermanagerdata.ExpireBackupsResponse]
+	verifyBackups              *connect.Client[multipoolermanagerdata.VerifyBackupsRequest, multipoolermanagerdata.VerifyBackupsResponse]
 	setPostgresRestartsEnabled *connect.Client[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
@@ -268,6 +281,11 @@ func (c *multiPoolerManagerClient) ExpireBackups(ctx context.Context, req *conne
 	return c.expireBackups.CallUnary(ctx, req)
 }
 
+// VerifyBackups calls multipoolermanager.MultiPoolerManager.VerifyBackups.
+func (c *multiPoolerManagerClient) VerifyBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
+	return c.verifyBackups.CallUnary(ctx, req)
+}
+
 // SetPostgresRestartsEnabled calls
 // multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled.
 func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
@@ -303,6 +321,9 @@ type MultiPoolerManagerHandler interface {
 	GetBackupByJobId(context.Context, *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error)
 	// ExpireBackups removes backups that exceed the configured retention policy.
 	ExpireBackups(context.Context, *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error)
+	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
+	// a periodic backup-integrity check; not scoped to any single backup.
+	VerifyBackups(context.Context, *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -386,6 +407,12 @@ func NewMultiPoolerManagerHandler(svc MultiPoolerManagerHandler, opts ...connect
 		connect.WithSchema(multiPoolerManagerMethods.ByName("ExpireBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiPoolerManagerVerifyBackupsHandler := connect.NewUnaryHandler(
+		MultiPoolerManagerVerifyBackupsProcedure,
+		svc.VerifyBackups,
+		connect.WithSchema(multiPoolerManagerMethods.ByName("VerifyBackups")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiPoolerManagerSetPostgresRestartsEnabledHandler := connect.NewUnaryHandler(
 		MultiPoolerManagerSetPostgresRestartsEnabledProcedure,
 		svc.SetPostgresRestartsEnabled,
@@ -418,6 +445,8 @@ func NewMultiPoolerManagerHandler(svc MultiPoolerManagerHandler, opts ...connect
 			multiPoolerManagerGetBackupByJobIdHandler.ServeHTTP(w, r)
 		case MultiPoolerManagerExpireBackupsProcedure:
 			multiPoolerManagerExpireBackupsHandler.ServeHTTP(w, r)
+		case MultiPoolerManagerVerifyBackupsProcedure:
+			multiPoolerManagerVerifyBackupsHandler.ServeHTTP(w, r)
 		case MultiPoolerManagerSetPostgresRestartsEnabledProcedure:
 			multiPoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
 		case MultiPoolerManagerManagerHealthStreamProcedure:
@@ -465,6 +494,10 @@ func (UnimplementedMultiPoolerManagerHandler) GetBackupByJobId(context.Context, 
 
 func (UnimplementedMultiPoolerManagerHandler) ExpireBackups(context.Context, *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.ExpireBackups is not implemented"))
+}
+
+func (UnimplementedMultiPoolerManagerHandler) VerifyBackups(context.Context, *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.VerifyBackups is not implemented"))
 }
 
 func (UnimplementedMultiPoolerManagerHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {

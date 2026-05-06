@@ -19,16 +19,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
-	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -115,25 +113,16 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 	}
 
 	ma.senv.OnRun(func() {
-		// Register multiadmin gRPC and HTTP API services if enabled in service map
+		// Register multiadmin gRPC and Connect API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
 			ma.adminServer = NewMultiAdminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
-			// Set up grpc-gateway for REST API
-			gwmux := runtime.NewServeMux(
-				runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
-					MarshalOptions:   protojson.MarshalOptions{EmitUnpopulated: true, UseProtoNames: true},
-					UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: true},
-				}),
+			connectPath, connectHandler := multiadminconnect.NewMultiAdminServiceHandler(
+				&connectAdapter{ma.adminServer},
 			)
-			// NOTE: The ctx parameter to the generated method here is unused.
-			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(ctx, gwmux, ma.adminServer); err != nil {
-				logger.ErrorContext(ctx, "failed to register grpc-gateway handler", "error", err)
-			} else {
-				ma.senv.HTTPHandle("/api/", gwmux)
-				logger.InfoContext(ctx, "MultiAdmin gRPC and HTTP API services registered")
-			}
+			ma.senv.HTTPHandle(connectPath, connectHandler)
+			logger.InfoContext(ctx, "MultiAdmin gRPC and Connect API services registered")
 		}
 	})
 

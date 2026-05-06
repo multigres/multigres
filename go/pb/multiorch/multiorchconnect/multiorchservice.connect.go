@@ -62,6 +62,9 @@ const (
 	// MultiOrchServiceTriggerRecoveryNowProcedure is the fully-qualified name of the MultiOrchService's
 	// TriggerRecoveryNow RPC.
 	MultiOrchServiceTriggerRecoveryNowProcedure = "/multiorch.MultiOrchService/TriggerRecoveryNow"
+	// MultiOrchServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
+	// MultiOrchService's ApplyCertifiedRuleChange RPC.
+	MultiOrchServiceApplyCertifiedRuleChangeProcedure = "/multiorch.MultiOrchService/ApplyCertifiedRuleChange"
 )
 
 // MultiOrchServiceClient is a client for the multiorch.MultiOrchService service.
@@ -86,6 +89,12 @@ type MultiOrchServiceClient interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(context.Context, *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0): the caller supplies the proposed
+	// leader, cohort, and durability policy, plus a cert that attests to which
+	// outgoing rule and WAL position the absent cohort members are frozen at.
+	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
 }
 
 // NewMultiOrchServiceClient constructs a client for the multiorch.MultiOrchService service. By
@@ -129,16 +138,23 @@ func NewMultiOrchServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(multiOrchServiceMethods.ByName("TriggerRecoveryNow")),
 			connect.WithClientOptions(opts...),
 		),
+		applyCertifiedRuleChange: connect.NewClient[multiorch.ApplyCertifiedRuleChangeRequest, multiorch.ApplyCertifiedRuleChangeResponse](
+			httpClient,
+			baseURL+MultiOrchServiceApplyCertifiedRuleChangeProcedure,
+			connect.WithSchema(multiOrchServiceMethods.ByName("ApplyCertifiedRuleChange")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // multiOrchServiceClient implements MultiOrchServiceClient.
 type multiOrchServiceClient struct {
-	getShardStatus     *connect.Client[multiorch.ShardStatusRequest, multiorch.ShardStatusResponse]
-	disableRecovery    *connect.Client[multiorch.DisableRecoveryRequest, multiorch.DisableRecoveryResponse]
-	enableRecovery     *connect.Client[multiorch.EnableRecoveryRequest, multiorch.EnableRecoveryResponse]
-	getRecoveryStatus  *connect.Client[multiorch.GetRecoveryStatusRequest, multiorch.GetRecoveryStatusResponse]
-	triggerRecoveryNow *connect.Client[multiorch.TriggerRecoveryNowRequest, multiorch.TriggerRecoveryNowResponse]
+	getShardStatus           *connect.Client[multiorch.ShardStatusRequest, multiorch.ShardStatusResponse]
+	disableRecovery          *connect.Client[multiorch.DisableRecoveryRequest, multiorch.DisableRecoveryResponse]
+	enableRecovery           *connect.Client[multiorch.EnableRecoveryRequest, multiorch.EnableRecoveryResponse]
+	getRecoveryStatus        *connect.Client[multiorch.GetRecoveryStatusRequest, multiorch.GetRecoveryStatusResponse]
+	triggerRecoveryNow       *connect.Client[multiorch.TriggerRecoveryNowRequest, multiorch.TriggerRecoveryNowResponse]
+	applyCertifiedRuleChange *connect.Client[multiorch.ApplyCertifiedRuleChangeRequest, multiorch.ApplyCertifiedRuleChangeResponse]
 }
 
 // GetShardStatus calls multiorch.MultiOrchService.GetShardStatus.
@@ -166,6 +182,11 @@ func (c *multiOrchServiceClient) TriggerRecoveryNow(ctx context.Context, req *co
 	return c.triggerRecoveryNow.CallUnary(ctx, req)
 }
 
+// ApplyCertifiedRuleChange calls multiorch.MultiOrchService.ApplyCertifiedRuleChange.
+func (c *multiOrchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
+	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
+}
+
 // MultiOrchServiceHandler is an implementation of the multiorch.MultiOrchService service.
 type MultiOrchServiceHandler interface {
 	// GetShardStatus returns diagnostic information for a specific shard
@@ -188,6 +209,12 @@ type MultiOrchServiceHandler interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(context.Context, *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0): the caller supplies the proposed
+	// leader, cohort, and durability policy, plus a cert that attests to which
+	// outgoing rule and WAL position the absent cohort members are frozen at.
+	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
 }
 
 // NewMultiOrchServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -227,6 +254,12 @@ func NewMultiOrchServiceHandler(svc MultiOrchServiceHandler, opts ...connect.Han
 		connect.WithSchema(multiOrchServiceMethods.ByName("TriggerRecoveryNow")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiOrchServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
+		MultiOrchServiceApplyCertifiedRuleChangeProcedure,
+		svc.ApplyCertifiedRuleChange,
+		connect.WithSchema(multiOrchServiceMethods.ByName("ApplyCertifiedRuleChange")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiorch.MultiOrchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiOrchServiceGetShardStatusProcedure:
@@ -239,6 +272,8 @@ func NewMultiOrchServiceHandler(svc MultiOrchServiceHandler, opts ...connect.Han
 			multiOrchServiceGetRecoveryStatusHandler.ServeHTTP(w, r)
 		case MultiOrchServiceTriggerRecoveryNowProcedure:
 			multiOrchServiceTriggerRecoveryNowHandler.ServeHTTP(w, r)
+		case MultiOrchServiceApplyCertifiedRuleChangeProcedure:
+			multiOrchServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -266,4 +301,8 @@ func (UnimplementedMultiOrchServiceHandler) GetRecoveryStatus(context.Context, *
 
 func (UnimplementedMultiOrchServiceHandler) TriggerRecoveryNow(context.Context, *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.TriggerRecoveryNow is not implemented"))
+}
+
+func (UnimplementedMultiOrchServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.ApplyCertifiedRuleChange is not implemented"))
 }

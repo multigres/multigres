@@ -1,4 +1,4 @@
-// Copyright 2026 Supabase, Inc.
+// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -83,6 +83,9 @@ const (
 	// MultiAdminServiceExpireBackupsProcedure is the fully-qualified name of the MultiAdminService's
 	// ExpireBackups RPC.
 	MultiAdminServiceExpireBackupsProcedure = "/multiadmin.MultiAdminService/ExpireBackups"
+	// MultiAdminServiceVerifyBackupsProcedure is the fully-qualified name of the MultiAdminService's
+	// VerifyBackups RPC.
+	MultiAdminServiceVerifyBackupsProcedure = "/multiadmin.MultiAdminService/VerifyBackups"
 	// MultiAdminServiceGetPoolerStatusProcedure is the fully-qualified name of the MultiAdminService's
 	// GetPoolerStatus RPC.
 	MultiAdminServiceGetPoolerStatusProcedure = "/multiadmin.MultiAdminService/GetPoolerStatus"
@@ -95,6 +98,9 @@ const (
 	// MultiAdminServiceGetGatewayConsolidatorProcedure is the fully-qualified name of the
 	// MultiAdminService's GetGatewayConsolidator RPC.
 	MultiAdminServiceGetGatewayConsolidatorProcedure = "/multiadmin.MultiAdminService/GetGatewayConsolidator"
+	// MultiAdminServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
+	// MultiAdminService's ApplyCertifiedRuleChange RPC.
+	MultiAdminServiceApplyCertifiedRuleChangeProcedure = "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange"
 )
 
 // MultiAdminServiceClient is a client for the multiadmin.MultiAdminService service.
@@ -123,6 +129,8 @@ type MultiAdminServiceClient interface {
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
+	// VerifyBackups runs pgbackrest verify for a shard.
+	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
@@ -137,6 +145,15 @@ type MultiAdminServiceClient interface {
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0).
+	//
+	// The cert is either supplied explicitly by the caller or, if
+	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
+	// the proposed cohort. Multiadmin then forwards the request to the shard's
+	// multiorch.
+	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 }
 
 // NewMultiAdminServiceClient constructs a client for the multiadmin.MultiAdminService service. By
@@ -222,6 +239,12 @@ func NewMultiAdminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiAdminServiceMethods.ByName("ExpireBackups")),
 			connect.WithClientOptions(opts...),
 		),
+		verifyBackups: connect.NewClient[multiadmin.VerifyBackupsRequest, multiadmin.VerifyBackupsResponse](
+			httpClient,
+			baseURL+MultiAdminServiceVerifyBackupsProcedure,
+			connect.WithSchema(multiAdminServiceMethods.ByName("VerifyBackups")),
+			connect.WithClientOptions(opts...),
+		),
 		getPoolerStatus: connect.NewClient[multiadmin.GetPoolerStatusRequest, multiadmin.GetPoolerStatusResponse](
 			httpClient,
 			baseURL+MultiAdminServiceGetPoolerStatusProcedure,
@@ -246,6 +269,12 @@ func NewMultiAdminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayConsolidator")),
 			connect.WithClientOptions(opts...),
 		),
+		applyCertifiedRuleChange: connect.NewClient[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse](
+			httpClient,
+			baseURL+MultiAdminServiceApplyCertifiedRuleChangeProcedure,
+			connect.WithSchema(multiAdminServiceMethods.ByName("ApplyCertifiedRuleChange")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -263,10 +292,12 @@ type multiAdminServiceClient struct {
 	getBackupJobStatus         *connect.Client[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse]
 	getBackups                 *connect.Client[multiadmin.GetBackupsRequest, multiadmin.GetBackupsResponse]
 	expireBackups              *connect.Client[multiadmin.ExpireBackupsRequest, multiadmin.ExpireBackupsResponse]
+	verifyBackups              *connect.Client[multiadmin.VerifyBackupsRequest, multiadmin.VerifyBackupsResponse]
 	getPoolerStatus            *connect.Client[multiadmin.GetPoolerStatusRequest, multiadmin.GetPoolerStatusResponse]
 	setPostgresRestartsEnabled *connect.Client[multiadmin.SetPostgresRestartsEnabledRequest, multiadmin.SetPostgresRestartsEnabledResponse]
 	getGatewayQueries          *connect.Client[multiadmin.GetGatewayQueriesRequest, multiadmin.GetGatewayQueriesResponse]
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
+	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 }
 
 // GetCell calls multiadmin.MultiAdminService.GetCell.
@@ -329,6 +360,11 @@ func (c *multiAdminServiceClient) ExpireBackups(ctx context.Context, req *connec
 	return c.expireBackups.CallUnary(ctx, req)
 }
 
+// VerifyBackups calls multiadmin.MultiAdminService.VerifyBackups.
+func (c *multiAdminServiceClient) VerifyBackups(ctx context.Context, req *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
+	return c.verifyBackups.CallUnary(ctx, req)
+}
+
 // GetPoolerStatus calls multiadmin.MultiAdminService.GetPoolerStatus.
 func (c *multiAdminServiceClient) GetPoolerStatus(ctx context.Context, req *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
 	return c.getPoolerStatus.CallUnary(ctx, req)
@@ -347,6 +383,11 @@ func (c *multiAdminServiceClient) GetGatewayQueries(ctx context.Context, req *co
 // GetGatewayConsolidator calls multiadmin.MultiAdminService.GetGatewayConsolidator.
 func (c *multiAdminServiceClient) GetGatewayConsolidator(ctx context.Context, req *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
 	return c.getGatewayConsolidator.CallUnary(ctx, req)
+}
+
+// ApplyCertifiedRuleChange calls multiadmin.MultiAdminService.ApplyCertifiedRuleChange.
+func (c *multiAdminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
+	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
 // MultiAdminServiceHandler is an implementation of the multiadmin.MultiAdminService service.
@@ -375,6 +416,8 @@ type MultiAdminServiceHandler interface {
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
+	// VerifyBackups runs pgbackrest verify for a shard.
+	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
@@ -389,6 +432,15 @@ type MultiAdminServiceHandler interface {
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0).
+	//
+	// The cert is either supplied explicitly by the caller or, if
+	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
+	// the proposed cohort. Multiadmin then forwards the request to the shard's
+	// multiorch.
+	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 }
 
 // NewMultiAdminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -470,6 +522,12 @@ func NewMultiAdminServiceHandler(svc MultiAdminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiAdminServiceMethods.ByName("ExpireBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiAdminServiceVerifyBackupsHandler := connect.NewUnaryHandler(
+		MultiAdminServiceVerifyBackupsProcedure,
+		svc.VerifyBackups,
+		connect.WithSchema(multiAdminServiceMethods.ByName("VerifyBackups")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiAdminServiceGetPoolerStatusHandler := connect.NewUnaryHandler(
 		MultiAdminServiceGetPoolerStatusProcedure,
 		svc.GetPoolerStatus,
@@ -492,6 +550,12 @@ func NewMultiAdminServiceHandler(svc MultiAdminServiceHandler, opts ...connect.H
 		MultiAdminServiceGetGatewayConsolidatorProcedure,
 		svc.GetGatewayConsolidator,
 		connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayConsolidator")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiAdminServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
+		MultiAdminServiceApplyCertifiedRuleChangeProcedure,
+		svc.ApplyCertifiedRuleChange,
+		connect.WithSchema(multiAdminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/multiadmin.MultiAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +584,8 @@ func NewMultiAdminServiceHandler(svc MultiAdminServiceHandler, opts ...connect.H
 			multiAdminServiceGetBackupsHandler.ServeHTTP(w, r)
 		case MultiAdminServiceExpireBackupsProcedure:
 			multiAdminServiceExpireBackupsHandler.ServeHTTP(w, r)
+		case MultiAdminServiceVerifyBackupsProcedure:
+			multiAdminServiceVerifyBackupsHandler.ServeHTTP(w, r)
 		case MultiAdminServiceGetPoolerStatusProcedure:
 			multiAdminServiceGetPoolerStatusHandler.ServeHTTP(w, r)
 		case MultiAdminServiceSetPostgresRestartsEnabledProcedure:
@@ -528,6 +594,8 @@ func NewMultiAdminServiceHandler(svc MultiAdminServiceHandler, opts ...connect.H
 			multiAdminServiceGetGatewayQueriesHandler.ServeHTTP(w, r)
 		case MultiAdminServiceGetGatewayConsolidatorProcedure:
 			multiAdminServiceGetGatewayConsolidatorHandler.ServeHTTP(w, r)
+		case MultiAdminServiceApplyCertifiedRuleChangeProcedure:
+			multiAdminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -585,6 +653,10 @@ func (UnimplementedMultiAdminServiceHandler) ExpireBackups(context.Context, *con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.ExpireBackups is not implemented"))
 }
 
+func (UnimplementedMultiAdminServiceHandler) VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.VerifyBackups is not implemented"))
+}
+
 func (UnimplementedMultiAdminServiceHandler) GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetPoolerStatus is not implemented"))
 }
@@ -599,4 +671,8 @@ func (UnimplementedMultiAdminServiceHandler) GetGatewayQueries(context.Context, 
 
 func (UnimplementedMultiAdminServiceHandler) GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetGatewayConsolidator is not implemented"))
+}
+
+func (UnimplementedMultiAdminServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.ApplyCertifiedRuleChange is not implemented"))
 }

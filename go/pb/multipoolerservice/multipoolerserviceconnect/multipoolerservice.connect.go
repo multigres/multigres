@@ -1,5 +1,5 @@
 //
-//Copyright 2026 Supabase, Inc.
+//Copyright 2025 Supabase, Inc.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -67,6 +67,9 @@ const (
 	// MultiPoolerServiceCopyBidiExecuteProcedure is the fully-qualified name of the
 	// MultiPoolerService's CopyBidiExecute RPC.
 	MultiPoolerServiceCopyBidiExecuteProcedure = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
+	// MultiPoolerServiceStreamReplicationProcedure is the fully-qualified name of the
+	// MultiPoolerService's StreamReplication RPC.
+	MultiPoolerServiceStreamReplicationProcedure = "/multipoolerservice.MultiPoolerService/StreamReplication"
 	// MultiPoolerServiceConcludeTransactionProcedure is the fully-qualified name of the
 	// MultiPoolerService's ConcludeTransaction RPC.
 	MultiPoolerServiceConcludeTransactionProcedure = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
@@ -109,6 +112,11 @@ type MultiPoolerServiceClient interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(context.Context) *connect.BidiStreamForClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]
+	// StreamReplication tunnels the raw PostgreSQL replication wire protocol as
+	// opaque bytes between the gateway and a pinned replication=database backend.
+	// The pooler does not interpret the replication sub-protocol; bytes flow
+	// verbatim in both directions. Used for logical replication (Realtime).
+	StreamReplication(context.Context) *connect.BidiStreamForClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]
 	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
@@ -190,6 +198,12 @@ func NewMultiPoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multiPoolerServiceMethods.ByName("CopyBidiExecute")),
 			connect.WithClientOptions(opts...),
 		),
+		streamReplication: connect.NewClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse](
+			httpClient,
+			baseURL+MultiPoolerServiceStreamReplicationProcedure,
+			connect.WithSchema(multiPoolerServiceMethods.ByName("StreamReplication")),
+			connect.WithClientOptions(opts...),
+		),
 		concludeTransaction: connect.NewClient[multipoolerservice.ConcludeTransactionRequest, multipoolerservice.ConcludeTransactionResponse](
 			httpClient,
 			baseURL+MultiPoolerServiceConcludeTransactionProcedure,
@@ -231,6 +245,7 @@ type multiPoolerServiceClient struct {
 	describe                  *connect.Client[multipoolerservice.DescribeRequest, multipoolerservice.DescribeResponse]
 	getAuthCredentials        *connect.Client[multipoolerservice.GetAuthCredentialsRequest, multipoolerservice.GetAuthCredentialsResponse]
 	copyBidiExecute           *connect.Client[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]
+	streamReplication         *connect.Client[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]
 	concludeTransaction       *connect.Client[multipoolerservice.ConcludeTransactionRequest, multipoolerservice.ConcludeTransactionResponse]
 	discardTempTables         *connect.Client[multipoolerservice.DiscardTempTablesRequest, multipoolerservice.DiscardTempTablesResponse]
 	releaseReservedConnection *connect.Client[multipoolerservice.ReleaseReservedConnectionRequest, multipoolerservice.ReleaseReservedConnectionResponse]
@@ -266,6 +281,11 @@ func (c *multiPoolerServiceClient) GetAuthCredentials(ctx context.Context, req *
 // CopyBidiExecute calls multipoolerservice.MultiPoolerService.CopyBidiExecute.
 func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] {
 	return c.copyBidiExecute.CallBidiStream(ctx)
+}
+
+// StreamReplication calls multipoolerservice.MultiPoolerService.StreamReplication.
+func (c *multiPoolerServiceClient) StreamReplication(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse] {
+	return c.streamReplication.CallBidiStream(ctx)
 }
 
 // ConcludeTransaction calls multipoolerservice.MultiPoolerService.ConcludeTransaction.
@@ -319,6 +339,11 @@ type MultiPoolerServiceHandler interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(context.Context, *connect.BidiStream[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]) error
+	// StreamReplication tunnels the raw PostgreSQL replication wire protocol as
+	// opaque bytes between the gateway and a pinned replication=database backend.
+	// The pooler does not interpret the replication sub-protocol; bytes flow
+	// verbatim in both directions. Used for logical replication (Realtime).
+	StreamReplication(context.Context, *connect.BidiStream[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]) error
 	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
@@ -396,6 +421,12 @@ func NewMultiPoolerServiceHandler(svc MultiPoolerServiceHandler, opts ...connect
 		connect.WithSchema(multiPoolerServiceMethods.ByName("CopyBidiExecute")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiPoolerServiceStreamReplicationHandler := connect.NewBidiStreamHandler(
+		MultiPoolerServiceStreamReplicationProcedure,
+		svc.StreamReplication,
+		connect.WithSchema(multiPoolerServiceMethods.ByName("StreamReplication")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiPoolerServiceConcludeTransactionHandler := connect.NewUnaryHandler(
 		MultiPoolerServiceConcludeTransactionProcedure,
 		svc.ConcludeTransaction,
@@ -440,6 +471,8 @@ func NewMultiPoolerServiceHandler(svc MultiPoolerServiceHandler, opts ...connect
 			multiPoolerServiceGetAuthCredentialsHandler.ServeHTTP(w, r)
 		case MultiPoolerServiceCopyBidiExecuteProcedure:
 			multiPoolerServiceCopyBidiExecuteHandler.ServeHTTP(w, r)
+		case MultiPoolerServiceStreamReplicationProcedure:
+			multiPoolerServiceStreamReplicationHandler.ServeHTTP(w, r)
 		case MultiPoolerServiceConcludeTransactionProcedure:
 			multiPoolerServiceConcludeTransactionHandler.ServeHTTP(w, r)
 		case MultiPoolerServiceDiscardTempTablesProcedure:
@@ -481,6 +514,10 @@ func (UnimplementedMultiPoolerServiceHandler) GetAuthCredentials(context.Context
 
 func (UnimplementedMultiPoolerServiceHandler) CopyBidiExecute(context.Context, *connect.BidiStream[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.CopyBidiExecute is not implemented"))
+}
+
+func (UnimplementedMultiPoolerServiceHandler) StreamReplication(context.Context, *connect.BidiStream[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.StreamReplication is not implemented"))
 }
 
 func (UnimplementedMultiPoolerServiceHandler) ConcludeTransaction(context.Context, *connect.Request[multipoolerservice.ConcludeTransactionRequest]) (*connect.Response[multipoolerservice.ConcludeTransactionResponse], error) {
