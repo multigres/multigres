@@ -30,46 +30,90 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 )
 
 func TestBuildPGTLSConfig(t *testing.T) {
-	t.Run("both empty returns nil", func(t *testing.T) {
-		config, err := buildPGTLSConfig("", "")
+	none := server.CertAuthModeNone
+	verifyFull := server.CertAuthModeVerifyFull
+
+	t.Run("all empty returns nil", func(t *testing.T) {
+		config, err := buildPGTLSConfig("", "", "", none)
 		require.NoError(t, err)
 		assert.Nil(t, config)
 	})
 
 	t.Run("cert without key returns error", func(t *testing.T) {
-		_, err := buildPGTLSConfig("/some/cert.pem", "")
+		_, err := buildPGTLSConfig("/some/cert.pem", "", "", none)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--pg-tls-cert-file requires --pg-tls-key-file")
 	})
 
 	t.Run("key without cert returns error", func(t *testing.T) {
-		_, err := buildPGTLSConfig("", "/some/key.pem")
+		_, err := buildPGTLSConfig("", "/some/key.pem", "", none)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--pg-tls-key-file requires --pg-tls-cert-file")
 	})
 
-	t.Run("both set with valid files", func(t *testing.T) {
+	t.Run("CA without cert/key returns error", func(t *testing.T) {
+		_, err := buildPGTLSConfig("", "", "/some/ca.pem", none)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--pg-tls-ca-file requires --pg-tls-cert-file")
+	})
+
+	t.Run("verify-full without any TLS files returns error", func(t *testing.T) {
+		_, err := buildPGTLSConfig("", "", "", verifyFull)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--pg-tls-client-auth-mode=verify-full requires")
+	})
+
+	t.Run("verify-full without CA returns error", func(t *testing.T) {
 		certFile, keyFile := generateTestCertAndKey(t)
-		config, err := buildPGTLSConfig(certFile, keyFile)
+		_, err := buildPGTLSConfig(certFile, keyFile, "", verifyFull)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires --pg-tls-ca-file")
+	})
+
+	t.Run("CA set but mode is none returns error", func(t *testing.T) {
+		certFile, keyFile := generateTestCertAndKey(t)
+		// Reuse the self-signed cert file as a stand-in CA bundle; the content
+		// parser only needs PEM-decodable certificates, which this provides.
+		_, err := buildPGTLSConfig(certFile, keyFile, certFile, none)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--pg-tls-ca-file set but --pg-tls-client-auth-mode is none")
+	})
+
+	t.Run("cert + key only produces TLS config with no client auth", func(t *testing.T) {
+		certFile, keyFile := generateTestCertAndKey(t)
+		config, err := buildPGTLSConfig(certFile, keyFile, "", none)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		assert.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
 		assert.Len(t, config.Certificates, 1)
+		assert.Equal(t, tls.NoClientCert, config.ClientAuth)
 	})
 
-	t.Run("both set with invalid files", func(t *testing.T) {
+	t.Run("verify-full with CA builds mTLS config", func(t *testing.T) {
+		certFile, keyFile := generateTestCertAndKey(t)
+		// The self-signed cert is its own issuer, so it's a valid CA bundle.
+		config, err := buildPGTLSConfig(certFile, keyFile, certFile, verifyFull)
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		assert.Equal(t, tls.RequireAndVerifyClientCert, config.ClientAuth)
+		require.NotNil(t, config.ClientCAs)
+	})
+
+	t.Run("invalid cert file wraps underlying error", func(t *testing.T) {
 		dir := t.TempDir()
 		certFile := filepath.Join(dir, "bad.crt")
 		keyFile := filepath.Join(dir, "bad.key")
 		require.NoError(t, os.WriteFile(certFile, []byte("not a cert"), 0o600))
 		require.NoError(t, os.WriteFile(keyFile, []byte("not a key"), 0o600))
 
-		_, err := buildPGTLSConfig(certFile, keyFile)
+		_, err := buildPGTLSConfig(certFile, keyFile, "", none)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to load TLS certificate")
+		assert.Contains(t, err.Error(), "failed to build PG TLS config")
 	})
 }
 
