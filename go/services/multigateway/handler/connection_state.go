@@ -112,6 +112,15 @@ type MultiGatewayConnectionState struct {
 	// gateway-managed variables maintain parallel snapshot stacks of equal depth
 	// (lockstep invariant). Index 0, when present, is the BEGIN-level frame
 	// (name=""); indices 1+ correspond to user SAVEPOINTs.
+	//
+	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct (e.g.
+	// statementTimeout) must be wired into all six lifecycle methods —
+	// pushFrameLocked, ReleaseSavepoint, RollbackToSavepoint, BeginTransaction,
+	// CommitTransaction, RollbackTransaction — or revert semantics break for
+	// the missing variable. When a second GMV is added, refactor to a
+	// non-generic `gmvLifecycle` interface ({Snapshot, RestoreFromDepth(int),
+	// PopFrom(int), ClearSnapshots}) and iterate a `[]gmvLifecycle` registry
+	// instead of naming each variable explicitly.
 	savepoints []savepointFrame
 
 	// targetReplica is true when this connection arrived on the replica-reads
