@@ -173,10 +173,11 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 		// TODO: Add caller_id when we have authentication
 	}
 
-	// Call the gRPC ExecuteQuery
+	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
+	// by the multipooler so the client sees the underlying PostgreSQL error.
 	res, err := g.client.ExecuteQuery(ctx, req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
 	}
 
 	// Convert proto result to sqltypes (preserves NULL vs empty string)
@@ -600,10 +601,11 @@ func (g *grpcQueryService) ConcludeTransaction(
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic
 	// attached by the multipooler so the client sees the underlying PostgreSQL
-	// error (sqlstate + message) instead of an internal RPC wrapper.
+	// error (sqlstate + message); Wrapf adds a debug-context prefix on top
+	// without breaking the errors.As chain to that diagnostic.
 	response, err := g.client.ConcludeTransaction(ctx, req)
 	if err != nil {
-		return nil, nil, mterrors.FromGRPC(err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -644,10 +646,11 @@ func (g *grpcQueryService) DiscardTempTables(
 
 	// Call the gRPC DiscardTempTables. FromGRPC restores any *PgDiagnostic
 	// attached by the multipooler so the client sees the underlying PostgreSQL
-	// error (sqlstate + message) instead of an internal RPC wrapper.
+	// error; Wrapf adds a debug-context prefix without breaking the
+	// errors.As chain to that diagnostic.
 	response, err := g.client.DiscardTempTables(ctx, req)
 	if err != nil {
-		return nil, nil, mterrors.FromGRPC(err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "discard temp tables")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -697,11 +700,11 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	}
 
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
-	// client sees the underlying PostgreSQL error instead of an internal RPC
-	// wrapper.
+	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
+	// prefix without breaking the errors.As chain to that diagnostic.
 	_, err := g.client.ReleaseReservedConnection(ctx, req)
 	if err != nil {
-		return mterrors.FromGRPC(err)
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}
 
 	g.logger.DebugContext(ctx, "reserved connection released",
