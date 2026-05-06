@@ -495,6 +495,17 @@ func (c *Conn) endWriterBuffering() error {
 	return flushErr
 }
 
+// canSendPlaintextStartupError reports whether a best-effort plaintext
+// ErrorResponse during the startup phase would be intelligible to the
+// client. If the client sent SSLRequest and the server already answered
+// 'S' but the TLS handshake hasn't completed, the underlying conn is
+// still plaintext while the client is waiting for encrypted bytes — so
+// any plaintext write would surface as garbage. Every other startup
+// state (raw plaintext or fully upgraded TLS) can carry the reply.
+func (c *Conn) canSendPlaintextStartupError() bool {
+	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
+}
+
 // generateBackendKey generates a cryptographically secure random backend key for cancellation.
 // The backend key is sent to the client in the BackendKeyData message and is used
 // to authenticate query cancellation requests.
@@ -556,20 +567,7 @@ func (c *Conn) serve() error {
 			c.logger.Warn("startup phase timed out",
 				"timeout", c.listener.authenticationTimeout,
 				"remote_addr", c.RemoteAddr())
-			// If the client sent SSLRequest and the server already
-			// answered 'S' but the TLS handshake hasn't completed, the
-			// underlying conn is still plaintext while the client is
-			// waiting for encrypted bytes. Writing an unencrypted
-			// ErrorResponse here would surface as garbage on the
-			// client side, so skip the reply and just close. The
-			// goroutine is still released (return below). For all
-			// other startup states (raw plaintext or fully upgraded
-			// TLS) the write is intelligible to the client.
-			canReplyCleanly := true
-			if c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete {
-				canReplyCleanly = false
-			}
-			if canReplyCleanly {
+			if c.canSendPlaintextStartupError() {
 				// Brief grace window: long enough to flush the error
 				// to a well-behaved client, short enough that a wedged
 				// client can't keep this goroutine pinned.
@@ -584,21 +582,28 @@ func (c *Conn) serve() error {
 		}
 		c.logger.Error("startup failed", "error", err)
 		// Set a brief write-deadline grace window so the best-effort
-		// error reply isn't races against the still-active auth
+		// error reply doesn't race against the still-active auth
 		// deadline (which may fire mid-write on a slow client).
 		if startupDeadlineSet {
 			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		}
-		// Try to send an error response before closing.
-		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
-		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
-		var diag *mterrors.PgDiagnostic
-		if errors.As(err, &diag) {
-			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-		} else {
-			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		// Try to send an error response before closing — but only if
+		// it would be intelligible. Same SSL-accepted-but-handshake-
+		// pending guard as the timeout path above: a plaintext
+		// ErrorResponse on a connection where the client expects
+		// encrypted bytes would surface as garbage.
+		if c.canSendPlaintextStartupError() {
+			// If the error is already a PgDiagnostic (e.g., duplicate
+			// SSLRequest with native SQLSTATE), send it directly.
+			// Otherwise, wrap with MTE01.
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+			} else {
+				_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+			}
+			_ = c.flush()
 		}
-		_ = c.flush()
 		return err
 	}
 
