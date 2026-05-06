@@ -509,7 +509,7 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// Conclude the transaction
 	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
