@@ -534,7 +534,7 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 
 	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.DiscardTempTablesResponse{
@@ -556,7 +556,7 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 	}
 
 	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil

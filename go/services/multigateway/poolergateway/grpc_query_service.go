@@ -642,10 +642,12 @@ func (g *grpcQueryService) DiscardTempTables(
 		Options: options,
 	}
 
-	// Call the gRPC DiscardTempTables
+	// Call the gRPC DiscardTempTables. FromGRPC restores any *PgDiagnostic
+	// attached by the multipooler so the client sees the underlying PostgreSQL
+	// error (sqlstate + message) instead of an internal RPC wrapper.
 	response, err := g.client.DiscardTempTables(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("discard temp tables failed: %w", err)
+		return nil, nil, mterrors.FromGRPC(err)
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -694,9 +696,12 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 		Options: options,
 	}
 
+	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
+	// client sees the underlying PostgreSQL error instead of an internal RPC
+	// wrapper.
 	_, err := g.client.ReleaseReservedConnection(ctx, req)
 	if err != nil {
-		return fmt.Errorf("release reserved connection failed: %w", err)
+		return mterrors.FromGRPC(err)
 	}
 
 	g.logger.DebugContext(ctx, "reserved connection released",
