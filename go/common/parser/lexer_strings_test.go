@@ -270,6 +270,15 @@ func TestDollarQuotedStrings(t *testing.T) {
 			expected:  "a\x80b",
 			tokenType: SCONST,
 		},
+		{
+			// Multi-byte tag chars (e.g. À = U+00C0 = 0xC3 0x80) must be
+			// preserved byte-wise so that the closing delimiter compares equal
+			// to the opening one.
+			name:      "Dollar-quoted string with multi-byte tag",
+			input:     "$\xc3\x80$body$\xc3\x80$",
+			expected:  "body",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {
@@ -543,6 +552,15 @@ func TestStringConcatenation(t *testing.T) {
 			name:      "Continuation string with invalid UTF-8 byte",
 			input:     "'hello'\n'a\x80b'",
 			expected:  "helloa\x80b",
+			tokenType: SCONST,
+		},
+		{
+			// Multi-byte Unicode whitespace (U+00A0 NBSP) between continuation
+			// parts must be advanced by its full rune length. A bare \n must
+			// also still be present, otherwise concatenation is disallowed.
+			name:      "Continuation across NBSP plus newline",
+			input:     "'a'\xc2\xa0\n'b'",
+			expected:  "ab",
 			tokenType: SCONST,
 		},
 	}

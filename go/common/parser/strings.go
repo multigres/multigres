@@ -283,15 +283,29 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	// Parse optional tag - postgres/src/backend/parser/scan.l:290-303
 	// dolq_start: [A-Za-z\200-\377_]
 	// dolq_cont: [A-Za-z\200-\377_0-9]
-	if !ctx.AtEOF() && l.isDollarQuoteStartChar(ctx.CurrentChar()) {
-		// Tag starts with valid character
-		delimiter.WriteRune(ctx.CurrentChar())
-		ctx.AdvanceBy(1)
+	// Append raw bytes (size from DecodeRune) so multi-byte tag chars are
+	// preserved verbatim and the scan position advances by the full rune
+	// length. matchesDollarDelimiter compares bytes against the same buffer,
+	// so the stored delimiter must hold raw bytes too.
+	if !ctx.AtEOF() {
+		if ch, size := ctx.CurrentRune(); l.isDollarQuoteStartChar(ch) {
+			if size <= 0 {
+				size = 1
+			}
+			delimiter.Write(ctx.PeekBytes(size))
+			ctx.AdvanceBy(size)
 
-		// Continue with valid tag characters
-		for !ctx.AtEOF() && l.isDollarQuoteCont(ctx.CurrentChar()) {
-			delimiter.WriteRune(ctx.CurrentChar())
-			ctx.AdvanceBy(1)
+			for !ctx.AtEOF() {
+				ch, size := ctx.CurrentRune()
+				if !l.isDollarQuoteCont(ch) {
+					break
+				}
+				if size <= 0 {
+					size = 1
+				}
+				delimiter.Write(ctx.PeekBytes(size))
+				ctx.AdvanceBy(size)
+			}
 		}
 	}
 
@@ -318,27 +332,19 @@ func (l *Lexer) isDollarQuoteCont(ch rune) bool {
 	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || (ch >= 0x80 && ch <= 0x377)
 }
 
-// matchesDollarDelimiter checks if current position has matching dollar delimiter
+// matchesDollarDelimiter reports whether the bytes at the current scan
+// position are exactly equal to expectedDelimiter. Comparison is byte-wise:
+// `range` over a Go string yields decoded runes which would mismatch the raw
+// byte slice for multi-byte tag chars, so use a direct byte comparison.
 func (l *Lexer) matchesDollarDelimiter(expectedDelimiter string) bool {
 	ctx := l.context
 
-	// Check if we have enough characters remaining
-	remaining := len(ctx.ScanBuf()) - ctx.ScanPos()
-	if remaining < len(expectedDelimiter) {
+	pos := ctx.ScanPos()
+	buf := ctx.ScanBuf()
+	if len(buf)-pos < len(expectedDelimiter) {
 		return false
 	}
-
-	// Check character by character
-	for i, expectedChar := range expectedDelimiter {
-		if ctx.ScanPos()+i >= len(ctx.ScanBuf()) {
-			return false
-		}
-		if rune(ctx.ScanBuf()[ctx.ScanPos()+i]) != expectedChar {
-			return false
-		}
-	}
-
-	return true
+	return string(buf[pos:pos+len(expectedDelimiter)]) == expectedDelimiter
 }
 
 // scanEscapeSequence processes backslash escape sequences in extended strings
@@ -554,12 +560,22 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		savedPos := ctx.ScanPos()
 		hasNewline := false
 
-		// Skip whitespace and check for newline
-		for !ctx.AtEOF() && unicode.IsSpace(ctx.CurrentChar()) {
-			if ctx.CurrentChar() == '\n' {
+		// Skip whitespace and check for newline. Multi-byte spaces (NBSP,
+		// en-quad, etc.) decode as a single rune but span several bytes, so
+		// advance by the size DecodeRune actually consumed instead of always
+		// stepping one byte.
+		for !ctx.AtEOF() {
+			ch, size := ctx.CurrentRune()
+			if !unicode.IsSpace(ch) {
+				break
+			}
+			if ch == '\n' {
 				hasNewline = true
 			}
-			ctx.AdvanceBy(1)
+			if size <= 0 {
+				size = 1
+			}
+			ctx.AdvanceBy(size)
 		}
 
 		// If no newline was found, string concatenation is not allowed
