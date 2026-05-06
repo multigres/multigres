@@ -58,16 +58,17 @@ const (
 
 // parseReplicationMode interprets the `replication` startup parameter using
 // PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
-// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, plus the
-// literal "database" for logical-replication connections.
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
+// single-character abbreviations t/f/y/n, plus the literal "database" for
+// logical-replication connections.
 //
 // Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
 // the gateway can reject them at the same protocol stage PostgreSQL would.
 func parseReplicationMode(value string) (ReplicationMode, error) {
 	switch strings.ToLower(value) {
-	case "", "false", "off", "no", "0":
+	case "", "false", "off", "no", "0", "f", "n":
 		return ReplicationOff, nil
-	case "true", "on", "yes", "1":
+	case "true", "on", "yes", "1", "t", "y":
 		return ReplicationPhysical, nil
 	case "database":
 		return ReplicationLogical, nil
@@ -357,6 +358,12 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		if err != nil {
 			return fmt.Errorf("failed to parse options: %w", err)
 		}
+		// `replication` is a startup-phase-only protocol parameter; PG does
+		// not accept it as a `-c replication=...` GUC inside PGOPTIONS.
+		// Drop it here so the gateway doesn't honor a source PG would
+		// reject. The auth gate is unaffected either way (rolreplication
+		// is enforced when the direct startup field is set).
+		delete(parsed, "replication")
 		maps.Copy(c.params, parsed)
 		delete(c.params, "options")
 	}

@@ -1090,11 +1090,15 @@ func TestParseReplicationMode(t *testing.T) {
 		{"off", "off", ReplicationOff, false},
 		{"no", "no", ReplicationOff, false},
 		{"zero", "0", ReplicationOff, false},
+		{"f-abbrev", "f", ReplicationOff, false},
+		{"n-abbrev", "n", ReplicationOff, false},
 		{"true", "true", ReplicationPhysical, false},
 		{"True-mixedcase", "True", ReplicationPhysical, false},
 		{"on", "on", ReplicationPhysical, false},
 		{"yes", "yes", ReplicationPhysical, false},
 		{"one", "1", ReplicationPhysical, false},
+		{"t-abbrev", "t", ReplicationPhysical, false},
+		{"y-abbrev", "y", ReplicationPhysical, false},
 		{"database", "database", ReplicationLogical, false},
 		{"DATABASE-uppercase", "DATABASE", ReplicationLogical, false},
 		{"banana-rejected", "banana", ReplicationOff, true},
@@ -1111,6 +1115,31 @@ func TestParseReplicationMode(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestReplicationStartup_IgnoredViaPGOPTIONS verifies that `-c replication=true`
+// inside PGOPTIONS is dropped — PG only honors `replication` as a direct
+// startup field, not as a GUC. The auth gate still rejects bad combinations
+// elsewhere; this test pins the behavior so we don't admit a source PG
+// itself rejects.
+func TestReplicationStartup_IgnoredViaPGOPTIONS(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: false} // would reject if consulted
+	c, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "regular",
+		"database": "postgres",
+		"options":  "-c replication=true",
+	})
+	// PGOPTIONS-injected `replication` is filtered, so the connection is
+	// treated as a normal session and SCRAM completes through ReadyForQuery.
+	scramClientHelper(t, clientConn, "regular", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 0, verifier.calls, "verifier must not see PGOPTIONS-injected replication")
+	assert.Equal(t, ReplicationOff, c.replicationMode)
+	_, hasReplication := c.params["replication"]
+	assert.False(t, hasReplication)
 }
 
 // TestReplicationStartup_RejectedWithoutRolReplication verifies that a
