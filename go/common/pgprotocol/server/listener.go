@@ -57,7 +57,9 @@ type Listener struct {
 
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
-	// authentication_timeout GUC. Zero or negative disables the timeout.
+	// authentication_timeout GUC. Negative disables the timeout. The
+	// constructor maps a zero-valued ListenerConfig to
+	// DefaultAuthenticationTimeout, so this field is never zero in practice.
 	authenticationTimeout time.Duration
 
 	// logger for logging.

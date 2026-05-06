@@ -15,6 +15,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -31,17 +32,22 @@ import (
 // timeoutTestServer accepts a single connection on a fresh local TCP listener
 // and runs the full server-side serve() loop against it. The auth-timeout
 // path is exercised end-to-end (deadline applied → expiry → PG-format
-// FATAL → connection closed).
-func timeoutTestServer(t *testing.T, authTimeout time.Duration) (clientConn net.Conn, serverErrCh <-chan error, cleanup func()) {
+// FATAL → connection closed). When tlsConfig is non-nil, the listener
+// will accept SSLRequest and upgrade to TLS.
+func timeoutTestServer(t *testing.T, authTimeout time.Duration, tlsConfig ...*tls.Config) (clientConn net.Conn, serverErrCh <-chan error, cleanup func()) {
 	t.Helper()
 
-	listener, err := NewListener(ListenerConfig{
+	cfg := ListenerConfig{
 		Address:               "127.0.0.1:0",
 		Handler:               &mockHandler{},
 		HashProvider:          newMockHashProvider("postgres"),
 		AuthenticationTimeout: authTimeout,
 		Logger:                testLogger(t),
-	})
+	}
+	if len(tlsConfig) > 0 {
+		cfg.TLSConfig = tlsConfig[0]
+	}
+	listener, err := NewListener(cfg)
 	require.NoError(t, err)
 
 	errCh := make(chan error, 1)
@@ -236,6 +242,52 @@ func TestAuthenticationTimeout_ConfigDefault(t *testing.T) {
 
 	assert.Equal(t, DefaultAuthenticationTimeout, listener.authenticationTimeout)
 	assert.Equal(t, 60*time.Second, listener.authenticationTimeout)
+}
+
+// TestAuthenticationTimeout_PendingTLSHandshakeSkipsErrorReply verifies the
+// post-SSL-accept-pre-TLS-handshake state: the server has answered 'S' to
+// SSLRequest but the client hasn't completed the TLS handshake. The
+// underlying conn is still plaintext while the client expects encrypted
+// bytes — writing an unencrypted ErrorResponse would surface as garbage
+// on the client. The server must close cleanly without the unencrypted
+// reply.
+func TestAuthenticationTimeout_PendingTLSHandshakeSkipsErrorReply(t *testing.T) {
+	tlsConfig, _ := generateTestTLSConfig(t)
+
+	const timeout = 200 * time.Millisecond
+	clientConn, serverErrCh, cleanup := timeoutTestServer(t, timeout, tlsConfig)
+	defer cleanup()
+
+	require.NoError(t, clientConn.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+	// Send SSLRequest, read 'S' acceptance, then stall — never start
+	// the TLS handshake.
+	writeSSLRequest(t, clientConn)
+	resp := readSingleByte(t, clientConn)
+	require.Equal(t, byte('S'), resp)
+
+	// Read until the server closes. We must not see anything that
+	// looks like a PG ErrorResponse byte ('E') here — that would mean
+	// the server wrote unencrypted bytes after promising TLS.
+	buf := make([]byte, 64)
+	n, readErr := clientConn.Read(buf)
+
+	if n > 0 {
+		assert.NotEqual(t, byte(protocol.MsgErrorResponse), buf[0],
+			"server must not send unencrypted ErrorResponse after accepting SSL")
+	}
+	// EOF (or connection-reset) is the expected outcome — server
+	// detected the timeout, skipped the unencrypted reply, and closed.
+	require.Error(t, readErr)
+
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-serverErrCh:
+			return err != nil
+		default:
+			return false
+		}
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestAuthenticationTimeout_NegativeDisables verifies that a negative

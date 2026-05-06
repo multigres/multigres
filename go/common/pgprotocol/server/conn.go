@@ -540,12 +540,29 @@ func (c *Conn) serve() error {
 			c.logger.Warn("startup phase timed out",
 				"timeout", c.listener.authenticationTimeout,
 				"remote_addr", c.RemoteAddr())
-			// Brief grace window: long enough to flush the error to a
-			// well-behaved client, short enough that a wedged client
-			// can't keep this goroutine pinned.
-			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
-			_ = c.flush()
+			// If the client sent SSLRequest and the server already
+			// answered 'S' but the TLS handshake hasn't completed, the
+			// underlying conn is still plaintext while the client is
+			// waiting for encrypted bytes. Writing an unencrypted
+			// ErrorResponse here would surface as garbage on the
+			// client side, so skip the reply and just close. The
+			// goroutine is still released (return below). For all
+			// other startup states (raw plaintext or fully upgraded
+			// TLS) the write is intelligible to the client.
+			canReplyCleanly := true
+			if c.sslDone && c.tlsConfig != nil {
+				if _, isTLS := c.conn.(*tls.Conn); !isTLS {
+					canReplyCleanly = false
+				}
+			}
+			if canReplyCleanly {
+				// Brief grace window: long enough to flush the error
+				// to a well-behaved client, short enough that a wedged
+				// client can't keep this goroutine pinned.
+				_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
+				_ = c.flush()
+			}
 			return err
 		}
 		c.logger.Error("startup failed", "error", err)
