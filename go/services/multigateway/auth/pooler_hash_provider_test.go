@@ -175,3 +175,75 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to parse SCRAM hash")
 	})
 }
+
+func TestPoolerHashProvider_IsReplicationRole(t *testing.T) {
+	t.Run("rolreplication=true", func(t *testing.T) {
+		client := &mockPoolerSystemClient{
+			response: &multipoolerpb.GetAuthCredentialsResponse{
+				IsReplicationRole: true,
+			},
+		}
+		provider := NewPoolerHashProvider(client)
+
+		ok, err := provider.IsReplicationRole(context.Background(), "repluser", "postgres")
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("rolreplication=false", func(t *testing.T) {
+		client := &mockPoolerSystemClient{
+			response: &multipoolerpb.GetAuthCredentialsResponse{
+				IsReplicationRole: false,
+			},
+		}
+		provider := NewPoolerHashProvider(client)
+
+		ok, err := provider.IsReplicationRole(context.Background(), "regular", "postgres")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("user not found returns false without error", func(t *testing.T) {
+		// Defensive: by the time IsReplicationRole runs, SCRAM has succeeded
+		// for this user, so NotFound here is unexpected. We still treat it
+		// as "not a replication role" rather than propagate, so the gateway
+		// emits the standard 42501 rejection rather than a generic error.
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(status.Error(codes.NotFound, "user not found")),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		ok, err := provider.IsReplicationRole(context.Background(), "ghost", "postgres")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("login-disabled diagnostic treated as not-replication", func(t *testing.T) {
+		// Same defensive reasoning: a role rolcanlogin=false couldn't have
+		// passed SCRAM, but if we ever see this here we don't want to leak
+		// it as a transport error.
+		diag := mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec,
+			"role \"x\" is not permitted to log in", "")
+		client := &mockPoolerSystemClient{
+			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		ok, err := provider.IsReplicationRole(context.Background(), "x", "postgres")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("transport error propagated", func(t *testing.T) {
+		// Lookup failure: surface the error so the gateway can fail closed
+		// (the verifier converts a non-nil error into a 42501 FATAL).
+		client := &mockPoolerSystemClient{
+			err: errors.New("connection refused"),
+		}
+		provider := NewPoolerHashProvider(client)
+
+		_, err := provider.IsReplicationRole(context.Background(), "u", "postgres")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get auth credentials")
+	})
+}

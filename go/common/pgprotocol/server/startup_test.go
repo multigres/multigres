@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -997,6 +999,321 @@ func TestConnCloseZeroizesSCRAMKeys(t *testing.T) {
 
 // TestConnCloseSafeWithoutSCRAMKeys ensures Close does not panic when the
 // connection never completed SCRAM auth (keys remain nil).
+// parseErrorFields decodes the field-tag/value pairs of an ErrorResponse
+// body into a map keyed by tag (e.g. 'C' for SQLSTATE, 'M' for message).
+func parseErrorFields(body []byte) map[byte]string {
+	fields := make(map[byte]string)
+	i := 0
+	for i < len(body) {
+		tag := body[i]
+		if tag == 0 {
+			break
+		}
+		i++
+		end := i
+		for end < len(body) && body[end] != 0 {
+			end++
+		}
+		fields[tag] = string(body[i:end])
+		i = end + 1
+	}
+	return fields
+}
+
+// mockRoleAttrVerifier is a configurable RoleAttributeVerifier for tests.
+type mockRoleAttrVerifier struct {
+	allow    bool
+	err      error
+	calls    int
+	username string
+	database string
+}
+
+func (m *mockRoleAttrVerifier) IsReplicationRole(_ context.Context, username, database string) (bool, error) {
+	m.calls++
+	m.username = username
+	m.database = database
+	return m.allow, m.err
+}
+
+// newReplicationTestConn constructs a Conn wired up against a pipe pair and
+// the given role-attribute verifier. The returned errCh receives the result
+// of handleStartup once the goroutine completes.
+func newReplicationTestConn(t *testing.T, verifier RoleAttributeVerifier) (*Conn, *pipeConn, chan error) {
+	t.Helper()
+	serverConn, clientConn := newPipeConnPair()
+
+	listener, err := NewListener(ListenerConfig{
+		Address:               "localhost:0",
+		Handler:               &mockHandler{},
+		HashProvider:          newMockHashProvider("postgres"),
+		RoleAttributeVerifier: verifier,
+		Logger:                testLogger(t),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+
+	c := &Conn{
+		conn:             serverConn,
+		listener:         listener,
+		handler:          listener.handler,
+		hashProvider:     listener.hashProvider,
+		roleAttrVerifier: listener.roleAttrVerifier,
+		bufferedReader:   bufio.NewReader(serverConn),
+		bufferedWriter:   bufio.NewWriter(serverConn),
+		params:           make(map[string]string),
+		txnStatus:        protocol.TxnStatusIdle,
+	}
+	c.ctx = context.Background()
+	c.logger = testLogger(t)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+		serverConn.Close()
+	}()
+
+	t.Cleanup(func() { clientConn.Close() })
+	return c, clientConn, errCh
+}
+
+func TestParseReplicationMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    ReplicationMode
+		wantErr bool
+	}{
+		{"empty", "", ReplicationOff, false},
+		{"false-lowercase", "false", ReplicationOff, false},
+		{"FALSE-uppercase", "FALSE", ReplicationOff, false},
+		{"off", "off", ReplicationOff, false},
+		{"no", "no", ReplicationOff, false},
+		{"zero", "0", ReplicationOff, false},
+		{"true", "true", ReplicationPhysical, false},
+		{"True-mixedcase", "True", ReplicationPhysical, false},
+		{"on", "on", ReplicationPhysical, false},
+		{"yes", "yes", ReplicationPhysical, false},
+		{"one", "1", ReplicationPhysical, false},
+		{"database", "database", ReplicationLogical, false},
+		{"DATABASE-uppercase", "DATABASE", ReplicationLogical, false},
+		{"banana-rejected", "banana", ReplicationOff, true},
+		{"two-rejected", "2", ReplicationOff, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseReplicationMode(tt.value)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestReplicationStartup_RejectedWithoutRolReplication verifies that a
+// SCRAM-authenticated client requesting replication=true is rejected with
+// the exact PG message and SQLSTATE 42501 when the role lacks
+// rolreplication. Acceptance criterion #1 of MUL-387.
+func TestReplicationStartup_RejectedWithoutRolReplication(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: false}
+	c, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	// SCRAM completes successfully — the rejection happens AFTER auth.
+	client := scram.NewSCRAMClientWithPassword("repluser", "postgres")
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	require.Equal(t, uint32(protocol.AuthSASL), binary.BigEndian.Uint32(body[:4]))
+
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	require.Equal(t, uint32(protocol.AuthSASLContinue), binary.BigEndian.Uint32(body[:4]))
+	clientFinal, err := client.ProcessServerFirst(string(body[4:]))
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+
+	msgType, _ = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType) // SASLFinal
+
+	// Next frame must be FATAL ErrorResponse, not AuthenticationOk.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "FATAL", fields['S'])
+	assert.Equal(t, "42501", fields['C'])
+	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, verifier.calls)
+	assert.Equal(t, "repluser", verifier.username)
+	assert.Equal(t, "postgres", verifier.database)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+}
+
+// TestReplicationStartup_AcceptedWithRolReplication verifies the verifier
+// accepts a role with rolreplication=true and the connection completes
+// through ReadyForQuery. Acceptance criterion #2 of MUL-387.
+func TestReplicationStartup_AcceptedWithRolReplication(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: true}
+	c, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+	// scramClientHelper drives SCRAM through ReadyForQuery, asserting the
+	// AuthenticationOk + ParameterStatus + ReadyForQuery sequence is sent.
+	scramClientHelper(t, clientConn, "repluser", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, verifier.calls)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+}
+
+// TestReplicationStartup_DatabaseModeAcceptedWithRolReplication exercises
+// the logical-replication value (replication=database) which is what
+// CREATE SUBSCRIPTION sends.
+func TestReplicationStartup_DatabaseModeAcceptedWithRolReplication(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: true}
+	c, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "appdb",
+		"replication": "database",
+	})
+	scramClientHelper(t, clientConn, "repluser", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, verifier.calls)
+	assert.Equal(t, "appdb", verifier.database)
+	assert.Equal(t, ReplicationLogical, c.replicationMode)
+}
+
+// TestReplicationStartup_NormalConnectionSkipsVerifier ensures the verifier
+// is never consulted for a non-replication startup (replication=false or
+// omitted), so normal traffic does not pay the extra RPC cost.
+func TestReplicationStartup_NormalConnectionSkipsVerifier(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: false} // would reject if called
+	_, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "regular",
+		"database": "postgres",
+	})
+	scramClientHelper(t, clientConn, "regular", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 0, verifier.calls, "verifier must not be called for non-replication startups")
+}
+
+// TestReplicationStartup_NoVerifierFailsClosed verifies that a replication
+// startup is rejected when no verifier is wired up — the gateway has no
+// way to confirm rolreplication, so it cannot admit a possibly-unauthorized
+// walsender session.
+func TestReplicationStartup_NoVerifierFailsClosed(t *testing.T) {
+	c, clientConn, errCh := newReplicationTestConn(t, nil)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	// SCRAM completes; rejection is post-auth.
+	client := scram.NewSCRAMClientWithPassword("repluser", "postgres")
+	_, _ = readMessage(t, clientConn) // SASL
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+	_, body := readMessage(t, clientConn) // SASLContinue
+	clientFinal, err := client.ProcessServerFirst(string(body[4:]))
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+	_, _ = readMessage(t, clientConn) // SASLFinal
+
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "42501", fields['C'])
+	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+}
+
+// TestReplicationStartup_RejectedOnVerifierError fails closed when the
+// verifier returns an error (e.g. the pooler is unreachable). Reaching
+// the auth path with no decision is unsafe, so the gateway emits the
+// same FATAL the negative case produces.
+func TestReplicationStartup_RejectedOnVerifierError(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{err: errors.New("pooler unreachable")}
+	_, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	client := scram.NewSCRAMClientWithPassword("repluser", "postgres")
+	_, _ = readMessage(t, clientConn)
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+	_, body := readMessage(t, clientConn)
+	clientFinal, err := client.ProcessServerFirst(string(body[4:]))
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+	_, _ = readMessage(t, clientConn)
+
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Equal(t, "42501", parseErrorFields(body)['C'])
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, verifier.calls)
+}
+
+// TestReplicationStartup_InvalidValueRejected confirms an unrecognized
+// `replication` value produces InvalidParameterValue (22023) before
+// authentication runs, matching PostgreSQL's GUC parsing. The error
+// surfaces as a PgDiagnostic from handleStartup; in production, serve()
+// writes it to the client and closes the connection.
+func TestReplicationStartup_InvalidValueRejected(t *testing.T) {
+	verifier := &mockRoleAttrVerifier{allow: true}
+	_, clientConn, errCh := newReplicationTestConn(t, verifier)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "banana",
+	})
+
+	err := <-errCh
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, mterrors.PgSSInvalidParameterValue, diag.Code)
+	assert.Contains(t, diag.Message, `invalid value for parameter "replication"`)
+	assert.Contains(t, diag.Message, "banana")
+	assert.Equal(t, 0, verifier.calls, "verifier must not be called on parse error")
+}
+
 func TestConnCloseSafeWithoutSCRAMKeys(t *testing.T) {
 	serverConn, clientConn := newPipeConnPair()
 	defer clientConn.Close()

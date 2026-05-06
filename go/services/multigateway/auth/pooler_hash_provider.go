@@ -106,5 +106,43 @@ func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, data
 	return hash, nil
 }
 
+// IsReplicationRole reports whether the role has pg_authid.rolreplication=true.
+// Multigateway calls this after SCRAM/trust auth succeeds for any startup
+// connection that requested replication=true / replication=database, to
+// match PostgreSQL's "must be superuser or replication role to start
+// walsender" check (SQLSTATE 42501).
+//
+// This makes a fresh GetAuthCredentials call. Replication startups are
+// rare relative to normal traffic, so the additional roundtrip is
+// acceptable; in exchange, we avoid sharing per-call state across
+// connections on the listener-shared provider.
+//
+// Auth-failure sentinels from GetPasswordHash (rolcanlogin=false,
+// password expired, user not found) are treated as not-a-replication-role
+// rather than propagated, since a non-existent or login-disabled role
+// trivially cannot pass replication. The gateway's startup flow will
+// have already rejected those cases via SCRAM; reaching IsReplicationRole
+// at all means SCRAM succeeded, but we still guard defensively.
+func (p *PoolerHashProvider) IsReplicationRole(ctx context.Context, username, database string) (bool, error) {
+	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
+		Database: database,
+		Username: username,
+	})
+	if err != nil {
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			switch diag.Code {
+			case mterrors.PgSSInvalidAuthSpec, mterrors.PgSSAuthFailed:
+				return false, nil
+			}
+		}
+		if mterrors.Code(err) == mtrpcpb.Code(codes.NotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get auth credentials: %w", err)
+	}
+	return resp.IsReplicationRole, nil
+}
+
 // Ensure PoolerHashProvider implements scram.PasswordHashProvider.
 var _ scram.PasswordHashProvider = (*PoolerHashProvider)(nil)

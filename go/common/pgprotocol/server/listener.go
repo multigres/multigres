@@ -50,6 +50,11 @@ type Listener struct {
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
 
+	// roleAttrVerifier optionally enforces role attributes (rolreplication
+	// today) after auth completes. Replication startup connections require
+	// it to be set; otherwise replication=true is rejected.
+	roleAttrVerifier RoleAttributeVerifier
+
 	// tlsConfig holds the TLS configuration for SSL connections.
 	// When set, the server accepts SSLRequest and upgrades to TLS.
 	// When nil, SSLRequest is declined with 'N'.
@@ -107,6 +112,26 @@ type TrustAuthProvider interface {
 	AllowTrustAuth(ctx context.Context, user, database string) bool
 }
 
+// RoleAttributeVerifier verifies role attributes that gate connection
+// admission beyond what SCRAM authentication checks. Today it covers
+// pg_authid.rolreplication, which PostgreSQL requires for any session
+// started with the replication=true / replication=database startup
+// parameter. The verifier is consulted after SCRAM/trust auth succeeds
+// so the gateway can reject replication clients whose role lacks the
+// attribute, matching PostgreSQL's "must be superuser or replication
+// role to start walsender" error (SQLSTATE 42501).
+//
+// Implementations should make their decision authoritative: if the
+// underlying lookup fails (e.g. the pooler is unreachable), return an
+// error so the gateway can fail closed rather than admit a possibly
+// unauthorized session.
+type RoleAttributeVerifier interface {
+	// IsReplicationRole reports whether the role has rolreplication=true
+	// in pg_authid. Lookup errors should be returned as-is — the gateway
+	// translates them into a FATAL error message for the client.
+	IsReplicationRole(ctx context.Context, username, database string) (bool, error)
+}
+
 // ListenerConfig holds configuration for the listener.
 type ListenerConfig struct {
 	// Address to listen on (e.g., "localhost:5432").
@@ -129,6 +154,12 @@ type ListenerConfig struct {
 	// This is intended for testing to simulate Unix socket trust auth.
 	// Production code should NOT set this field.
 	TrustAuthProvider TrustAuthProvider
+
+	// RoleAttributeVerifier optionally gates replication startup connections
+	// on role attributes (rolreplication) after auth succeeds. When nil,
+	// any startup with replication != false is rejected because the gateway
+	// has no way to verify the role's replication attribute.
+	RoleAttributeVerifier RoleAttributeVerifier
 
 	// TLSConfig enables SSL for client connections.
 	// When set, the listener accepts SSLRequest and upgrades connections to TLS.
@@ -183,6 +214,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		handler:               config.Handler,
 		hashProvider:          config.HashProvider,
 		trustAuthProvider:     config.TrustAuthProvider,
+		roleAttrVerifier:      config.RoleAttributeVerifier,
 		tlsConfig:             config.TLSConfig,
 		authenticationTimeout: authTimeout,
 		logger:                logger,
@@ -238,6 +270,7 @@ func (l *Listener) Serve() error {
 		conn.handler = l.handler
 		conn.hashProvider = l.hashProvider
 		conn.trustAuthProvider = l.trustAuthProvider
+		conn.roleAttrVerifier = l.roleAttrVerifier
 		conn.tlsConfig = l.tlsConfig
 
 		// Handle connection in a new goroutine.

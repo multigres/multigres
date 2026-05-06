@@ -32,6 +32,54 @@ type StartupMessage struct {
 	Parameters      map[string]string
 }
 
+// ReplicationMode captures the value of the `replication` startup parameter
+// per PostgreSQL's replication protocol. The default (parameter omitted or
+// "false") is ReplicationOff: a normal SQL connection.
+//
+// See: https://www.postgresql.org/docs/17/protocol-replication.html
+type ReplicationMode int
+
+const (
+	// ReplicationOff means the client did not request a replication
+	// connection, or sent replication=false. The session uses the standard
+	// extended-query / simple-query protocol.
+	ReplicationOff ReplicationMode = iota
+
+	// ReplicationPhysical (replication=true / on / 1 / yes) opens a physical
+	// walsender stream. The role must have rolreplication=true (or
+	// rolsuper=true) in pg_authid.
+	ReplicationPhysical
+
+	// ReplicationLogical (replication=database) opens a logical-replication
+	// walsender connected to a specific database. Same role requirement as
+	// physical replication.
+	ReplicationLogical
+)
+
+// parseReplicationMode interprets the `replication` startup parameter using
+// PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, plus the
+// literal "database" for logical-replication connections.
+//
+// Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
+// the gateway can reject them at the same protocol stage PostgreSQL would.
+func parseReplicationMode(value string) (ReplicationMode, error) {
+	switch strings.ToLower(value) {
+	case "", "false", "off", "no", "0":
+		return ReplicationOff, nil
+	case "true", "on", "yes", "1":
+		return ReplicationPhysical, nil
+	case "database":
+		return ReplicationLogical, nil
+	default:
+		return ReplicationOff, mterrors.NewPgError(
+			"FATAL", mterrors.PgSSInvalidParameterValue,
+			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+			"Valid values are: \"false\", \"true\", \"database\".",
+		)
+	}
+}
+
 // handleStartup handles the initial connection startup phase.
 // This includes SSL/GSSAPI encryption negotiation and processing the startup message.
 // Returns an error if the startup fails.
@@ -322,30 +370,94 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		c.database = c.user
 	}
 
-	c.logger.Info("startup message parsed", "user", c.user, "database", c.database)
+	// Parse the optional `replication` startup parameter. Replication
+	// connections (physical or logical) follow the same auth path but the
+	// role must additionally satisfy pg_authid.rolreplication=true.
+	// On parse failure, return the PgDiagnostic; serve()'s startup-error
+	// path writes it to the client and closes the connection — matching
+	// PG's behavior of rejecting unrecognized `replication` values before
+	// authentication runs.
+	replicationMode, err := parseReplicationMode(c.params["replication"])
+	if err != nil {
+		return err
+	}
+	c.replicationMode = replicationMode
+
+	c.logger.Info("startup message parsed",
+		"user", c.user,
+		"database", c.database,
+		"replication", c.replicationMode != ReplicationOff)
 
 	// Now perform authentication.
 	return c.authenticate()
 }
 
+// errAuthRejected signals that the auth flow rejected the client and a FATAL
+// message has already been written. The caller (authenticate) catches it and
+// returns nil — no second error frame, no AuthenticationOk. serve() then
+// reads EOF (after the client tears down the connection in response to the
+// FATAL) and exits cleanly.
+//
+// All sendAuthError-style helpers return this on a successful FATAL write so
+// the post-auth completion sequence is skipped.
+var errAuthRejected = errors.New("auth rejected; FATAL already sent")
+
 // authenticate performs authentication with the client.
 // If a TrustAuthProvider is configured and allows the user, trust auth is used.
 // Otherwise, SCRAM-SHA-256 authentication is performed.
+//
+// On success, this also enforces post-auth role attribute checks (today
+// rolreplication for replication startup connections) and emits the
+// AuthenticationOk → BackendKeyData → ParameterStatus → ReadyForQuery
+// completion sequence. Sequencing the role-attribute check before the
+// AuthenticationOk matches PostgreSQL: a client that fails the
+// rolreplication check sees a single FATAL message, not a successful
+// handshake followed by a closed connection.
 func (c *Conn) authenticate() error {
-	// Check if trust auth is allowed for this connection
+	// Check if trust auth is allowed for this connection.
 	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
-		return c.authenticateTrust()
+		if err := c.authenticateTrust(); err != nil {
+			if errors.Is(err, errAuthRejected) {
+				return nil
+			}
+			return err
+		}
+	} else {
+		if err := c.authenticateSCRAM(); err != nil {
+			if errors.Is(err, errAuthRejected) {
+				return nil
+			}
+			return err
+		}
 	}
 
-	return c.authenticateSCRAM()
+	// Replication startup parameter requires rolreplication=true on the role.
+	// Done post-auth so we don't leak which roles exist for unauthenticated
+	// clients.
+	if err := c.verifyReplicationRole(); err != nil {
+		if errors.Is(err, errAuthRejected) {
+			return nil
+		}
+		return err
+	}
+
+	return c.finishAuth()
 }
 
 // authenticateTrust performs trust authentication (no password required).
 // This is used in tests to simulate Unix socket trust authentication.
+//
+// Trust auth has no over-the-wire negotiation step before AuthenticationOk
+// — the caller (authenticate) is responsible for the success sequence.
 func (c *Conn) authenticateTrust() error {
 	c.logger.Debug("authenticating client", "method", "trust")
+	return nil
+}
 
-	// For trust auth, we just send AuthenticationOk immediately.
+// finishAuth emits the post-authentication completion sequence shared by
+// both trust and SCRAM paths: AuthenticationOk, BackendKeyData, the
+// initial ParameterStatus run, and ReadyForQuery.
+func (c *Conn) finishAuth() error {
 	if err := c.sendAuthenticationOk(); err != nil {
 		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
 	}
@@ -368,8 +480,64 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
 	}
 
-	c.logger.Info("authentication complete", "user", c.user, "method", "trust")
+	c.logger.Info("authentication complete", "user", c.user)
 	return nil
+}
+
+// verifyReplicationRole enforces pg_authid.rolreplication for clients that
+// requested a replication startup connection (replication=true /
+// replication=database). Skipped for normal sessions.
+//
+// Mismatches produce PG's exact wording with SQLSTATE 42501, matching
+// what native PostgreSQL emits in walsender startup. The error is sent
+// FATAL so libpq tears down the connection.
+func (c *Conn) verifyReplicationRole() error {
+	if c.replicationMode == ReplicationOff {
+		return nil
+	}
+
+	// Without a verifier configured, we cannot determine whether the role
+	// has rolreplication=true; fail closed rather than admitting a
+	// potentially-unauthorized walsender session.
+	if c.roleAttrVerifier == nil {
+		c.logger.Warn("rejecting replication connection: no role attribute verifier configured",
+			"user", c.user)
+		return c.sendReplicationRoleError()
+	}
+
+	allowed, err := c.roleAttrVerifier.IsReplicationRole(c.ctx, c.user, c.database)
+	if err != nil {
+		// Lookup failure: fail closed and surface a generic FATAL so we
+		// don't leak whether the user exists. The underlying error is
+		// logged for operators.
+		c.logger.Error("replication role verification failed",
+			"user", c.user, "error", err)
+		return c.sendReplicationRoleError()
+	}
+	if !allowed {
+		c.logger.Warn("authentication failed: role lacks rolreplication",
+			"user", c.user)
+		return c.sendReplicationRoleError()
+	}
+	return nil
+}
+
+// sendReplicationRoleError emits PG's exact wording for a replication-role
+// rejection. SQLSTATE 42501 (insufficient_privilege) matches the error
+// PostgreSQL raises in walsender setup when the role lacks rolreplication
+// and is not a superuser. Returns errAuthRejected on success.
+func (c *Conn) sendReplicationRoleError() error {
+	if err := c.writeError(mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInsufficientPrivilege,
+		"must be superuser or replication role to start walsender",
+		"",
+	)); err != nil {
+		return err
+	}
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
 }
 
 // authenticateSCRAM performs SCRAM-SHA-256 authentication with the client.
@@ -446,35 +614,14 @@ func (c *Conn) authenticateSCRAM() error {
 	// Capture keys for SCRAM passthrough to the backing PostgreSQL.
 	c.scramClientKey, c.scramServerKey = auth.ExtractedKeys()
 
-	// Send AuthenticationSASLFinal with server signature.
+	// Send AuthenticationSASLFinal with server signature. SCRAM ends here;
+	// the caller (authenticate) continues with the post-auth role-attribute
+	// check and the AuthenticationOk → ReadyForQuery completion sequence.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
 		return fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
 	}
 
-	// Send AuthenticationOk.
-	if err := c.sendAuthenticationOk(); err != nil {
-		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
-	}
-
-	// Send BackendKeyData for query cancellation.
-	if err := c.sendBackendKeyData(); err != nil {
-		return fmt.Errorf("failed to send BackendKeyData: %w", err)
-	}
-
-	// Register connection for cancel request lookup now that the client knows the PID.
-	c.listener.RegisterConn(c)
-
-	// Send initial ParameterStatus messages.
-	if err := c.sendParameterStatuses(); err != nil {
-		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
-	}
-
-	// Send ReadyForQuery to indicate we're ready to receive commands.
-	if err := c.sendReadyForQuery(); err != nil {
-		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
-	}
-
-	c.logger.Info("authentication complete", "user", c.user, "method", "scram-sha-256")
+	c.logger.Debug("scram authentication succeeded", "user", c.user)
 	return nil
 }
 
@@ -595,24 +742,32 @@ func (c *Conn) readSASLResponse() (string, error) {
 	return string(body), nil
 }
 
-// sendAuthError sends an authentication error to the client.
+// sendAuthError sends a FATAL authentication-failure response. On a successful
+// write it returns errAuthRejected so authenticate() short-circuits the
+// post-auth completion sequence; an actual write/flush error is propagated.
 func (c *Conn) sendAuthError(message string) error {
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, message, "")); err != nil {
 		return err
 	}
-	return c.flush()
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
 }
 
 // sendLoginDisabledError sends the FATAL error PostgreSQL emits when a role
 // with rolcanlogin=false attempts to authenticate (SQLSTATE 28000). The
 // message format matches native PG verbatim so libpq-compatible clients
-// parse it identically.
+// parse it identically. Returns errAuthRejected on success.
 func (c *Conn) sendLoginDisabledError() error {
 	msg := "role \"" + c.user + "\" is not permitted to log in"
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec, msg, "")); err != nil {
 		return err
 	}
-	return c.flush()
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
 }
 
 // sendAuthenticationOk sends an AuthenticationOk message to the client.

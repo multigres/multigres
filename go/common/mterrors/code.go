@@ -34,6 +34,7 @@ const (
 	PgSSAuthFailed              = "28P01" // invalid_password
 	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled

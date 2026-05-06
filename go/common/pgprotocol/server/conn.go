@@ -115,6 +115,11 @@ type Conn struct {
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
 
+	// roleAttrVerifier enforces role attributes (rolreplication) after
+	// authentication completes. May be nil; replication startup connections
+	// require it.
+	roleAttrVerifier RoleAttributeVerifier
+
 	// tlsConfig holds the TLS configuration for SSL connections.
 	// When set, the server accepts SSLRequest and upgrades to TLS.
 	// When nil, SSLRequest is declined with 'N'.
@@ -152,6 +157,12 @@ type Conn struct {
 	user     string
 	database string
 	params   map[string]string
+
+	// replicationMode reflects the parsed `replication` startup parameter.
+	// Default ReplicationOff means a normal SQL session. ReplicationPhysical
+	// or ReplicationLogical require pg_authid.rolreplication=true on the
+	// authenticated role; the post-auth verifier enforces that.
+	replicationMode ReplicationMode
 
 	// SCRAM-SHA-256 keys extracted during the client handshake, used for
 	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
