@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
@@ -53,6 +54,11 @@ type Listener struct {
 	// When set, the server accepts SSLRequest and upgrades to TLS.
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
+
+	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
+	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
+	// authentication_timeout GUC. Zero or negative disables the timeout.
+	authenticationTimeout time.Duration
 
 	// logger for logging.
 	logger *slog.Logger
@@ -127,9 +133,20 @@ type ListenerConfig struct {
 	// When nil, SSLRequest is declined with 'N' (plaintext only).
 	TLSConfig *tls.Config
 
+	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
+	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
+	// client cannot pin a goroutine past this deadline. Zero falls back to
+	// DefaultAuthenticationTimeout (60s, matching PostgreSQL's default).
+	// Negative disables the timeout.
+	AuthenticationTimeout time.Duration
+
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
 }
+
+// DefaultAuthenticationTimeout matches PostgreSQL's authentication_timeout
+// default (60s). Used when ListenerConfig.AuthenticationTimeout is zero.
+const DefaultAuthenticationTimeout = 60 * time.Second
 
 // NewListener creates a new PostgreSQL protocol listener.
 func NewListener(config ListenerConfig) (*Listener, error) {
@@ -152,19 +169,25 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		logger = slog.Default()
 	}
 
+	authTimeout := config.AuthenticationTimeout
+	if authTimeout == 0 {
+		authTimeout = DefaultAuthenticationTimeout
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
-		listener:          netListener,
-		handler:           config.Handler,
-		hashProvider:      config.HashProvider,
-		trustAuthProvider: config.TrustAuthProvider,
-		tlsConfig:         config.TLSConfig,
-		logger:            logger,
-		gatewayID:         config.GatewayID,
-		conns:             make(map[uint32]*Conn),
-		ctx:               ctx,
-		cancel:            cancel,
+		listener:              netListener,
+		handler:               config.Handler,
+		hashProvider:          config.HashProvider,
+		trustAuthProvider:     config.TrustAuthProvider,
+		tlsConfig:             config.TLSConfig,
+		authenticationTimeout: authTimeout,
+		logger:                logger,
+		gatewayID:             config.GatewayID,
+		conns:                 make(map[uint32]*Conn),
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 
 	// Initialize buffer pools.

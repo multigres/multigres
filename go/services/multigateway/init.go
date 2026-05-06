@@ -95,6 +95,10 @@ type MultiGateway struct {
 	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
+	// authenticationTimeout bounds the PG startup phase (SSL handshake,
+	// StartupMessage, SCRAM exchange). Equivalent to PostgreSQL's
+	// authentication_timeout GUC.
+	authenticationTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
@@ -153,6 +157,12 @@ func NewMultiGateway() *MultiGateway {
 			FlagName: "statement-timeout",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
+		}),
+		authenticationTimeout: viperutil.Configure(reg, "authentication-timeout", viperutil.Options[time.Duration]{
+			Default:  60 * time.Second,
+			FlagName: "authentication-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_AUTHENTICATION_TIMEOUT"},
 		}),
 		planCacheMemory: viperutil.Configure(reg, "plan-cache-memory", viperutil.Options[int]{
 			Default:  4 * 1024 * 1024, // 4 MB
@@ -236,6 +246,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
+	fs.Duration("authentication-timeout", mg.authenticationTimeout.Default(), "Maximum time allowed to complete client authentication (SSL handshake, startup message, SCRAM). Negative disables; 0 uses the protocol default of 60s.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
@@ -250,6 +261,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgPort,
 		mg.pgBindAddress,
 		mg.statementTimeout,
+		mg.authenticationTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 		mg.pgReplicaPort,
@@ -456,12 +468,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address:      pgAddr,
-		Handler:      mg.pgHandler,
-		GatewayID:    pidPrefix,
-		HashProvider: hashProvider,
-		TLSConfig:    pgTLSConfig,
-		Logger:       logger,
+		Address:               pgAddr,
+		Handler:               mg.pgHandler,
+		GatewayID:             pidPrefix,
+		HashProvider:          hashProvider,
+		TLSConfig:             pgTLSConfig,
+		AuthenticationTimeout: mg.authenticationTimeout.Get(),
+		Logger:                logger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
@@ -475,12 +488,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
-			Address:      replicaAddr,
-			Handler:      replicaHandler,
-			GatewayID:    pidPrefix,
-			HashProvider: hashProvider,
-			TLSConfig:    pgTLSConfig,
-			Logger:       logger,
+			Address:               replicaAddr,
+			Handler:               replicaHandler,
+			GatewayID:             pidPrefix,
+			HashProvider:          hashProvider,
+			TLSConfig:             pgTLSConfig,
+			AuthenticationTimeout: mg.authenticationTimeout.Get(),
+			Logger:                logger,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)

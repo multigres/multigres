@@ -25,6 +25,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -509,16 +510,43 @@ func generateBackendKey() uint32 {
 // the writer to the pool when the connection genuinely idles between
 // batches.
 func (c *Conn) serve() error {
-	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
-	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
-	// Without this, a client can hold a goroutine indefinitely by stalling during
-	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+	// Bound the startup phase (SSL/GSS negotiation, StartupMessage, SCRAM
+	// exchange) — equivalent to PostgreSQL's authentication_timeout. A
+	// stalled or malicious client cannot pin this goroutine past the
+	// deadline. The deadline is cleared once authentication completes so
+	// the main command loop runs without an I/O timeout.
+	startupDeadlineSet := false
+	if d := c.listener.authenticationTimeout; d > 0 {
+		if err := c.conn.SetDeadline(time.Now().Add(d)); err == nil {
+			startupDeadlineSet = true
+		} else {
+			c.logger.Warn("failed to set startup deadline", "error", err)
+		}
+	}
 
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
 		if errors.Is(err, io.EOF) {
 			c.logger.Debug("client disconnected before startup")
 			return nil
+		}
+		// Map a deadline-exceeded I/O error during startup to a clean
+		// PG-format FATAL with SQLSTATE 08006 so libpq surfaces it as
+		// "canceling authentication due to timeout" instead of a raw
+		// I/O timeout. The startup deadline is still active here — any
+		// write would inherit the expired deadline and fail — so clear
+		// it first using a brief grace window for the error reply.
+		if startupDeadlineSet && errors.Is(err, os.ErrDeadlineExceeded) {
+			c.logger.Warn("startup phase timed out",
+				"timeout", c.listener.authenticationTimeout,
+				"remote_addr", c.RemoteAddr())
+			// Brief grace window: long enough to flush the error to a
+			// well-behaved client, short enough that a wedged client
+			// can't keep this goroutine pinned.
+			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
+			_ = c.flush()
+			return err
 		}
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
@@ -532,6 +560,15 @@ func (c *Conn) serve() error {
 		}
 		_ = c.flush()
 		return err
+	}
+
+	// Authentication complete — clear the startup deadline before the
+	// command loop. Subsequent reads must not inherit the auth-phase
+	// deadline (idle clients are normal, not a protocol violation).
+	if startupDeadlineSet {
+		if err := c.conn.SetDeadline(time.Time{}); err != nil {
+			c.logger.Warn("failed to clear startup deadline", "error", err)
+		}
 	}
 
 	// Main command loop.
