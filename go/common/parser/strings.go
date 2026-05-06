@@ -242,9 +242,16 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 				ctx.AdvanceBy(1)
 			}
 		} else {
-			// Literal character - no escape processing in dollar-quoted strings
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
+			// Literal character - no escape processing in dollar-quoted strings.
+			// Copy the raw bytes that DecodeRune actually consumed so multi-byte
+			// UTF-8 (common in function bodies) advances correctly and invalid
+			// sequences are preserved verbatim.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
+			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 
@@ -627,9 +634,15 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 						return nil, err
 					}
 				} else {
-					// Regular character
-					ctx.AddLiteral(string(ch))
-					ctx.AdvanceBy(1)
+					// Regular character: copy raw bytes that DecodeRune actually
+					// consumed so multi-byte UTF-8 advances by its full width
+					// and invalid sequences are preserved verbatim.
+					_, size := ctx.CurrentRune()
+					if size <= 0 {
+						size = 1
+					}
+					ctx.AddLiteral(string(ctx.PeekBytes(size)))
+					ctx.AdvanceBy(size)
 				}
 			}
 

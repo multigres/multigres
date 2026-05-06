@@ -255,6 +255,21 @@ func TestDollarQuotedStrings(t *testing.T) {
 			expected:  "content $aa$ more content",
 			tokenType: SCONST,
 		},
+		{
+			// Multi-byte UTF-8 characters (common in function bodies) must
+			// advance by their full rune length, not 1 byte.
+			name:      "Dollar-quoted string with multi-byte UTF-8 char",
+			input:     "$$\xe4\xb8\x96\xe7\x95\x8c$$",
+			expected:  "\xe4\xb8\x96\xe7\x95\x8c",
+			tokenType: SCONST,
+		},
+		{
+			// Invalid UTF-8 must be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Dollar-quoted string with invalid UTF-8 byte",
+			input:     "$$a\x80b$$",
+			expected:  "a\x80b",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {
@@ -514,6 +529,20 @@ func TestStringConcatenation(t *testing.T) {
 			name:      "Mixed string types with newline",
 			input:     "'hello'\nE'\\nworld'",
 			expected:  "hello\nworld",
+			tokenType: SCONST,
+		},
+		{
+			// Continuation path also needs DecodeRune-aware advancement so that
+			// multi-byte UTF-8 in the second part isn't truncated.
+			name:      "Continuation string with multi-byte UTF-8",
+			input:     "'hello'\n'\xe4\xb8\x96\xe7\x95\x8c'",
+			expected:  "hello\xe4\xb8\x96\xe7\x95\x8c",
+			tokenType: SCONST,
+		},
+		{
+			name:      "Continuation string with invalid UTF-8 byte",
+			input:     "'hello'\n'a\x80b'",
+			expected:  "helloa\x80b",
 			tokenType: SCONST,
 		},
 	}
