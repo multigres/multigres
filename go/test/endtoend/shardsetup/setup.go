@@ -59,6 +59,7 @@ type SetupConfig struct {
 	MultiOrchCount                     int
 	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
 	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
+	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
 	Database                           string
 	TableGroup                         string
 	Shard                              string
@@ -161,6 +162,20 @@ func WithMultigatewayTLS() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMultigatewayTLS = true
+	}
+}
+
+// WithMultipoolerPGTLS provisions postgres with TLS via pgctld's
+// --pg-initdb-extra-conf hook and configures every multipooler in the setup to
+// dial postgres over TCP with sslmode=verify-full and the matching CA bundle.
+// Used to exercise the multipooler → postgres TLS path end-to-end (MUL-370).
+//
+// Switching the multipooler from Unix socket to TCP is necessary because
+// libpq (and the pgprotocol/client mirror used here) skips the SSLRequest
+// negotiation entirely on socket dials.
+func WithMultipoolerPGTLS() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultipoolerPGTLS = true
 	}
 }
 
@@ -469,6 +484,13 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		BackupLocation:     backupLocation,
 	}
 
+	// Provision postgres-side TLS assets up front so every pgctld + multipooler
+	// shares the same CA / server cert. Done before the per-pooler loop so the
+	// snippet path is available when wiring each ProcessInstance.
+	if config.EnableMultipoolerPGTLS {
+		setup.generateMultipoolerPGTLSAssets(t)
+	}
+
 	// Create all multipooler instances (but don't start yet)
 	var multipoolerInstances []*MultipoolerInstance
 	for i := 0; i < config.MultipoolerCount; i++ {
@@ -478,6 +500,22 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		if config.EnableMultipoolerPGTLS {
+			paths := setup.MultipoolerPGTLSCertPaths
+			// Append SSL config to postgresql.conf at init time.
+			inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths.ExtraConfFile)
+			// Use a permissive pg_hba template that trusts 127.0.0.1 over TLS so
+			// the multipooler's per-user pools (which dial password="" without
+			// SCRAM passthrough plumbing) can authenticate over the encrypted
+			// channel.
+			inst.Pgctld.PgHbaTemplate = paths.HbaTemplateFile
+			// Switch the multipooler off Unix socket onto TCP so SSLRequest is
+			// actually exchanged, and point it at the same CA the postgres
+			// server cert was issued from.
+			inst.Multipooler.SocketFile = ""
+			inst.Multipooler.PgClientSSLMode = "verify-full"
+			inst.Multipooler.PgClientSSLRootCert = paths.CACertFile
+		}
 
 		// Configure Prometheus metrics export on multipooler if enabled.
 		if config.EnableMetricsExport {

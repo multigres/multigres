@@ -196,6 +196,10 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 
 // buildClientConfig creates a client.Config with the specified user and password.
 // Used by the admin pool and by user pools when SCRAM passthrough is disabled.
+//
+// SSLMode/TLSConfig from the ConnectionConfig propagate to every dial built by
+// this manager. They are honored only on TCP connections (libpq parity); the
+// client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
 		SocketFile:  m.connConfig.SocketFile,
@@ -204,6 +208,8 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 		Database:    m.connConfig.Database,
 		User:        user,
 		Password:    password,
+		SSLMode:     m.connConfig.SSLMode,
+		TLSConfig:   m.connConfig.TLSConfig,
 		DialTimeout: m.config.DialTimeout(),
 	}
 }

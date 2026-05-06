@@ -28,6 +28,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -512,6 +513,39 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			SocketFile: pm.config.SocketFilePath,
 			Port:       pgPort,
 			Database:   pm.multipooler.Database,
+		}
+		// When no Unix socket is configured, fall back to a TCP dial against
+		// the multipooler's own hostname. Postgres is colocated with pgctld on
+		// the same host, so the multipooler's hostname always points at it.
+		if connConfig.SocketFile == "" {
+			connConfig.Host = pm.multipooler.GetHostname()
+		}
+		// Apply libpq-style TLS settings on the multipooler → postgres leg.
+		// TLS is honored only on TCP dials; Unix-socket connections always run
+		// plaintext, matching libpq behavior.
+		//
+		// Both ParseSSLMode and BuildTLSConfig already ran successfully during
+		// startup validation (multipooler.Init → ConnPoolConfig.ValidatePGSSL),
+		// so any error here would indicate the cert files were tampered with
+		// after startup. Treat that as fatal-by-strict: keep the requested
+		// sslMode but leave TLSConfig nil, which makes every dial fail
+		// explicitly at negotiateSSL with "TLS config is nil but sslmode
+		// requested SSL" rather than silently downgrading to plaintext.
+		if connConfig.SocketFile == "" {
+			sslMode, err := pm.config.ConnPoolConfig.PgSSLMode()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-sslmode at pool open; dials will fail", "error", err)
+				connConfig.SSLMode = client.SSLModeVerifyFull // strict sentinel; any TCP dial errors out
+				connConfig.TLSConfig = nil
+			} else {
+				tlsCfg, err := client.BuildTLSConfig(sslMode, pm.config.ConnPoolConfig.PgSSLRootCert(), connConfig.Host)
+				if err != nil {
+					pm.logger.ErrorContext(pm.ctx, "failed to build PG client TLS config at pool open; dials will fail in TLS-required modes", "error", err, "sslmode", sslMode)
+					tlsCfg = nil
+				}
+				connConfig.SSLMode = sslMode
+				connConfig.TLSConfig = tlsCfg
+			}
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
