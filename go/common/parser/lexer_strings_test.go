@@ -282,9 +282,12 @@ func TestBitStrings(t *testing.T) {
 			tokenType: BCONST,
 		},
 		{
-			name:      "Bit string with whitespace",
+			// xbinside accepts any non-quote char verbatim; the backend
+			// `bit_in` routine validates digits and reports
+			// `" " is not a valid binary digit` at type-conversion time.
+			name:      "Bit string with whitespace preserved verbatim",
 			input:     "B'1010 1010'",
-			expected:  "b10101010", // Whitespace should be skipped
+			expected:  "b1010 1010",
 			tokenType: BCONST,
 		},
 		{
@@ -328,9 +331,12 @@ func TestHexStrings(t *testing.T) {
 			tokenType: XCONST,
 		},
 		{
-			name:      "Hex string with whitespace",
+			// xhinside accepts any non-quote char verbatim; the backend
+			// `varbit_in` routine validates digits and reports
+			// `" " is not a valid hexadecimal digit` at type-conversion time.
+			name:      "Hex string with whitespace preserved verbatim",
 			input:     "X'dead beef'",
-			expected:  "xdeadbeef", // Whitespace should be skipped
+			expected:  "xdead beef",
 			tokenType: XCONST,
 		},
 		{

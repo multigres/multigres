@@ -72,22 +72,22 @@
   {
     "comment": "bit - Statement 15",
     "query": "SELECT b' 0'",
-    "expected": "SELECT B'0'"
+    "expected": "SELECT B' 0'"
   },
   {
     "comment": "bit - Statement 16",
     "query": "SELECT b'0 '",
-    "expected": "SELECT B'0'"
+    "expected": "SELECT B'0 '"
   },
   {
     "comment": "bit - Statement 17",
     "query": "SELECT x' 0'",
-    "expected": "SELECT X'0'"
+    "expected": "SELECT X' 0'"
   },
   {
     "comment": "bit - Statement 18",
     "query": "SELECT x'0 '",
-    "expected": "SELECT X'0'"
+    "expected": "SELECT X'0 '"
   },
   {
     "comment": "bit - Statement 19",

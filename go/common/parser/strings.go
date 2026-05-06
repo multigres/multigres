@@ -669,27 +669,23 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 	ctx.AdvanceBy(1) // Skip B
 	ctx.AdvanceBy(1) // Skip '
 
+	// xbinside is `[^']*` (scan.l:265) — accept every byte verbatim until the
+	// closing quote. The upstream comment at scan.l:255-263 explicitly chose
+	// not to validate digits here because that swallows characters silently;
+	// instead the input routine (`bit_in`) validates and emits e.g.
+	// `" " is not a valid binary digit`. Preserving the literal lets the
+	// downstream backend produce the canonical error.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
 		ch := ctx.CurrentChar()
 
 		if ch == '\'' {
-			// End of bit string
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
-		} else if ch == '0' || ch == '1' {
-			// Valid bit character
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
-		} else if unicode.IsSpace(ch) {
-			// Skip whitespace within bit strings
-			ctx.AdvanceBy(1)
-		} else {
-			// Invalid character in bit string
-			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid bit string character: %c", ch))
-			ctx.AdvanceBy(1)
 		}
+		ctx.AddLiteral(string(ch))
+		ctx.AdvanceBy(1)
 	}
 
 	if !foundClosingQuote {
@@ -719,27 +715,21 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 	ctx.AdvanceBy(1) // Skip X
 	ctx.AdvanceBy(1) // Skip '
 
+	// xhinside is `[^']*` (scan.l:269) — accept every byte verbatim until the
+	// closing quote. Upstream defers digit validation to the input routine for
+	// the same reason as xbinside (see comment in scanBitString); this lets
+	// `varbit_in` emit `" " is not a valid hexadecimal digit` etc.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
 		ch := ctx.CurrentChar()
 
 		if ch == '\'' {
-			// End of hex string
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
-		} else if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
-			// Valid hex character
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
-		} else if unicode.IsSpace(ch) {
-			// Skip whitespace within hex strings
-			ctx.AdvanceBy(1)
-		} else {
-			// Invalid character in hex string
-			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid hexadecimal string character: %c", ch))
-			ctx.AdvanceBy(1)
 		}
+		ctx.AddLiteral(string(ch))
+		ctx.AdvanceBy(1)
 	}
 
 	if !foundClosingQuote {
