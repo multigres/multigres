@@ -103,16 +103,15 @@ func (l *Lexer) scanStandardStringWithType(startPos, startScanPos int, isUnicode
 				return nil, err
 			}
 		} else {
-			// Regular character - use proper UTF-8 handling
-			ctx.AddLiteral(string(ch))
-			// Calculate the byte size of this rune to advance correctly
-			runeSize := utf8.RuneLen(ch)
-			if runeSize > 0 {
-				ctx.AdvanceBy(runeSize)
-			} else {
-				// Invalid rune, advance by 1 byte
-				ctx.AdvanceBy(1)
+			// Regular character: copy the raw bytes that DecodeRune actually
+			// consumed so invalid UTF-8 (which decodes as RuneError + size 1)
+			// is preserved verbatim instead of being re-encoded as U+FFFD.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
 			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 
@@ -170,16 +169,15 @@ func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 				return nil, err
 			}
 		} else {
-			// Regular character - use proper UTF-8 handling
-			ctx.AddLiteral(string(ch))
-			// Calculate the byte size of this rune to advance correctly
-			runeSize := utf8.RuneLen(ch)
-			if runeSize > 0 {
-				ctx.AdvanceBy(runeSize)
-			} else {
-				// Invalid rune, advance by 1 byte
-				ctx.AdvanceBy(1)
+			// Regular character: copy the raw bytes that DecodeRune actually
+			// consumed so invalid UTF-8 is preserved verbatim instead of being
+			// re-encoded as U+FFFD.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
 			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 

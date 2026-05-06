@@ -90,6 +90,14 @@ func TestStandardStrings(t *testing.T) {
 			tokenType:   SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
 			shouldError: false,  // Returns SCONST token, doesn't error
 		},
+		{
+			// Invalid UTF-8 (lone continuation byte) must advance one byte and
+			// be preserved verbatim rather than re-encoded as U+FFFD.
+			name:      "String with invalid UTF-8 byte preserved verbatim",
+			input:     "'a\x80b'",
+			expected:  "a\x80b",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {

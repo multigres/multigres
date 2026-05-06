@@ -1699,8 +1699,9 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 
 	for ptr < len(s) {
 		c := s[ptr]
-		switch c {
-		case '0', '1':
+		// Use if/else (not switch) so the trailing `break` exits the loop;
+		// `break` inside a switch only exits the switch and would spin here.
+		if c == '0' || c == '1' { //nolint:staticcheck // QF1003: switch would defeat the point
 			// Check for overflow before shifting
 			if val > 0xFFFFFFFF/2 {
 				return 0, true
@@ -1708,13 +1709,13 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 			val = val*2 + uint32(c-'0')
 			hasDigits = true
 			ptr++
-		case '_':
+		} else if c == '_' {
 			// Underscore must be followed by more binary digits
 			ptr++
 			if ptr >= len(s) || (s[ptr] != '0' && s[ptr] != '1') {
 				return 0, false // Invalid syntax
 			}
-		default:
+		} else {
 			break
 		}
 	}
