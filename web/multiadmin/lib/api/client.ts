@@ -1,6 +1,6 @@
-// API client for MultiAdmin service
-// Connects to the multiadmin HTTP/gRPC-gateway endpoints
-
+import { createPromiseClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
+import { MultiAdminService } from "./generated/multiadminservice_connect.js";
 import type {
   GetCellNamesResponse,
   GetCellResponse,
@@ -27,81 +27,40 @@ export interface ApiClientConfig {
 }
 
 export class MultiAdminClient {
-  private baseUrl: string;
+  private client: ReturnType<
+    typeof createPromiseClient<typeof MultiAdminService>
+  >;
 
   constructor(config: ApiClientConfig) {
-    // Remove trailing slash if present
-    this.baseUrl = config.baseUrl.replace(/\/$/, "");
-  }
-
-  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...options?.headers,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new ApiError(response.status, errorText, url);
-      }
-
-      return response.json();
-    } catch (error) {
-      // If already an ApiError, rethrow it
-      if (error instanceof ApiError) {
-        throw error;
-      }
-
-      // Network error or other fetch failure
-      throw new ApiError(
-        0,
-        error instanceof Error ? error.message : "Network request failed",
-        url,
-      );
-    }
+    const baseUrl = config.baseUrl.replace(/\/$/, "");
+    const transport = createConnectTransport({ baseUrl });
+    this.client = createPromiseClient(MultiAdminService, transport);
   }
 
   // Cell operations
 
   async getCellNames(): Promise<GetCellNamesResponse> {
-    return this.fetch<GetCellNamesResponse>("/api/v1/cells");
+    return this.client.getCellNames({});
   }
 
   async getCell(name: string): Promise<GetCellResponse> {
-    return this.fetch<GetCellResponse>(
-      `/api/v1/cells/${encodeURIComponent(name)}`,
-    );
+    return this.client.getCell({ name });
   }
 
   // Database operations
 
   async getDatabaseNames(): Promise<GetDatabaseNamesResponse> {
-    return this.fetch<GetDatabaseNamesResponse>("/api/v1/databases");
+    return this.client.getDatabaseNames({});
   }
 
   async getDatabase(name: string): Promise<GetDatabaseResponse> {
-    return this.fetch<GetDatabaseResponse>(
-      `/api/v1/databases/${encodeURIComponent(name)}`,
-    );
+    return this.client.getDatabase({ name });
   }
 
   // Gateway operations
 
   async getGateways(cells?: string[]): Promise<GetGatewaysResponse> {
-    const params = new URLSearchParams();
-    if (cells && cells.length > 0) {
-      cells.forEach((cell) => params.append("cells", cell));
-    }
-    const query = params.toString();
-    return this.fetch<GetGatewaysResponse>(
-      `/api/v1/gateways${query ? `?${query}` : ""}`,
-    );
+    return this.client.getGateways({ cells: cells ?? [] });
   }
 
   // Pooler operations
@@ -111,90 +70,39 @@ export class MultiAdminClient {
     database?: string;
     shard?: string;
   }): Promise<GetPoolersResponse> {
-    const params = new URLSearchParams();
-    if (options?.cells && options.cells.length > 0) {
-      options.cells.forEach((cell) => params.append("cells", cell));
-    }
-    if (options?.database) {
-      params.append("database", options.database);
-    }
-    if (options?.shard) {
-      params.append("shard", options.shard);
-    }
-    const query = params.toString();
-    return this.fetch<GetPoolersResponse>(
-      `/api/v1/poolers${query ? `?${query}` : ""}`,
-    );
+    return this.client.getPoolers({
+      cells: options?.cells ?? [],
+      database: options?.database ?? "",
+      shard: options?.shard ?? "",
+    });
   }
 
   // Orchestrator operations
 
   async getOrchs(cells?: string[]): Promise<GetOrchsResponse> {
-    const params = new URLSearchParams();
-    if (cells && cells.length > 0) {
-      cells.forEach((cell) => params.append("cells", cell));
-    }
-    const query = params.toString();
-    return this.fetch<GetOrchsResponse>(
-      `/api/v1/orchs${query ? `?${query}` : ""}`,
-    );
+    return this.client.getOrchs({ cells: cells ?? [] });
   }
 
   // Backup operations
 
   async backup(request: BackupRequest): Promise<BackupResponse> {
-    return this.fetch<BackupResponse>("/api/v1/backups", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.client.backup(request);
   }
 
   async restoreFromBackup(
     request: RestoreFromBackupRequest,
   ): Promise<RestoreFromBackupResponse> {
-    return this.fetch<RestoreFromBackupResponse>("/api/v1/restores", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.client.restoreFromBackup(request);
   }
 
   async getBackupJobStatus(
     request: GetBackupJobStatusRequest,
   ): Promise<GetBackupJobStatusResponse> {
-    const params = new URLSearchParams();
-    if (request.database) {
-      params.append("database", request.database);
-    }
-    if (request.tableGroup) {
-      params.append("table_group", request.tableGroup);
-    }
-    if (request.shard) {
-      params.append("shard", request.shard);
-    }
-    const query = params.toString();
-    return this.fetch<GetBackupJobStatusResponse>(
-      `/api/v1/jobs/${encodeURIComponent(request.jobId)}${query ? `?${query}` : ""}`,
-    );
+    return this.client.getBackupJobStatus(request);
   }
 
   async getBackups(request?: GetBackupsRequest): Promise<GetBackupsResponse> {
-    const params = new URLSearchParams();
-    if (request?.database) {
-      params.append("database", request.database);
-    }
-    if (request?.tableGroup) {
-      params.append("table_group", request.tableGroup);
-    }
-    if (request?.shard) {
-      params.append("shard", request.shard);
-    }
-    if (request?.limit) {
-      params.append("limit", request.limit.toString());
-    }
-    const query = params.toString();
-    return this.fetch<GetBackupsResponse>(
-      `/api/v1/backups${query ? `?${query}` : ""}`,
-    );
+    return this.client.getBackups(request ?? {});
   }
 
   // Pooler Status operations
@@ -203,9 +111,7 @@ export class MultiAdminClient {
     cell: string;
     name: string;
   }): Promise<GetPoolerStatusResponse> {
-    return this.fetch<GetPoolerStatusResponse>(
-      `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`,
-    );
+    return this.client.getPoolerStatus({ poolerId });
   }
 
   // Gateway diagnostics
@@ -214,23 +120,18 @@ export class MultiAdminClient {
     gatewayId: { cell: string; name: string },
     options?: { limit?: number; minCalls?: number },
   ): Promise<GetGatewayQueriesResponse> {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append("limit", options.limit.toString());
-    if (options?.minCalls)
-      params.append("min_calls", options.minCalls.toString());
-    const qs = params.toString();
-    return this.fetch<GetGatewayQueriesResponse>(
-      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/queries${qs ? `?${qs}` : ""}`,
-    );
+    return this.client.getGatewayQueries({
+      gatewayId,
+      limit: options?.limit ?? 0,
+      minCalls: options?.minCalls ? BigInt(options.minCalls) : undefined,
+    });
   }
 
   async getGatewayConsolidator(gatewayId: {
     cell: string;
     name: string;
   }): Promise<GetGatewayConsolidatorResponse> {
-    return this.fetch<GetGatewayConsolidatorResponse>(
-      `/api/v1/gateways/${encodeURIComponent(gatewayId.cell)}/${encodeURIComponent(gatewayId.name)}/consolidator`,
-    );
+    return this.client.getGatewayConsolidator({ gatewayId });
   }
 }
 
