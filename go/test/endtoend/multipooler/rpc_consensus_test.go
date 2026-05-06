@@ -563,8 +563,9 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Now demote the new primary (standby) and promote original primary back
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
-			ConsensusTerm: 0, // Ignored when Force=true
-			Force:         true,
+			ConsensusTerm:          0, // Ignored when Force=true
+			Force:                  true,
+			RestartServerAsStandby: true,
 		}
 		_, err = standbyConsensusClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed on new primary")

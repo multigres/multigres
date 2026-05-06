@@ -199,7 +199,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		// This emergency demote path will remain for BeginTerm REVOKE actions.
 		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
 		drainTimeout := 5 * time.Second
-		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout)
+		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout, true)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
@@ -474,7 +474,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Recruiting primary: demoting and restarting as standby",
 			"revoked_below_term", revokedBelowTerm)
-		if _, err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout); err != nil {
+		if _, err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout, true); err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 			return nil, mterrors.Wrap(err, "failed to demote primary during recruit")
 		}

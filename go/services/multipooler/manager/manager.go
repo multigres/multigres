@@ -162,6 +162,13 @@ type MultiPoolerManager struct {
 	// SIGTERM and the Shutdown RPC race to trigger it.
 	shutdownOnce sync.Once
 
+	// demotedC is closed exactly once, when this pooler completes an emergency
+	// demotion (the local resignation signal). performGracefulShutdown selects on
+	// this so it can exit as soon as multiorch's EmergencyDemote returns, instead
+	// of waiting for the hard-stop timer.
+	demotedC    chan struct{}
+	demotedOnce sync.Once
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
@@ -270,6 +277,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		pgctldClient:           pgctldClient,
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
+		demotedC:               make(chan struct{}),
 		pgMonitor:              monitorRunner,
 		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
 		// We create a dummy context because some unit tests need them.

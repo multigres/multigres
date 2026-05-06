@@ -16,7 +16,6 @@ package recovery
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -41,13 +40,12 @@ func (re *Engine) shutdownPrimaryCallback(
 	database, tableGroup, shard string,
 ) error {
 	_, err := re.ShutdownPrimary(ctx, &multiorchpb.ShutdownPrimaryRequest{
-		Database:              database,
-		TableGroup:            tableGroup,
-		Shard:                 shard,
-		PrimaryId:             primaryID,
-		DrainTimeout:          durationpb.New(10 * time.Second),
-		StandbyCatchupTimeout: durationpb.New(30 * time.Second),
-		Reason:                "SIGTERM",
+		Database:     database,
+		TableGroup:   tableGroup,
+		Shard:        shard,
+		PrimaryId:    primaryID,
+		DrainTimeout: durationpb.New(10 * time.Second),
+		Reason:       "SIGTERM",
 	})
 	return err
 }
@@ -83,10 +81,11 @@ func (re *Engine) isPrimaryCandidate(pooler *multiorchdatapb.PoolerHealthState) 
 //
 // Triggered when a primary multipooler signals PoolerType_STOPPING on the health
 // stream (e.g. on SIGTERM). The pooler has already stopped accepting writes by
-// the time this runs; EmergencyDemote drains remaining connections and stops
-// PostgreSQL. After stopping the primary, it is marked DRAINED in topology so
-// getpoolers never shows two PRIMARY nodes simultaneously and the node is
-// excluded from future elections.
+// the time this runs; EmergencyDemote drains remaining connections and leaves
+// PostgreSQL running in NOT_SERVING state — the multipooler stops PostgreSQL
+// itself after this RPC returns. The old primary is then marked DRAINED in
+// topology so getpoolers never shows two PRIMARY nodes simultaneously and the
+// node is excluded from future elections.
 //
 // See the ShutdownPrimary RPC in multiorchservice.proto for the full sequence.
 func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.ShutdownPrimaryRequest) (_ *multiorchpb.ShutdownPrimaryResponse, retErr error) {
@@ -102,7 +101,6 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 		"shard_key", commontypes.FormatShardKey(shardKey),
 		"primary", primaryIDStr,
 		"drain_timeout", req.DrainTimeout.AsDuration(),
-		"standby_catchup_timeout", req.StandbyCatchupTimeout.AsDuration(),
 		"reason", req.Reason)
 
 	// Step 1: Validate that the given pooler is currently PRIMARY or STOPPING.
@@ -138,23 +136,16 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 			shardKey.Database, shardKey.Shard)
 	}()
 
-	// Step 2: Read the primary's current WAL LSN while it is still running.
-	// The gateway has already stopped routing new writes (STOPPING signal), so
-	// this LSN is a safe target for standby catchup. If the Status call fails
-	// we skip the standby wait and proceed directly to EmergencyDemote.
-	currentLSN := re.shutdownGetPrimaryLSN(ctx, primary.MultiPooler, primaryIDStr)
-
-	// Step 3: Wait for standbys to replay up to the primary's current LSN.
-	// The primary is still up and streaming WAL during this window, so standbys
-	// should catch up quickly. AppointLeader picks the most-advanced node if
-	// any standby times out.
-	if currentLSN != "" {
-		re.shutdownWaitForStandbys(ctx, shardKey, primaryIDStr, currentLSN, req.StandbyCatchupTimeout)
-	}
-
-	// Step 4: Stop the primary. Standbys have caught up (or timed out), so
-	// EmergencyDemote is fast: few or no active writes to drain.
-	re.logger.InfoContext(ctx, "ShutdownPrimary: stopping primary via EmergencyDemote",
+	// Step 2: Drain the primary via EmergencyDemote. With sync replication,
+	// drain blocks until in-flight commits are ACK'd by sync standbys, so the
+	// committed WAL is durable on sync standbys when this returns.
+	//
+	// EmergencyDemote is best-effort here: if it fails (e.g. the dying pooler's
+	// hard-stop timer fired and the process exited mid-RPC) we log and proceed.
+	// The cohort filter excludes STOPPING/DRAINED so the dying primary cannot be
+	// re-elected, and AppointLeader operates against the standbys regardless of
+	// whether the drain succeeded.
+	re.logger.InfoContext(ctx, "ShutdownPrimary: draining primary via EmergencyDemote",
 		"primary", primaryIDStr)
 	demoteResp, err := re.rpcClient.EmergencyDemote(ctx, primary.MultiPooler,
 		&multipoolermanagerdatapb.EmergencyDemoteRequest{
@@ -162,16 +153,22 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 			// deliberately, not responding to a detected failure.
 			Force:        true,
 			DrainTimeout: req.DrainTimeout,
+			// restart_server_as_standby=false: the multipooler is exiting on SIGTERM
+			// and will stop postgres directly. Restarting as standby would just be
+			// undone moments later.
+			RestartServerAsStandby: false,
 		})
 	if err != nil {
-		return nil, mterrors.Wrap(err, "EmergencyDemote failed")
+		re.logger.WarnContext(ctx, "ShutdownPrimary: EmergencyDemote failed; proceeding with election",
+			"primary", primaryIDStr, "error", err)
+	} else {
+		re.logger.InfoContext(ctx, "ShutdownPrimary: primary drained",
+			"primary", primaryIDStr,
+			"final_lsn", demoteResp.LsnPosition,
+			"connections_terminated", demoteResp.ConnectionsTerminated)
 	}
-	re.logger.InfoContext(ctx, "ShutdownPrimary: primary stopped",
-		"primary", primaryIDStr,
-		"final_lsn", demoteResp.LsnPosition,
-		"connections_terminated", demoteResp.ConnectionsTerminated)
 
-	// Step 4b: Mark the old primary as DRAINED in topology so that getpoolers
+	// Step 2b: Mark the old primary as DRAINED in topology so that getpoolers
 	// does not show two PRIMARYs and the node is excluded from future elections.
 	// The pooler sets STOPPING only on its in-memory health stream; it exits
 	// before its monitor loop can rewrite the etcd record.
@@ -183,7 +180,7 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 			"primary", primaryIDStr, "error", err)
 	}
 
-	// Step 5: Build the election cohort, excluding STOPPING and DRAINED poolers.
+	// Step 3: Build the election cohort, excluding STOPPING and DRAINED poolers.
 	cohort := re.poolerStore.FindPoolersInShard(shardKey)
 	filteredCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))
 	for _, p := range cohort {
@@ -191,7 +188,7 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 			filteredCohort = append(filteredCohort, p)
 		}
 	}
-	// Step 6: Elect a new primary from the cohort.
+	// Step 4: Elect a new primary from the cohort.
 	re.logger.InfoContext(ctx, "ShutdownPrimary: electing new primary",
 		"shard_key", commontypes.FormatShardKey(shardKey),
 		"cohort_size", len(filteredCohort))
@@ -199,7 +196,7 @@ func (re *Engine) ShutdownPrimary(ctx context.Context, req *multiorchpb.Shutdown
 		return nil, mterrors.Wrap(err, "AppointLeader failed")
 	}
 
-	// Step 7: Find the newly elected primary and return its ID.
+	// Step 5: Find the newly elected primary and return its ID.
 	newPrimary, err := re.shutdownFindNewPrimary(ctx, shardKey, primaryIDStr)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to find new primary after election")
@@ -247,97 +244,6 @@ func (re *Engine) shutdownValidatePrimary(shardKey *clustermetadatapb.ShardKey, 
 			"pooler %s is not PRIMARY or STOPPING (current type: %s)", idStr, poolerType)
 	}
 	return pooler, nil
-}
-
-// shutdownWaitForStandbys calls WaitForLSN on each REPLICA in the shard in
-// parallel. Timeouts and errors are logged as warnings but do not abort the
-// switchover — catchup is best-effort per the ShutdownPrimary contract.
-func (re *Engine) shutdownWaitForStandbys(
-	ctx context.Context,
-	shardKey *clustermetadatapb.ShardKey,
-	excludeIDStr string,
-	targetLSN string,
-	timeout *durationpb.Duration,
-) {
-	var standbys []*multiorchdatapb.PoolerHealthState
-	re.poolerStore.Range(func(_ string, p *multiorchdatapb.PoolerHealthState) bool {
-		if p == nil || p.MultiPooler == nil || p.MultiPooler.Id == nil {
-			return true
-		}
-		if p.MultiPooler.Database != shardKey.Database ||
-			p.MultiPooler.TableGroup != shardKey.TableGroup ||
-			p.MultiPooler.Shard != shardKey.Shard {
-			return true
-		}
-		if topoclient.MultiPoolerIDString(p.MultiPooler.Id) == excludeIDStr {
-			return true
-		}
-		t := p.GetStatus().GetPoolerType()
-		if t == clustermetadatapb.PoolerType_UNKNOWN {
-			t = p.MultiPooler.Type
-		}
-		if t == clustermetadatapb.PoolerType_REPLICA {
-			standbys = append(standbys, p)
-		}
-		return true
-	})
-
-	if len(standbys) == 0 {
-		re.logger.WarnContext(ctx, "ShutdownPrimary: no standbys found, skipping catchup wait",
-			"shard_key", commontypes.FormatShardKey(shardKey))
-		return
-	}
-
-	re.logger.InfoContext(ctx, "ShutdownPrimary: waiting for standbys to catch up",
-		"shard_key", commontypes.FormatShardKey(shardKey),
-		"standbys", len(standbys),
-		"target_lsn", targetLSN)
-
-	// Enforce the catchup deadline via context so WaitForLSN calls are
-	// cancelled when the window expires — even if the primary has died and
-	// WAL replay on standbys has stalled.
-	waitCtx, cancel := context.WithTimeout(ctx, timeout.AsDuration())
-	defer cancel()
-
-	var wg sync.WaitGroup
-	for _, s := range standbys {
-		wg.Add(1)
-		go func(standby *multiorchdatapb.PoolerHealthState) {
-			defer wg.Done()
-			standbyIDStr := topoclient.MultiPoolerIDString(standby.MultiPooler.Id)
-			_, err := re.rpcClient.WaitForLSN(waitCtx, standby.MultiPooler,
-				&multipoolermanagerdatapb.WaitForLSNRequest{
-					TargetLsn: targetLSN,
-					Timeout:   timeout,
-				})
-			if err != nil {
-				re.logger.WarnContext(ctx, "ShutdownPrimary: standby did not catch up in time (proceeding anyway)",
-					"standby", standbyIDStr, "error", err)
-			} else {
-				re.logger.InfoContext(ctx, "ShutdownPrimary: standby caught up",
-					"standby", standbyIDStr, "lsn", targetLSN)
-			}
-		}(s)
-	}
-	wg.Wait()
-}
-
-// shutdownGetPrimaryLSN calls Status on the primary to get its current WAL LSN
-// while it is still running. Returns an empty string (and logs a warning) if
-// the call fails — callers skip the standby wait in that case.
-func (re *Engine) shutdownGetPrimaryLSN(ctx context.Context, mp *clustermetadatapb.MultiPooler, primaryIDStr string) string {
-	resp, err := re.rpcClient.Status(ctx, mp, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		re.logger.WarnContext(ctx, "ShutdownPrimary: could not read primary LSN, skipping standby wait",
-			"primary", primaryIDStr, "error", err)
-		return ""
-	}
-	lsn := resp.GetStatus().GetPrimaryStatus().GetLsn()
-	if lsn == "" {
-		re.logger.WarnContext(ctx, "ShutdownPrimary: primary LSN is empty, skipping standby wait",
-			"primary", primaryIDStr)
-	}
-	return lsn
 }
 
 // shutdownFindNewPrimary polls shard poolers for fresh state and returns the

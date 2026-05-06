@@ -1947,9 +1947,15 @@ type EmergencyDemoteRequest struct {
 	// Drain timeout - how long to wait for in-flight queries (default: 5s)
 	DrainTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
 	// Force the operation even if term validation fails
-	Force         bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Force bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	// If true, restart postgres as standby after demotion so the node stays
+	// in the cluster as a replication target. If false, postgres is left
+	// running as primary in NOT_SERVING state — the caller is responsible for
+	// stopping it (used by ShutdownPrimary, where the multipooler is exiting
+	// and will stop postgres directly).
+	RestartServerAsStandby bool `protobuf:"varint,4,opt,name=restart_server_as_standby,json=restartServerAsStandby,proto3" json:"restart_server_as_standby,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *EmergencyDemoteRequest) Reset() {
@@ -2003,6 +2009,13 @@ func (x *EmergencyDemoteRequest) GetForce() bool {
 	return false
 }
 
+func (x *EmergencyDemoteRequest) GetRestartServerAsStandby() bool {
+	if x != nil {
+		return x.RestartServerAsStandby
+	}
+	return false
+}
+
 type EmergencyDemoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether the pooler was already demoted (idempotent check)
@@ -2011,8 +2024,12 @@ type EmergencyDemoteResponse struct {
 	LsnPosition string `protobuf:"bytes,3,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
 	// Number of connections that were terminated
 	ConnectionsTerminated int32 `protobuf:"varint,4,opt,name=connections_terminated,json=connectionsTerminated,proto3" json:"connections_terminated,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Whether postgres was restarted as a standby. Mirrors the request's
+	// restart_server flag — false means postgres is left running as primary
+	// in NOT_SERVING state and the caller must stop it.
+	ServerRestartedAsStandby bool `protobuf:"varint,5,opt,name=server_restarted_as_standby,json=serverRestartedAsStandby,proto3" json:"server_restarted_as_standby,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *EmergencyDemoteResponse) Reset() {
@@ -2064,6 +2081,13 @@ func (x *EmergencyDemoteResponse) GetConnectionsTerminated() int32 {
 		return x.ConnectionsTerminated
 	}
 	return 0
+}
+
+func (x *EmergencyDemoteResponse) GetServerRestartedAsStandby() bool {
+	if x != nil {
+		return x.ServerRestartedAsStandby
+	}
+	return false
 }
 
 // DemoteStalePrimary demotes a stale primary that came back online after failover.
@@ -3621,15 +3645,17 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x15ManagerHealthSnapshot\x12>\n" +
 	"\x06status\x18\x01 \x01(\v2&.multipoolermanagerdata.StatusResponseR\x06status\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12A\n" +
-	"\atrigger\x18\x03 \x01(\x0e2'.multipoolermanagerdata.SnapshotTriggerR\atrigger\"\x95\x01\n" +
+	"\atrigger\x18\x03 \x01(\x0e2'.multipoolermanagerdata.SnapshotTriggerR\atrigger\"\xd0\x01\n" +
 	"\x16EmergencyDemoteRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12>\n" +
 	"\rdrain_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12\x14\n" +
-	"\x05force\x18\x03 \x01(\bR\x05force\"\xa3\x01\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\x129\n" +
+	"\x19restart_server_as_standby\x18\x04 \x01(\bR\x16restartServerAsStandby\"\xe2\x01\n" +
 	"\x17EmergencyDemoteResponse\x12.\n" +
 	"\x13was_already_demoted\x18\x01 \x01(\bR\x11wasAlreadyDemoted\x12!\n" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
-	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x8e\x01\n" +
+	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\x12=\n" +
+	"\x1bserver_restarted_as_standby\x18\x05 \x01(\bR\x18serverRestartedAsStandby\"\x8e\x01\n" +
 	"\x19DemoteStalePrimaryRequest\x124\n" +
 	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\x12%\n" +
 	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12\x14\n" +

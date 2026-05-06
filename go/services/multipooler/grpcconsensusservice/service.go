@@ -89,7 +89,7 @@ func (s *consensusService) EmergencyDemote(ctx context.Context, req *multipooler
 	if req.DrainTimeout != nil {
 		drainTimeout = req.DrainTimeout.AsDuration()
 	}
-	resp, err := s.manager.EmergencyDemote(ctx, req.ConsensusTerm, drainTimeout, req.Force)
+	resp, err := s.manager.EmergencyDemote(ctx, req.ConsensusTerm, drainTimeout, req.Force, req.RestartServerAsStandby)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

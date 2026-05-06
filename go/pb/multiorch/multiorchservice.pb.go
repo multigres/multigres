@@ -688,9 +688,6 @@ type ShutdownPrimaryRequest struct {
 	// How long to wait for in-flight write transactions to drain on the primary.
 	// Required: must be a positive duration.
 	DrainTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
-	// How long to wait for standbys to replay to the primary's final LSN.
-	// Required: must be a positive duration.
-	StandbyCatchupTimeout *durationpb.Duration `protobuf:"bytes,6,opt,name=standby_catchup_timeout,json=standbyCatchupTimeout,proto3" json:"standby_catchup_timeout,omitempty"`
 	// Human-readable reason for the shutdown (e.g. "SIGTERM", "operator request").
 	// Used for logging and audit trails only.
 	Reason        string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -759,13 +756,6 @@ func (x *ShutdownPrimaryRequest) GetPrimaryId() *clustermetadata.ID {
 func (x *ShutdownPrimaryRequest) GetDrainTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.DrainTimeout
-	}
-	return nil
-}
-
-func (x *ShutdownPrimaryRequest) GetStandbyCatchupTimeout() *durationpb.Duration {
-	if x != nil {
-		return x.StandbyCatchupTimeout
 	}
 	return nil
 }
@@ -867,7 +857,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"max_cycles\x18\x01 \x01(\rR\tmaxCycles\"T\n" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
-	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\xca\x02\n" +
+	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\xf7\x01\n" +
 	"\x16ShutdownPrimaryRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
@@ -875,8 +865,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\x122\n" +
 	"\n" +
 	"primary_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12>\n" +
-	"\rdrain_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12Q\n" +
-	"\x17standby_catchup_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15standbyCatchupTimeout\x12\x16\n" +
+	"\rdrain_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12\x16\n" +
 	"\x06reason\x18\a \x01(\tR\x06reason\"T\n" +
 	"\x17ShutdownPrimaryResponse\x129\n" +
 	"\x0enew_primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\fnewPrimaryId2\xbd\x04\n" +
@@ -932,25 +921,24 @@ var file_multiorchservice_proto_depIdxs = []int32{
 	16, // 7: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
 	15, // 8: multiorch.ShutdownPrimaryRequest.primary_id:type_name -> clustermetadata.ID
 	17, // 9: multiorch.ShutdownPrimaryRequest.drain_timeout:type_name -> google.protobuf.Duration
-	17, // 10: multiorch.ShutdownPrimaryRequest.standby_catchup_timeout:type_name -> google.protobuf.Duration
-	15, // 11: multiorch.ShutdownPrimaryResponse.new_primary_id:type_name -> clustermetadata.ID
-	0,  // 12: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 13: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 14: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 15: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 16: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	12, // 17: multiorch.MultiOrchService.ShutdownPrimary:input_type -> multiorch.ShutdownPrimaryRequest
-	1,  // 18: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 19: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 20: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 21: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 22: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	13, // 23: multiorch.MultiOrchService.ShutdownPrimary:output_type -> multiorch.ShutdownPrimaryResponse
-	18, // [18:24] is the sub-list for method output_type
-	12, // [12:18] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	15, // 10: multiorch.ShutdownPrimaryResponse.new_primary_id:type_name -> clustermetadata.ID
+	0,  // 11: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 12: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 13: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	12, // 16: multiorch.MultiOrchService.ShutdownPrimary:input_type -> multiorch.ShutdownPrimaryRequest
+	1,  // 17: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 18: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 19: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 20: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 21: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	13, // 22: multiorch.MultiOrchService.ShutdownPrimary:output_type -> multiorch.ShutdownPrimaryResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }

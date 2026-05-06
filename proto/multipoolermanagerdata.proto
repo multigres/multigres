@@ -390,6 +390,13 @@ message EmergencyDemoteRequest {
 
   // Force the operation even if term validation fails
   bool force = 3;
+
+  // If true, restart postgres as standby after demotion so the node stays
+  // in the cluster as a replication target. If false, postgres is left
+  // running as primary in NOT_SERVING state — the caller is responsible for
+  // stopping it (used by ShutdownPrimary, where the multipooler is exiting
+  // and will stop postgres directly).
+  bool restart_server_as_standby = 4;
 }
 
 message EmergencyDemoteResponse {
@@ -401,6 +408,11 @@ message EmergencyDemoteResponse {
 
   // Number of connections that were terminated
   int32 connections_terminated = 4;
+
+  // Whether postgres was restarted as a standby. Mirrors the request's
+  // restart_server flag — false means postgres is left running as primary
+  // in NOT_SERVING state and the caller must stop it.
+  bool server_restarted_as_standby = 5;
 }
 
 // DemoteStalePrimary demotes a stale primary that came back online after failover.

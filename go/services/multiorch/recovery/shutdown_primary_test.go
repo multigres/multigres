@@ -241,12 +241,11 @@ func TestShutdownPrimary_HappyPath(t *testing.T) {
 	engine, fakeClient, primary, standbys := shutdownTestFixture(t)
 
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              primary.Database,
-		TableGroup:            primary.TableGroup,
-		Shard:                 primary.Shard,
-		PrimaryId:             primary.Id,
-		DrainTimeout:          durationpb.New(5e9),  // 5s
-		StandbyCatchupTimeout: durationpb.New(30e9), // 30s
+		Database:     primary.Database,
+		TableGroup:   primary.TableGroup,
+		Shard:        primary.Shard,
+		PrimaryId:    primary.Id,
+		DrainTimeout: durationpb.New(5e9), // 5s // 30s
 	}
 
 	resp, err := engine.ShutdownPrimary(ctx, req)
@@ -263,11 +262,9 @@ func TestShutdownPrimary_HappyPath(t *testing.T) {
 	assert.True(t, standbyNames[newPrimaryName],
 		"new primary %q should be one of the standbys", newPrimaryName)
 
-	// Status must be called on the primary to read the LSN, then EmergencyDemote
-	// to stop it after standbys have caught up.
+	// EmergencyDemote must be called on the primary to drain it.
 	primaryKey := topoclient.MultiPoolerIDString(primary.Id)
 	callLog := fakeClient.GetCallLog()
-	assert.Contains(t, callLog, fmt.Sprintf("Status(%s)", primaryKey))
 	assert.Contains(t, callLog, fmt.Sprintf("EmergencyDemote(%s)", primaryKey))
 }
 
@@ -280,12 +277,11 @@ func TestShutdownPrimary_RejectsNonPrimary(t *testing.T) {
 	// standbys[1] is standby2, which is stored as REPLICA in the fixture.
 	replica := standbys[1]
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              replica.Database,
-		TableGroup:            replica.TableGroup,
-		Shard:                 replica.Shard,
-		PrimaryId:             replica.Id,
-		DrainTimeout:          durationpb.New(5e9),
-		StandbyCatchupTimeout: durationpb.New(30e9),
+		Database:     replica.Database,
+		TableGroup:   replica.TableGroup,
+		Shard:        replica.Shard,
+		PrimaryId:    replica.Id,
+		DrainTimeout: durationpb.New(5e9),
 	}
 
 	_, err := engine.ShutdownPrimary(ctx, req)
@@ -306,12 +302,11 @@ func TestShutdownPrimary_OldPrimaryExcludedFromElection(t *testing.T) {
 	primaryIDStr := topoclient.MultiPoolerIDString(primary.Id)
 
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              primary.Database,
-		TableGroup:            primary.TableGroup,
-		Shard:                 primary.Shard,
-		PrimaryId:             primary.Id,
-		DrainTimeout:          durationpb.New(5e9),
-		StandbyCatchupTimeout: durationpb.New(30e9),
+		Database:     primary.Database,
+		TableGroup:   primary.TableGroup,
+		Shard:        primary.Shard,
+		PrimaryId:    primary.Id,
+		DrainTimeout: durationpb.New(5e9),
 	}
 
 	resp, err := engine.ShutdownPrimary(ctx, req)
@@ -322,15 +317,17 @@ func TestShutdownPrimary_OldPrimaryExcludedFromElection(t *testing.T) {
 		"old primary should not be re-elected")
 }
 
-// TestShutdownPrimary_RecoveryUnaffectedOnError verifies that a fatal step
-// (EmergencyDemote) failing does not stop the recovery loop. ShutdownPrimary
-// no longer disables/re-enables the recovery runner — it stays running
-// throughout, so a failure must leave it in whatever state it was in before.
-func TestShutdownPrimary_RecoveryUnaffectedOnError(t *testing.T) {
+// TestShutdownPrimary_ProceedsWhenEmergencyDemoteFails verifies that an
+// EmergencyDemote failure (e.g. the dying pooler exiting via the hard-stop
+// timer mid-RPC) does not abort the switchover. ShutdownPrimary logs and
+// proceeds with the election against the standbys; the cohort filter excludes
+// STOPPING/DRAINED so the dying primary cannot be re-elected. Recovery must
+// also remain running throughout.
+func TestShutdownPrimary_ProceedsWhenEmergencyDemoteFails(t *testing.T) {
 	ctx := context.Background()
-	engine, fakeClient, primary, _ := shutdownTestFixture(t)
+	engine, fakeClient, primary, standbys := shutdownTestFixture(t)
 
-	// Start recovery so we can verify it remains running after a failure.
+	// Start recovery so we can verify it remains running after the call.
 	engine.EnableRecovery()
 	t.Cleanup(func() { engine.DisableRecovery() })
 
@@ -339,19 +336,29 @@ func TestShutdownPrimary_RecoveryUnaffectedOnError(t *testing.T) {
 	fakeClient.Errors[primaryKey] = errors.New("simulated RPC failure")
 
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              primary.Database,
-		TableGroup:            primary.TableGroup,
-		Shard:                 primary.Shard,
-		PrimaryId:             primary.Id,
-		DrainTimeout:          durationpb.New(5e9),
-		StandbyCatchupTimeout: durationpb.New(30e9),
+		Database:     primary.Database,
+		TableGroup:   primary.TableGroup,
+		Shard:        primary.Shard,
+		PrimaryId:    primary.Id,
+		DrainTimeout: durationpb.New(5e9),
 	}
 
-	_, err := engine.ShutdownPrimary(ctx, req)
-	require.Error(t, err)
+	resp, err := engine.ShutdownPrimary(ctx, req)
+	require.NoError(t, err, "ShutdownPrimary must proceed past EmergencyDemote failure")
+	require.NotNil(t, resp)
 
-	// Recovery must still be running — ShutdownPrimary must not stop it.
-	assert.True(t, engine.IsRecoveryEnabled(), "recovery must remain running after ShutdownPrimary failure")
+	// The election must still pick a standby — never the dying primary.
+	assert.NotEqual(t, primary.Id.Name, resp.NewPrimaryId.Name,
+		"old primary must not be re-elected")
+	standbyNames := make(map[string]bool)
+	for _, s := range standbys {
+		standbyNames[s.Id.Name] = true
+	}
+	assert.True(t, standbyNames[resp.NewPrimaryId.Name],
+		"new primary %q must be one of the standbys", resp.NewPrimaryId.Name)
+
+	// Recovery must still be running.
+	assert.True(t, engine.IsRecoveryEnabled(), "recovery must remain running after ShutdownPrimary")
 }
 
 // TestShutdownPrimary_StandbyTimeoutDoesNotAbort verifies that a WaitForLSN
@@ -365,12 +372,11 @@ func TestShutdownPrimary_StandbyTimeoutDoesNotAbort(t *testing.T) {
 	fakeClient.WaitForLSNErrors[standby2Key] = errors.New("context deadline exceeded")
 
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              primary.Database,
-		TableGroup:            primary.TableGroup,
-		Shard:                 primary.Shard,
-		PrimaryId:             primary.Id,
-		DrainTimeout:          durationpb.New(5e9),
-		StandbyCatchupTimeout: durationpb.New(30e9),
+		Database:     primary.Database,
+		TableGroup:   primary.TableGroup,
+		Shard:        primary.Shard,
+		PrimaryId:    primary.Id,
+		DrainTimeout: durationpb.New(5e9),
 	}
 
 	// Should still succeed despite one standby timing out.
@@ -392,12 +398,11 @@ func TestShutdownPrimary_UnknownPooler(t *testing.T) {
 		Name:      "does-not-exist",
 	}
 	req := &multiorchpb.ShutdownPrimaryRequest{
-		Database:              primary.Database,
-		TableGroup:            primary.TableGroup,
-		Shard:                 primary.Shard,
-		PrimaryId:             unknownID,
-		DrainTimeout:          durationpb.New(5e9),
-		StandbyCatchupTimeout: durationpb.New(30e9),
+		Database:     primary.Database,
+		TableGroup:   primary.TableGroup,
+		Shard:        primary.Shard,
+		PrimaryId:    unknownID,
+		DrainTimeout: durationpb.New(5e9),
 	}
 
 	_, err := engine.ShutdownPrimary(ctx, req)

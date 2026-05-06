@@ -76,23 +76,23 @@ type MultiOrchServiceClient interface {
 	//
 	// Sequence:
 	//  1. Validates that the pooler is currently PRIMARY or STOPPING.
-	//  2. Reads the primary's current WAL LSN. The multipooler has already set
-	//     PoolerType_STOPPING on the health stream before calling this RPC,
-	//     which causes the gateway to stop routing new writes — so this LSN is
-	//     a stable target for standby catchup.
-	//  3. Waits for all standbys to replay to that LSN. The primary is still
-	//     running and streaming WAL during this window. If the timeout expires
-	//     the switchover proceeds anyway to avoid hanging indefinitely.
-	//  4. Calls EmergencyDemote to stop the primary. Standbys have caught up
-	//     (or timed out), so there are few or no active writes left to drain.
-	//     Then marks the old primary as DRAINED in topology so that the
-	//     topology never shows two PRIMARY nodes simultaneously and the node
-	//     is excluded from future elections.
-	//  5. Builds the election cohort from shard poolers, excluding STOPPING and
-	//     DRAINED poolers. This prevents the old primary from being re-elected
-	//     and prevents irreparable replicas from becoming candidates.
-	//  6. Elects a new primary via AppointLeader.
-	//  7. Polls shard poolers to confirm the new primary and returns its ID.
+	//  2. Calls EmergencyDemote with restart_server_as_standby=false. This
+	//     drains in-flight writes (with sync replication, each commit waits
+	//     for sync standby ACK before returning, so committed WAL is durable
+	//     on sync standbys when drain completes), captures the final LSN, and
+	//     signals voluntary resignation. PostgreSQL is left running in
+	//     NOT_SERVING state — the caller stops it after the RPC returns.
+	//     2b. Marks the old primary as DRAINED in topology so getpoolers never
+	//     shows two PRIMARY nodes simultaneously and the node is excluded
+	//     from future elections.
+	//  3. Builds the election cohort from shard poolers, excluding STOPPING
+	//     and DRAINED poolers. This prevents the old primary from being
+	//     re-elected and prevents irreparable replicas from becoming
+	//     candidates.
+	//  4. Elects a new primary via AppointLeader. Recruit returns each
+	//     candidate's last_receive_lsn and Propose makes the chosen leader
+	//     replay any received-but-unapplied WAL before opening for writes.
+	//  5. Polls shard poolers to confirm the new primary and returns its ID.
 	//
 	// Returns once a new primary has been elected. The caller can then shut down
 	// PostgreSQL cleanly. Errors are non-fatal: the caller should log and proceed
@@ -203,23 +203,23 @@ type MultiOrchServiceServer interface {
 	//
 	// Sequence:
 	//  1. Validates that the pooler is currently PRIMARY or STOPPING.
-	//  2. Reads the primary's current WAL LSN. The multipooler has already set
-	//     PoolerType_STOPPING on the health stream before calling this RPC,
-	//     which causes the gateway to stop routing new writes — so this LSN is
-	//     a stable target for standby catchup.
-	//  3. Waits for all standbys to replay to that LSN. The primary is still
-	//     running and streaming WAL during this window. If the timeout expires
-	//     the switchover proceeds anyway to avoid hanging indefinitely.
-	//  4. Calls EmergencyDemote to stop the primary. Standbys have caught up
-	//     (or timed out), so there are few or no active writes left to drain.
-	//     Then marks the old primary as DRAINED in topology so that the
-	//     topology never shows two PRIMARY nodes simultaneously and the node
-	//     is excluded from future elections.
-	//  5. Builds the election cohort from shard poolers, excluding STOPPING and
-	//     DRAINED poolers. This prevents the old primary from being re-elected
-	//     and prevents irreparable replicas from becoming candidates.
-	//  6. Elects a new primary via AppointLeader.
-	//  7. Polls shard poolers to confirm the new primary and returns its ID.
+	//  2. Calls EmergencyDemote with restart_server_as_standby=false. This
+	//     drains in-flight writes (with sync replication, each commit waits
+	//     for sync standby ACK before returning, so committed WAL is durable
+	//     on sync standbys when drain completes), captures the final LSN, and
+	//     signals voluntary resignation. PostgreSQL is left running in
+	//     NOT_SERVING state — the caller stops it after the RPC returns.
+	//     2b. Marks the old primary as DRAINED in topology so getpoolers never
+	//     shows two PRIMARY nodes simultaneously and the node is excluded
+	//     from future elections.
+	//  3. Builds the election cohort from shard poolers, excluding STOPPING
+	//     and DRAINED poolers. This prevents the old primary from being
+	//     re-elected and prevents irreparable replicas from becoming
+	//     candidates.
+	//  4. Elects a new primary via AppointLeader. Recruit returns each
+	//     candidate's last_receive_lsn and Propose makes the chosen leader
+	//     replay any received-but-unapplied WAL before opening for writes.
+	//  5. Polls shard poolers to confirm the new primary and returns its ID.
 	//
 	// Returns once a new primary has been elected. The caller can then shut down
 	// PostgreSQL cleanly. Errors are non-fatal: the caller should log and proceed

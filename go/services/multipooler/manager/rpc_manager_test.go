@@ -318,7 +318,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "EmergencyDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.EmergencyDemote(ctx, 1, 5*time.Second, false)
+				_, err := manager.EmergencyDemote(ctx, 1, 5*time.Second, false, true)
 				return err
 			},
 		},

@@ -822,7 +822,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 // - By orchestrator when fixing a broken shard.
 // - When performing a Planned demotion.
 // - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
+func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool, restartServerAsStandby bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -853,7 +853,7 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}()
 
 	// Perform the actual demotion
-	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout)
+	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout, restartServerAsStandby)
 	if err != nil {
 		return nil, err
 	}
@@ -880,7 +880,7 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 // MultiOrch will try to contact all nodes in the cohort.
 // In the case that the dead primary received the RPC, it should just
 // shut down itself.
-func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, restartServerAsStandby bool) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
@@ -949,18 +949,27 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		pm.broadcastHealth()
 	}
 
-	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
-	// the node in the cluster as a replication target, avoiding timeline divergence
-	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return nil, err
+	// Signal local listeners (the graceful-shutdown goroutine) that demotion has
+	// completed. Closed at most once per manager lifetime; subsequent demote calls
+	// are no-ops on the channel.
+	pm.demotedOnce.Do(func() { close(pm.demotedC) })
+
+	// Restart PostgreSQL as standby if requested.
+	//
+	// Unlike the old stop-only path, this keeps the node in the cluster as a
+	// replication target, avoiding timeline divergence in most cases. The
+	// coordinator still uses pg_rewind for nodes that diverged.
+	if restartServerAsStandby {
+		if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+			return nil, err
+		}
+
+		pm.healthStreamer.UpdateLeaderObservation(nil)
+
+		// Suppress the postgres monitor until a rewind completes; the monitor would
+		// otherwise restart postgres on this demoted node.
+		pm.rewindPending.Store(true)
 	}
-
-	pm.healthStreamer.UpdateLeaderObservation(nil)
-
-	// Suppress the postgres monitor until a rewind completes; the monitor would
-	// otherwise restart postgres on this demoted node.
-	pm.rewindPending.Store(true)
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
@@ -968,9 +977,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		"connections_terminated", connectionsTerminated)
 
 	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
-		WasAlreadyDemoted:     false,
-		LsnPosition:           finalLSN,
-		ConnectionsTerminated: connectionsTerminated,
+		WasAlreadyDemoted:        false,
+		LsnPosition:              finalLSN,
+		ConnectionsTerminated:    connectionsTerminated,
+		ServerRestartedAsStandby: restartServerAsStandby,
 	}, nil
 }
 
