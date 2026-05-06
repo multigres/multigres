@@ -2364,5 +2364,9 @@
   {
     "comment": "Multiple CTEs with UNION at top level (MUL-391)",
     "query": "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS x) SELECT x FROM a UNION SELECT x FROM b"
+  },
+  {
+    "comment": "WITH CTE referenced from VALUES at top level (MUL-391)",
+    "query": "WITH cte(foo) AS (VALUES (42)) VALUES ((SELECT foo FROM cte))"
   }
 ]

@@ -599,7 +599,14 @@ func (s *SelectStmt) SqlString() string {
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
 		}
-		return "VALUES " + strings.Join(valueRows, ", ")
+		// WITH cte(...) AS (...) VALUES (...) attaches WithClause to the
+		// outer SelectStmt; same drop-on-round-trip class as the set-op
+		// branch above.
+		result := "VALUES " + strings.Join(valueRows, ", ")
+		if s.WithClause != nil {
+			result = s.WithClause.SqlString() + " " + result
+		}
+		return result
 	}
 
 	// Regular SELECT statement

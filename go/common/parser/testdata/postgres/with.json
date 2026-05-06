@@ -704,7 +704,7 @@
   {
     "comment": "with - Statement 145",
     "query": "with cte(foo) as ( values(42) ) values((select foo from cte))",
-    "expected": "VALUES ((SELECT foo FROM cte))"
+    "expected": "WITH cte(foo) AS (VALUES (42)) VALUES ((SELECT foo FROM cte))"
   },
   {
     "comment": "with - Statement 146",
@@ -719,7 +719,7 @@
   {
     "comment": "with - Statement 148",
     "query": "select ( with cte(foo) as ( values(f1) ) values((select foo from cte)) ) from int4_tbl",
-    "expected": "SELECT (VALUES ((SELECT foo FROM cte))) FROM int4_tbl"
+    "expected": "SELECT (WITH cte(foo) AS (VALUES (f1)) VALUES ((SELECT foo FROM cte))) FROM int4_tbl"
   },
   {
     "comment": "with - Statement 149",
@@ -1142,7 +1142,7 @@
   {
     "comment": "with - Statement 236",
     "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT * FROM t ) VALUES(FALSE)",
-    "expected": "VALUES (FALSE)"
+    "expected": "WITH RECURSIVE t AS (INSERT INTO y SELECT * FROM t) VALUES (FALSE)"
   },
   {
     "comment": "with - Statement 237",
@@ -1167,7 +1167,7 @@
   {
     "comment": "with - Statement 241",
     "query": "WITH t AS ( INSERT INTO y VALUES(0) ) VALUES(FALSE)",
-    "expected": "VALUES (FALSE)"
+    "expected": "WITH t AS (INSERT INTO y VALUES (0)) VALUES (FALSE)"
   },
   {
     "comment": "with - Statement 242",

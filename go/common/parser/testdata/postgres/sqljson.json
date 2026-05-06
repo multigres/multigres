@@ -662,8 +662,7 @@
   },
   {
     "comment": "sqljson - Statement 138",
-    "query": "SELECT JSON_ARRAY(WITH x AS (SELECT 1) VALUES (TRUE))",
-    "expected": "SELECT JSON_ARRAY(VALUES (TRUE))"
+    "query": "SELECT JSON_ARRAY(WITH x AS (SELECT 1) VALUES (TRUE))"
   },
   {
     "comment": "sqljson - Statement 139",
