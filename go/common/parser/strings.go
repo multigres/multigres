@@ -344,7 +344,7 @@ func (l *Lexer) isDollarQuoteCont(ch rune) bool {
 // Hot path inside scanDollarQuotedString — every `$` triggers a call. Use the
 // zero-alloc HasPrefixAtScanPos helper to avoid copying the whole buffer.
 func (l *Lexer) matchesDollarDelimiter(expectedDelimiter string) bool {
-	return l.context.HasPrefixAtScanPos([]byte(expectedDelimiter))
+	return l.context.HasPrefixAtScanPos(expectedDelimiter)
 }
 
 // scanEscapeSequence processes backslash escape sequences in extended strings
@@ -577,12 +577,14 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		// Skip whitespace and check for newline. Match PostgreSQL's whitespace
 		// definition (`[ \t\n\r\f]`, scan.l space rule) — explicitly ASCII so
 		// multi-byte Unicode spaces like NBSP do not gate continuation.
+		// PG's `newline` token is `\n|\r|\r\n`, so a bare CR also satisfies
+		// the "saw a newline" requirement for continuation.
 		for !ctx.AtEOF() {
 			ch, _ := ctx.CurrentRune()
 			if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' && ch != '\f' {
 				break
 			}
-			if ch == '\n' {
+			if ch == '\n' || ch == '\r' {
 				hasNewline = true
 			}
 			ctx.AdvanceBy(1)

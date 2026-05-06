@@ -564,6 +564,14 @@ func TestStringConcatenation(t *testing.T) {
 			expected:  "a",
 			tokenType: SCONST,
 		},
+		{
+			// PG's newline pattern is `\n|\r|\r\n`, so a bare CR also
+			// satisfies the "saw a newline" requirement.
+			name:      "Continuation across bare CR",
+			input:     "'a'\r'b'",
+			expected:  "ab",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {

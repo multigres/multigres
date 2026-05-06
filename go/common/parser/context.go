@@ -40,7 +40,6 @@
 package parser
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -997,12 +996,15 @@ func (ctx *ParseContext) ScanBuf() []byte {
 // HasPrefixAtScanPos reports whether scanBuf at the current scan position
 // starts with needle. Avoids copying the entire buffer (as ScanBuf does) so
 // repeated lookups inside hot scanning loops stay zero-alloc.
-func (ctx *ParseContext) HasPrefixAtScanPos(needle []byte) bool {
+// needle is taken as a string so callers don't have to allocate a []byte:
+// `string(byteSlice) == stringLit` lowers to a direct memcmp in the Go
+// compiler with no heap allocation.
+func (ctx *ParseContext) HasPrefixAtScanPos(needle string) bool {
 	pos := ctx.scanPos
 	if len(ctx.scanBuf)-pos < len(needle) {
 		return false
 	}
-	return bytes.Equal(ctx.scanBuf[pos:pos+len(needle)], needle)
+	return string(ctx.scanBuf[pos:pos+len(needle)]) == needle
 }
 
 func (ctx *ParseContext) SetScanPos(pos int) {
