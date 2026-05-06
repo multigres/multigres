@@ -583,6 +583,12 @@ func (c *Conn) serve() error {
 			return errAuthenticationTimeout
 		}
 		c.logger.Error("startup failed", "error", err)
+		// Set a brief write-deadline grace window so the best-effort
+		// error reply isn't races against the still-active auth
+		// deadline (which may fire mid-write on a slow client).
+		if startupDeadlineSet {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		}
 		// Try to send an error response before closing.
 		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
 		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
@@ -594,6 +600,14 @@ func (c *Conn) serve() error {
 		}
 		_ = c.flush()
 		return err
+	}
+
+	// Cancel requests close the connection inside handleStartup and
+	// return nil — there is no authenticated session to enter the
+	// command loop for, and SetDeadline on the closed fd would fail
+	// and surface as a spurious Error log. Bail out cleanly here.
+	if c.closed.Load() {
+		return nil
 	}
 
 	// Authentication complete — clear the startup deadline before the

@@ -290,6 +290,38 @@ func TestAuthenticationTimeout_PendingTLSHandshakeSkipsErrorReply(t *testing.T) 
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
+// TestAuthenticationTimeout_CancelRequestNoSpuriousErrors verifies that a
+// CancelRequest received during the startup phase does not produce
+// spurious Error logs from the deadline-clear path. handleCancelRequest
+// closes the connection and returns nil; serve() must detect that and
+// bail out without trying to clear the deadline on the now-closed fd.
+func TestAuthenticationTimeout_CancelRequestNoSpuriousErrors(t *testing.T) {
+	const timeout = 30 * time.Second
+	clientConn, serverErrCh, cleanup := timeoutTestServer(t, timeout)
+	defer cleanup()
+
+	require.NoError(t, clientConn.SetReadDeadline(time.Now().Add(2*time.Second)))
+
+	// Send a CancelRequest startup packet: length(16) + code + pid + secret.
+	pkt := make([]byte, 16)
+	binary.BigEndian.PutUint32(pkt[0:4], 16)
+	binary.BigEndian.PutUint32(pkt[4:8], protocol.CancelRequestCode)
+	binary.BigEndian.PutUint32(pkt[8:12], 12345)
+	binary.BigEndian.PutUint32(pkt[12:16], 67890)
+	_, err := clientConn.Write(pkt)
+	require.NoError(t, err)
+
+	// Server closes the cancel connection per protocol. serve() must
+	// return nil — no error path triggered.
+	select {
+	case serveErr := <-serverErrCh:
+		require.NoError(t, serveErr,
+			"cancel request must not produce a serve() error (would be a regression on the deadline-clear path)")
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit after CancelRequest")
+	}
+}
+
 // TestAuthenticationTimeout_NegativeDisables verifies that a negative
 // AuthenticationTimeout disables the deadline entirely (escape hatch for
 // operators who want to opt out of the default).
