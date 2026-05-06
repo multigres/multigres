@@ -608,9 +608,10 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	// Verify error contains auth failure message.
 	assert.Contains(t, string(body), "password authentication failed")
 
-	// Server should return nil (auth error was sent successfully).
+	// handleStartup propagates errAuthRejected so serve() can short-circuit
+	// without entering the command loop on a half-completed session.
 	err = <-errCh
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errAuthRejected)
 }
 
 func TestAuthenticationMessages(t *testing.T) {
@@ -1184,7 +1185,7 @@ func TestReplicationStartup_RejectedWithoutRolReplication(t *testing.T) {
 	assert.Equal(t, "42501", fields['C'])
 	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
 
-	require.NoError(t, <-errCh)
+	require.ErrorIs(t, <-errCh, errAuthRejected)
 	assert.Equal(t, 1, verifier.calls)
 	assert.Equal(t, "repluser", verifier.username)
 	assert.Equal(t, "postgres", verifier.database)
@@ -1286,7 +1287,7 @@ func TestReplicationStartup_NoVerifierFailsClosed(t *testing.T) {
 	assert.Equal(t, "42501", fields['C'])
 	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
 
-	require.NoError(t, <-errCh)
+	require.ErrorIs(t, <-errCh, errAuthRejected)
 	assert.Equal(t, ReplicationPhysical, c.replicationMode)
 }
 
@@ -1319,7 +1320,7 @@ func TestReplicationStartup_RejectedOnVerifierError(t *testing.T) {
 	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
 	assert.Equal(t, "42501", parseErrorFields(body)['C'])
 
-	require.NoError(t, <-errCh)
+	require.ErrorIs(t, <-errCh, errAuthRejected)
 	assert.Equal(t, 1, verifier.calls)
 }
 

@@ -407,13 +407,16 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 }
 
 // errAuthRejected signals that the auth flow rejected the client and a FATAL
-// message has already been written. The caller (authenticate) catches it and
-// returns nil — no second error frame, no AuthenticationOk. serve() then
-// reads EOF (after the client tears down the connection in response to the
-// FATAL) and exits cleanly.
+// message has already been written. The error propagates up to serve(),
+// which recognizes it and closes the connection cleanly without entering
+// the command loop or writing a second error frame. Without this propagation
+// the connection would proceed to the command loop after a rejection — a
+// well-behaved client closes after FATAL and the next read returns EOF, but
+// a malicious or buggy client could attempt to send messages on a session
+// where AuthenticationOk was never emitted and RegisterConn was never called.
 //
 // All sendAuthError-style helpers return this on a successful FATAL write so
-// the post-auth completion sequence is skipped.
+// the post-auth completion sequence is skipped uniformly.
 var errAuthRejected = errors.New("auth rejected; FATAL already sent")
 
 // authenticate performs authentication with the client.
@@ -423,24 +426,23 @@ var errAuthRejected = errors.New("auth rejected; FATAL already sent")
 // On success, this also enforces post-auth role attribute checks (today
 // rolreplication for replication startup connections) and emits the
 // AuthenticationOk → BackendKeyData → ParameterStatus → ReadyForQuery
-// completion sequence. Sequencing the role-attribute check before the
-// AuthenticationOk matches PostgreSQL: a client that fails the
-// rolreplication check sees a single FATAL message, not a successful
-// handshake followed by a closed connection.
+// completion sequence. The role-attribute check runs *before*
+// AuthenticationOk; native PostgreSQL sequences the same check as
+// SASLFinal → AuthenticationOk → (InitPostgres rolreplication check) → FATAL,
+// so multigres collapses two server-to-client frames into one for rejected
+// replication clients. libpq, pgx, and JDBC all accept ErrorResponse at this
+// stage either way — the wire-visible difference is one fewer frame and no
+// successful-handshake-then-rejection optic for the client.
 func (c *Conn) authenticate() error {
-	// Check if trust auth is allowed for this connection.
+	// Check if trust auth is allowed for this connection. errAuthRejected
+	// is propagated unchanged so serve() can short-circuit out of the
+	// startup phase without entering the command loop.
 	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
 		if err := c.authenticateTrust(); err != nil {
-			if errors.Is(err, errAuthRejected) {
-				return nil
-			}
 			return err
 		}
 	} else {
 		if err := c.authenticateSCRAM(); err != nil {
-			if errors.Is(err, errAuthRejected) {
-				return nil
-			}
 			return err
 		}
 	}
@@ -449,9 +451,6 @@ func (c *Conn) authenticate() error {
 	// Done post-auth so we don't leak which roles exist for unauthenticated
 	// clients.
 	if err := c.verifyReplicationRole(); err != nil {
-		if errors.Is(err, errAuthRejected) {
-			return nil
-		}
 		return err
 	}
 

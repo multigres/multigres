@@ -568,6 +568,15 @@ func (c *Conn) serve() error {
 			c.logger.Debug("client disconnected before startup")
 			return nil
 		}
+		// errAuthRejected: a FATAL was already sent during the auth flow;
+		// no AuthenticationOk was emitted and the connection was not
+		// registered. Skip the command loop entirely so a misbehaving
+		// client cannot send messages on a half-completed session, and
+		// don't write a second error frame.
+		if errors.Is(err, errAuthRejected) {
+			c.logger.Debug("client rejected during startup; FATAL already sent")
+			return nil
+		}
 		// Map a deadline-exceeded I/O error during startup to a clean
 		// PG-format FATAL with SQLSTATE 08006 so libpq surfaces it as
 		// "canceling authentication due to timeout" instead of a raw
