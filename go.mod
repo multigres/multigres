@@ -64,6 +64,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.19.2 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect

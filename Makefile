@@ -69,6 +69,7 @@ proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
 
 # Generate TypeScript types from proto files
 proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_PLUGIN)
+	rm -rf $(TS_PROTO_OUT) && mkdir -p $(TS_PROTO_OUT)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
 		--plugin=$(TS_PROTO_PLUGIN) \
 		--ts_proto_out=$(TS_PROTO_OUT) \
