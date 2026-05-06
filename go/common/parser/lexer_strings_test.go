@@ -365,6 +365,66 @@ func TestHexStrings(t *testing.T) {
 	}
 }
 
+// TestUnicodeStringEscapeValidation covers the U&'...' escape paths that
+// PostgreSQL rejects: surrogate pairing rules and codepoint range. Mirrors
+// the validation in postgres/src/backend/parser/parser.c:str_udeescape.
+func TestUnicodeStringEscapeValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		errMsg  string
+		wantErr bool
+	}{
+		// Valid surrogate pair encodes 😀 (U+1F600). No error.
+		{"valid surrogate pair", `U&'\D83D\DE00'`, "", false},
+		// Lone high surrogate with no following escape.
+		{"lone high surrogate", `U&'\D800'`, "invalid Unicode surrogate pair", true},
+		// High surrogate followed by non-low-surrogate escape.
+		{"high then non-surrogate", `U&'wrong: \+00DB99\+000061'`, "invalid Unicode surrogate pair", true},
+		// Lone low surrogate.
+		{"lone low surrogate", `U&'\DC00'`, "invalid Unicode surrogate pair", true},
+		// High surrogate followed by literal char (non-escape).
+		{"high then literal", `U&'\D800x'`, "invalid Unicode surrogate pair", true},
+		// Codepoint above U+10FFFF.
+		{"codepoint over max", `U&'\+110000'`, "invalid Unicode escape value", true},
+		// Codepoint at the boundary remains valid.
+		{"codepoint at max", `U&'\+10FFFF'`, "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lexer := NewLexer(tc.input)
+			tok := lexer.NextToken()
+			require.NotNil(t, tok)
+
+			errs := lexer.GetContext().GetErrors()
+			if tc.wantErr {
+				require.NotEmpty(t, errs)
+				assert.Contains(t, errs[0].Message, tc.errMsg)
+			} else {
+				assert.Empty(t, errs)
+			}
+		})
+	}
+}
+
+// TestUnicodeStringUnsafeWithoutSCS verifies that U&'...' is rejected when
+// standard_conforming_strings is off, matching scan.l:578-583.
+func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
+	opts := DefaultParseOptions()
+	opts.StandardConformingStrings = false
+
+	ctx := NewParseContext(`U&'\0061'`, opts)
+	lexer := &Lexer{context: ctx}
+
+	tok := lexer.NextToken()
+	require.NotNil(t, tok)
+
+	errs := ctx.GetErrors()
+	require.NotEmpty(t, errs)
+	assert.Equal(t, "unsafe use of string constant with Unicode escapes", errs[0].Message)
+}
+
 // TestStringConcatenation tests string concatenation across whitespace
 // NOTE: Updated to match PostgreSQL behavior - concatenation requires newline
 func TestStringConcatenation(t *testing.T) {

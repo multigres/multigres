@@ -55,9 +55,16 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 	return l.scanStandardStringWithType(startPos, startScanPos, false)
 }
 
-// scanUnicodeString processes a Unicode string literal (U&'...')
-// Equivalent to PostgreSQL xus state handling
+// scanUnicodeString processes a Unicode string literal (U&'...').
+// Equivalent to PostgreSQL xus state handling. When standard_conforming_strings
+// is off, upstream rejects the literal entirely with
+// `unsafe use of string constant with Unicode escapes`
+// (postgres/src/backend/parser/scan.l:578-583); record that error and continue
+// scanning so the parse tree still resolves.
 func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
+	if !l.context.StandardConformingStrings() {
+		_ = l.context.AddErrorWithType(InvalidUnicodeEscape, "unsafe use of string constant with Unicode escapes")
+	}
 	return l.scanStandardStringWithType(startPos, startScanPos, true)
 }
 
