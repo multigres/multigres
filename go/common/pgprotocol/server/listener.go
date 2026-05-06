@@ -23,7 +23,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -281,11 +280,13 @@ func (l *Listener) handleConnection(conn *Conn) {
 		switch {
 		case errors.Is(err, io.EOF):
 			// Client closed cleanly — no log.
-		case errors.Is(err, os.ErrDeadlineExceeded):
+		case errors.Is(err, errAuthenticationTimeout):
 			// Auth timeout already logged at Warn from serve()
 			// with full context (timeout, remote_addr). Skip the
 			// redundant Error log here so a stalled client doesn't
-			// produce two entries per connection.
+			// produce two entries per connection. Matching on the
+			// dedicated sentinel (rather than os.ErrDeadlineExceeded)
+			// keeps unrelated future deadlines visible.
 		default:
 			conn.logger.Error("connection error", "error", err)
 		}

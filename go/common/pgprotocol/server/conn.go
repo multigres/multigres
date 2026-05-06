@@ -49,6 +49,14 @@ const (
 // and queryContextError checks it with errors.Is (pointer equality).
 var errQueryCanceled = mterrors.NewQueryCanceled()
 
+// errAuthenticationTimeout is the sentinel returned by serve() when the
+// startup-phase deadline (authentication_timeout) fires. handleConnection
+// matches on this specifically rather than the generic
+// os.ErrDeadlineExceeded so that deadlines added in the future for other
+// reasons (idle timeout, per-query socket deadline, etc.) are not silently
+// suppressed by the same log-noise filter.
+var errAuthenticationTimeout = errors.New("authentication timeout")
+
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
 type Conn struct {
@@ -569,7 +577,10 @@ func (c *Conn) serve() error {
 				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
 				_ = c.flush()
 			}
-			return err
+			// Return the sentinel so handleConnection can suppress its
+			// redundant Error log without also swallowing unrelated
+			// deadline-exceeded errors that future code paths may surface.
+			return errAuthenticationTimeout
 		}
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
@@ -587,10 +598,15 @@ func (c *Conn) serve() error {
 
 	// Authentication complete — clear the startup deadline before the
 	// command loop. Subsequent reads must not inherit the auth-phase
-	// deadline (idle clients are normal, not a protocol violation).
+	// deadline (idle clients are normal, not a protocol violation). If
+	// the clear fails (rare — typically only when the fd is already
+	// closed), abort instead of entering the loop with a stale deadline
+	// that would trip the very next read.
 	if startupDeadlineSet {
 		if err := c.conn.SetDeadline(time.Time{}); err != nil {
-			c.logger.Warn("failed to clear startup deadline", "error", err)
+			c.logger.Error("failed to clear startup deadline; tearing down connection",
+				"error", err)
+			return fmt.Errorf("clear startup deadline: %w", err)
 		}
 	}
 
