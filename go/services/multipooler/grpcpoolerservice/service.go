@@ -529,7 +529,7 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
