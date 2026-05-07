@@ -154,12 +154,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 
-		// Re-stamp multigres_vpid:<id> on the backend so lock-detection
-		// functions can resolve vpid → real pid via pg_stat_activity. The
-		// SET runs out-of-band; sessionSettingsForPool ensures the pool's
-		// connstate cache never RESETs application_name on the next query.
-		stampVpidOnReserved(ctx, reservedConn, options)
-
 		// Apply settings if they changed (e.g., SET inside a transaction).
 		// Reserved connections bypass the pool's normal ApplySettings mechanism,
 		// so we must explicitly apply settings changes here.
@@ -168,6 +162,14 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 				return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
+
+		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn. When the
+		// filtered desired settings collapse to nil (e.g. the only client
+		// setting was application_name), ApplySettings issues RESET ALL on
+		// the reserved conn — which would wipe a stamp set earlier in this
+		// function. Restamping after the reset ensures the tag is in place
+		// for the actual query.
+		stampVpidOnReserved(ctx, reservedConn, options)
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
@@ -263,10 +265,6 @@ func (e *Executor) StreamExecute(
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 
-		// Re-stamp multigres_vpid:<id> on the backend so lock-detection
-		// functions can resolve vpid → real pid via pg_stat_activity.
-		stampVpidOnReserved(ctx, reservedConn, options)
-
 		// Apply settings if they changed (e.g., SET inside a transaction).
 		// Reserved connections bypass the pool's normal ApplySettings mechanism,
 		// so we must explicitly apply settings changes here. This step depends
@@ -276,6 +274,11 @@ func (e *Executor) StreamExecute(
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
+
+		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn so a RESET
+		// ALL emitted by the empty-desired-settings path doesn't wipe it
+		// (see the matching ordering in ExecuteQuery).
+		stampVpidOnReserved(ctx, reservedConn, options)
 
 		// If the query references a gateway-managed prepared statement
 		// (wrapped EXECUTE forms), ensure it is parsed on this backend
@@ -599,6 +602,12 @@ func (e *Executor) portalExecuteWithReserved(
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
 	}
+
+	// Stamp multigres_vpid:<id> on the (possibly fresh, possibly resumed)
+	// reserved conn. Done unconditionally — both branches above can return
+	// a backend without the tag (a freshly created reservation, or an
+	// existing one whose tag was wiped by a prior ApplySettings RESET ALL).
+	stampVpidOnReserved(ctx, reservedConn, options)
 
 	// Ensure the statement is prepared on this connection (with consolidation).
 	// For the new-conn branch this is a no-op because the validate hook above
