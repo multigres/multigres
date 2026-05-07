@@ -48,6 +48,7 @@ type mockReservedConn struct {
 }
 
 func (m *mockReservedConn) ConnID() int64                         { return m.connID }
+func (m *mockReservedConn) ProcessID() uint32                     { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32              { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool                 { return m.inTxn }
 func (m *mockReservedConn) TxnStatus() protocol.TransactionStatus { return m.txnStatus }
