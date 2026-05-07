@@ -192,6 +192,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposedRule:   makeRule(5, []*clustermetadatapb.ID{a, b, outsider}),
 				}, nil
 			},
+			wantLeader: "pooler-a",
 		},
 		{
 			name: "2 of 3 recruited, dead primary stays in proposed cohort",
@@ -271,6 +272,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposedRule:   makeRule(5, cohort),
 				}, nil
 			},
+			wantLeader: "pooler-a",
 			checkResult: func(t *testing.T, r RecruitmentResult) {
 				assert.Equal(t, int64(3), r.OutgoingRule.GetRuleNumber().GetCoordinatorTerm())
 				assert.Len(t, r.EligibleLeaders, 2, "only nodes at outgoingRule are eligible")
@@ -319,6 +321,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposedRule:   makeRule(5, cohort),
 				}, nil
 			},
+			wantLeader: "pooler-a",
 			checkResult: func(t *testing.T, r RecruitmentResult) {
 				require.Len(t, r.EligibleLeaders, 1)
 				assert.Equal(t, "pooler-a", r.EligibleLeaders[0].GetId().GetName())
@@ -339,6 +342,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposedRule:   makeRule(5, cohort),
 				}, nil
 			},
+			wantLeader: "pooler-a",
 			checkResult: func(t *testing.T, r RecruitmentResult) {
 				require.Len(t, r.EligibleLeaders, 2)
 				names := []string{r.EligibleLeaders[0].GetId().GetName(), r.EligibleLeaders[1].GetId().GetName()}
@@ -361,6 +365,7 @@ func TestBuildProposalCore(t *testing.T) {
 					ProposedRule:   makeRule(5, cohort),
 				}, nil
 			},
+			wantLeader: "pooler-a",
 			checkResult: func(t *testing.T, r RecruitmentResult) {
 				require.Len(t, r.EligibleLeaders, 1)
 				assert.Equal(t, "pooler-a", r.EligibleLeaders[0].GetId().GetName())
@@ -388,6 +393,7 @@ func TestBuildProposalCore(t *testing.T) {
 				makeStatusWithLSN(c, rule, testRevocation, "0/1000000"),
 			},
 			buildProposal: simpleProposal(5, cohort),
+			wantLeader:    "pooler-a",
 			checkResult: func(t *testing.T, r RecruitmentResult) {
 				require.Len(t, r.EligibleLeaders, 1)
 				assert.Equal(t, "pooler-a", r.EligibleLeaders[0].GetId().GetName())
@@ -424,6 +430,7 @@ func TestBuildProposalCore(t *testing.T) {
 				makeStatusWithLSN(c, rule, testRevocation, ""),
 			},
 			buildProposal: simpleProposal(5, cohort),
+			wantLeader:    "pooler-a",
 		},
 		{
 			name: "invalid LSN causes quorum failure: 1 valid of 3",
@@ -758,9 +765,8 @@ func TestBuildProposalCore(t *testing.T) {
 				assert.EqualError(t, err, tt.wantErr)
 			} else {
 				require.NoError(t, err)
-				if tt.wantLeader != "" {
-					assert.Equal(t, tt.wantLeader, proposal.GetProposalLeader().GetId().GetName())
-				}
+				assert.NotEmpty(t, tt.wantLeader)
+				assert.Equal(t, tt.wantLeader, proposal.GetProposalLeader().GetId().GetName())
 				if tt.checkResult != nil {
 					tt.checkResult(t, gotResult)
 				}
@@ -1408,10 +1414,18 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		}, nil
 	}
 
-	noCert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: testCoordRevocation}
+	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no committed
+	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
+	// Both fields are required by certLeaderFilter even when the caller has no
+	// real constraint to express.
+	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
+		TermRevocation:     testCoordRevocation,
+		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+		FrozenLsn:          "0/0",
+	}
 
 	t.Run("bootstrap: nodes at term 0 can accept", func(t *testing.T) {
-		err := CheckExternallyCertifiedProposalPossible(noCert, []*clustermetadatapb.ConsensusStatus{
+		err := CheckExternallyCertifiedProposalPossible(neutralCert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, nil),
 			makeUnrecruitedStatus(b, nil),
 			makeUnrecruitedStatus(c, nil),
@@ -1420,16 +1434,39 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	})
 
 	t.Run("no nodes can accept: all at or above revocation term", func(t *testing.T) {
-		err := CheckExternallyCertifiedProposalPossible(noCert, []*clustermetadatapb.ConsensusStatus{
+		err := CheckExternallyCertifiedProposalPossible(neutralCert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, makeRule(5, cohort)),
 		}, bootstrapProposal)
 		require.EqualError(t, err, "no nodes could accept the proposed revocation")
+	})
+
+	t.Run("cert missing outgoing_rule_number", func(t *testing.T) {
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation: testCoordRevocation,
+			FrozenLsn:      "0/0",
+		}
+		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
+			makeUnrecruitedStatus(a, nil),
+		}, bootstrapProposal)
+		require.EqualError(t, err, "cert is missing outgoing_rule_number")
+	})
+
+	t.Run("cert missing frozen_lsn", func(t *testing.T) {
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation:     testCoordRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+		}
+		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
+			makeUnrecruitedStatus(a, nil),
+		}, bootstrapProposal)
+		require.EqualError(t, err, "cert is missing frozen_lsn")
 	})
 
 	t.Run("outgoing_rule_number: candidate rule exceeds certified term", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation:     testCoordRevocation,
 			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			FrozenLsn:          "0/0",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, makeRule(3, cohort)),
@@ -1439,8 +1476,9 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("frozen_lsn: invalid LSN string", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: testCoordRevocation,
-			FrozenLsn:      "bad-lsn",
+			TermRevocation:     testCoordRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "bad-lsn",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, nil),
@@ -1450,8 +1488,9 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("frozen_lsn: no node at or above threshold", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: testCoordRevocation,
-			FrozenLsn:      "0/9000000",
+			TermRevocation:     testCoordRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "0/9000000",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, nil),
@@ -1483,24 +1522,56 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		}, nil
 	}
 
+	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no committed
+	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
+	// Both fields are required by certLeaderFilter even when the caller has no
+	// real constraint to express.
+	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
+		TermRevocation:     testRevocation,
+		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+		FrozenLsn:          "0/0",
+	}
+
 	t.Run("no nodes accepted the revocation", func(t *testing.T) {
+		// filterByRevocation runs before certLeaderFilter, so we early-return
+		// before the cert is inspected. Use neutralCert anyway for consistency.
 		singleCohort := []*clustermetadatapb.ID{a}
-		cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: testRevocation}
-		_, err := BuildExternallyCertifiedProposal(cert, []*clustermetadatapb.ConsensusStatus{
+		_, err := BuildExternallyCertifiedProposal(neutralCert, []*clustermetadatapb.ConsensusStatus{
 			makeStatus(a, makeRule(3, singleCohort), &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}),
 		}, simpleProposal(5, singleCohort))
 		require.EqualError(t, err, "no nodes accepted the requested term revocation")
 	})
 
 	t.Run("bootstrap: no cert constraints, all recruited nodes eligible", func(t *testing.T) {
-		cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: testRevocation}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(a, nil, testRevocation),
 			makeStatus(b, nil, testRevocation),
 			makeStatus(c, nil, testRevocation),
 		}
-		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
+		_, err := BuildExternallyCertifiedProposal(neutralCert, statuses, bootstrapProposal)
 		require.NoError(t, err)
+	})
+
+	t.Run("cert missing outgoing_rule_number", func(t *testing.T) {
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation: testRevocation,
+			FrozenLsn:      "0/0",
+		}
+		_, err := BuildExternallyCertifiedProposal(cert, []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, nil, testRevocation),
+		}, bootstrapProposal)
+		require.EqualError(t, err, "cert is missing outgoing_rule_number")
+	})
+
+	t.Run("cert missing frozen_lsn", func(t *testing.T) {
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation:     testRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+		}
+		_, err := BuildExternallyCertifiedProposal(cert, []*clustermetadatapb.ConsensusStatus{
+			makeStatus(a, nil, testRevocation),
+		}, bootstrapProposal)
+		require.EqualError(t, err, "cert is missing frozen_lsn")
 	})
 
 	t.Run("outgoing_rule_number: node at certified term is allowed", func(t *testing.T) {
@@ -1508,6 +1579,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation:     testRevocation,
 			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+			FrozenLsn:          "0/0",
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(a, outgoingRule, testRevocation),
@@ -1523,6 +1595,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation:     testRevocation,
 			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+			FrozenLsn:          "0/0",
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(a, outgoingRule, testRevocation),
@@ -1533,8 +1606,9 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 
 	t.Run("frozen_lsn: invalid LSN string → error", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: testRevocation,
-			FrozenLsn:      "not-an-lsn",
+			TermRevocation:     testRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "not-an-lsn",
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(a, nil, testRevocation),
@@ -1548,8 +1622,9 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		// b and c are at or above — eligible leaders.
 		// All three are recruited so quorum is satisfied for the incoming cohort.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: testRevocation,
-			FrozenLsn:      "0/2000000",
+			TermRevocation:     testRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "0/2000000",
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatusWithLSN(a, nil, testRevocation, "0/1000000"), // below frozen_lsn
@@ -1572,8 +1647,9 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 
 	t.Run("frozen_lsn: no node at or above threshold → no eligible leaders", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: testRevocation,
-			FrozenLsn:      "0/9000000", // higher than all nodes
+			TermRevocation:     testRevocation,
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "0/9000000", // higher than all nodes
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatusWithLSN(a, nil, testRevocation, "0/1000000"),

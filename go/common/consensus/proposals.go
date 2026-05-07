@@ -196,7 +196,11 @@ func BuildExternallyCertifiedProposal(
 }
 
 // certLeaderFilter validates cert constraints against the given nodes and
-// returns a leaderFilter to apply in buildProposalCore (nil if no frozen_lsn).
+// returns a leaderFilter to apply in buildProposalCore.
+//
+// Both outgoing_rule_number and frozen_lsn are required: a cert without them
+// provides no real guarantee about what the outgoing cohort was frozen at.
+// Bootstrap callers must set them explicitly (e.g. term 0 and "0/0").
 //
 // It rejects any node whose committed rule exceeds cert.outgoing_rule_number
 // (meaning the outgoing cohort was not actually frozen at the certified point)
@@ -206,27 +210,30 @@ func certLeaderFilter(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	nodes []*clustermetadatapb.ConsensusStatus,
 ) (func(*clustermetadatapb.ConsensusStatus) bool, error) {
-	if certRule := cert.GetOutgoingRuleNumber(); certRule != nil {
-		for _, cs := range nodes {
-			if rule := cs.GetCurrentPosition().GetRule(); rule != nil {
-				if CompareRuleNumbers(rule.GetRuleNumber(), certRule) > 0 {
-					return nil, fmt.Errorf("node %s is at rule term %d but certified outgoing rule is term %d",
-						topoclient.ClusterIDString(cs.GetId()), rule.GetRuleNumber().GetCoordinatorTerm(), certRule.GetCoordinatorTerm())
-				}
+	certRule := cert.GetOutgoingRuleNumber()
+	if certRule == nil {
+		return nil, errors.New("cert is missing outgoing_rule_number")
+	}
+	frozenLSN := cert.GetFrozenLsn()
+	if frozenLSN == "" {
+		return nil, errors.New("cert is missing frozen_lsn")
+	}
+	for _, cs := range nodes {
+		if rule := cs.GetCurrentPosition().GetRule(); rule != nil {
+			if CompareRuleNumbers(rule.GetRuleNumber(), certRule) > 0 {
+				return nil, fmt.Errorf("node %s is at rule term %d but certified outgoing rule is term %d",
+					topoclient.ClusterIDString(cs.GetId()), rule.GetRuleNumber().GetCoordinatorTerm(), certRule.GetCoordinatorTerm())
 			}
 		}
 	}
-	if frozenLSN := cert.GetFrozenLsn(); frozenLSN != "" {
-		minLSN, err := pgutil.ParseLSN(frozenLSN)
-		if err != nil {
-			return nil, fmt.Errorf("invalid frozen_lsn in cert: %w", err)
-		}
-		return func(cs *clustermetadatapb.ConsensusStatus) bool {
-			lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
-			return err == nil && lsn >= minLSN
-		}, nil
+	minLSN, err := pgutil.ParseLSN(frozenLSN)
+	if err != nil {
+		return nil, fmt.Errorf("invalid frozen_lsn in cert: %w", err)
 	}
-	return nil, nil
+	return func(cs *clustermetadatapb.ConsensusStatus) bool {
+		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
+		return err == nil && lsn >= minLSN
+	}, nil
 }
 
 // buildProposalCore is the shared implementation for BuildSafeProposal,
@@ -285,40 +292,7 @@ func buildProposalCore(
 		// below after the proposal is built.
 	}
 
-	// Build the eligible leader set.
-	//
-	// When an outgoingRule is known: prefer nodes at outgoingRule's rule number (highest
-	// committed WAL), then break ties by LSN.
-	// When no outgoingRule exists (fresh bootstrap): all nodes are candidates;
-	// highest LSN wins.
-	//
-	// Nodes with unparsable LSNs are excluded — we cannot verify their position.
-	var bestLSN pgutil.LSN
-	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
-	for _, cs := range recruitedStatuses {
-		if outgoingRule != nil {
-			ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
-			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
-				continue
-			}
-		}
-		if leaderFilter != nil && !leaderFilter(cs) {
-			continue
-		}
-		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
-		if err != nil {
-			// filterByValidPosition above guarantees all surviving statuses have
-			// parseable LSNs, so this branch is unreachable in practice.
-			continue
-		}
-		if lsn > bestLSN {
-			bestLSN = lsn
-			eligibleLeaders = eligibleLeaders[:0]
-		}
-		if lsn >= bestLSN {
-			eligibleLeaders = append(eligibleLeaders, cs)
-		}
-	}
+	eligibleLeaders := discoverMostAdvancedTimeline(recruitedStatuses, outgoingRule, leaderFilter)
 	if len(eligibleLeaders) == 0 {
 		// Unreachable: filterByValidPosition ensures at least one status survives
 		// with a parseable LSN, and outgoingRule (if set) is always derived from one of
@@ -346,6 +320,53 @@ func buildProposalCore(
 	}
 
 	return proposal, nil
+}
+
+// discoverMostAdvancedTimeline returns the recruited nodes eligible to lead.
+//
+// When an outgoingRule is known: prefer nodes at outgoingRule's rule number (highest
+// committed WAL), then break ties by LSN.
+// When no outgoingRule exists (fresh bootstrap): all nodes are candidates;
+// highest LSN wins.
+//
+// An optional leaderFilter further restricts eligibility (used to enforce
+// frozen_lsn from external certs).
+//
+// Callers are expected to pre-filter via filterByValidPosition; nodes with
+// unparsable LSNs are skipped here as a defensive fallback.
+func discoverMostAdvancedTimeline(
+	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
+	outgoingRule *clustermetadatapb.ShardRule,
+	leaderFilter func(*clustermetadatapb.ConsensusStatus) bool,
+) []*clustermetadatapb.ConsensusStatus {
+	var bestLSN pgutil.LSN
+	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
+	for _, cs := range recruitedStatuses {
+		if outgoingRule != nil {
+			ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
+			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
+				continue
+			}
+		}
+		if leaderFilter != nil && !leaderFilter(cs) {
+			continue
+		}
+		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
+		if err != nil {
+			// The caller's filterByValidPosition guarantees all surviving statuses
+			// have parseable LSNs, so this branch is unreachable in practice.
+			continue
+		}
+		if lsn > bestLSN {
+			bestLSN = lsn
+			eligibleLeaders = eligibleLeaders[:0]
+		}
+		if lsn >= bestLSN {
+			// There may be multiple poolers that have the most advanced LSN.
+			eligibleLeaders = append(eligibleLeaders, cs)
+		}
+	}
+	return eligibleLeaders
 }
 
 // validateProposal checks structural validity and cohort quorum for the proposal.
