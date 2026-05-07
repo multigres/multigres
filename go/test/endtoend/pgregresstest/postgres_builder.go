@@ -146,6 +146,16 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 		"PGOPTIONS="+pgOptions,
+		// PG_TEST_TIMEOUT_DEFAULT (in seconds) caps how long isolationtester
+		// waits per step before cancelling. Upstream default is 180 →
+		// max_step_wait = 360 s with hard-exit at 720 s, which lets a
+		// single compat-incompatible spec burn ~12 minutes of the suite
+		// ctx and starve the rest of the schedule. The cap applies per
+		// step and a multi-permutation spec where every permutation
+		// hangs scales linearly. 5 s gives 10 s cancel / 20 s hard-exit
+		// per step, ~500x headroom over the 10 ms poll interval used to
+		// detect legitimate blocking.
+		"PG_TEST_TIMEOUT_DEFAULT=5",
 	)
 
 	// Capture stdout for result parsing while still printing to the terminal.
