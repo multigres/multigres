@@ -88,46 +88,23 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
 	}
 
-	// Recruit all nodes concurrently. Each goroutine sends its result to a
-	// buffered channel so it never blocks.
+	// Recruit all nodes concurrently.
 	type recruitResult struct {
 		pooler *multiorchdatapb.PoolerHealthState
 		cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
 	}
 	recruited := make(chan recruitResult, len(cohort))
 	for _, p := range cohort {
-		go func(p *multiorchdatapb.PoolerHealthState) {
-			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
-			resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
-				TermRevocation: revocation,
-			})
-			cancel()
-			var cs *clustermetadatapb.ConsensusStatus
-			switch {
-			case err != nil:
-				r.coordinator.logger.WarnContext(ctx, "Recruit failed",
-					"pooler", p.MultiPooler.Id.Name, "error", err)
-			case resp.GetConsensusStatus() == nil:
-				r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
-					"pooler", p.MultiPooler.Id.Name)
-			default:
-				cs = resp.GetConsensusStatus()
-				r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
-					"pooler", p.MultiPooler.Id.Name,
-					"lsn", cs.GetCurrentPosition().GetLsn())
-			}
-			recruited <- recruitResult{pooler: p, cs: cs}
-		}(p)
+		go func() {
+			recruited <- recruitResult{pooler: p, cs: r.recruit(ctx, p, revocation)}
+		}()
 	}
 
-	// Process recruit results as they arrive. As soon as a viable proposal can
-	// be built, propose to all already-recruited nodes immediately. Any node
-	// that recruits after the proposal is ready is proposed to right away.
 	var (
 		statuses  []*clustermetadatapb.ConsensusStatus
+		recruits  []*multiorchdatapb.PoolerHealthState
 		propReq   *consensusdatapb.ProposeRequest
 		leaderKey string
-		waiting   []*multiorchdatapb.PoolerHealthState // recruited before proposal was ready
 	)
 
 	type proposeResult struct {
@@ -136,56 +113,66 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		err        error
 	}
 	proposeResults := make(chan proposeResult, len(cohort))
-	proposeSent := 0
 
 	sendPropose := func(p *multiorchdatapb.PoolerHealthState) {
 		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
 		go func() {
-			propCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
-			_, err := r.coordinator.rpcClient.Propose(propCtx, p.MultiPooler, propReq)
-			cancel()
+			err := r.propose(ctx, p, propReq)
 			proposeResults <- proposeResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
 		}()
-		proposeSent++
 	}
 
-	for range len(cohort) {
+	// Phase 1: collect recruits until tryBuild succeeds (or we run out).
+	remaining := len(cohort)
+	for ; remaining > 0 && propReq == nil; remaining-- {
 		rr := <-recruited
 		if rr.cs == nil {
 			continue
 		}
 		statuses = append(statuses, rr.cs)
-		if propReq != nil {
-			// Proposal already built; propose to this node immediately.
+		recruits = append(recruits, rr.pooler)
+		p, err := r.tryBuild(revocation, statuses)
+		if err != nil {
+			continue
+		}
+		ids := make([]*clustermetadatapb.ID, 0, len(statuses))
+		for _, s := range statuses {
+			ids = append(ids, s.GetId())
+		}
+		leaderKey = topoclient.ClusterIDString(p.GetProposalLeader().GetId())
+		propReq = &consensusdatapb.ProposeRequest{
+			Proposal:        p,
+			Reason:          r.reason,
+			AcceptedNodeIds: ids,
+		}
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
+			NewPrimary: p.GetProposalLeader().GetId().GetName(),
+		})
+	}
+
+	if propReq == nil {
+		_, err := r.tryBuild(revocation, statuses)
+		return mterrors.Wrap(err, "recruitment failed")
+	}
+	for _, p := range recruits {
+		sendPropose(p)
+	}
+
+	// Phase 2: drain remaining recruits, proposing to each as it arrives.
+	for range remaining {
+		if rr := <-recruited; rr.cs != nil {
 			sendPropose(rr.pooler)
-		} else if p, err := r.tryBuild(revocation, statuses); err == nil {
-			// This recruit tipped us over quorum. Build the proposal and propose
-			// to all waiting nodes and this one.
-			ids := make([]*clustermetadatapb.ID, 0, len(statuses))
-			for _, s := range statuses {
-				ids = append(ids, s.GetId())
-			}
-			leaderKey = topoclient.ClusterIDString(p.GetProposalLeader().GetId())
-			propReq = &consensusdatapb.ProposeRequest{
-				Proposal:        p,
-				Reason:          r.reason,
-				AcceptedNodeIds: ids,
-			}
-			eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
-				NewPrimary: p.GetProposalLeader().GetId().GetName(),
-			})
-			for _, pp := range waiting {
-				sendPropose(pp)
-			}
-			sendPropose(rr.pooler)
-		} else {
-			waiting = append(waiting, rr.pooler)
+			recruits = append(recruits, rr.pooler)
 		}
 	}
 
-	// Collect all propose results.
+	// Wait for every Propose to return, not just the leader's. The leader's
+	// success alone commits the rule change, but returning early would let
+	// Run's context cancel the in-flight non-leader Proposes. Letting them
+	// complete keeps the shard healthy: every pooler learns the new primary,
+	// even those whose endorsement wasn't required for the decision.
 	var leaderErr error
-	for range proposeSent {
+	for range len(recruits) {
 		pr := <-proposeResults
 		if pr.err != nil {
 			if pr.isLeader {
@@ -200,10 +187,6 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}
 	}
 
-	if propReq == nil {
-		_, err := r.tryBuild(revocation, statuses)
-		return mterrors.Wrap(err, "recruitment failed")
-	}
 	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
 	if leaderErr != nil {
 		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
@@ -215,6 +198,48 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		NewPrimary: newPrimary,
 	})
 	return nil
+}
+
+// recruit issues a Recruit RPC to a single pooler and returns the resulting
+// ConsensusStatus, or nil if the call failed or returned an empty status.
+func (r *coordinatorLedRuleChange) recruit(
+	ctx context.Context,
+	p *multiorchdatapb.PoolerHealthState,
+	revocation *clustermetadatapb.TermRevocation,
+) *clustermetadatapb.ConsensusStatus {
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer cancel()
+	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
+		TermRevocation: revocation,
+	})
+	switch {
+	case err != nil:
+		r.coordinator.logger.WarnContext(ctx, "Recruit failed",
+			"pooler", p.MultiPooler.Id.Name, "error", err)
+		return nil
+	case resp.GetConsensusStatus() == nil:
+		r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
+			"pooler", p.MultiPooler.Id.Name)
+		return nil
+	default:
+		cs := resp.GetConsensusStatus()
+		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
+			"pooler", p.MultiPooler.Id.Name,
+			"lsn", cs.GetCurrentPosition().GetLsn())
+		return cs
+	}
+}
+
+// propose issues a Propose RPC to a single pooler.
+func (r *coordinatorLedRuleChange) propose(
+	ctx context.Context,
+	p *multiorchdatapb.PoolerHealthState,
+	req *consensusdatapb.ProposeRequest,
+) error {
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer cancel()
+	_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+	return err
 }
 
 // buildFailoverProposal constructs a CoordinatorProposal for normal failover.
