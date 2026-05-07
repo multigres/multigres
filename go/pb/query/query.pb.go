@@ -996,8 +996,15 @@ type ReservedState struct {
 	// reservation_reasons is a bitmask of ReservationReason values indicating why the connection
 	// is still reserved. Zero means the connection was released.
 	ReservationReasons uint32 `protobuf:"varint,3,opt,name=reservation_reasons,json=reservationReasons,proto3" json:"reservation_reasons,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// backend_process_id is the real PostgreSQL backend process ID for this
+	// reserved connection — the PID visible in pg_stat_activity / pg_locks.
+	// Used to bridge the gap between multigateway's virtual PIDs and
+	// PostgreSQL's real PIDs so lock-detection functions like
+	// pg_isolation_test_session_is_blocked() can map vpid → real pid through
+	// the proxy.
+	BackendProcessId uint32 `protobuf:"varint,4,opt,name=backend_process_id,json=backendProcessId,proto3" json:"backend_process_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ReservedState) Reset() {
@@ -1051,6 +1058,13 @@ func (x *ReservedState) GetReservationReasons() uint32 {
 	return 0
 }
 
+func (x *ReservedState) GetBackendProcessId() uint32 {
+	if x != nil {
+		return x.BackendProcessId
+	}
+	return 0
+}
+
 // ExecuteOptions contains execution options for query execution.
 // This includes session state like prepared statements and portals that
 // need to be available on the connection where the query is executed.
@@ -1089,9 +1103,15 @@ type ExecuteOptions struct {
 	// authenticate to the backing PostgreSQL as the session's real user
 	// instead of relying on trust on the local connection. Unset for
 	// sessions that did not authenticate via SCRAM.
-	UserAuth      *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	UserAuth *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
+	// client_connection_id is the multigateway's virtual PID for this client
+	// connection. The multipooler stamps it onto the underlying PostgreSQL
+	// backend's application_name as `multigres_vpid:<id>` so lock-detection
+	// functions can map virtual PIDs (visible to clients) back to real
+	// backend PIDs via pg_stat_activity.
+	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1164,6 +1184,13 @@ func (x *ExecuteOptions) GetUserAuth() *UserAuth {
 		return x.UserAuth
 	}
 	return nil
+}
+
+func (x *ExecuteOptions) GetClientConnectionId() uint32 {
+	if x != nil {
+		return x.ClientConnectionId
+	}
+	return 0
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1380,18 +1407,20 @@ const file_query_proto_rawDesc = "" +
 	"\rparam_lengths\x18\x03 \x03(\x12R\fparamLengths\x12!\n" +
 	"\fparam_values\x18\x04 \x01(\fR\vparamValues\x12#\n" +
 	"\rparam_formats\x18\x05 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\xa8\x01\n" +
+	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\xd6\x01\n" +
 	"\rReservedState\x124\n" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
-	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x87\x03\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xb9\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12G\n" +
 	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12,\n" +
-	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x1aB\n" +
+	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
+	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
