@@ -454,6 +454,76 @@ func TestMetrics_WithResourceAttributes(t *testing.T) {
 	assert.Equal(t, "metrics-zone-b", val.AsString())
 }
 
+func TestMetrics_WithEnvResourceAttributes(t *testing.T) {
+	t.Setenv(
+		"OTEL_RESOURCE_ATTRIBUTES",
+		"service.name=env-resource-service,multigres.project=project-ref-123,multigres.cluster=cluster-a,multigres.component=multipooler",
+	)
+
+	setup := SetupTestTelemetry(t)
+	ctx := context.Background()
+
+	err := setup.Telemetry.InitTelemetry(ctx, "test-metrics-service",
+		semconv.ServiceInstanceID("metrics-instance-789"),
+		semconv.CloudAvailabilityZone("metrics-zone-c"),
+		attribute.String("multigres.shard", "0-inf"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, setup.Telemetry.ShutdownTelemetry(ctx))
+	})
+
+	meter := otel.Meter("test-meter")
+	counter, err := meter.Int64Counter("test_counter")
+	require.NoError(t, err)
+
+	counter.Add(ctx, 1)
+
+	require.NoError(t, setup.ForceFlush(ctx))
+
+	var rm metricdata.ResourceMetrics
+	err = setup.MetricReader.Collect(ctx, &rm)
+	require.NoError(t, err)
+
+	attrs := rm.Resource.Attributes()
+	findAttr := func(key attribute.Key) (attribute.Value, bool) {
+		for _, attr := range attrs {
+			if attr.Key == key {
+				return attr.Value, true
+			}
+		}
+		return attribute.Value{}, false
+	}
+
+	val, found := findAttr(semconv.ServiceNameKey)
+	require.True(t, found, "service.name should be present on metrics")
+	assert.Equal(t, "test-metrics-service", val.AsString())
+
+	val, found = findAttr(semconv.ServiceInstanceIDKey)
+	require.True(t, found, "service.instance.id should be present on metrics")
+	assert.Equal(t, "metrics-instance-789", val.AsString())
+
+	val, found = findAttr(semconv.CloudAvailabilityZoneKey)
+	require.True(t, found, "cloud.availability_zone should be present on metrics")
+	assert.Equal(t, "metrics-zone-c", val.AsString())
+
+	val, found = findAttr("multigres.shard")
+	require.True(t, found, "multigres.shard should be present on metrics")
+	assert.Equal(t, "0-inf", val.AsString())
+
+	val, found = findAttr("multigres.project")
+	require.True(t, found, "multigres.project should be present on metrics")
+	assert.Equal(t, "project-ref-123", val.AsString())
+
+	val, found = findAttr("multigres.cluster")
+	require.True(t, found, "multigres.cluster should be present on metrics")
+	assert.Equal(t, "cluster-a", val.AsString())
+
+	val, found = findAttr("multigres.component")
+	require.True(t, found, "multigres.component should be present on metrics")
+	assert.Equal(t, "multipooler", val.AsString())
+}
+
 func TestWrapSlogHandler_CompositeHandler(t *testing.T) {
 	setup := SetupTestTelemetry(t)
 	ctx := t.Context()
