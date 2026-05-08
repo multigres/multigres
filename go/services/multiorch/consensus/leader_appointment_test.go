@@ -1544,6 +1544,85 @@ func TestAppointLeader(t *testing.T) {
 	})
 }
 
+func TestAppointLeader_NewFlow(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger, true /* useNewFlow */)
+
+	// Build the committed rule shared by all nodes. Coordinator term 5 means
+	// the new revocation will be at term 6.
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+	}
+	bestRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	// mp1 has the highest LSN, so the new flow should pick it as leader.
+	walPositions := []string{"0/3000000", "0/2000000", "0/1000000"}
+	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
+	for i, id := range cohortIDs {
+		mp := createMockNode(fakeClient, id.Name, 5, walPositions[i], true, bestRule)
+		// Pre-vote runs over cached cohort statuses (not Recruit responses), so
+		// we need an Id and a populated CurrentPosition with the committed rule
+		// here too. createMockNode leaves these fields zero on the cached status.
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:  walPositions[i],
+			Rule: bestRule,
+		}
+		key := topoclient.MultiPoolerIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:  walPositions[i],
+					Rule: bestRule,
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		cohort = append(cohort, mp)
+	}
+
+	require.NoError(t, c.AppointLeader(ctx, "shard0", cohort, "testdb", "test_new_flow"))
+
+	// Every node should have received a Propose carrying the same proposal.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		propReq, ok := fakeClient.ProposeRequests[key]
+		require.True(t, ok, "Propose should be sent to %s", id.Name)
+		require.NotNil(t, propReq.GetProposal())
+		require.Equal(t, "test_new_flow", propReq.GetReason())
+		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+			"new flow should pick mp1 (highest LSN) as leader")
+		require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+			"revocation term should be max prior term (5) + 1")
+	}
+
+	// Legacy promotion path must not have been invoked.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		_, called := fakeClient.PromoteRequests[key]
+		require.False(t, called, "Promote should not be called in new flow for %s", id.Name)
+	}
+}
+
 func TestAppointInitialLeader(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
