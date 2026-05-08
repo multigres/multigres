@@ -52,26 +52,29 @@ type RecruitmentResult struct {
 	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 }
 
-// cohortQuorumMode controls which cohort's quorum requirements are enforced
-// before calling buildProposal. The mode makes explicit whether we are
-// validating the OUTGOING cohort's consent (normal failover) or relying on the
-// INCOMING cohort's coverage (bootstrap and externally certified recovery).
-type cohortQuorumMode int
+// quorumMode controls which quorum requirements are enforced before calling
+// buildProposal. Both modes require an incoming-cohort quorum after the
+// proposal is built (so the new cohort can make durable writes); they differ
+// in whether they additionally require a transition quorum from the outgoing
+// cohort.
+type quorumMode int
 
 const (
-	// outgoingCohortMode requires that enough members of the current/outgoing
-	// cohort (identified from the highest committed rule across the recruited
-	// nodes) have accepted the term revocation. This is the standard safety
-	// check for normal failover: the existing cohort must consent to the
-	// leadership transition. validateProposal additionally verifies the
-	// proposed (incoming) cohort has sufficient recruited members.
-	outgoingCohortMode cohortQuorumMode = iota
+	// requireTransitionQuorum requires that enough members of the
+	// current/outgoing cohort (identified from the highest committed rule
+	// across the recruited nodes) have accepted the term revocation. This is
+	// the standard safety check for normal failover: the existing cohort must
+	// consent to the leadership transition. validateProposal additionally
+	// verifies the proposed (incoming) cohort has sufficient recruited members.
+	requireTransitionQuorum quorumMode = iota
 
-	// incomingCohortMode skips the outgoing-cohort quorum check and instead
-	// relies on validateProposal to verify that enough members of the
+	// onlyRequireIncomingQuorum skips the outgoing-cohort transition check and
+	// relies solely on validateProposal to verify that enough members of the
 	// PROPOSED (incoming) cohort have been recruited. Used for bootstrap and
-	// externally certified recovery where the outgoing cohort cannot be consulted.
-	incomingCohortMode
+	// externally certified recovery where the outgoing cohort cannot be
+	// consulted (so transition consent comes from a cert or is unnecessary
+	// because there is no prior cohort).
+	onlyRequireIncomingQuorum
 )
 
 // BuildSafeProposal validates that the recruited nodes allow a safe
@@ -103,7 +106,7 @@ func BuildSafeProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	return buildProposalCore(revocation, recruited, outgoingCohortMode, nil, buildProposal)
+	return buildProposalCore(revocation, recruited, requireTransitionQuorum, nil, buildProposal)
 }
 
 // CheckProposalPossible checks whether a safe leadership proposal is possible
@@ -125,14 +128,14 @@ func CheckProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	_, err := buildProposalCore(revocation, candidates, outgoingCohortMode, nil, buildProposal)
+	_, err := buildProposalCore(revocation, candidates, requireTransitionQuorum, nil, buildProposal)
 	return err
 }
 
 // CheckExternallyCertifiedProposalPossible checks whether an externally certified
 // proposal is possible given the current observed statuses, without requiring
 // nodes to have already accepted the revocation. It is the externally-certified
-// counterpart of CheckProposalPossible: it uses incomingCohortMode so that
+// counterpart of CheckProposalPossible: it uses onlyRequireIncomingQuorum so that
 // bootstrap scenarios with no committed rule (no OutgoingRule) are handled correctly.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
@@ -154,7 +157,7 @@ func CheckExternallyCertifiedProposalPossible(
 	if err != nil {
 		return err
 	}
-	_, err = buildProposalCore(revocation, candidates, incomingCohortMode, leaderFilter, buildProposal)
+	_, err = buildProposalCore(revocation, candidates, onlyRequireIncomingQuorum, leaderFilter, buildProposal)
 	return err
 }
 
@@ -192,7 +195,7 @@ func BuildExternallyCertifiedProposal(
 	if err != nil {
 		return nil, err
 	}
-	return buildProposalCore(revocation, recruited, incomingCohortMode, leaderFilter, buildProposal)
+	return buildProposalCore(revocation, recruited, onlyRequireIncomingQuorum, leaderFilter, buildProposal)
 }
 
 // certLeaderFilter validates cert constraints against the given nodes and
@@ -240,14 +243,14 @@ func certLeaderFilter(
 // CheckProposalPossible, and BuildExternallyCertifiedProposal. Callers are responsible
 // for pre-filtering and deduplicating statuses before calling this.
 //
-// With outgoingCohortMode: validates that the current/outgoing cohort has
+// With requireTransitionQuorum: validates that the current/outgoing cohort has
 // sufficient recruited members before building the proposal.
-// With incomingCohortMode: skips that check and relies on validateProposal to
+// With onlyRequireIncomingQuorum: skips that check and relies on validateProposal to
 // verify the proposed (incoming) cohort has sufficient recruited members.
 func buildProposalCore(
 	revocation *clustermetadatapb.TermRevocation,
 	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
-	mode cohortQuorumMode,
+	mode quorumMode,
 	leaderFilter func(*clustermetadatapb.ConsensusStatus) bool,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
@@ -272,7 +275,7 @@ func buildProposalCore(
 	}
 
 	switch mode {
-	case outgoingCohortMode:
+	case requireTransitionQuorum:
 		// Validate revocation of the outgoing cohort: no parallel quorum can still
 		// form among the non-recruited nodes. outgoingRule must be known to identify
 		// the cohort.
@@ -287,7 +290,7 @@ func buildProposalCore(
 		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
-	case incomingCohortMode:
+	case onlyRequireIncomingQuorum:
 		// Outgoing-cohort quorum is not required. The incoming cohort is checked
 		// below after the proposal is built.
 	}
@@ -372,12 +375,12 @@ func discoverMostAdvancedTimeline(
 // validateProposal checks structural validity and cohort quorum for the proposal.
 // The proposed leader must be among the eligible leaders, the proposed rule and
 // durability policy must be valid, and the cohort must satisfy achievability and
-// (in incomingCohortMode) sufficient-recruitment constraints.
+// (in onlyRequireIncomingQuorum) sufficient-recruitment constraints.
 func validateProposal(
 	proposal *consensusdatapb.CoordinatorProposal,
 	result RecruitmentResult,
 	recruitedInProposedCohort []*clustermetadatapb.ID,
-	mode cohortQuorumMode,
+	mode quorumMode,
 ) error {
 	if !proto.Equal(proposal.GetTermRevocation(), result.TermRevocation) {
 		return errors.New("proposal term revocation does not match the recruitment revocation")
@@ -424,7 +427,7 @@ func validateProposal(
 	if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
-	if mode == incomingCohortMode {
+	if mode == onlyRequireIncomingQuorum {
 		// Coordinator-retry safety: multiple coordinators may attempt externally
 		// certified proposals (e.g. repeated bootstrap attempts with different proposed
 		// leaders). Sufficient recruitment (majority overlap) ensures any two
