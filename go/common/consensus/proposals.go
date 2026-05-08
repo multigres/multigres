@@ -93,7 +93,7 @@ const (
 // validated by validateProposal.
 //
 // TODO: This assumes OutgoingRule is already durably recorded. If a cohort change
-// was in progress when the primary failed, some nodes may hold OutgoingRule in WAL
+// was in progress when the leader failed, some nodes may hold OutgoingRule in WAL
 // while others do not, and the previous cohort's policy may apply instead. We
 // don't yet have enough information from the Recruit responses alone to detect
 // this safely, so for now we proceed optimistically.

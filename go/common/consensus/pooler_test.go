@@ -64,12 +64,12 @@ func TestIsLeader(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "nil primary_id",
+			name: "nil leader_id",
 			cs:   statusWithRule(id("zone1", "pooler-1"), nil),
 			want: false,
 		},
 		{
-			name: "self matches primary",
+			name: "self matches leader",
 			cs:   statusWithRule(id("zone1", "pooler-1"), id("zone1", "pooler-1")),
 			want: true,
 		},
@@ -108,12 +108,12 @@ func TestLeaderTerm(t *testing.T) {
 			want: 0,
 		},
 		{
-			name: "not primary",
+			name: "not leader",
 			cs: &clustermetadatapb.ConsensusStatus{
-				Id: id("z1", "pooler-1"),
+				Id: id("zone1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						LeaderId:   id("z1", "pooler-2"),
+						LeaderId:   id("zone1", "pooler-2"),
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 					},
 				},
@@ -121,12 +121,12 @@ func TestLeaderTerm(t *testing.T) {
 			want: 0,
 		},
 		{
-			name: "is primary with term",
+			name: "is leader with term",
 			cs: &clustermetadatapb.ConsensusStatus{
-				Id: id("z1", "pooler-1"),
+				Id: id("zone1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						LeaderId:   id("z1", "pooler-1"),
+						LeaderId:   id("zone1", "pooler-1"),
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 					},
 				},
@@ -134,12 +134,12 @@ func TestLeaderTerm(t *testing.T) {
 			want: 7,
 		},
 		{
-			name: "is primary with no rule number",
+			name: "is leader with no rule number",
 			cs: &clustermetadatapb.ConsensusStatus{
-				Id: id("z1", "pooler-1"),
+				Id: id("zone1", "pooler-1"),
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
-						LeaderId: id("z1", "pooler-1"),
+						LeaderId: id("zone1", "pooler-1"),
 					},
 				},
 			},

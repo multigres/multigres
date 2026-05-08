@@ -280,7 +280,7 @@ func TestBuildProposalCore(t *testing.T) {
 			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
-				name:       "2 of 3 recruited, dead primary stays in proposed cohort",
+				name:       "2 of 3 recruited, dead leader stays in proposed cohort",
 				mode:       requireTransitionQuorum,
 				revocation: revocation(5),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
@@ -1430,7 +1430,7 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	// KNOWN LIMITATION: documents a split-brain scenario that CheckSufficientRecruitment
 	// cannot detect. See the TODO in CheckSufficientRecruitment.
 	//
-	// A is the primary for cohort [A, B, C] (AT_LEAST_2). A coordinator sends a
+	// A is the leader for cohort [A, B, C] (AT_LEAST_2). A coordinator sends a
 	// Propose to replace the cohort with [D, E, F]. A writes the new rule to its
 	// rule_history; D and E stream that WAL from A and apply it. But B and C never
 	// receive the new rule, and A crashes before the coordinator gets a Propose
@@ -1450,14 +1450,14 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	//     - promotes D with cohort [D,E]
 	//
 	// The two recruited sets share no nodes. Both promotions succeed, yielding
-	// two independent primaries — split brain.
+	// two independent leaders — split brain.
 	//
 	// A correct implementation would reject the new rule as outgoingRule when it has
 	// not achieved quorum under the outgoing cohort's policy. We don't yet have
 	// enough information from Recruit responses to enforce this. When the TODO is
 	// resolved, at least one of the two calls below should return an error.
 	zone1 := poolerIDs.zone1
-	// zone1.a: old primary, crashed — not recruited.
+	// zone1.a: old leader, crashed — not recruited.
 	// zone1.b, zone1.c: old cohort, respond to coord 1.
 	// zone1.d, zone1.e: new cohort, respond to coord 2.
 	// zone1.f: new cohort, unreachable.
