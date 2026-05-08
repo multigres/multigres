@@ -40,9 +40,9 @@ const (
 	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
 	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
 
-	// PgInitDbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
+	// PgInitdbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
 	// Multiple files are comma-separated.
-	PgInitDbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
+	PgInitdbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
 
 	// PgInitdbExtraConfEnvVar is the environment variable for extra postgresql.conf
 	// files appended verbatim onto the generated config at init time.

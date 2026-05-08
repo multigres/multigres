@@ -83,9 +83,9 @@ type ProcessInstance struct {
 	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
 	PgBackRestCertDir   string                     // pgBackRest TLS certificate directory (pgctld)
 
-	// InitDbSQLFiles is a list of SQL files executed after initdb against the
+	// InitdbSQLFiles is a list of SQL files executed after initdb against the
 	// target database when InitDataDir runs on this pgctld instance.
-	InitDbSQLFiles []string
+	InitdbSQLFiles []string
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -145,8 +145,8 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
 	}
 
-	for _, file := range p.InitDbSQLFiles {
-		args = append(args, "--init-db-sql-file", file)
+	for _, file := range p.InitdbSQLFiles {
+		args = append(args, "--pg-initdb-sql-files", file)
 	}
 
 	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
