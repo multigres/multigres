@@ -298,8 +298,10 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	// Verify SetPrimaryConnInfo was called on the replica
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
-	// Verify UpdateConsensusRule was called on the primary to add the replica
-	assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+	// FixReplication no longer mutates the cohort / synchronous standby list.
+	// That responsibility belongs to ReconcileCohortAction; verify FixReplication
+	// did NOT call UpdateConsensusRule.
+	assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
