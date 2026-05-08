@@ -195,4 +195,42 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Nil(t, problems)
 		assert.Contains(t, err.Error(), "factory not initialized")
 	})
+
+	t.Run("ignores leader as addition candidate", func(t *testing.T) {
+		// A leader's PoolerAnalysis happens to satisfy every other condition
+		// (initialized, replicating-ish), but it must never be added to the
+		// cohort as a "missing replica".
+		leaderShard := healthyShard(nil)
+		// Inject the leader as a non-cohort-member by mutating its state to
+		// look like an addition candidate apart from IsLeader=true.
+		leaderShard.Analyses[0].PrimaryConnInfoHost = "primary.example.com"
+		problems, err := analyzer.Analyze(leaderShard)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("ignores replica with stale health snapshot (LastCheckValid false)", func(t *testing.T) {
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.LastCheckValid = false
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("metadata accessors return expected values", func(t *testing.T) {
+		assert.Equal(t, types.CheckName("CohortMismatch"), analyzer.Name())
+		assert.Equal(t, types.ProblemPoolerNotInCohort, analyzer.ProblemCode())
+		require.NotNil(t, analyzer.RecoveryAction())
+	})
+}
+
+func TestCohortMismatchAnalyzer_idKey(t *testing.T) {
+	t.Run("nil id returns empty string", func(t *testing.T) {
+		assert.Equal(t, "", idKey(nil))
+	})
+	t.Run("non-nil id returns cell/name", func(t *testing.T) {
+		id := &clustermetadatapb.ID{Cell: "zone1", Name: "pooler-a"}
+		assert.Equal(t, "zone1/pooler-a", idKey(id))
+	})
 }
