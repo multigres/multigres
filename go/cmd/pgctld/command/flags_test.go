@@ -99,6 +99,15 @@ func TestPgInitdbSQLFilesFlag(t *testing.T) {
 		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-files", "/tmp/flag.sql"}))
 		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
+
+	t.Run("legacy --init-db-sql-file flag aliases to --pg-initdb-sql-files", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--init-db-sql-file", "/tmp/legacy-a.sql",
+			"--init-db-sql-file", "/tmp/legacy-b.sql",
+		}))
+		assert.Equal(t, []string{"/tmp/legacy-a.sql", "/tmp/legacy-b.sql"}, pc.pgInitdbSQLFiles.Get())
+	})
 }
 
 func TestPgInitdbExtraConfFlag(t *testing.T) {
