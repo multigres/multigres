@@ -567,9 +567,6 @@ message UpdateConsensusRuleRequest {
   // The application names will be generated as {cell}_{name} from these IDs.
   repeated clustermetadata.ID standby_ids = 2;
 
-  // Whether to reload configuration immediately
-  bool reload_config = 3;
-
   // expected_outgoing_rule is the RuleNumber the caller observed as the
   // primary's current rule. The primary applies the change only if its
   // recorded rule still matches this value (compare-and-swap). It rejects

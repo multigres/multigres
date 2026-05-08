@@ -507,7 +507,7 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 // RuleNumber. If they differ (the caller's view is stale), the operation
 // fails — the caller should re-read state and retry. force=true bypasses the
 // CAS check (break-glass only).
-func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, expectedOutgoingRule *clustermetadatapb.RuleNumber, force bool, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, force bool, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -657,18 +657,17 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return err
 	}
 
-	// Reload configuration if requested
-	if reloadConfig {
-		if err := pm.reloadPostgresConfig(ctx); err != nil {
-			return err
-		}
+	// Reload Postgres config so the new synchronous_standby_names value
+	// takes effect immediately. Recording the cohort change in rule_history
+	// without applying it would leave the history out of step with the GUC.
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
+		return err
 	}
 
 	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully",
 		"operation", operation,
 		"old_value", currentValue,
 		"new_value", newValue,
-		"reload_config", reloadConfig,
 		"expected_outgoing_rule", expectedOutgoingRule,
 		"force", force)
 

@@ -120,7 +120,6 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{target.MultiPooler.Id},
-		ReloadConfig:         true,
 		ExpectedOutgoingRule: expectedRule,
 		Force:                false,
 	}

@@ -329,8 +329,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 			Cell:      "test-cell",
 			Name:      replicaName,
 		}},
-		ReloadConfig: true,
-		Force:        true, // Force to bypass term check
+		Force: true, // Force to bypass term check
 	})
 	require.NoError(t, err, "UpdateConsensusRule (remove) should succeed")
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)

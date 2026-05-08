@@ -127,7 +127,6 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 	err := s.manager.UpdateConsensusRule(ctx,
 		req.Operation,
 		req.StandbyIds,
-		req.ReloadConfig,
 		req.ExpectedOutgoingRule,
 		req.Force,
 		req.CoordinatorId)

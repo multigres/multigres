@@ -2512,8 +2512,6 @@ type UpdateConsensusRuleRequest struct {
 	// List of multipooler IDs to add to or remove from the cohort.
 	// The application names will be generated as {cell}_{name} from these IDs.
 	StandbyIds []*clustermetadata.ID `protobuf:"bytes,2,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
-	// Whether to reload configuration immediately
-	ReloadConfig bool `protobuf:"varint,3,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
 	// expected_outgoing_rule is the RuleNumber the caller observed as the
 	// primary's current rule. The primary applies the change only if its
 	// recorded rule still matches this value (compare-and-swap). It rejects
@@ -2573,13 +2571,6 @@ func (x *UpdateConsensusRuleRequest) GetStandbyIds() []*clustermetadata.ID {
 		return x.StandbyIds
 	}
 	return nil
-}
-
-func (x *UpdateConsensusRuleRequest) GetReloadConfig() bool {
-	if x != nil {
-		return x.ReloadConfig
-	}
-	return false
 }
 
 func (x *UpdateConsensusRuleRequest) GetExpectedOutgoingRule() *clustermetadata.RuleNumber {
@@ -3580,12 +3571,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\x12\x14\n" +
 	"\x05force\x18\x06 \x01(\bR\x05force\")\n" +
-	"'ConfigureSynchronousReplicationResponse\"\xe9\x02\n" +
+	"'ConfigureSynchronousReplicationResponse\"\xc4\x02\n" +
 	"\x1aUpdateConsensusRuleRequest\x12K\n" +
 	"\toperation\x18\x01 \x01(\x0e2-.multipoolermanagerdata.CohortUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\x12#\n" +
-	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12Q\n" +
+	"standbyIds\x12Q\n" +
 	"\x16expected_outgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\x14expectedOutgoingRule\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\x12:\n" +
 	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"\x1d\n" +
