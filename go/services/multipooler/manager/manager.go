@@ -141,6 +141,11 @@ type MultiPoolerManager struct {
 	// election. Protected by mu. Cleared when this node is elected primary again.
 	resignedLeaderAtTerm int64
 
+	// cohortEligibility is this node's self-reported willingness to be a member
+	// of the consensus cohort. Defaults to ELIGIBLE; published in every health
+	// snapshot via AvailabilityStatus.CohortEligibilityStatus. Protected by mu.
+	cohortEligibility clustermetadatapb.CohortEligibilitySignal
+
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
@@ -268,6 +273,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
 		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
+		cohortEligibility:      clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,

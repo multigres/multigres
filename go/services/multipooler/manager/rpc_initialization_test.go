@@ -691,13 +691,14 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	t.Cleanup(func() { ts.Close() })
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 	return &MultiPoolerManager{
-		logger:        slog.Default(),
-		actionLock:    NewActionLock(),
-		multipooler:   multipooler,
-		serviceID:     multipooler.Id,
-		topoClient:    ts,
-		servingState:  NewStateManager(slog.Default(), multipooler),
-		topoPublisher: newTopoPublisher(slog.Default(), ts),
+		logger:            slog.Default(),
+		actionLock:        NewActionLock(),
+		multipooler:       multipooler,
+		serviceID:         multipooler.Id,
+		topoClient:        ts,
+		servingState:      NewStateManager(slog.Default(), multipooler),
+		topoPublisher:     newTopoPublisher(slog.Default(), ts),
+		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 	}
 }
 
@@ -720,14 +721,21 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 					LeaderTerm: 5,
 					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 				},
+				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
 			},
 		},
 		{
-			name:         "AdjustTypeToReplica sets no resignation when primary_term is zero",
-			action:       remedialActionAdjustTypeToReplica,
-			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
-			primaryTerm:  0,
-			wantAvStatus: nil,
+			name:        "AdjustTypeToReplica sets no resignation when primary_term is zero",
+			action:      remedialActionAdjustTypeToReplica,
+			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
+			primaryTerm: 0,
+			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
+				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
+			},
 		},
 		{
 			name:           "AdjustTypeToPrimary does not clear existing resignation signal",
@@ -738,6 +746,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 					LeaderTerm: 7,
 					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+				},
+				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 				},
 			},
 		},

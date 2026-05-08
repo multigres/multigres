@@ -1942,25 +1942,43 @@ func TestPropose(t *testing.T) {
 }
 
 func TestAvailabilityStatus(t *testing.T) {
-	t.Run("buildAvailabilityStatus returns nil when no resignation is set", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
-		assert.Nil(t, pm.buildAvailabilityStatus())
+	t.Run("buildAvailabilityStatus publishes cohort eligibility with no leadership status when no resignation is set", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		assert.Nil(t, av.LeadershipStatus)
+		require.NotNil(t, av.CohortEligibilityStatus)
+		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
 
-	t.Run("resignedLeaderAtTerm set makes buildAvailabilityStatus return the term", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
+	t.Run("resignedLeaderAtTerm set adds a LeadershipStatus alongside cohort eligibility", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
 		pm.resignedLeaderAtTerm = 7
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
 		assert.Equal(t, int64(7), av.LeadershipStatus.LeaderTerm)
 		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
+		require.NotNil(t, av.CohortEligibilityStatus)
+		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
 
-	t.Run("resignedLeaderAtTerm cleared makes buildAvailabilityStatus return nil", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
+	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
 		pm.resignedLeaderAtTerm = 3
 		pm.resignedLeaderAtTerm = 0
-		assert.Nil(t, pm.buildAvailabilityStatus())
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		assert.Nil(t, av.LeadershipStatus)
+		require.NotNil(t, av.CohortEligibilityStatus)
+	})
+
+	t.Run("setCohortEligibility flips the signal", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		require.NotNil(t, av.CohortEligibilityStatus)
+		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
 }
