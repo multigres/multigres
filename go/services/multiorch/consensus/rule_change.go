@@ -123,6 +123,22 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 	}
 
 	// Phase 1: collect recruits until tryBuild succeeds (or we run out).
+	//
+	// We commit to the leader at the FIRST successful tryBuild and stream
+	// Proposes from there — recruits arriving after that point don't change
+	// the choice. This is consensus-correct: only committed writes are
+	// guaranteed durable across the quorum, so the chosen leader carries
+	// every committed write by definition. The tradeoff is that *uncommitted*
+	// WAL on a late-arriving more-advanced node is discarded when the node
+	// joins as a follower (pg_rewind on rejoin) instead of being preserved
+	// by electing that node leader.
+	//
+	// TODO: add a configurable grace period after quorum is reached but
+	// before the leader is locked in, to let slow-but-not-dead nodes
+	// participate in leader selection. With grace=0 we keep the current
+	// streaming behavior; with grace>0 we wait up to that long for further
+	// recruits and re-run tryBuild on the augmented set. The right default
+	// should come from observed failover latency in production.
 	remaining := len(cohort)
 	for ; remaining > 0 && propReq == nil; remaining-- {
 		rr := <-recruited
