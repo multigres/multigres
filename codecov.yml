@@ -1,0 +1,3 @@
+ignore:
+  - "go/pb/**"
+  - "go/common/parser/ast/**"
