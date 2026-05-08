@@ -92,7 +92,8 @@ type VerifyInput struct {
 // VerifyTest runs the patch-based verification pipeline for one test.
 //
 // Pipeline:
-//  1. Read expected and actual.
+//  1. Read expected and actual; whitespace-normalize both so all subsequent
+//     operations work in a canonical, platform-independent form.
 //  2. If a patch file exists at PatchDir/<Name>.patch, apply it to expected.
 //     - verify mode: patch failure => fail with reason "patch did not apply".
 //     - generate mode: patch failure just means we'll regenerate from scratch.
@@ -108,14 +109,19 @@ type VerifyInput struct {
 func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOutcome, error) {
 	out := &VerifyOutcome{Name: in.Name}
 
-	expected, err := os.ReadFile(in.ExpectedPath)
+	rawExpected, err := os.ReadFile(in.ExpectedPath)
 	if err != nil {
 		return nil, fmt.Errorf("read expected %q: %w", in.ExpectedPath, err)
 	}
-	actual, err := os.ReadFile(in.ActualPath)
+	rawActual, err := os.ReadFile(in.ActualPath)
 	if err != nil {
 		return nil, fmt.Errorf("read actual %q: %w", in.ActualPath, err)
 	}
+	// Normalize once on entry so applyPatch, generateDiff, and patch
+	// regeneration all operate on the same canonical bytes. See
+	// normalizeWhitespace for the rationale.
+	expected := normalizeWhitespace(rawExpected)
+	actual := normalizeWhitespace(rawActual)
 
 	patchPath := filepath.Join(in.PatchDir, in.Name+".patch")
 	patchExists := fileExists(patchPath)
@@ -244,15 +250,59 @@ func applyPatch(ctx context.Context, original []byte, patchPath string) ([]byte,
 	return os.ReadFile(dstPath)
 }
 
-// generateDiff runs `diff -U3 -b --label a --label b` and returns the unified
-// diff bytes. Returns an empty slice when files are identical (modulo
-// whitespace).
+// normalizeWhitespace canonicalises whitespace so byte-level comparison is
+// stable across platforms. Each line has runs of `[ \t]+` collapsed to a
+// single space and leading/trailing whitespace stripped. Newlines are
+// preserved.
 //
-// The `-b` flag ignores changes in the amount of whitespace — lines that
-// differ only in spacing (e.g. the `^` caret position under a `LINE N:`
-// error block) are treated as matching. This lets us accept psql-format
-// nits that don't represent real regressions without maintaining a patch
-// per test file for every column-alignment tweak.
+// Why: BSD diff (macOS) and GNU diff (Linux) drift on `-b` for some
+// whitespace-only changes. Normalising here lets us drop `-b` and invoke
+// plain `diff -U3` against bytes with no whitespace ambiguity left.
+func normalizeWhitespace(input []byte) []byte {
+	if len(input) == 0 {
+		return input
+	}
+	// Track whether the input ended with a newline so we can preserve that
+	// (or lack thereof) on output.
+	hasTrailingNewline := input[len(input)-1] == '\n'
+
+	lines := bytes.Split(input, []byte("\n"))
+	if hasTrailingNewline {
+		// bytes.Split leaves a trailing empty element when the input ends
+		// with the separator; drop it so we don't synthesize an extra blank
+		// line, then re-add the newline at the very end.
+		lines = lines[:len(lines)-1]
+	}
+
+	for i, line := range lines {
+		var b []byte
+		prevWS := false
+		for _, c := range line {
+			if c == ' ' || c == '\t' {
+				if !prevWS {
+					b = append(b, ' ')
+					prevWS = true
+				}
+			} else {
+				b = append(b, c)
+				prevWS = false
+			}
+		}
+		// Strip leading and trailing single-space runs (already collapsed).
+		b = bytes.TrimSpace(b)
+		lines[i] = b
+	}
+
+	out := bytes.Join(lines, []byte("\n"))
+	if hasTrailingNewline {
+		out = append(out, '\n')
+	}
+	return out
+}
+
+// generateDiff runs `diff -U3 --label a --label b` against the bytes and
+// returns the unified diff. Inputs are expected to already be canonicalized
+// by normalizeWhitespace — see that function for why we don't pass `-b`.
 //
 // The `--label` flags replace the `---`/`+++` header lines with stable
 // literals so patch files don't embed absolute temp-directory paths or
@@ -276,7 +326,7 @@ func generateDiff(ctx context.Context, a, b []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	cmd := executil.Command(ctx, "diff", "-U3", "-b",
+	cmd := executil.Command(ctx, "diff", "-U3",
 		"--label", "a",
 		"--label", "b",
 		aPath, bPath)

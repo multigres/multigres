@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -476,6 +477,25 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		"reload_config", reloadConfig)
 
 	return nil
+}
+
+// applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
+// GUCs without the primary guardrail or rule-history write. Safe to call on a standby
+// (e.g., before pg_promote) so the promoted primary inherits the correct config.
+// The caller must hold the action lock.
+func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
+	ctx context.Context,
+	cfg *commonconsensus.LeaderDurabilityPostgresConfig,
+) error {
+	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
+	if err != nil {
+		return err
+	}
+	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
+		return err
+	}
+	return pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
+	// TODO: Somehow make sure the GUC change has actually propagated
 }
 
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,

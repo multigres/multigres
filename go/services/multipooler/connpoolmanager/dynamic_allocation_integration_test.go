@@ -132,7 +132,7 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 				defer wg.Done()
 				<-ready // Wait for signal to start
 
-				conn, err := manager.GetRegularConn(ctx, user)
+				conn, err := manager.GetRegularConn(ctx, user, nil, nil)
 				if err == nil {
 					mu.Lock()
 					connsByUser[user] = append(connsByUser[user], conn)
@@ -211,7 +211,7 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 			go func(u string, shouldRelease bool) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u)
+				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
 				if err == nil {
 					if !shouldRelease {
 						mu.Lock()
@@ -248,7 +248,7 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	// Now add a 3rd user during load
 	for range 4 {
 		wg.Go(func() {
-			conn, err := manager.GetRegularConn(ctx, "user3")
+			conn, err := manager.GetRegularConn(ctx, "user3", nil, nil)
 			if err == nil {
 				mu.Lock()
 				conns["user3"] = append(conns["user3"], conn)
@@ -314,15 +314,15 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 	ctx := context.Background()
 
 	// Create 3 users
-	conn1, err := manager.GetRegularConn(ctx, "user1")
+	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2")
+	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	conn3, err := manager.GetRegularConn(ctx, "user3")
+	conn3, err := manager.GetRegularConn(ctx, "user3", nil, nil)
 	require.NoError(t, err)
 	conn3.Recycle()
 
@@ -337,11 +337,11 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 			case <-done:
 				return
 			default:
-				conn, _ := manager.GetRegularConn(ctx, "user1")
+				conn, _ := manager.GetRegularConn(ctx, "user1", nil, nil)
 				if conn != nil {
 					conn.Recycle()
 				}
-				conn, _ = manager.GetRegularConn(ctx, "user2")
+				conn, _ = manager.GetRegularConn(ctx, "user2", nil, nil)
 				if conn != nil {
 					conn.Recycle()
 				}
@@ -393,7 +393,7 @@ func TestDynamicAllocation_CapacityExhaustion(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u)
+				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)
@@ -472,7 +472,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 				case <-done:
 					return
 				default:
-					conn, _ := manager.GetRegularConn(ctx, "user1")
+					conn, _ := manager.GetRegularConn(ctx, "user1", nil, nil)
 					if conn != nil {
 						time.Sleep(50 * time.Millisecond) // Hold connection briefly
 						conn.Recycle()
@@ -498,7 +498,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u)
+				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)
@@ -588,7 +588,7 @@ func TestDynamicAllocation_GracefulDegradation(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u)
+				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)

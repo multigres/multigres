@@ -576,7 +576,15 @@ func (s *SelectStmt) SqlString() string {
 			parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
 		}
 
-		return strings.Join(parts, " ")
+		// WITH clause attaches to the outer set-operation node and must be
+		// prepended here. The non-set-op branch handles WithClause below; the
+		// set-op branch returns early, so without this the CTE is silently
+		// dropped on round-trip and PG sees `relation "cte" does not exist`.
+		result := strings.Join(parts, " ")
+		if s.WithClause != nil {
+			result = s.WithClause.SqlString() + " " + result
+		}
+		return result
 	}
 
 	// Handle VALUES clause
@@ -591,7 +599,14 @@ func (s *SelectStmt) SqlString() string {
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
 		}
-		return "VALUES " + strings.Join(valueRows, ", ")
+		// WITH cte(...) AS (...) VALUES (...) attaches WithClause to the
+		// outer SelectStmt; same drop-on-round-trip class as the set-op
+		// branch above.
+		result := "VALUES " + strings.Join(valueRows, ", ")
+		if s.WithClause != nil {
+			result = s.WithClause.SqlString() + " " + result
+		}
+		return result
 	}
 
 	// Regular SELECT statement

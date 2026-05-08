@@ -327,7 +327,7 @@
   {
     "comment": "updatable_views - Statement 73",
     "query": "DELETE FROM rw_view16 WHERE a=-3",
-    "expected": "DELETE FROM rw_view16 WHERE a =- 3"
+    "expected": "DELETE FROM rw_view16 WHERE a = -3"
   },
   {
     "comment": "updatable_views - Statement 74",

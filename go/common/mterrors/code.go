@@ -25,6 +25,7 @@ import (
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
 	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSConnectionFailure       = "08006" // connection_failure
 	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
 	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
 	PgSSActiveTransaction       = "25001" // active_sql_transaction
@@ -52,6 +53,15 @@ func NewQueryCanceled() *PgDiagnostic {
 func NewStatementTimeout() *PgDiagnostic {
 	return NewPgError("ERROR", PgSSQueryCanceled,
 		"canceling statement due to statement timeout", "")
+}
+
+// NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
+// expiry during the startup phase (SSLRequest, StartupMessage, or SCRAM
+// exchange). SQLSTATE 08006 (connection_failure), severity FATAL — matches
+// the way native PostgreSQL closes the connection when the timeout fires.
+func NewAuthenticationTimeout() *PgDiagnostic {
+	return NewPgError("FATAL", PgSSConnectionFailure,
+		"canceling authentication due to timeout", "")
 }
 
 // MTError defines a Multigres-specific error code for conditions that have no

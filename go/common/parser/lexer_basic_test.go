@@ -449,14 +449,15 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{Op, "!=="}, // 3-char operator
-				{Op, "==="}, // 3-char operator
-				{Op, "=="},  // 2-char unknown operator
-				{Op, "++"},  // 2-char unknown operator
-				{Op, "**"},  // 2-char unknown operator
-				{Op, "&&"},  // 2-char unknown operator
-				{Op, "||"},  // 2-char unknown operator
-				{Op, "!!"},  // 2-char unknown operator
+				{Op, "!=="},           // 3-char operator
+				{Op, "==="},           // 3-char operator
+				{Op, "=="},            // 2-char unknown operator
+				{TokenType('+'), "+"}, // PG give-back rule splits "++" into two self '+' tokens
+				{TokenType('+'), "+"},
+				{Op, "**"}, // 2-char unknown operator
+				{Op, "&&"}, // 2-char unknown operator (& is extension char but no trailing +/-)
+				{Op, "||"}, // 2-char unknown operator (| is extension char but no trailing +/-)
+				{Op, "!!"}, // 2-char unknown operator
 			},
 		},
 		{
@@ -561,6 +562,216 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 			token := lexer.NextToken()
 			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
+		})
+	}
+}
+
+// TestOperatorGiveBackTrailingPlusMinus verifies the PostgreSQL give-back rule
+// from postgres/src/backend/parser/scan.l:890-925. Trailing '+' or '-' chars
+// are stripped from a multi-char operator unless the operator contains a
+// non-SQL extension char (~ ! @ # ^ & | ` ? %).
+func TestOperatorGiveBackTrailingPlusMinus(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedTokens []struct {
+			tokenType TokenType
+			text      string
+		}
+	}{
+		{
+			name:  "equals followed by minus literal splits",
+			input: "a=-1",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{TokenType('='), "="},
+				{TokenType('-'), "-"},
+				{ICONST, "1"},
+			},
+		},
+		{
+			name:  "less-equals followed by minus literal preserves LESS_EQUALS",
+			input: "a<=-1",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{LESS_EQUALS, "<="},
+				{TokenType('-'), "-"},
+				{ICONST, "1"},
+			},
+		},
+		{
+			name:  "greater-equals followed by minus literal preserves GREATER_EQUALS",
+			input: "a>=-1",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{GREATER_EQUALS, ">="},
+				{TokenType('-'), "-"},
+				{ICONST, "1"},
+			},
+		},
+		{
+			name:  "not-equals followed by minus literal preserves NOT_EQUALS",
+			input: "a<>-1",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{NOT_EQUALS, "<>"},
+				{TokenType('-'), "-"},
+				{ICONST, "1"},
+			},
+		},
+		{
+			name:  "equals-greater followed by minus literal preserves EQUALS_GREATER",
+			input: "a=>-1",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{EQUALS_GREATER, "=>"},
+				{TokenType('-'), "-"},
+				{ICONST, "1"},
+			},
+		},
+		{
+			name:  "extension char ! keeps trailing -",
+			input: "a!=-b",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{Op, "!=-"},
+				{IDENT, "b"},
+			},
+		},
+		{
+			name:  "extension char % keeps trailing -",
+			input: "1%-2",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{ICONST, "1"},
+				{Op, "%-"},
+				{ICONST, "2"},
+			},
+		},
+		{
+			name:  "extension char ~ keeps trailing +",
+			input: "a~+b",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "a"},
+				{Op, "~+"},
+				{IDENT, "b"},
+			},
+		},
+		{
+			name:  "plus-minus splits into two self tokens",
+			input: "1+-2",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{ICONST, "1"},
+				{TokenType('+'), "+"},
+				{TokenType('-'), "-"},
+				{ICONST, "2"},
+			},
+		},
+		{
+			name:  "star-minus splits into two self tokens",
+			input: "1*-2",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{ICONST, "1"},
+				{TokenType('*'), "*"},
+				{TokenType('-'), "-"},
+				{ICONST, "2"},
+			},
+		},
+		{
+			name:  "repeated trailing minus stripped to single self token",
+			input: "=+-",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{TokenType('='), "="},
+				{TokenType('+'), "+"},
+				{TokenType('-'), "-"},
+			},
+		},
+		{
+			name:  "fillfactor-style pattern lexes as separate tokens",
+			input: "fillfactor=-30",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "fillfactor"},
+				{TokenType('='), "="},
+				{TokenType('-'), "-"},
+				{ICONST, "30"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+
+			for i, expected := range tt.expectedTokens {
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
+				assert.Equal(t, expected.tokenType, token.Type,
+					"Token %d type mismatch: got %d, want %d (text=%q)",
+					i, int(token.Type), int(expected.tokenType), token.Text)
+				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
+			}
+
+			token := lexer.NextToken()
+			require.NotNil(t, token)
+			assert.Equal(t, EOF, token.Type, "Should reach EOF")
+		})
+	}
+}
+
+// TestOperatorGiveBackParseScenarios exercises the parse paths that previously
+// failed due to greedy '=-' tokenization (UPDATE col=-N, WITH (foo=-N)).
+func TestOperatorGiveBackParseScenarios(t *testing.T) {
+	queries := []string{
+		`UPDATE t SET col=-1`,
+		`UPDATE t SET col=-30.1 WHERE id=1`,
+		`CREATE TABLE t (x int) WITH (fillfactor=-30)`,
+		`SELECT * FROM t WHERE a=-3`,
+		`SELECT * FROM t WHERE a<=-1`,
+		`SELECT * FROM t WHERE a>=-1`,
+		`SELECT * FROM t WHERE a<>-1`,
+		`SELECT 1+-2`,
+		`SELECT 1*-2`,
+		`SELECT 1/-2`,
+	}
+	for _, q := range queries {
+		t.Run(q, func(t *testing.T) {
+			_, err := ParseSQL(q)
+			require.NoError(t, err, "query %q should parse after give-back fix", q)
 		})
 	}
 }

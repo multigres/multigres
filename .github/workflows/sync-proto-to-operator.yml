@@ -1,0 +1,31 @@
+name: Sync Proto to Operator
+on:
+  push:
+    branches: [main]
+    paths: ["proto/**"]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token for creating a PR
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        with:
+          app-id: ${{ vars.MULTIGRES_BOT_APP_ID }}
+          private-key: ${{ secrets.MULTIGRES_BOT_APP_PRIVATE_KEY }}
+          owner: multigres
+          repositories: multigres-operator
+
+      - name: Dispatch proto-updated event
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh api repos/multigres/multigres-operator/dispatches \
+            --method POST \
+            --input - <<EOF
+          {"event_type":"proto-updated","client_payload":{"sha":"$SHA"}}
+          EOF

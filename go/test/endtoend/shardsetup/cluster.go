@@ -87,6 +87,11 @@ type ShardSetup struct {
 	// Set when WithMultigatewayTLS() is used.
 	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
 
+	// MultipoolerPGTLSCertPaths stores the paths used to provision postgres with
+	// TLS and the matching CA the multipooler verifies against.
+	// Set when WithMultipoolerPGTLS() is used.
+	MultipoolerPGTLSCertPaths *MultipoolerPGTLSCertPaths
+
 	// MetricsPorts maps instance name to its Prometheus metrics port.
 	// Set when WithMetricsExport() is used. Scrape http://localhost:<port>/metrics.
 	MetricsPorts map[string]int
@@ -302,6 +307,10 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
+	// Default to the standard Unix socket path under the pgctld data dir.
+	// Tests that need the TCP path (e.g. PG TLS) clear this after creation.
+	socketFile := filepath.Join(pgctldDataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
+
 	inst := &ProcessInstance{
 		Name:        name,
 		Cell:        cell,
@@ -313,6 +322,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		PoolerDir:   pgctldDataDir,
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
+		SocketFile:  socketFile,
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 

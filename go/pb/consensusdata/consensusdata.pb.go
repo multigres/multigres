@@ -728,10 +728,15 @@ func (x *RecruitResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 // state. Every cohort member receives this: the designated leader promotes
 // itself; all others configure replication toward the new primary.
 type ProposeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Proposal      *CoordinatorProposal   `protobuf:"bytes,1,opt,name=proposal,proto3" json:"proposal,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Proposal *CoordinatorProposal   `protobuf:"bytes,1,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	// Human-readable reason for this proposal (e.g. "dead_primary", "bootstrap").
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// IDs of cohort members that accepted the term revocation during recruitment.
+	// Used to record which nodes acknowledged the proposal in the rule history.
+	AcceptedNodeIds []*clustermetadata.ID `protobuf:"bytes,3,rep,name=accepted_node_ids,json=acceptedNodeIds,proto3" json:"accepted_node_ids,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ProposeRequest) Reset() {
@@ -767,6 +772,20 @@ func (*ProposeRequest) Descriptor() ([]byte, []int) {
 func (x *ProposeRequest) GetProposal() *CoordinatorProposal {
 	if x != nil {
 		return x.Proposal
+	}
+	return nil
+}
+
+func (x *ProposeRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ProposeRequest) GetAcceptedNodeIds() []*clustermetadata.ID {
+	if x != nil {
+		return x.AcceptedNodeIds
 	}
 	return nil
 }
@@ -955,9 +974,11 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x0eRecruitRequest\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"^\n" +
 	"\x0fRecruitResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"P\n" +
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"\xa9\x01\n" +
 	"\x0eProposeRequest\x12>\n" +
-	"\bproposal\x18\x01 \x01(\v2\".consensusdata.CoordinatorProposalR\bproposal\"^\n" +
+	"\bproposal\x18\x01 \x01(\v2\".consensusdata.CoordinatorProposalR\bproposal\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12?\n" +
+	"\x11accepted_node_ids\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0facceptedNodeIds\"^\n" +
 	"\x0fProposeResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"R\n" +
 	"\rInformRequest\x12A\n" +
@@ -1021,14 +1042,15 @@ var file_consensusdata_proto_depIdxs = []int32{
 	18, // 12: consensusdata.RecruitRequest.term_revocation:type_name -> clustermetadata.TermRevocation
 	16, // 13: consensusdata.RecruitResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	7,  // 14: consensusdata.ProposeRequest.proposal:type_name -> consensusdata.CoordinatorProposal
-	16, // 15: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	19, // 16: consensusdata.InformRequest.committed_rule:type_name -> clustermetadata.ShardRule
-	16, // 17: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	15, // 15: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
+	16, // 16: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	19, // 17: consensusdata.InformRequest.committed_rule:type_name -> clustermetadata.ShardRule
+	16, // 18: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }

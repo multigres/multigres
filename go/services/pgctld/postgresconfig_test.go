@@ -118,11 +118,6 @@ var configSettings = map[string]string{
 	"unix_socket_directories": "/var/run/postgresql",
 	"listen_addresses":        "*",
 
-	// Include settings
-	"include":           "/etc/postgresql/logging.conf",
-	"include_dir":       "/etc/postgresql-custom",
-	"include_if_exists": "/etc/postgresql-custom/custom.conf",
-
 	// Memory/size settings (with units)
 	"shared_buffers":               "64MB",
 	"temp_buffers":                 "8MB",
@@ -340,7 +335,7 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
 	// Generate config using the template
-	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, 5433, "postgres")
+	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, "postgres", []string{})
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	// Read the generated config back from disk
@@ -348,9 +343,9 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	result, err := ReadPostgresServerConfig(readConfig, 0)
 	require.NoError(t, err, "ReadPostgresServerConfig should not return error for generated config")
 
-	// Validate that all required template fields are populated (not empty/zero values)
-	// Port, ListenAddresses, and UnixSocketDirectories are set during generation and preserved in memory
-	// but are NOT read back from the config file (they're passed as CLI parameters)
+	// Validate that all required template fields are populated (not empty/zero values).
+	// port, listen_addresses, unix_socket_directories, and data_directory are intentionally
+	// not part of the struct: pgctld pins them via postgres CLI args at start time.
 	assert.NotZero(t, result.MaxConnections, "MaxConnections should be set")
 	assert.NotEmpty(t, result.SharedBuffers, "SharedBuffers should be set")
 	assert.NotEmpty(t, result.MaintenanceWorkMem, "MaintenanceWorkMem should be set")

@@ -127,9 +127,11 @@ func TestVerify_DiffAbsorbedByPatch_Passes(t *testing.T) {
 	exp := "line1\nERROR:  invalid input syntax for type boolean: \"XXX\"\nLINE 2:    VALUES (bool 'XXX');\n                        ^\nline5\n"
 	act := "line1\nERROR:  parse error at position 64: invalid boolean\nline5\n"
 
-	// Generate the patch by running diff between exp and act. In real usage
-	// this is what `make pgregress-update-patches` produces.
-	patch, err := generateDiff(t.Context(), []byte(exp), []byte(act))
+	// Generate the patch by running diff between normalized exp and normalized
+	// act. In real usage this is what VerifyTest does internally on every
+	// run; tests that bypass VerifyTest must normalize first so the patch
+	// applies to the normalized expected that VerifyTest will hand back.
+	patch, err := generateDiff(t.Context(), normalizeWhitespace([]byte(exp)), normalizeWhitespace([]byte(act)))
 	if err != nil || len(patch) == 0 {
 		t.Fatalf("could not generate test patch: %v (len=%d)", err, len(patch))
 	}
@@ -234,6 +236,56 @@ func TestGenerate_RemovesRedundantPatch(t *testing.T) {
 	patchFile := filepath.Join(in.PatchDir, in.Name+".patch")
 	if _, err := os.Stat(patchFile); !os.IsNotExist(err) {
 		t.Errorf("expected stale patch to be removed; stat err=%v", err)
+	}
+}
+
+func TestNormalizeWhitespace(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"single line, no whitespace", "abc", "abc"},
+		{"trailing newline preserved", "abc\n", "abc\n"},
+		{"trailing whitespace trimmed", "abc   \n", "abc\n"},
+		{"leading whitespace trimmed", "   abc\n", "abc\n"},
+		{"runs collapsed within line", "a    b\tc\n", "a b c\n"},
+		{
+			"caret shift becomes equal — BSD/GNU divergence case",
+			"   ^\n", "    ^\n",
+		}, // both inputs normalize to identical output below
+		// Separate cases for the divergence to make the equivalence explicit.
+		{"caret with 3 leading spaces", "   ^\n", "^\n"},
+		{"caret with 4 leading spaces", "    ^\n", "^\n"},
+		{
+			"multiline mixed",
+			"   line1   \n  a  b  \n   ^\n",
+			"line1\na b\n^\n",
+		},
+		{
+			"no trailing newline",
+			"   ^",
+			"^",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(normalizeWhitespace([]byte(tc.in)))
+			if tc.name == "caret shift becomes equal — BSD/GNU divergence case" {
+				// Special case: assert that two different inputs both
+				// collapse to the same canonical form.
+				a := string(normalizeWhitespace([]byte("   ^\n")))
+				b := string(normalizeWhitespace([]byte("    ^\n")))
+				if a != b {
+					t.Errorf("caret-shift inputs should normalize equal; a=%q b=%q", a, b)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Errorf("normalizeWhitespace(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

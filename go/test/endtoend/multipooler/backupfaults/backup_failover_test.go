@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package multipooler
+package backupfaults
 
 import (
 	"context"
@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -174,29 +173,11 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	// If GetBackupByJobId returns an error (backup not found), that is also acceptable —
 	// it means pgBackRest never completed the backup and left no record.
 
-	// Assertion 3: cluster is healthy — a new primary is elected and postgres is running
+	// Assertion 3: cluster is healthy — a new primary is elected and postgres is running.
+	// 60s budget rather than 30s: under Code Coverage's subprocess instrumentation,
+	// multiorch's election (grace period + promote + demote) gets CPU-starved on the
+	// shared runner and can slip past 30s. The actual happy path is ~12s.
 	t.Log("Waiting for a new primary to be elected...")
-	require.Eventually(t, func() bool {
-		for name, inst := range setup.Multipoolers {
-			if name == originalPrimaryName {
-				continue
-			}
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-			resp, err := client.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdata.StatusRequest{})
-			client.Close()
-			if err != nil {
-				continue
-			}
-			if resp.Status.IsInitialized &&
-				resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
-				resp.Status.PostgresReady {
-				t.Logf("New primary elected: %s", name)
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 500*time.Millisecond, "a new primary should be elected and running after failover")
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 60*time.Second)
+	t.Logf("New primary elected: %s", newPrimaryName)
 }

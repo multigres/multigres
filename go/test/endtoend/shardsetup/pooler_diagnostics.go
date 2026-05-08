@@ -157,6 +157,35 @@ func RequirePoolerCondition(
 	}
 }
 
+// WaitForNewPrimary polls all multipoolers in setup until one other than oldPrimaryName
+// reports IsInitialized + PoolerType_PRIMARY + PostgresReady, then returns its name.
+// Fails the test if no new primary is elected within timeout.
+func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, timeout time.Duration) string {
+	t.Helper()
+
+	poolers := make([]*MultipoolerInstance, 0, len(setup.Multipoolers))
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	return EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized &&
+					r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
+					r.Status.PostgresReady {
+					return r.Name, true, ""
+				}
+			}
+			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
+		},
+		"new primary not elected within %v", timeout,
+	)
+}
+
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,
 // useful for appending to "not yet ready" log messages to aid flake investigation.
 func FormatPoolerDiagnostics(s *multipoolermanagerdatapb.Status, cs *clustermetadatapb.ConsensusStatus) string {

@@ -1562,12 +1562,12 @@
   {
     "comment": "polymorphism - Statement 322",
     "query": "select dfunc(a =\u003e-1)",
-    "expected": "SELECT dfunc(a =\u003e- 1)"
+    "expected": "SELECT dfunc(a =\u003e -1)"
   },
   {
     "comment": "polymorphism - Statement 323",
     "query": "select dfunc(a =\u003e+1)",
-    "expected": "SELECT dfunc(a =\u003e+ 1)"
+    "expected": "SELECT dfunc(a =\u003e +1)"
   },
   {
     "comment": "polymorphism - Statement 324",

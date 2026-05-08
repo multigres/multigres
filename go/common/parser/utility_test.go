@@ -229,3 +229,15 @@ func TestSplitColQualList(t *testing.T) {
 		assert.Equal(t, collate2, collClause)
 	})
 }
+
+func TestParseSetTimeZoneDefault(t *testing.T) {
+	stmts, err := ParseSQL("SET TIME ZONE DEFAULT")
+	assert.NoError(t, err)
+	assert.Len(t, stmts, 1)
+
+	v, ok := stmts[0].(*ast.VariableSetStmt)
+	assert.True(t, ok, "expected *ast.VariableSetStmt")
+	assert.Equal(t, ast.VAR_SET_DEFAULT, v.Kind)
+	assert.Equal(t, "timezone", v.Name)
+	assert.Nil(t, v.Args)
+}

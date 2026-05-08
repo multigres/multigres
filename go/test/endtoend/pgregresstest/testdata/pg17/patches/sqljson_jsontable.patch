@@ -1,0 +1,98 @@
+--- a
++++ b
+@@ -1,9 +1,7 @@
+ -- JSON_TABLE
+ -- Should fail (JSON_TABLE can be used only in FROM clause)
+ SELECT JSON_TABLE('[]', '$');
+-ERROR: syntax error at or near "("
+-LINE 1: SELECT JSON_TABLE('[]', '$');
+-^
++ERROR: parse error at position 18: syntax error
+ -- Only allow EMPTY and ERROR for ON ERROR
+ SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') DEFAULT 1 ON ERROR);
+ ERROR: invalid ON ERROR behavior
+@@ -25,19 +23,17 @@
+ -- Column and path names must be distinct
+ SELECT * FROM JSON_TABLE(jsonb'"1.23"', '$.a' as js2 COLUMNS (js2 int path '$'));
+ ERROR: duplicate JSON_TABLE column or path name: js2
+-LINE 1: ...M JSON_TABLE(jsonb'"1.23"', '$.a' as js2 COLUMNS (js2 int pa...
++LINE 1: ...BLE(jsonb'"1.23"', '$.a' as js2 COLUMNS (js2 int path '$'));
+ ^
+ -- Should fail (no columns)
+ SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ());
+-ERROR: syntax error at or near ")"
+-LINE 1: SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ());
+-^
++ERROR: parse error at position 46: syntax error
+ SELECT * FROM JSON_TABLE (NULL::jsonb, '$' COLUMNS (v1 timestamp)) AS f (v1, v2);
+ ERROR: JSON_TABLE function has 1 columns available but 2 columns specified
+ --duplicated column name
+ SELECT * FROM JSON_TABLE(jsonb'"1.23"', '$.a' COLUMNS (js2 int path '$', js2 int path '$'));
+ ERROR: duplicate JSON_TABLE column or path name: js2
+-LINE 1: ...E(jsonb'"1.23"', '$.a' COLUMNS (js2 int path '$', js2 int pa...
++LINE 1: ...1.23"', '$.a' COLUMNS (js2 int path '$', js2 int path '$'));
+ ^
+ --return composite data type.
+ create type comp as (a int, b int);
+@@ -490,7 +486,7 @@
+ -- JSON_TABLE: only one FOR ORDINALITY columns allowed
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, id2 FOR ORDINALITY, a int PATH '$.a' ERROR ON EMPTY)) jt;
+ ERROR: only one FOR ORDINALITY column is allowed
+-LINE 1: ..._TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, id2 FOR OR...
++LINE 1: ...onb '1', '$' COLUMNS (id FOR ORDINALITY, id2 FOR ORDINALITY,...
+ ^
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, a int PATH '$' ERROR ON EMPTY)) jt;
+ id | a
+@@ -664,7 +660,7 @@
+ -- Error: OMIT QUOTES should not be specified when WITH WRAPPER is present
+ SELECT * FROM JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text PATH '$' WITH WRAPPER OMIT QUOTES));
+ ERROR: SQL/JSON QUOTES behavior must not be specified when WITH WRAPPER is used
+-LINE 1: ...T * FROM JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text ...
++LINE 1: ...JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text PATH '$' ...
+ ^
+ -- But KEEP QUOTES (the default) is fine
+ SELECT * FROM JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text FORMAT JSON PATH '$' WITH WRAPPER KEEP QUOTES));
+@@ -705,7 +701,7 @@
+ -- Should fail (not supported)
+ SELECT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || 'a' COLUMNS (foo int));
+ ERROR: only string constants are supported in JSON_TABLE path specification
+-LINE 1: SELECT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || '...
++LINE 1: ...CT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || 'a' C...
+ ^
+ -- JsonPathQuery() error message mentioning column name
+ SELECT * FROM JSON_TABLE('{"a": [{"b": "1"}, {"b": "2"}]}', '$' COLUMNS (b json path '$.a[*].b' ERROR ON ERROR));
+@@ -1107,29 +1103,27 @@
+ DROP TABLE s;
+ -- Prevent ON EMPTY specification on EXISTS columns
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on empty));
+-ERROR: syntax error at or near "empty"
+-LINE 1: ...sonb '1', '$' COLUMNS (a int exists empty object on empty));
+-^
++ERROR: parse error at position 84: syntax error
+ -- Test ON ERROR / EMPTY value validity for the function and column types;
+ -- all fail
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ERROR);
+ ERROR: invalid ON ERROR behavior
+-LINE 1: ... * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ER...
++LINE 1: ...OM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ERROR);
+ ^
+ DETAIL: Only EMPTY [ ARRAY ] or ERROR is allowed in the top-level ON ERROR clause.
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int true on empty));
+ ERROR: invalid ON EMPTY behavior for column "a"
+-LINE 1: ...T * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int true on em...
++LINE 1: ...OM JSON_TABLE(jsonb '1', '$' COLUMNS (a int true on empty));
+ ^
+ DETAIL: Only ERROR, NULL, or DEFAULT expression is allowed in ON EMPTY for scalar columns.
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int omit quotes true on error));
+ ERROR: invalid ON ERROR behavior for column "a"
+-LINE 1: ...N_TABLE(jsonb '1', '$' COLUMNS (a int omit quotes true on er...
++LINE 1: ...E(jsonb '1', '$' COLUMNS (a int omit quotes true on error));
+ ^
+ DETAIL: Only ERROR, NULL, EMPTY ARRAY, EMPTY OBJECT, or DEFAULT expression is allowed in ON ERROR for formatted columns.
+ SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on error));
+ ERROR: invalid ON ERROR behavior for column "a"
+-LINE 1: ...M JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty obje...
++LINE 1: ...BLE(jsonb '1', '$' COLUMNS (a int exists empty object on err...
+ ^
+ DETAIL: Only ERROR, TRUE, FALSE, or UNKNOWN is allowed in ON ERROR for EXISTS columns.
+ -- Test JSON_TABLE() column deparsing -- don't emit default ON ERROR / EMPTY

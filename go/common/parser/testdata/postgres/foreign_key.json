@@ -447,7 +447,7 @@
   {
     "comment": "foreign_key - Statement 90",
     "query": "DELETE FROM PKTABLE where ptest2=-1 and ptest3=5",
-    "expected": "DELETE FROM pktable WHERE ptest2 =- 1 AND ptest3 = 5"
+    "expected": "DELETE FROM pktable WHERE ptest2 = -1 AND ptest3 = 5"
   },
   {
     "comment": "foreign_key - Statement 91",
