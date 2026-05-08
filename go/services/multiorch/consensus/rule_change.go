@@ -316,6 +316,41 @@ func buildFailoverProposal(
 	}, nil
 }
 
+// buildBootstrapProposal constructs a CoordinatorProposal for initial leader
+// appointment on a fresh shard. Unlike buildFailoverProposal, the cohort and
+// durability policy come from the caller — there is no recorded rule to
+// derive them from — and any eligible leader works since none have prior
+// commitments.
+func buildBootstrapProposal(
+	result commonconsensus.RecruitmentResult,
+	cohortIDs []*clustermetadatapb.ID,
+	policy *clustermetadatapb.DurabilityPolicy,
+	poolerByID map[string]*clustermetadatapb.MultiPooler,
+) (*consensusdatapb.CoordinatorProposal, error) {
+	if len(result.EligibleLeaders) == 0 {
+		return nil, errors.New("no eligible leaders for bootstrap proposal")
+	}
+	leader := result.EligibleLeaders[0]
+	mp, ok := poolerByID[topoclient.ClusterIDString(leader.GetId())]
+	if !ok {
+		return nil, fmt.Errorf("leader %s not found in cohort", leader.GetId().GetName())
+	}
+	return &consensusdatapb.CoordinatorProposal{
+		TermRevocation: result.TermRevocation,
+		ProposalLeader: &consensusdatapb.ProposalLeader{
+			Id:           leader.GetId(),
+			Host:         mp.GetHostname(),
+			PostgresPort: mp.GetPortMap()["postgres"],
+		},
+		ProposedRule: &clustermetadatapb.ShardRule{
+			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+			CohortMembers:    cohortIDs,
+			DurabilityPolicy: policy,
+			LeaderId:         leader.GetId(),
+		},
+	}, nil
+}
+
 // checkRecentAcceptance returns an error if any node in the cohort recently
 // accepted a term revocation, which may indicate another coordinator is making
 // a rule change.

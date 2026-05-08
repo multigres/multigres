@@ -222,6 +222,58 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardID string, 
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
 
+	if c.useNewFlow {
+		// Bootstrap has no outgoing cohort to recruit consent from, so we use
+		// the externally-certified path. The "external" certification is the
+		// most-advanced timeline observed across the cohort's cached statuses:
+		// its rule number caps how far the outgoing cohort could have
+		// progressed, and its LSN is the frozen point any new leader must
+		// match. This handles partial bootstraps too — if any cohort member
+		// already carries a rule, we surface its rule number rather than
+		// falsely claiming term 0.
+		var cohortStatuses []*clustermetadatapb.ConsensusStatus
+		for _, p := range cohort {
+			if cs := p.GetConsensusStatus(); cs != nil {
+				cohortStatuses = append(cohortStatuses, cs)
+			}
+		}
+
+		// This is the discovery phase of coordinator-led rule changes. For externallly-certified
+		// rule changes, the client (this method) is responsible for discovery.
+		mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
+		if mostAdvanced == nil {
+			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cannot bootstrap shard %s: no cohort member has a known WAL position", shardID)
+		}
+		outgoingRule := mostAdvanced.GetRule().GetRuleNumber()
+		if outgoingRule == nil {
+			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cannot bootstrap shard %s: db initialization didn't set up consensus rules", shardID)
+		}
+
+		poolerByID, _ := buildCohortMaps(cohort)
+		cohortIDs := poolerIDs(cohort)
+		buildProposalFn := func(result commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			return buildBootstrapProposal(result, cohortIDs, policy, poolerByID)
+		}
+		certFor := func(rev *clustermetadatapb.TermRevocation) *clustermetadatapb.ExternallyCertifiedRevocation {
+			return &clustermetadatapb.ExternallyCertifiedRevocation{
+				TermRevocation:     rev,
+				OutgoingRuleNumber: outgoingRule,
+				FrozenLsn:          mostAdvanced.GetLsn(),
+			}
+		}
+		return c.newRuleChange(
+			"ShardInit",
+			func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+				return commonconsensus.BuildExternallyCertifiedProposal(certFor(rev), statuses, buildProposalFn)
+			},
+			func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
+				return commonconsensus.CheckExternallyCertifiedProposalPossible(certFor(rev), statuses, buildProposalFn)
+			},
+		).Run(ctx, cohort)
+	}
+
 	// Freshly bootstrapped shards start at term 0; skip discoverMaxTerm (which
 	// would return 0 for brand-new nodes) and use term 1 directly.
 	return c.appointLeaderWithTerm(ctx, shardID, cohort, policy, 1 /* initialTerm */, "ShardInit")
