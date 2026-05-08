@@ -70,8 +70,10 @@ type MultiPoolerConsensusClient interface {
 	EmergencyDemote(ctx context.Context, in *multipoolermanagerdata.EmergencyDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EmergencyDemoteResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
-	// UpdateConsensusRule updates the synchronous standby list (quorum membership)
-	UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
+	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
+	// primary handler updates synchronous_standby_names and records the cohort
+	// change in rule_history.
+	UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
 	// DemoteStalePrimary demotes a stale primary that came back after failover
 	// by rewinding to the correct primary and restarting as standby
 	// TODO: This will be replaced by informing a pooler of a newer rule version.
@@ -140,9 +142,9 @@ func (c *multiPoolerConsensusClient) Promote(ctx context.Context, in *multipoole
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.UpdateSynchronousStandbyListResponse)
+	out := new(multipoolermanagerdata.UpdateConsensusRuleResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerConsensus_UpdateConsensusRule_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -232,8 +234,10 @@ type MultiPoolerConsensusServer interface {
 	EmergencyDemote(context.Context, *multipoolermanagerdata.EmergencyDemoteRequest) (*multipoolermanagerdata.EmergencyDemoteResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
-	// UpdateConsensusRule updates the synchronous standby list (quorum membership)
-	UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
+	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
+	// primary handler updates synchronous_standby_names and records the cohort
+	// change in rule_history.
+	UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
 	// DemoteStalePrimary demotes a stale primary that came back after failover
 	// by rewinding to the correct primary and restarting as standby
 	// TODO: This will be replaced by informing a pooler of a newer rule version.
@@ -274,7 +278,7 @@ func (UnimplementedMultiPoolerConsensusServer) EmergencyDemote(context.Context, 
 func (UnimplementedMultiPoolerConsensusServer) Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConsensusRule not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
@@ -389,7 +393,7 @@ func _MultiPoolerConsensus_Promote_Handler(srv interface{}, ctx context.Context,
 }
 
 func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+	in := new(multipoolermanagerdata.UpdateConsensusRuleRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -401,7 +405,7 @@ func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx cont
 		FullMethod: MultiPoolerConsensus_UpdateConsensusRule_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateSynchronousStandbyListRequest))
+		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateConsensusRuleRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

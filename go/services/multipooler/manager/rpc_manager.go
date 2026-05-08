@@ -498,16 +498,16 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	// TODO: Somehow make sure the GUC change has actually propagated
 }
 
-// UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
+// UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding,
 // removing, or replacing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
 
 	// Validate operation
-	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
@@ -520,7 +520,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// Pre-compute history fields before acquiring the lock.
 	leaderID := pm.servicePoolerID
 
-	ctx, err = pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
+	ctx, err = pm.actionLock.Acquire(ctx, "UpdateConsensusRule")
 	if err != nil {
 		return err
 	}
@@ -547,7 +547,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// Check if synchronous replication is configured
 	if len(syncConfig.StandbyIds) == 0 {
-		pm.logger.ErrorContext(ctx, "UpdateSynchronousStandbyList requires synchronous replication to be configured")
+		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
 	}
@@ -569,10 +569,10 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	var updatedStandbys []poolerID
 	switch operation {
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
 		updatedStandbys = applyAddOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
 	default:
@@ -618,7 +618,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		consensusTerm,
 		coordID,
 		"replication_config",
-		"UpdateSynchronousStandbyList: "+operationName,
+		"UpdateConsensusRule: "+operationName,
 		time.Now()).
 		withLeader(leaderID.id).
 		withCohort(updatedStandbyIDs).
@@ -642,7 +642,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
+	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully",
 		"operation", operation,
 		"old_value", currentValue,
 		"new_value", newValue,

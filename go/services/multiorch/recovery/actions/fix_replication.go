@@ -63,7 +63,7 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 // Idempotency:
 // This action is fully idempotent. If multiple multiorch instances race to fix
 // the same problem, the end result will be identical. The underlying RPC operations
-// (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
+// (SetPrimaryConnInfo, UpdateConsensusRule) are implemented as idempotent
 // operations at the pooler level and serialized by action locks on the poolers,
 // so concurrent calls are safe and produce the same final state.
 
@@ -263,8 +263,8 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	// Add replica to the primary's synchronous standby list if it's a REPLICA type
 	if replica.MultiPooler.Type == clustermetadatapb.PoolerType_REPLICA {
-		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+		updateReq := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+			Operation:     multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 			StandbyIds:    []*clustermetadatapb.ID{replica.MultiPooler.Id},
 			ReloadConfig:  true,
 			ConsensusTerm: consensusTerm,

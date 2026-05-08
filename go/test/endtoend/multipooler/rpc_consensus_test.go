@@ -607,7 +607,7 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 }
 
 // TestUpdateConsensusRule tests the UpdateConsensusRule API on the consensus service.
-// UpdateConsensusRule was previously UpdateSynchronousStandbyList on the manager service.
+// UpdateConsensusRule was previously UpdateConsensusRule on the manager service.
 func TestUpdateConsensusRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -647,8 +647,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		// ADD all desired standbys first (keeps list non-empty throughout).
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:   ids,
 				ReloadConfig: true,
 				Force:        true,
@@ -672,8 +672,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 		}
 		if len(toRemove) > 0 {
 			_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-				&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-					Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+				&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+					Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 					StandbyIds:   toRemove,
 					ReloadConfig: true,
 					Force:        true,
@@ -694,8 +694,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"))
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
 				ReloadConfig: true,
 				Force:        true,
@@ -728,8 +728,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		// ADD a standby that already exists
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
 				ReloadConfig: true,
 				Force:        true,
@@ -754,8 +754,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 		)
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
 				ReloadConfig: true,
 				Force:        true,
@@ -787,8 +787,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 				StandbyIds: []*clustermetadatapb.ID{
 					makeMultipoolerID("test-cell", "does-not-exist"),
 				},
@@ -812,8 +812,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		// ADD two more
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds: []*clustermetadatapb.ID{
 					makeMultipoolerID("test-cell", "standby3"),
 					makeMultipoolerID("test-cell", "standby4"),
@@ -830,8 +830,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		// REMOVE two
 		_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 				StandbyIds: []*clustermetadatapb.ID{
 					makeMultipoolerID("test-cell", "standby2"),
 					makeMultipoolerID("test-cell", "standby4"),
@@ -866,8 +866,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 		t.Log("Testing UpdateConsensusRule fails on REPLICA pooler...")
 
 		_, err := standbyConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 1*time.Second),
-			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:    multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
 				ReloadConfig: true,
 				Force:        true,

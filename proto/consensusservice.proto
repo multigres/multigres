@@ -51,9 +51,11 @@ service MultiPoolerConsensus {
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
 
-  // UpdateConsensusRule updates the synchronous standby list (quorum membership)
-  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
-    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
+  // UpdateConsensusRule applies a cohort-membership change (add/remove). The
+  // primary handler updates synchronous_standby_names and records the cohort
+  // change in rule_history.
+  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateConsensusRuleRequest)
+    returns (multipoolermanagerdata.UpdateConsensusRuleResponse);
 
   // Replication Configuration
   

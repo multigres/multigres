@@ -70,7 +70,7 @@ type FakeClient struct {
 	StartReplicationResponses           map[string]*multipoolermanagerdatapb.StartReplicationResponse
 	StopReplicationResponses            map[string]*multipoolermanagerdatapb.StopReplicationResponse
 	StatusResponses                     map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
-	UpdateConsensusRuleResponses        map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse
+	UpdateConsensusRuleResponses        map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse
 	BackupResponses                     map[string]*multipoolermanagerdatapb.BackupResponse
 	RestoreFromBackupResponses          map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                 map[string]*multipoolermanagerdatapb.GetBackupsResponse
@@ -107,7 +107,7 @@ func NewFakeClient() *FakeClient {
 		StartReplicationResponses:           make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:            make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
 		StatusResponses:                     make(map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
-		UpdateConsensusRuleResponses:        make(map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse),
+		UpdateConsensusRuleResponses:        make(map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse),
 		BackupResponses:                     make(map[string]*multipoolermanagerdatapb.BackupResponse),
 		RestoreFromBackupResponses:          make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                 make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
@@ -323,7 +323,7 @@ func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.Mult
 	return &multipoolermanagerdatapb.PromoteResponse{}, nil
 }
 
-func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
+func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("UpdateConsensusRule", poolerID)
 
@@ -336,7 +336,7 @@ func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermet
 	if resp, ok := f.UpdateConsensusRuleResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
+	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
 }
 
 //

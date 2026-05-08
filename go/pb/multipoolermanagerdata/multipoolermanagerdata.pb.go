@@ -328,53 +328,53 @@ func (SynchronousMethod) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{4}
 }
 
-// Enum representing the type of standby list modification
-type StandbyUpdateOperation int32
+// Enum representing the type of cohort membership change
+type CohortUpdateOperation int32
 
 const (
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED StandbyUpdateOperation = 0
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD         StandbyUpdateOperation = 1
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE      StandbyUpdateOperation = 2
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED CohortUpdateOperation = 0
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD         CohortUpdateOperation = 1
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE      CohortUpdateOperation = 2
 )
 
-// Enum value maps for StandbyUpdateOperation.
+// Enum value maps for CohortUpdateOperation.
 var (
-	StandbyUpdateOperation_name = map[int32]string{
-		0: "STANDBY_UPDATE_OPERATION_UNSPECIFIED",
-		1: "STANDBY_UPDATE_OPERATION_ADD",
-		2: "STANDBY_UPDATE_OPERATION_REMOVE",
+	CohortUpdateOperation_name = map[int32]string{
+		0: "COHORT_UPDATE_OPERATION_UNSPECIFIED",
+		1: "COHORT_UPDATE_OPERATION_ADD",
+		2: "COHORT_UPDATE_OPERATION_REMOVE",
 	}
-	StandbyUpdateOperation_value = map[string]int32{
-		"STANDBY_UPDATE_OPERATION_UNSPECIFIED": 0,
-		"STANDBY_UPDATE_OPERATION_ADD":         1,
-		"STANDBY_UPDATE_OPERATION_REMOVE":      2,
+	CohortUpdateOperation_value = map[string]int32{
+		"COHORT_UPDATE_OPERATION_UNSPECIFIED": 0,
+		"COHORT_UPDATE_OPERATION_ADD":         1,
+		"COHORT_UPDATE_OPERATION_REMOVE":      2,
 	}
 )
 
-func (x StandbyUpdateOperation) Enum() *StandbyUpdateOperation {
-	p := new(StandbyUpdateOperation)
+func (x CohortUpdateOperation) Enum() *CohortUpdateOperation {
+	p := new(CohortUpdateOperation)
 	*p = x
 	return p
 }
 
-func (x StandbyUpdateOperation) String() string {
+func (x CohortUpdateOperation) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (StandbyUpdateOperation) Descriptor() protoreflect.EnumDescriptor {
+func (CohortUpdateOperation) Descriptor() protoreflect.EnumDescriptor {
 	return file_multipoolermanagerdata_proto_enumTypes[5].Descriptor()
 }
 
-func (StandbyUpdateOperation) Type() protoreflect.EnumType {
+func (CohortUpdateOperation) Type() protoreflect.EnumType {
 	return &file_multipoolermanagerdata_proto_enumTypes[5]
 }
 
-func (x StandbyUpdateOperation) Number() protoreflect.EnumNumber {
+func (x CohortUpdateOperation) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use StandbyUpdateOperation.Descriptor instead.
-func (StandbyUpdateOperation) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use CohortUpdateOperation.Descriptor instead.
+func (CohortUpdateOperation) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
 }
 
@@ -2502,13 +2502,15 @@ func (*ConfigureSynchronousReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
 }
 
-// UpdateSynchronousStandbyList updates the synchronous standby list
-type UpdateSynchronousStandbyListRequest struct {
+// UpdateConsensusRule applies a cohort-membership change on the primary.
+// Internally this updates synchronous_standby_names and records the cohort
+// change in rule_history.
+type UpdateConsensusRuleRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Operation to perform (add, remove, or replace)
-	Operation StandbyUpdateOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=multipoolermanagerdata.StandbyUpdateOperation" json:"operation,omitempty"`
-	// List of standby multipooler IDs to add/remove/replace
-	// The application names will be generated as {cell}_{name} from these IDs
+	// Operation to perform (add, remove)
+	Operation CohortUpdateOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=multipoolermanagerdata.CohortUpdateOperation" json:"operation,omitempty"`
+	// List of multipooler IDs to add to or remove from the cohort.
+	// The application names will be generated as {cell}_{name} from these IDs.
 	StandbyIds []*clustermetadata.ID `protobuf:"bytes,2,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
 	// Whether to reload configuration immediately
 	ReloadConfig bool `protobuf:"varint,3,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
@@ -2522,20 +2524,20 @@ type UpdateSynchronousStandbyListRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSynchronousStandbyListRequest) Reset() {
-	*x = UpdateSynchronousStandbyListRequest{}
+func (x *UpdateConsensusRuleRequest) Reset() {
+	*x = UpdateConsensusRuleRequest{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSynchronousStandbyListRequest) String() string {
+func (x *UpdateConsensusRuleRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSynchronousStandbyListRequest) ProtoMessage() {}
+func (*UpdateConsensusRuleRequest) ProtoMessage() {}
 
-func (x *UpdateSynchronousStandbyListRequest) ProtoReflect() protoreflect.Message {
+func (x *UpdateConsensusRuleRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2547,73 +2549,73 @@ func (x *UpdateSynchronousStandbyListRequest) ProtoReflect() protoreflect.Messag
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSynchronousStandbyListRequest.ProtoReflect.Descriptor instead.
-func (*UpdateSynchronousStandbyListRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdateConsensusRuleRequest.ProtoReflect.Descriptor instead.
+func (*UpdateConsensusRuleRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{29}
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetOperation() StandbyUpdateOperation {
+func (x *UpdateConsensusRuleRequest) GetOperation() CohortUpdateOperation {
 	if x != nil {
 		return x.Operation
 	}
-	return StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED
+	return CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetStandbyIds() []*clustermetadata.ID {
+func (x *UpdateConsensusRuleRequest) GetStandbyIds() []*clustermetadata.ID {
 	if x != nil {
 		return x.StandbyIds
 	}
 	return nil
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetReloadConfig() bool {
+func (x *UpdateConsensusRuleRequest) GetReloadConfig() bool {
 	if x != nil {
 		return x.ReloadConfig
 	}
 	return false
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetConsensusTerm() int64 {
+func (x *UpdateConsensusRuleRequest) GetConsensusTerm() int64 {
 	if x != nil {
 		return x.ConsensusTerm
 	}
 	return 0
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetForce() bool {
+func (x *UpdateConsensusRuleRequest) GetForce() bool {
 	if x != nil {
 		return x.Force
 	}
 	return false
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetCoordinatorId() *clustermetadata.ID {
+func (x *UpdateConsensusRuleRequest) GetCoordinatorId() *clustermetadata.ID {
 	if x != nil {
 		return x.CoordinatorId
 	}
 	return nil
 }
 
-type UpdateSynchronousStandbyListResponse struct {
+type UpdateConsensusRuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSynchronousStandbyListResponse) Reset() {
-	*x = UpdateSynchronousStandbyListResponse{}
+func (x *UpdateConsensusRuleResponse) Reset() {
+	*x = UpdateConsensusRuleResponse{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSynchronousStandbyListResponse) String() string {
+func (x *UpdateConsensusRuleResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSynchronousStandbyListResponse) ProtoMessage() {}
+func (*UpdateConsensusRuleResponse) ProtoMessage() {}
 
-func (x *UpdateSynchronousStandbyListResponse) ProtoReflect() protoreflect.Message {
+func (x *UpdateConsensusRuleResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2625,8 +2627,8 @@ func (x *UpdateSynchronousStandbyListResponse) ProtoReflect() protoreflect.Messa
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSynchronousStandbyListResponse.ProtoReflect.Descriptor instead.
-func (*UpdateSynchronousStandbyListResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdateConsensusRuleResponse.ProtoReflect.Descriptor instead.
+func (*UpdateConsensusRuleResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{30}
 }
 
@@ -3571,16 +3573,16 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\x12\x14\n" +
 	"\x05force\x18\x06 \x01(\bR\x05force\")\n" +
-	"'ConfigureSynchronousReplicationResponse\"\xc7\x02\n" +
-	"#UpdateSynchronousStandbyListRequest\x12L\n" +
-	"\toperation\x18\x01 \x01(\x0e2..multipoolermanagerdata.StandbyUpdateOperationR\toperation\x124\n" +
+	"'ConfigureSynchronousReplicationResponse\"\xbd\x02\n" +
+	"\x1aUpdateConsensusRuleRequest\x12K\n" +
+	"\toperation\x18\x01 \x01(\x0e2-.multipoolermanagerdata.CohortUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\x12:\n" +
-	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\xf1\x01\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"\x1d\n" +
+	"\x1bUpdateConsensusRuleResponse\"\xf1\x01\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
@@ -3662,11 +3664,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_METHOD_FIRST\x10\x01\x12\x1a\n" +
-	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\x89\x01\n" +
-	"\x16StandbyUpdateOperation\x12(\n" +
-	"$STANDBY_UPDATE_OPERATION_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cSTANDBY_UPDATE_OPERATION_ADD\x10\x01\x12#\n" +
-	"\x1fSTANDBY_UPDATE_OPERATION_REMOVE\x10\x02*\xb7\x01\n" +
+	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\x85\x01\n" +
+	"\x15CohortUpdateOperation\x12'\n" +
+	"#COHORT_UPDATE_OPERATION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bCOHORT_UPDATE_OPERATION_ADD\x10\x01\x12\"\n" +
+	"\x1eCOHORT_UPDATE_OPERATION_REMOVE\x10\x02*\xb7\x01\n" +
 	"\x16SynchronousCommitLevel\x12\x1a\n" +
 	"\x16SYNCHRONOUS_COMMIT_OFF\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_COMMIT_LOCAL\x10\x01\x12#\n" +
@@ -3694,7 +3696,7 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(SnapshotTrigger)(0),                            // 2: multipoolermanagerdata.SnapshotTrigger
 	(ReplicationPauseMode)(0),                       // 3: multipoolermanagerdata.ReplicationPauseMode
 	(SynchronousMethod)(0),                          // 4: multipoolermanagerdata.SynchronousMethod
-	(StandbyUpdateOperation)(0),                     // 5: multipoolermanagerdata.StandbyUpdateOperation
+	(CohortUpdateOperation)(0),                      // 5: multipoolermanagerdata.CohortUpdateOperation
 	(SynchronousCommitLevel)(0),                     // 6: multipoolermanagerdata.SynchronousCommitLevel
 	(BackupMetadata_Status)(0),                      // 7: multipoolermanagerdata.BackupMetadata.Status
 	(*PrimaryConnInfo)(nil),                         // 8: multipoolermanagerdata.PrimaryConnInfo
@@ -3726,8 +3728,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*PromoteResponse)(nil),                         // 34: multipoolermanagerdata.PromoteResponse
 	(*ConfigureSynchronousReplicationRequest)(nil),  // 35: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	(*ConfigureSynchronousReplicationResponse)(nil), // 36: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(*UpdateSynchronousStandbyListRequest)(nil),     // 37: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
-	(*UpdateSynchronousStandbyListResponse)(nil),    // 38: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
+	(*UpdateConsensusRuleRequest)(nil),              // 37: multipoolermanagerdata.UpdateConsensusRuleRequest
+	(*UpdateConsensusRuleResponse)(nil),             // 38: multipoolermanagerdata.UpdateConsensusRuleResponse
 	(*BackupRequest)(nil),                           // 39: multipoolermanagerdata.BackupRequest
 	(*BackupResponse)(nil),                          // 40: multipoolermanagerdata.BackupResponse
 	(*RestoreFromBackupRequest)(nil),                // 41: multipoolermanagerdata.RestoreFromBackupRequest
@@ -3798,9 +3800,9 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	6,  // 41: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	4,  // 42: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
 	59, // 43: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	5,  // 44: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	59, // 45: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	59, // 46: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
+	5,  // 44: multipoolermanagerdata.UpdateConsensusRuleRequest.operation:type_name -> multipoolermanagerdata.CohortUpdateOperation
+	59, // 45: multipoolermanagerdata.UpdateConsensusRuleRequest.standby_ids:type_name -> clustermetadata.ID
+	59, // 46: multipoolermanagerdata.UpdateConsensusRuleRequest.coordinator_id:type_name -> clustermetadata.ID
 	54, // 47: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
 	49, // 48: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
 	49, // 49: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata

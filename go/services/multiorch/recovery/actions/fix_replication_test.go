@@ -242,7 +242,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
 		},
-		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 			"multipooler-cell1-primary": {},
 		},
 	}
@@ -523,7 +523,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
 	}
-	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}
 	// pg_rewind dry-run fails, so it marks the pooler as DRAINED

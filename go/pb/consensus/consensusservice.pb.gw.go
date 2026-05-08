@@ -147,7 +147,7 @@ func local_request_MultiPoolerConsensus_Promote_0(ctx context.Context, marshaler
 
 func request_MultiPoolerConsensus_UpdateConsensusRule_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerConsensusClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq multipoolermanagerdata.UpdateSynchronousStandbyListRequest
+		protoReq multipoolermanagerdata.UpdateConsensusRuleRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
@@ -162,7 +162,7 @@ func request_MultiPoolerConsensus_UpdateConsensusRule_0(ctx context.Context, mar
 
 func local_request_MultiPoolerConsensus_UpdateConsensusRule_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerConsensusServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq multipoolermanagerdata.UpdateSynchronousStandbyListRequest
+		protoReq multipoolermanagerdata.UpdateConsensusRuleRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
