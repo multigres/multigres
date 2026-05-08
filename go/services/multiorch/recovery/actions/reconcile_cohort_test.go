@@ -1,0 +1,163 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package actions
+
+import (
+	"context"
+	"log/slog"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
+)
+
+func TestReconcileCohortAction_Metadata(t *testing.T) {
+	action := NewReconcileCohortAction(nil, nil, nil, nil, slog.Default())
+	md := action.Metadata()
+	assert.Equal(t, "ReconcileCohort", md.Name)
+	assert.True(t, md.Retryable)
+	assert.True(t, action.RequiresHealthyLeader())
+	assert.Equal(t, types.PriorityNormal, action.Priority())
+	assert.Nil(t, action.GracePeriod())
+}
+
+func TestReconcileCohortAction_Execute(t *testing.T) {
+	ctx := context.Background()
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+
+	setupStore := func(t *testing.T, fakeClient *rpcclient.FakeClient) (*store.PoolerStore, func()) {
+		t.Helper()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+		ps := store.NewPoolerStore(fakeClient, slog.Default())
+		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         primaryID,
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_PRIMARY,
+				Hostname:   "primary.example.com",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			},
+		})
+		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         replicaID,
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_REPLICA,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			},
+		})
+		return ps, func() { _ = ts.Close() }
+	}
+
+	t.Run("ProblemPoolerNotInCohort issues UpdateConsensusRule with ADD", func(t *testing.T) {
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+				}},
+			},
+			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+				"multipooler-cell1-primary": {},
+			},
+		}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+		req := fakeClient.LastUpdateConsensusRuleRequest
+		require.NotNil(t, req)
+		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, req.Operation)
+		require.Len(t, req.StandbyIds, 1)
+		assert.Equal(t, replicaID.Name, req.StandbyIds[0].Name)
+	})
+
+	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+				}},
+			},
+			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+				"multipooler-cell1-primary": {},
+			},
+		}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemCohortMemberIneligible,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+		req := fakeClient.LastUpdateConsensusRuleRequest
+		require.NotNil(t, req)
+		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE, req.Operation)
+	})
+
+	t.Run("rejects unsupported problem code", func(t *testing.T) {
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+				}},
+			},
+		}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemReplicaNotReplicating,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported problem code")
+		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+	})
+}

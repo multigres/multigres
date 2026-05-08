@@ -65,12 +65,15 @@ type FakeClient struct {
 	PromoteResponses         map[string]*multipoolermanagerdatapb.PromoteResponse
 
 	// Manager service responses - keyed by pooler ID
-	WaitForLSNResponses                 map[string]*multipoolermanagerdatapb.WaitForLSNResponse
-	SetPrimaryConnInfoResponses         map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
-	StartReplicationResponses           map[string]*multipoolermanagerdatapb.StartReplicationResponse
-	StopReplicationResponses            map[string]*multipoolermanagerdatapb.StopReplicationResponse
-	StatusResponses                     map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
-	UpdateConsensusRuleResponses        map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse
+	WaitForLSNResponses          map[string]*multipoolermanagerdatapb.WaitForLSNResponse
+	SetPrimaryConnInfoResponses  map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
+	StartReplicationResponses    map[string]*multipoolermanagerdatapb.StartReplicationResponse
+	StopReplicationResponses     map[string]*multipoolermanagerdatapb.StopReplicationResponse
+	StatusResponses              map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
+	UpdateConsensusRuleResponses map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse
+	// LastUpdateConsensusRuleRequest captures the most recent UpdateConsensusRule
+	// request payload for tests that need to assert on operation/IDs.
+	LastUpdateConsensusRuleRequest      *multipoolermanagerdatapb.UpdateConsensusRuleRequest
 	BackupResponses                     map[string]*multipoolermanagerdatapb.BackupResponse
 	RestoreFromBackupResponses          map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                 map[string]*multipoolermanagerdatapb.GetBackupsResponse
@@ -330,6 +333,10 @@ func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermet
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
 	}
+
+	f.mu.Lock()
+	f.LastUpdateConsensusRuleRequest = request
+	f.mu.Unlock()
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
