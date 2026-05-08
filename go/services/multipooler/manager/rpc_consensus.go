@@ -376,13 +376,20 @@ func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.
 	return &clustermetadatapb.CohortEligibilityStatus{Signal: signal}
 }
 
-// setCohortEligibility records this pooler's cohort eligibility. The signal is
-// included in subsequent StatusResponses and broadcast health snapshots.
-// Currently test-only — there is no operator/admin RPC to flip it yet.
+// setCohortEligibility records this pooler's cohort eligibility. If the
+// signal actually changed, an immediate health broadcast is pushed so the
+// coordinator sees the new value without waiting for the next heartbeat —
+// otherwise a transition INELIGIBLE → cohort removal could be delayed by up
+// to a heartbeat interval. Currently test-only — there is no operator/admin
+// RPC to flip it yet.
 func (pm *MultiPoolerManager) setCohortEligibility(signal clustermetadatapb.CohortEligibilitySignal) {
 	pm.mu.Lock()
+	changed := pm.cohortEligibility != signal
 	pm.cohortEligibility = signal
 	pm.mu.Unlock()
+	if changed {
+		pm.broadcastHealth()
+	}
 }
 
 // buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
