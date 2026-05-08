@@ -30,7 +30,7 @@ import (
 // NewTermRevocation constructs a TermRevocation for a new coordinator-led rule
 // change. The revocation term is derived from the highest term observed across
 // the provided ConsensusStatus values — the maximum of each node's accepted
-// revocation term and its committed rule's coordinator term — incremented by
+// revocation term and its recorded rule's coordinator term — incremented by
 // one. If no non-zero terms are found (fresh cluster, no prior elections), term
 // 1 is used.
 func NewTermRevocation(statuses []*clustermetadatapb.ConsensusStatus, coordinatorID *clustermetadatapb.ID) *clustermetadatapb.TermRevocation {
@@ -56,7 +56,7 @@ func NewTermRevocation(statuses []*clustermetadatapb.ConsensusStatus, coordinato
 //
 // Three conditions are checked:
 //
-//  1. WAL position safety: the node's committed rule coordinator term must be
+//  1. WAL position safety: the node's recorded rule coordinator term must be
 //     strictly less than revoked_below_term. If the node has already applied
 //     WAL at or beyond the revocation term, the revocation has no authority
 //     over those writes.
@@ -102,7 +102,7 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	ruleCoordTerm := pos.GetRule().GetRuleNumber().GetCoordinatorTerm()
 	if ruleCoordTerm >= revokedBelowTerm {
 		return fmt.Errorf(
-			"cannot accept revocation: committed rule is at coordinator term %d >= revoked_below_term %d",
+			"cannot accept revocation: recorded rule is at coordinator term %d >= revoked_below_term %d",
 			ruleCoordTerm, revokedBelowTerm,
 		)
 	}

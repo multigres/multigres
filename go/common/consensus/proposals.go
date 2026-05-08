@@ -38,14 +38,14 @@ type RecruitmentResult struct {
 	// been filtered by whether they could accept it via ValidateRevocation.
 	TermRevocation *clustermetadatapb.TermRevocation
 
-	// OutgoingRule is the highest committed ShardRule across all recruited nodes,
+	// OutgoingRule is the highest recorded ShardRule across all recruited nodes,
 	// determined from current_position.rule (WAL-backed, authoritative).
 	// May be nil for BuildExternallyCertifiedProposal when nodes have no
-	// committed rule (e.g. fresh bootstrap before any rule has been written).
+	// recorded rule (e.g. fresh bootstrap before any rule has been written).
 	OutgoingRule *clustermetadatapb.ShardRule
 
 	// EligibleLeaders are the recruited nodes with the best WAL position.
-	// For nodes with a committed rule, this is those matching OutgoingRule's rule
+	// For nodes with a recorded rule, this is those matching OutgoingRule's rule
 	// number with the highest LSN. For bootstrap (no rule), this is all nodes
 	// tied at the highest LSN. The buildProposal callback must choose its
 	// leader from this set.
@@ -61,7 +61,7 @@ type quorumMode int
 
 const (
 	// requireTransitionQuorum requires that enough members of the
-	// current/outgoing cohort (identified from the highest committed rule
+	// current/outgoing cohort (identified from the highest recorded rule
 	// across the recruited nodes) have accepted the term revocation. This is
 	// the standard safety check for normal failover: the existing cohort must
 	// consent to the leadership transition. validateProposal additionally
@@ -87,12 +87,12 @@ const (
 // if its status carries a TermRevocation that exactly matches revocation.
 // Nodes at a higher term or pledged to a different coordinator are filtered out.
 //
-// The OUTGOING cohort (identified from the highest committed rule across
+// The OUTGOING cohort (identified from the highest recorded rule across
 // recruited nodes) must have sufficient recruited members to form a quorum.
 // The INCOMING cohort (proposed in the returned proposal) is additionally
 // validated by validateProposal.
 //
-// TODO: This assumes OutgoingRule is already durably committed. If a cohort change
+// TODO: This assumes OutgoingRule is already durably recorded. If a cohort change
 // was in progress when the primary failed, some nodes may hold OutgoingRule in WAL
 // while others do not, and the previous cohort's policy may apply instead. We
 // don't yet have enough information from the Recruit responses alone to detect
@@ -136,7 +136,7 @@ func CheckProposalPossible(
 // proposal is possible given the current observed statuses, without requiring
 // nodes to have already accepted the revocation. It is the externally-certified
 // counterpart of CheckProposalPossible: it uses onlyRequireIncomingQuorum so that
-// bootstrap scenarios with no committed rule (no OutgoingRule) are handled correctly.
+// bootstrap scenarios with no recorded rule (no OutgoingRule) are handled correctly.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
 // returned since nodes have not yet committed to the revocation.
@@ -180,7 +180,7 @@ func CheckExternallyCertifiedProposalPossible(
 //     endorse the proposal — but cannot be selected as the new leader.
 //
 // The buildProposal callback is responsible for specifying the full new cohort
-// and durability policy, since there may be no committed rule to derive them from.
+// and durability policy, since there may be no recorded rule to derive them from.
 func BuildExternallyCertifiedProposal(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
@@ -205,7 +205,7 @@ func BuildExternallyCertifiedProposal(
 // provides no real guarantee about what the outgoing cohort was frozen at.
 // Bootstrap callers must set them explicitly (e.g. term 0 and "0/0").
 //
-// It rejects any node whose committed rule exceeds cert.outgoing_rule_number
+// It rejects any node whose recorded rule exceeds cert.outgoing_rule_number
 // (meaning the outgoing cohort was not actually frozen at the certified point)
 // and returns a filter that restricts leader eligibility to nodes whose LSN is
 // at or above cert.frozen_lsn.
@@ -264,7 +264,7 @@ func buildProposalCore(
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
 	}
 
-	// Find the best committed rule (highest RuleNumber) across all statuses,
+	// Find the best recorded rule (highest RuleNumber) across all statuses,
 	// from their WAL-backed current_position.rule.
 	var outgoingRule *clustermetadatapb.ShardRule
 	for _, cs := range recruitedStatuses {
@@ -280,7 +280,7 @@ func buildProposalCore(
 		// form among the non-recruited nodes. outgoingRule must be known to identify
 		// the cohort.
 		if outgoingRule == nil {
-			return nil, errors.New("no committed rule found among recruited nodes; cannot determine cohort for quorum check")
+			return nil, errors.New("no recorded rule found among recruited nodes; cannot determine cohort for quorum check")
 		}
 		outgoingPolicy, err := NewPolicyFromProto(outgoingRule.GetDurabilityPolicy())
 		if err != nil {
@@ -328,7 +328,7 @@ func buildProposalCore(
 // discoverMostAdvancedTimeline returns the recruited nodes eligible to lead.
 //
 // When an outgoingRule is known: prefer nodes at outgoingRule's rule number (highest
-// committed WAL), then break ties by LSN.
+// recorded WAL), then break ties by LSN.
 // When no outgoingRule exists (fresh bootstrap): all nodes are candidates;
 // highest LSN wins.
 //

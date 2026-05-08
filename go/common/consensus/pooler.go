@@ -17,7 +17,7 @@ package consensus
 import clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 // IsLeader reports whether the pooler identified by cs is the consensus-elected
-// leader according to its highest committed rule. Returns false when cs, its
+// leader according to its highest recorded rule. Returns false when cs, its
 // ID, or the current rule is absent.
 func IsLeader(cs *clustermetadatapb.ConsensusStatus) bool {
 	if cs == nil {
@@ -31,7 +31,7 @@ func IsLeader(cs *clustermetadatapb.ConsensusStatus) bool {
 	return self.Cell == leader.Cell && self.Name == leader.Name
 }
 
-// LeaderTerm returns the coordinator term of the pooler's current committed
+// LeaderTerm returns the coordinator term of the pooler's current recorded
 // rule if the pooler holds the leader role (per IsLeader). Returns 0 when
 // the pooler is not the leader, when the consensus status is nil/empty, or
 // when the rule has no coordinator term.

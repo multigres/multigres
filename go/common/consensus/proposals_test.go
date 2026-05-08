@@ -692,7 +692,7 @@ func TestBuildProposalCore(t *testing.T) {
 			z1 := poolerIDs.z1
 			cohort := z1.all[:3]
 			return tc{
-				name:       "outgoing mode, no committed rule among recruited nodes",
+				name:       "outgoing mode, no recorded rule among recruited nodes",
 				mode:       requireTransitionQuorum,
 				revocation: revocation(5),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
@@ -700,7 +700,7 @@ func TestBuildProposalCore(t *testing.T) {
 					makeStatusWithLSN(z1.b, nil, revocation(5), "0/1000000"),
 				},
 				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
-				wantErr:       "no committed rule found among recruited nodes; cannot determine cohort for quorum check",
+				wantErr:       "no recorded rule found among recruited nodes; cannot determine cohort for quorum check",
 			}
 		}(),
 		func() tc {
@@ -1085,7 +1085,7 @@ func TestBuildSafeProposal_NoCommittedRule(t *testing.T) {
 	_, err := BuildSafeProposal(revocation(5), statuses, proposeFirstEligible(makeRule(ruleNum(0, 0), atLeast(2), z1.a)))
 
 	// A node with no current_position has no parseable LSN, so it is filtered
-	// out by filterByValidPosition before the committed-rule check fires.
+	// out by filterByValidPosition before the recorded-rule check fires.
 	require.EqualError(t, err, "all recruited nodes reported an invalid or missing WAL position")
 }
 
@@ -1586,7 +1586,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		}, nil
 	}
 
-	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no committed
+	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
 	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
 	// Both fields are required by certLeaderFilter even when the caller has no
 	// real constraint to express.
@@ -1692,7 +1692,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		}, nil
 	}
 
-	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no committed
+	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
 	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
 	// Both fields are required by certLeaderFilter even when the caller has no
 	// real constraint to express.

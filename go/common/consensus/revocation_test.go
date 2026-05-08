@@ -213,7 +213,7 @@ func TestValidateRevocation(t *testing.T) {
 	}
 }
 
-// positionAtCoordTerm builds a PoolerPosition whose committed rule is at the
+// positionAtCoordTerm builds a PoolerPosition whose recorded rule is at the
 // given coordinator term.
 func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
@@ -252,7 +252,7 @@ func TestNewTermRevocation(t *testing.T) {
 		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
 	})
 
-	t.Run("uses max of committed rule terms", func(t *testing.T) {
+	t.Run("uses max of recorded rule terms", func(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{CurrentPosition: positionAtCoordTerm(4)},
 			{CurrentPosition: positionAtCoordTerm(9)},
