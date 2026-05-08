@@ -505,9 +505,8 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 // expectedOutgoingRule provides compare-and-swap semantics: the operation
 // proceeds only if this pooler's current recorded rule matches the given
 // RuleNumber. If they differ (the caller's view is stale), the operation
-// fails — the caller should re-read state and retry. force=true bypasses the
-// CAS check (break-glass only).
-func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, force bool, coordinatorID *clustermetadatapb.ID) error {
+// fails — the caller should re-read state and retry.
+func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -517,12 +516,9 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
-	// Without force, the caller must assert which rule it expects to be
-	// current. This is the compare-and-swap guard against concurrent
-	// coordinators racing on stale state.
-	if expectedOutgoingRule == nil && !force {
+	if expectedOutgoingRule == nil {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"expected_outgoing_rule is required (or set force=true to bypass)")
+			"expected_outgoing_rule is required (compare-and-swap guard)")
 	}
 
 	// Validate standby IDs using the shared validation function
@@ -622,32 +618,21 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	for i, p := range updatedStandbys {
 		updatedStandbyIDs[i] = p.id
 	}
-	// Determine the coordinator term for the new rule. With CAS, we write
-	// the new rule under the same coordinator term we expected. Without CAS
-	// (force=true), fall back to the term in the request's expected rule if
-	// any, otherwise 0 — operator break-glass scenarios are responsible for
-	// supplying a sensible value via expectedOutgoingRule.
-	var newRuleTerm int64
-	if expectedOutgoingRule != nil {
-		newRuleTerm = expectedOutgoingRule.GetCoordinatorTerm()
-	}
+	// The new rule inherits the expected coordinator term — we're not
+	// changing the leader, just amending its cohort. The rule store assigns
+	// a fresh leader_subterm.
 	standbyUpdate := newRuleUpdate(
-		newRuleTerm,
+		expectedOutgoingRule.GetCoordinatorTerm(),
 		coordID,
 		"replication_config",
 		"UpdateConsensusRule: "+operationName,
 		time.Now()).
 		withLeader(leaderID.id).
 		withCohort(updatedStandbyIDs).
-		withOperation(operationName)
-	if expectedOutgoingRule != nil {
-		standbyUpdate.withPreviousRule(
+		withOperation(operationName).
+		withPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
 			expectedOutgoingRule.GetLeaderSubterm())
-	}
-	if force {
-		standbyUpdate.withForce()
-	}
 	if _, err := pm.rules.updateRule(ctx, standbyUpdate); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
@@ -668,8 +653,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		"operation", operation,
 		"old_value", currentValue,
 		"new_value", newValue,
-		"expected_outgoing_rule", expectedOutgoingRule,
-		"force", force)
+		"expected_outgoing_rule", expectedOutgoingRule)
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.

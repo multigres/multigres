@@ -573,12 +573,8 @@ message UpdateConsensusRuleRequest {
   // with a "rule has changed" error otherwise, signaling that the caller's
   // view is stale and it should re-read state and retry. This prevents
   // races between concurrent coordinators making cohort decisions based on
-  // stale snapshots.
+  // stale snapshots. Required.
   clustermetadata.RuleNumber expected_outgoing_rule = 4;
-
-  // Force the operation even if expected_outgoing_rule does not match the
-  // primary's current rule. Reserved for break-glass operator scenarios.
-  bool force = 5;
 
   // Coordinator ID that initiated this operation (for audit trail)
   clustermetadata.ID coordinator_id = 6;

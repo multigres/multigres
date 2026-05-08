@@ -121,7 +121,6 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{target.MultiPooler.Id},
 		ExpectedOutgoingRule: expectedRule,
-		Force:                false,
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, primary.MultiPooler, req); err != nil {

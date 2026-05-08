@@ -116,7 +116,6 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		require.NotNil(t, req.ExpectedOutgoingRule, "CAS guard must be set")
 		assert.Equal(t, int64(3), req.ExpectedOutgoingRule.CoordinatorTerm)
 		assert.Equal(t, int64(7), req.ExpectedOutgoingRule.LeaderSubterm)
-		assert.False(t, req.Force)
 	})
 
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {

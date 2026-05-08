@@ -2518,11 +2518,8 @@ type UpdateConsensusRuleRequest struct {
 	// with a "rule has changed" error otherwise, signaling that the caller's
 	// view is stale and it should re-read state and retry. This prevents
 	// races between concurrent coordinators making cohort decisions based on
-	// stale snapshots.
+	// stale snapshots. Required.
 	ExpectedOutgoingRule *clustermetadata.RuleNumber `protobuf:"bytes,4,opt,name=expected_outgoing_rule,json=expectedOutgoingRule,proto3" json:"expected_outgoing_rule,omitempty"`
-	// Force the operation even if expected_outgoing_rule does not match the
-	// primary's current rule. Reserved for break-glass operator scenarios.
-	Force bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
 	// Coordinator ID that initiated this operation (for audit trail)
 	CoordinatorId *clustermetadata.ID `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2578,13 +2575,6 @@ func (x *UpdateConsensusRuleRequest) GetExpectedOutgoingRule() *clustermetadata.
 		return x.ExpectedOutgoingRule
 	}
 	return nil
-}
-
-func (x *UpdateConsensusRuleRequest) GetForce() bool {
-	if x != nil {
-		return x.Force
-	}
-	return false
 }
 
 func (x *UpdateConsensusRuleRequest) GetCoordinatorId() *clustermetadata.ID {
@@ -3571,13 +3561,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\x12\x14\n" +
 	"\x05force\x18\x06 \x01(\bR\x05force\")\n" +
-	"'ConfigureSynchronousReplicationResponse\"\xc4\x02\n" +
+	"'ConfigureSynchronousReplicationResponse\"\xae\x02\n" +
 	"\x1aUpdateConsensusRuleRequest\x12K\n" +
 	"\toperation\x18\x01 \x01(\x0e2-.multipoolermanagerdata.CohortUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12Q\n" +
-	"\x16expected_outgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\x14expectedOutgoingRule\x12\x14\n" +
-	"\x05force\x18\x05 \x01(\bR\x05force\x12:\n" +
+	"\x16expected_outgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\x14expectedOutgoingRule\x12:\n" +
 	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"\x1d\n" +
 	"\x1bUpdateConsensusRuleResponse\"\xf1\x01\n" +
 	"\rBackupRequest\x12#\n" +
