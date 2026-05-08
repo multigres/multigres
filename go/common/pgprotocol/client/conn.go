@@ -58,14 +58,31 @@ type Config struct {
 	// Password is the user's password (optional for trust auth).
 	Password string
 
+	// ScramClientKey and ScramServerKey enable SCRAM-SHA-256 passthrough
+	// authentication. When both are set, the client uses them to produce a
+	// valid SCRAM proof without knowing the plaintext password. Both must
+	// be 32 bytes (HMAC-SHA-256 output). If set, they take precedence over
+	// Password when the server requests SASL. Leave nil for the standard
+	// password-based path.
+	ScramClientKey []byte
+	ScramServerKey []byte
+
 	// Database is the database name to connect to.
 	Database string
 
 	// Parameters are additional connection parameters.
 	Parameters map[string]string
 
+	// SSLMode controls libpq-style sslmode behavior on TCP connections.
+	// Empty string is treated as SSLModeDisable; only consulted when SocketFile
+	// is unset. The dial path uses this together with TLSConfig to decide
+	// whether to send SSLRequest, whether to fall back to plaintext on refusal,
+	// and which verification rules apply.
+	SSLMode SSLMode
+
 	// TLSConfig is the TLS configuration for SSL connections.
-	// Only used for TCP connections. If nil, SSL is not used.
+	// Only used for TCP connections. Pair with SSLMode; for prefer/require/
+	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.
 	TLSConfig *tls.Config
 
 	// DialTimeout is the timeout for establishing the connection.

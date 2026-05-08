@@ -24,7 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -46,7 +45,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &ShardNeedsInitializationAnalyzer{factory: factory}
-	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	policy := topoclient.AtLeastN(2)
 
 	initialized := func(name string) *PoolerAnalysis {

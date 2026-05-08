@@ -347,3 +347,8 @@ func TestMultiCellPolicy_BuildLeaderDurabilityPostgresConfig(t *testing.T) {
 		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
 	})
 }
+
+func TestMultiCellPolicy_Description(t *testing.T) {
+	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=2)", MultiCellPolicy{N: 2}.Description())
+	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=3)", MultiCellPolicy{N: 3}.Description())
+}

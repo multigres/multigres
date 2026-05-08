@@ -509,7 +509,7 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// Conclude the transaction
 	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
@@ -529,12 +529,12 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.DiscardTempTablesResponse{
@@ -556,7 +556,7 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 	}
 
 	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil

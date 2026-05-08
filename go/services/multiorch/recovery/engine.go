@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -503,7 +503,7 @@ func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
 // GetPoolerHealthForShard returns health information for all poolers in a shard.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*multiorchdatapb.PoolerHealthState {
-	return re.poolerStore.FindPoolersInShard(commontypes.ShardKey{
+	return re.poolerStore.FindPoolersInShard(&clustermetadatapb.ShardKey{
 		Database:   database,
 		TableGroup: tableGroup,
 		Shard:      shard,

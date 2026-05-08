@@ -145,7 +145,7 @@ func TestBuildFailoverProposal(t *testing.T) {
 		}
 	}
 
-	bestRule := &clustermetadatapb.ShardRule{
+	outgoingRule := &clustermetadatapb.ShardRule{
 		CohortMembers: []*clustermetadatapb.ID{makeID("mp1"), makeID("mp2"), makeID("mp3")},
 		DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
@@ -163,7 +163,7 @@ func TestBuildFailoverProposal(t *testing.T) {
 	t.Run("picks first eligible leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
 			TermRevocation:  rev,
-			BestRule:        bestRule,
+			OutgoingRule:    outgoingRule,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
@@ -182,7 +182,7 @@ func TestBuildFailoverProposal(t *testing.T) {
 	t.Run("skips resigned primary, picks next eligible leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
 			TermRevocation:  rev,
-			BestRule:        bestRule,
+			OutgoingRule:    outgoingRule,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
@@ -198,7 +198,7 @@ func TestBuildFailoverProposal(t *testing.T) {
 	t.Run("all eligible leaders resigned returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
 			TermRevocation:  rev,
-			BestRule:        bestRule,
+			OutgoingRule:    outgoingRule,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
@@ -211,10 +211,10 @@ func TestBuildFailoverProposal(t *testing.T) {
 		assert.Contains(t, err.Error(), "all eligible leaders have resigned")
 	})
 
-	t.Run("no BestRule returns error", func(t *testing.T) {
+	t.Run("no OutgoingRule returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
 			TermRevocation:  rev,
-			BestRule:        nil,
+			OutgoingRule:    nil,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
 		}
 		healthByID := map[string]*multiorchdatapb.PoolerHealthState{

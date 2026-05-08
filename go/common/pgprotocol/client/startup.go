@@ -15,7 +15,9 @@
 package client
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"slices"
@@ -27,9 +29,10 @@ import (
 // This includes SSL negotiation (if configured), sending the startup message,
 // and handling authentication.
 func (c *Conn) startup(ctx context.Context) error {
-	// Handle SSL if configured.
-	if c.config.TLSConfig != nil {
-		if err := c.negotiateSSL(); err != nil {
+	// Honor libpq-style sslmode. Unix-socket connections always run plaintext,
+	// matching libpq behavior.
+	if c.config.SocketFile == "" && c.config.SSLMode.AttemptsTLS() {
+		if err := c.negotiateSSL(ctx); err != nil {
 			return fmt.Errorf("SSL negotiation failed: %w", err)
 		}
 	}
@@ -47,9 +50,14 @@ func (c *Conn) startup(ctx context.Context) error {
 	return nil
 }
 
-// negotiateSSL requests SSL from the server.
-func (c *Conn) negotiateSSL() error {
-	// Send SSLRequest message.
+// negotiateSSL implements the libpq SSLRequest handshake and, on server
+// acceptance, upgrades the underlying connection to TLS using c.config.TLSConfig.
+//
+// Caller guarantees c.config.SSLMode.AttemptsTLS() is true and c.config.SocketFile
+// is empty. On a tolerant mode (prefer) where the server returns 'N', this
+// returns nil and leaves the plaintext connection in place so startup can
+// continue. Strict modes (require, verify-ca, verify-full) error on 'N'.
+func (c *Conn) negotiateSSL(ctx context.Context) error {
 	if err := c.writeSSLRequest(); err != nil {
 		return fmt.Errorf("failed to send SSL request: %w", err)
 	}
@@ -57,22 +65,49 @@ func (c *Conn) negotiateSSL() error {
 		return fmt.Errorf("failed to flush SSL request: %w", err)
 	}
 
-	// Read the server's response (single byte: 'S' or 'N').
 	response, err := c.bufferedReader.ReadByte()
 	if err != nil {
 		return fmt.Errorf("failed to read SSL response: %w", err)
 	}
 
-	if response == 'N' {
-		return errors.New("server does not support SSL")
-	}
-	if response != 'S' {
-		return fmt.Errorf("unexpected SSL response: %c", response)
+	switch response {
+	case 'N':
+		if c.config.SSLMode.RequiresTLS() {
+			return fmt.Errorf("server does not support SSL but sslmode=%s requires it", c.config.SSLMode)
+		}
+		// prefer: continue on plaintext.
+		return nil
+	case 'S':
+		// fall through to TLS upgrade.
+	case 'E':
+		// PostgreSQL may respond with an ErrorResponse if SSLRequest is
+		// rejected outright (e.g. unsupported protocol version on the
+		// server). The body is on the buffered reader following the 'E'
+		// message-type byte; surface a clear failure rather than trying
+		// to parse it here.
+		return errors.New("server returned ErrorResponse to SSLRequest")
+	default:
+		return fmt.Errorf("unexpected SSL response: %q", response)
 	}
 
-	// Upgrade to TLS.
-	// TODO: Implement TLS upgrade when needed.
-	return errors.New("TLS upgrade not yet implemented")
+	// Server accepted TLS — upgrade in place. The buffered reader must not
+	// hold any post-'S' bytes, since they would belong to the TLS record
+	// stream and not the plaintext connection.
+	if c.bufferedReader.Buffered() > 0 {
+		return errors.New("unexpected data after SSL acceptance")
+	}
+	if c.config.TLSConfig == nil {
+		return errors.New("TLS config is nil but sslmode requested SSL")
+	}
+
+	tlsConn := tls.Client(c.conn, c.config.TLSConfig)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		return fmt.Errorf("TLS handshake failed: %w", err)
+	}
+	c.conn = tlsConn
+	c.bufferedReader = bufio.NewReaderSize(tlsConn, connBufferSize)
+	c.bufferedWriter = bufio.NewWriterSize(tlsConn, connBufferSize)
+	return nil
 }
 
 // sendStartupMessage sends the startup message to the server.
@@ -224,9 +259,16 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 			return fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
 		}
 
-		// Perform SCRAM-SHA-256 authentication.
-		scram := newScramClient(c, c.config.User, c.config.Password)
-		return scram.authenticate()
+		// Prefer SCRAM passthrough when keys are present; otherwise fall back
+		// to password-based SCRAM. Passthrough lets a proxy authenticate on a
+		// session's behalf without ever holding the plaintext password.
+		var scramClient *scramClient
+		if len(c.config.ScramClientKey) > 0 && len(c.config.ScramServerKey) > 0 {
+			scramClient = newScramClientWithKeys(c, c.config.User, c.config.ScramClientKey, c.config.ScramServerKey)
+		} else {
+			scramClient = newScramClient(c, c.config.User, c.config.Password)
+		}
+		return scramClient.authenticate()
 
 	default:
 		return fmt.Errorf("unsupported authentication method: %d", authType)

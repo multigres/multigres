@@ -131,6 +131,7 @@ func (c *Conn) handleSSLRequest() error {
 	// through TLS.
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
+	c.tlsHandshakeComplete = true
 
 	c.logger.Info("TLS connection established",
 		"version", tlsConn.ConnectionState().Version,
@@ -441,6 +442,9 @@ func (c *Conn) authenticateSCRAM() error {
 		}
 		return fmt.Errorf("failed to handle client-final-message: %w", err)
 	}
+
+	// Capture keys for SCRAM passthrough to the backing PostgreSQL.
+	c.scramClientKey, c.scramServerKey = auth.ExtractedKeys()
 
 	// Send AuthenticationSASLFinal with server signature.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {

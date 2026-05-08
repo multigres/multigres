@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -61,7 +60,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	})
 
 	t.Run("finds poolers in shard", func(t *testing.T) {
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		assert.Len(t, poolers, 2)
@@ -71,7 +70,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	})
 
 	t.Run("returns empty for non-existent shard", func(t *testing.T) {
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "999"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "999"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		assert.Empty(t, poolers)
@@ -81,7 +80,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 		poolerStore.Set("nil-pooler", nil)
 		poolerStore.Set("nil-multipooler", &multiorchdatapb.PoolerHealthState{MultiPooler: nil})
 
-		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
 
 		// Should still find the 2 valid poolers

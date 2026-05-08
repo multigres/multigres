@@ -1566,25 +1566,28 @@ func TestAppointLeader_NewFlow(t *testing.T) {
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
 	}
-	bestRule := &clustermetadatapb.ShardRule{
+	// AT_LEAST_3 forces tryBuild to wait for all three recruits before forming
+	// quorum, making leader selection deterministic regardless of recruit-RPC
+	// completion order.
+	outgoingRule := &clustermetadatapb.ShardRule{
 		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 		LeaderId:         cohortIDs[0],
 		CohortMembers:    cohortIDs,
-		DurabilityPolicy: topoclient.AtLeastN(2),
+		DurabilityPolicy: topoclient.AtLeastN(3),
 	}
 
 	// mp1 has the highest LSN, so the new flow should pick it as leader.
 	walPositions := []string{"0/3000000", "0/2000000", "0/1000000"}
 	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
 	for i, id := range cohortIDs {
-		mp := createMockNode(fakeClient, id.Name, 5, walPositions[i], true, bestRule)
+		mp := createMockNode(fakeClient, id.Name, 5, walPositions[i], true, outgoingRule)
 		// Pre-vote runs over cached cohort statuses (not Recruit responses), so
 		// we need an Id and a populated CurrentPosition with the committed rule
 		// here too. createMockNode leaves these fields zero on the cached status.
 		mp.ConsensusStatus.Id = id
 		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
 			Lsn:  walPositions[i],
-			Rule: bestRule,
+			Rule: outgoingRule,
 		}
 		key := topoclient.MultiPoolerIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
@@ -1592,7 +1595,7 @@ func TestAppointLeader_NewFlow(t *testing.T) {
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Lsn:  walPositions[i],
-					Rule: bestRule,
+					Rule: outgoingRule,
 				},
 			},
 		}

@@ -244,7 +244,7 @@ func (r *coordinatorLedRuleChange) propose(
 
 // buildFailoverProposal constructs a CoordinatorProposal for normal failover.
 // It picks the first non-resigned eligible leader from result.EligibleLeaders
-// and derives the cohort and durability policy from result.BestRule.
+// and derives the cohort and durability policy from result.OutgoingRule.
 func buildFailoverProposal(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -252,7 +252,7 @@ func buildFailoverProposal(
 	poolerByID map[string]*clustermetadatapb.MultiPooler,
 	healthByID map[string]*multiorchdatapb.PoolerHealthState,
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	if result.BestRule == nil {
+	if result.OutgoingRule == nil {
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
 	}
 
@@ -285,8 +285,8 @@ func buildFailoverProposal(
 		},
 		ProposedRule: &clustermetadatapb.ShardRule{
 			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    result.BestRule.GetCohortMembers(),
-			DurabilityPolicy: result.BestRule.GetDurabilityPolicy(),
+			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
+			DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
 			LeaderId:         leader.GetId(),
 		},
 	}, nil

@@ -1,0 +1,58 @@
+--- a
++++ b
+@@ -431,7 +431,7 @@
+ 
+ SELECT JSON_VALUE(jsonb '["1"]', '$[*]' RETURNING int FORMAT JSON); -- RETURNING FORMAT not allowed
+ ERROR: cannot specify FORMAT JSON in RETURNING clause of JSON_VALUE()
+-LINE 1: ...CT JSON_VALUE(jsonb '["1"]', '$[*]' RETURNING int FORMAT JSO...
++LINE 1: ...JSON_VALUE(jsonb '["1"]', '$[*]' RETURNING int FORMAT JSON);
+ ^
+ -- RETUGNING pseudo-types not allowed
+ SELECT JSON_VALUE(jsonb '["1"]', '$[*]' RETURNING record);
+@@ -1269,7 +1269,7 @@
+ -- CoerceViaIO
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT '"1"')::jsonb ON ERROR);
+ ERROR: can only specify a constant, non-aggregate function, or operator expression for DEFAULT
+-LINE 1: ...CT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT '"...
++LINE 1: ...ECT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT '...
+ ^
+ -- CoerceToDomain
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING queryfuncs_test_domain DEFAULT (select '"1"')::queryfuncs_test_domain ON ERROR);
+@@ -1279,24 +1279,24 @@
+ -- RelabelType
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT 1)::oid::int ON ERROR);
+ ERROR: can only specify a constant, non-aggregate function, or operator expression for DEFAULT
+-LINE 1: ...CT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT 1)...
++LINE 1: ...ECT JSON_QUERY('"a"', '$.a' RETURNING int DEFAULT (SELECT 1...
+ ^
+ -- ArrayCoerceExpr
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '{1}')::oid[]::int[] ON ERROR);
+ ERROR: can only specify a constant, non-aggregate function, or operator expression for DEFAULT
+-LINE 1: ... JSON_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '{...
++LINE 1: ...T JSON_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '...
+ ^
+ -- CollateExpr
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '{1}')::text COLLATE "C" ON ERROR);
+ ERROR: can only specify a constant, non-aggregate function, or operator expression for DEFAULT
+-LINE 1: ... JSON_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '{...
++LINE 1: ...N_QUERY('"a"', '$.a' RETURNING int[] DEFAULT (SELECT '{1}')...
+ ^
+ -- ConvertRowtypeExpr
+ CREATE TABLE someparent (a int);
+ CREATE TABLE somechild () INHERITS (someparent);
+ SELECT JSON_QUERY('"a"', '$.a' RETURNING someparent DEFAULT (SELECT '(1)')::somechild::someparent ON ERROR);
+ ERROR: can only specify a constant, non-aggregate function, or operator expression for DEFAULT
+-LINE 1: ..._QUERY('"a"', '$.a' RETURNING someparent DEFAULT (SELECT '(...
++LINE 1: ...N_QUERY('"a"', '$.a' RETURNING someparent DEFAULT (SELECT '...
+ ^
+ DROP DOMAIN queryfuncs_test_domain;
+ DROP TABLE someparent, somechild;
+@@ -1452,7 +1452,7 @@
+ ERROR: bit string length 3 does not match type bit(2)
+ SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3) DEFAULT 1 ON ERROR);
+ ERROR: cannot cast behavior expression of type integer to bit
+-LINE 1: ...VALUE(jsonb '1234', '$' RETURNING bit(3) DEFAULT 1 ON ERROR...
++LINE 1: ...LUE(jsonb '1234', '$' RETURNING bit(3) DEFAULT 1 ON ERROR);
+ ^
+ HINT: You will need to explicitly cast the expression to type bit.
+ SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3) DEFAULT 1::bit(3) ON ERROR);

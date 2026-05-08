@@ -123,6 +123,26 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
 }
 
+func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_DEFAULT,
+		Name: "timezone",
+	}
+
+	plan, err := p.planVariableSetStmt("SET TIME ZONE DEFAULT", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	prim, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.True(t, ok, "expected ApplySessionState primitive")
+	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
+	assert.Equal(t, "timezone", prim.VariableStmt.Name)
+}
+
 func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)

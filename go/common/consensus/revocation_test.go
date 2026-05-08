@@ -213,7 +213,7 @@ func TestValidateRevocation(t *testing.T) {
 	}
 }
 
-// positionAtCoordTerm builds a PoolerPosition whose committed rule is at the
+// positionAtCoordTerm builds a PoolerPosition whose recorded rule is at the
 // given coordinator term.
 func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
@@ -224,4 +224,49 @@ func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 		},
 		Lsn: "16/B374D848",
 	}
+}
+
+func TestNewTermRevocation(t *testing.T) {
+	coord := &clustermetadatapb.ID{Name: "coord-1"}
+
+	t.Run("fresh cluster - no statuses", func(t *testing.T) {
+		rev := NewTermRevocation(nil, coord)
+		require.Equal(t, int64(1), rev.GetRevokedBelowTerm())
+		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
+		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
+	})
+
+	t.Run("fresh cluster - statuses with no term history", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
+		rev := NewTermRevocation(statuses, coord)
+		require.Equal(t, int64(1), rev.GetRevokedBelowTerm())
+	})
+
+	t.Run("uses max of revocation terms", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}},
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}},
+		}
+		rev := NewTermRevocation(statuses, coord)
+		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
+	})
+
+	t.Run("uses max of recorded rule terms", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{CurrentPosition: positionAtCoordTerm(4)},
+			{CurrentPosition: positionAtCoordTerm(9)},
+		}
+		rev := NewTermRevocation(statuses, coord)
+		require.Equal(t, int64(10), rev.GetRevokedBelowTerm())
+	})
+
+	t.Run("takes max across both revocation and rule terms", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6}},
+			{CurrentPosition: positionAtCoordTerm(11)},
+		}
+		rev := NewTermRevocation(statuses, coord)
+		require.Equal(t, int64(12), rev.GetRevokedBelowTerm())
+	})
 }
