@@ -341,7 +341,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true, nil)
+				return manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, &clustermetadatapb.RuleNumber{}, true, nil)
 			},
 		},
 	}
@@ -1883,8 +1883,8 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		ctx,
 		multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 		[]*clustermetadatapb.ID{newStandby},
-		true,  // reloadConfig
-		5,     // consensusTerm
+		true,                                              // reloadConfig
+		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5}, // expectedOutgoingRule
 		false, // force
 		nil,   // coordinatorID
 	)

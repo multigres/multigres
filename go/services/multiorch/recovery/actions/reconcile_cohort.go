@@ -107,20 +107,22 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
 	}
 
-	// Use the higher of the primary's and target's known terms (matches the
-	// pattern in FixReplication): after a failover the target may have
-	// accepted a newer term than the primary has seen, and using the maximum
-	// satisfies both nodes.
-	primaryTerm := primary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	targetTerm := target.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	consensusTerm := max(primaryTerm, targetTerm)
+	// Capture the leader's current rule for CAS. If our view is stale by the
+	// time the multipooler handles the request, the CAS check fails and we
+	// retry on the next analyzer cycle with a fresh view — preventing two
+	// coordinators from racing on overlapping cohort changes.
+	expectedRule := primary.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	if expectedRule == nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary %s has no recorded rule; cannot reconcile cohort", primary.MultiPooler.Id.Name)
+	}
 
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
-		Operation:     op,
-		StandbyIds:    []*clustermetadatapb.ID{target.MultiPooler.Id},
-		ReloadConfig:  true,
-		ConsensusTerm: consensusTerm,
-		Force:         false,
+		Operation:            op,
+		StandbyIds:           []*clustermetadatapb.ID{target.MultiPooler.Id},
+		ReloadConfig:         true,
+		ExpectedOutgoingRule: expectedRule,
+		Force:                false,
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, primary.MultiPooler, req); err != nil {

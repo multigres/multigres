@@ -570,10 +570,17 @@ message UpdateConsensusRuleRequest {
   // Whether to reload configuration immediately
   bool reload_config = 3;
 
-  // Consensus term (used by MultiOrch for term validation)
-  int64 consensus_term = 4;
+  // expected_outgoing_rule is the RuleNumber the caller observed as the
+  // primary's current rule. The primary applies the change only if its
+  // recorded rule still matches this value (compare-and-swap). It rejects
+  // with a "rule has changed" error otherwise, signaling that the caller's
+  // view is stale and it should re-read state and retry. This prevents
+  // races between concurrent coordinators making cohort decisions based on
+  // stale snapshots.
+  clustermetadata.RuleNumber expected_outgoing_rule = 4;
 
-  // Force the operation even if the term doesn't match
+  // Force the operation even if expected_outgoing_rule does not match the
+  // primary's current rule. Reserved for break-glass operator scenarios.
   bool force = 5;
 
   // Coordinator ID that initiated this operation (for audit trail)

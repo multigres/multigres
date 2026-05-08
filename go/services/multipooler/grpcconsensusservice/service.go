@@ -122,13 +122,13 @@ func (s *consensusService) Promote(ctx context.Context, req *multipoolermanagerd
 	return resp, nil
 }
 
-// UpdateConsensusRule updates the synchronous standby list (quorum membership)
+// UpdateConsensusRule applies a cohort-membership change on the primary.
 func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	err := s.manager.UpdateConsensusRule(ctx,
 		req.Operation,
 		req.StandbyIds,
 		req.ReloadConfig,
-		req.ConsensusTerm,
+		req.ExpectedOutgoingRule,
 		req.Force,
 		req.CoordinatorId)
 	if err != nil {

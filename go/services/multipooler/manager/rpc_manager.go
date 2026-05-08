@@ -498,10 +498,16 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	// TODO: Somehow make sure the GUC change has actually propagated
 }
 
-// UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding,
-// removing, or replacing members. It is idempotent and only valid when synchronous
+// UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
+// or removing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
+//
+// expectedOutgoingRule provides compare-and-swap semantics: the operation
+// proceeds only if this pooler's current recorded rule matches the given
+// RuleNumber. If they differ (the caller's view is stale), the operation
+// fails — the caller should re-read state and retry. force=true bypasses the
+// CAS check (break-glass only).
+func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, expectedOutgoingRule *clustermetadatapb.RuleNumber, force bool, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -509,6 +515,14 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// Validate operation
 	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	}
+
+	// Without force, the caller must assert which rule it expects to be
+	// current. This is the compare-and-swap guard against concurrent
+	// coordinators racing on stale state.
+	if expectedOutgoingRule == nil && !force {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"expected_outgoing_rule is required (or set force=true to bypass)")
 	}
 
 	// Validate standby IDs using the shared validation function
@@ -525,12 +539,6 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	// === Validation ===
-	// TODO: We need to validate consensus term here.
-	// We should check if the request is a valid term.
-	// If it's a newer term and probably we need to demote
-	// ourself. But details yet to be implemented
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -614,8 +622,17 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	for i, p := range updatedStandbys {
 		updatedStandbyIDs[i] = p.id
 	}
+	// Determine the coordinator term for the new rule. With CAS, we write
+	// the new rule under the same coordinator term we expected. Without CAS
+	// (force=true), fall back to the term in the request's expected rule if
+	// any, otherwise 0 — operator break-glass scenarios are responsible for
+	// supplying a sensible value via expectedOutgoingRule.
+	var newRuleTerm int64
+	if expectedOutgoingRule != nil {
+		newRuleTerm = expectedOutgoingRule.GetCoordinatorTerm()
+	}
 	standbyUpdate := newRuleUpdate(
-		consensusTerm,
+		newRuleTerm,
 		coordID,
 		"replication_config",
 		"UpdateConsensusRule: "+operationName,
@@ -623,6 +640,11 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		withLeader(leaderID.id).
 		withCohort(updatedStandbyIDs).
 		withOperation(operationName)
+	if expectedOutgoingRule != nil {
+		standbyUpdate.withPreviousRule(
+			expectedOutgoingRule.GetCoordinatorTerm(),
+			expectedOutgoingRule.GetLeaderSubterm())
+	}
 	if force {
 		standbyUpdate.withForce()
 	}
@@ -647,7 +669,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		"old_value", currentValue,
 		"new_value", newValue,
 		"reload_config", reloadConfig,
-		"consensus_term", consensusTerm,
+		"expected_outgoing_rule", expectedOutgoingRule,
 		"force", force)
 
 	// Push an immediate health snapshot so orchestrators learn about the changed

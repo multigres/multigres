@@ -63,6 +63,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+					},
+				},
 			},
 		})
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
@@ -108,6 +113,10 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, req.Operation)
 		require.Len(t, req.StandbyIds, 1)
 		assert.Equal(t, replicaID.Name, req.StandbyIds[0].Name)
+		require.NotNil(t, req.ExpectedOutgoingRule, "CAS guard must be set")
+		assert.Equal(t, int64(3), req.ExpectedOutgoingRule.CoordinatorTerm)
+		assert.Equal(t, int64(7), req.ExpectedOutgoingRule.LeaderSubterm)
+		assert.False(t, req.Force)
 	})
 
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {
@@ -136,6 +145,50 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		req := fakeClient.LastUpdateConsensusRuleRequest
 		require.NotNil(t, req)
 		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE, req.Operation)
+	})
+
+	t.Run("returns FAILED_PRECONDITION when primary has no recorded rule", func(t *testing.T) {
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+				}},
+			},
+		}
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+		defer ts.Close()
+		ps := store.NewPoolerStore(fakeClient, slog.Default())
+		// Primary with no CurrentPosition.Rule — e.g. fresh process before
+		// the first health snapshot populates the consensus rule.
+		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         primaryID,
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_PRIMARY,
+				Hostname:   "primary.example.com",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{},
+		})
+		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: replicaID, Database: "testdb", TableGroup: "default", Shard: "0",
+				Type: clustermetadatapb.PoolerType_REPLICA,
+			},
+		})
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no recorded rule")
+		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
 	t.Run("rejects unsupported problem code", func(t *testing.T) {
