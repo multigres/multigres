@@ -166,21 +166,29 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}
 	}
 
-	// Wait for every Propose to return, not just the leader's. The leader's
-	// success alone commits the rule change, but returning early would let
-	// Run's context cancel the in-flight non-leader Proposes. Letting them
-	// complete keeps the shard healthy: every pooler learns the new primary,
-	// even those whose endorsement wasn't required for the decision.
+	// Wait for every Propose to return, not just the leader's. The rule
+	// change is committed when the leader's Propose succeeds — which can
+	// only happen because enough followers endorsed the proposal first to
+	// satisfy the cohort's durability quorum. Returning early here would
+	// let Run's context cancel the in-flight non-leader Proposes. The shard
+	// is already safe at that point, but any pooler whose Propose was
+	// cancelled wouldn't learn the new primary on this round and would
+	// need to be re-wired before it could route correctly. Waiting avoids
+	// that follow-up.
+	//
+	// Exception: if the leader's Propose fails, no new primary exists for
+	// non-leaders to learn about, so there is nothing to gain by waiting
+	// — return as soon as we see the leader's failure.
 	var leaderErr error
 	for range len(recruits) {
 		pr := <-proposeResults
 		if pr.err != nil {
 			if pr.isLeader {
 				leaderErr = pr.err
-			} else {
-				r.coordinator.logger.WarnContext(ctx, "Propose failed for non-leader",
-					"pooler", pr.poolerName, "error", pr.err)
+				break
 			}
+			r.coordinator.logger.WarnContext(ctx, "Propose failed for non-leader",
+				"pooler", pr.poolerName, "error", pr.err)
 		} else {
 			r.coordinator.logger.InfoContext(ctx, "Propose succeeded",
 				"pooler", pr.poolerName, "is_leader", pr.isLeader)
