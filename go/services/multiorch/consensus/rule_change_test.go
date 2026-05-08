@@ -81,7 +81,7 @@ func newRuleChangeCoordinator(t *testing.T, fc *rpcclient.FakeClient) *Coordinat
 	return NewCoordinator(coordID, ts, fc, logger, false)
 }
 
-// fixedProposal builds a trivial tryBuild callback that returns a pre-built
+// fixedProposal builds a trivial tryBuildProposal callback that returns a pre-built
 // proposal once at least minNodes statuses have been collected.
 func fixedProposal(minNodes int, proposal *consensusdatapb.CoordinatorProposal) func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 	return func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
@@ -92,7 +92,7 @@ func fixedProposal(minNodes int, proposal *consensusdatapb.CoordinatorProposal) 
 	}
 }
 
-func nopCheckPossible(_ *clustermetadatapb.TermRevocation, _ []*clustermetadatapb.ConsensusStatus) error {
+func nopCheckProposalPossible(_ *clustermetadatapb.TermRevocation, _ []*clustermetadatapb.ConsensusStatus) error {
 	return nil
 }
 
@@ -262,7 +262,7 @@ func TestRun_Success(t *testing.T) {
 		},
 	}
 
-	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckPossible)
+	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort))
 
 	// Both nodes should have received a Propose request.
@@ -285,11 +285,11 @@ func TestRun_EarlyExit(t *testing.T) {
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
 
-	// tryBuild succeeds as soon as the first node responds, picking that node as
+	// tryBuildProposal succeeds as soon as the first node responds, picking that node as
 	// leader. Which node responds first is non-deterministic, so the proposal is
 	// built dynamically from the first available status.
 	poolerByID, _ := buildCohortMaps(cohort)
-	tryBuild := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		if len(statuses) < 1 {
 			return nil, errors.New("no nodes yet")
 		}
@@ -313,12 +313,12 @@ func TestRun_EarlyExit(t *testing.T) {
 		}, nil
 	}
 
-	rc := c.newRuleChange("test", tryBuild, nopCheckPossible)
+	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort))
 }
 
 func TestRun_InsufficientRecruitment(t *testing.T) {
-	// All Recruit calls return no ConsensusStatus — tryBuild always fails.
+	// All Recruit calls return no ConsensusStatus — tryBuildProposal always fails.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -329,11 +329,11 @@ func TestRun_InsufficientRecruitment(t *testing.T) {
 
 	// No RecruitResponses set → fake client returns empty response (nil ConsensusStatus).
 
-	tryBuild := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		return nil, fmt.Errorf("not enough nodes: have %d", len(statuses))
 	}
 
-	rc := c.newRuleChange("test", tryBuild, nopCheckPossible)
+	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
 	err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recruitment failed")
@@ -354,7 +354,7 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 	}
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
-	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), nopCheckPossible)
+	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), nopCheckProposalPossible)
 	err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "another coordinator started recruiting recently")
@@ -362,7 +362,7 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 }
 
 func TestRun_PreValidateFails(t *testing.T) {
-	// checkPossible returns an error — no recruitment should be attempted.
+	// checkProposalPossible returns an error — no recruitment should be attempted.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -373,11 +373,11 @@ func TestRun_PreValidateFails(t *testing.T) {
 	setRecruitOK(fc, mp1)
 
 	preValidateErr := errors.New("cluster not in a state that allows failover")
-	checkPossible := func(_ *clustermetadatapb.TermRevocation, _ []*clustermetadatapb.ConsensusStatus) error {
+	checkProposalPossible := func(_ *clustermetadatapb.TermRevocation, _ []*clustermetadatapb.ConsensusStatus) error {
 		return preValidateErr
 	}
 
-	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), checkPossible)
+	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), checkProposalPossible)
 	err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre-vote failed")
@@ -422,12 +422,12 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 		},
 	}
 
-	// Inject the Propose error for the leader inside tryBuild: at the point
-	// tryBuild(minNodes=2) is called, both Recruit goroutines have already sent
+	// Inject the Propose error for the leader inside tryBuildProposal: at the point
+	// tryBuildProposal(minNodes=2) is called, both Recruit goroutines have already sent
 	// their results to the channel and returned, so writing fc.Errors here is
 	// safe — proposeAll goroutines haven't launched yet, establishing a
 	// happens-before edge via goroutine creation.
-	tryBuild := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		if len(statuses) < 2 {
 			return nil, errors.New("need 2 nodes")
 		}
@@ -435,7 +435,7 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 		return proposal, nil
 	}
 
-	rc := c.newRuleChange("test", tryBuild, nopCheckPossible)
+	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
 	err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to accept proposal")
@@ -479,7 +479,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 	// We only want Propose to fail, not Recruit — so use ProposeResponses error
 	// by setting errors only after recruitment is done. Since Errors applies to
 	// all RPC calls, we instead set error on mp2 after recruit by using a
-	// custom tryBuild that installs the error mid-flight.
+	// custom tryBuildProposal that installs the error mid-flight.
 	//
 	// Simpler approach: set an error on mp2 before Run. Recruit will also fail,
 	// but Recruit failure just means no status from mp2, and mp1 alone satisfies
@@ -488,7 +488,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 	fc.Errors[mp2Key] = errors.New("standby propose rejected")
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
-	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckPossible)
+	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort))
 
 	// Leader (mp1) received Propose.

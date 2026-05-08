@@ -1566,9 +1566,9 @@ func TestAppointLeader_NewFlow(t *testing.T) {
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
 	}
-	// AT_LEAST_3 forces tryBuild to wait for all three recruits before forming
-	// quorum, making leader selection deterministic regardless of recruit-RPC
-	// completion order.
+	// AT_LEAST_3 forces tryBuildProposal to wait for all three recruits before
+	// forming quorum, making leader selection deterministic regardless of
+	// recruit-RPC completion order.
 	outgoingRule := &clustermetadatapb.ShardRule{
 		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 		LeaderId:         cohortIDs[0],

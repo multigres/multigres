@@ -118,20 +118,20 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 
 // runFailover wires the new-flow failover callbacks for a coordinatorLedRuleChange
 // and runs it. The proposal builder picks an eligible non-resigned leader from the
-// outgoing cohort; the tryBuild and checkPossible callbacks delegate to
+// outgoing cohort; the tryBuildProposal and checkProposalPossible callbacks delegate to
 // BuildSafeProposal and CheckProposalPossible respectively.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
 	poolerByID, healthByID := buildCohortMaps(cohort)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return buildFailoverProposal(ctx, c.logger, r, poolerByID, healthByID)
 	}
-	tryBuild := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		return commonconsensus.BuildSafeProposal(rev, statuses, buildProposal)
 	}
-	checkPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
+	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuild, checkPossible).Run(ctx, cohort)
+	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort)
 }
 
 // appointLeaderWithTerm is the shared core of AppointLeader and AppointInitialLeader.

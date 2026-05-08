@@ -38,22 +38,22 @@ import (
 // for a coordinator-initiated rule change. It is parameterized by action-specific
 // callbacks so the same workflow serves both normal failover and bootstrap.
 type coordinatorLedRuleChange struct {
-	coordinator   *Coordinator
-	reason        string
-	tryBuild      func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error)
-	checkPossible func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) error
+	coordinator           *Coordinator
+	reason                string
+	tryBuildProposal      func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error)
+	checkProposalPossible func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) error
 }
 
 func (c *Coordinator) newRuleChange(
 	reason string,
-	tryBuild func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error),
-	checkPossible func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) error,
+	tryBuildProposal func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error),
+	checkProposalPossible func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) error,
 ) *coordinatorLedRuleChange {
 	return &coordinatorLedRuleChange{
-		coordinator:   c,
-		reason:        reason,
-		tryBuild:      tryBuild,
-		checkPossible: checkPossible,
+		coordinator:           c,
+		reason:                reason,
+		tryBuildProposal:      tryBuildProposal,
+		checkProposalPossible: checkProposalPossible,
 	}
 }
 
@@ -84,7 +84,7 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 
 	// Pre-validate that a proposal would be feasible with current statuses before
 	// committing to a recruitment round.
-	if err := r.checkPossible(revocation, initialStatuses); err != nil {
+	if err := r.checkProposalPossible(revocation, initialStatuses); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
 	}
 
@@ -122,9 +122,9 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}()
 	}
 
-	// Phase 1: collect recruits until tryBuild succeeds (or we run out).
+	// Phase 1: collect recruits until tryBuildProposal succeeds (or we run out).
 	//
-	// We commit to the leader at the FIRST successful tryBuild and stream
+	// We commit to the leader at the FIRST successful tryBuildProposal and stream
 	// Proposes from there — recruits arriving after that point don't change
 	// the choice. This is consensus-correct: only committed writes are
 	// guaranteed durable across the quorum, so the chosen leader carries
@@ -137,7 +137,7 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 	// before the leader is locked in, to let slow-but-not-dead nodes
 	// participate in leader selection. With grace=0 we keep the current
 	// streaming behavior; with grace>0 we wait up to that long for further
-	// recruits and re-run tryBuild on the augmented set. The right default
+	// recruits and re-run tryBuildProposal on the augmented set. The right default
 	// should come from observed failover latency in production.
 	remaining := len(cohort)
 	for ; remaining > 0 && propReq == nil; remaining-- {
@@ -147,7 +147,7 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}
 		statuses = append(statuses, rr.cs)
 		recruits = append(recruits, rr.pooler)
-		p, err := r.tryBuild(revocation, statuses)
+		p, err := r.tryBuildProposal(revocation, statuses)
 		if err != nil {
 			continue
 		}
@@ -167,7 +167,7 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 	}
 
 	if propReq == nil {
-		_, err := r.tryBuild(revocation, statuses)
+		_, err := r.tryBuildProposal(revocation, statuses)
 		return mterrors.Wrap(err, "recruitment failed")
 	}
 	for _, p := range recruits {
