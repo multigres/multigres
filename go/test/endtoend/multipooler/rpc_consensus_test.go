@@ -645,7 +645,12 @@ func TestUpdateConsensusRule(t *testing.T) {
 	// acknowledge through it. With only fake-named standbys in the cohort,
 	// every subsequent UpdateConsensusRule's rule_history INSERT would block
 	// until the caller's deadline.
-	realStandbyID := makeMultipoolerID("test-cell", "pooler-2")
+	//
+	// Derive the name dynamically: multiorch elects either pooler-1 or
+	// pooler-2 as primary, so the actual standby's name is whichever was
+	// not elected.
+	realStandbyName := setup.GetStandbys()[0].Name
+	realStandbyID := makeMultipoolerID(setup.CellName, realStandbyName)
 
 	// resetStandbys atomically replaces the standby list using ADD + REMOVE.
 	// realStandbyID is always present in the cohort so subsequent sync writes
@@ -722,17 +727,17 @@ func TestUpdateConsensusRule(t *testing.T) {
 					containsStandbyIDInConfig(config, "test-cell", "standby2")
 			}, "ADD should converge")
 
-		// Cohort now contains realStandbyID (pooler-2) plus standby1 (from
-		// resetStandbys) plus the newly-added standby2.
+		// Cohort now contains realStandbyID plus standby1 (from resetStandbys)
+		// plus the newly-added standby2.
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
 		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
-		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "pooler-2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby2")`, guc, "GUC should reflect standby list after ADD")
+		assert.Equal(t, fmt.Sprintf(`ANY 1 ("%s_%s", "test-cell_standby1", "test-cell_standby2")`, setup.CellName, realStandbyName), guc, "GUC should reflect standby list after ADD")
 		t.Log("ADD operation verified successfully")
 	})
 
@@ -783,17 +788,17 @@ func TestUpdateConsensusRule(t *testing.T) {
 					!containsStandbyIDInConfig(config, "test-cell", "standby2")
 			}, "REMOVE should converge")
 
-		// Cohort: realStandbyID (pooler-2) + standby1 + standby3 (standby2 removed).
+		// Cohort: realStandbyID + standby1 + standby3 (standby2 removed).
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
 		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
-		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "pooler-2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect standby list after REMOVE")
+		assert.Equal(t, fmt.Sprintf(`ANY 1 ("%s_%s", "test-cell_standby1", "test-cell_standby3")`, setup.CellName, realStandbyName), guc, "GUC should reflect standby list after REMOVE")
 		t.Log("REMOVE operation verified successfully")
 	})
 
@@ -813,10 +818,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 			})
 		require.NoError(t, err, "REMOVE of non-existent standby should succeed")
 
-		// Cohort: realStandbyID (pooler-2) + standby1 + standby2.
+		// Cohort: realStandbyID + standby1 + standby2.
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
 		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3, "List should be unchanged")
-		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "pooler-2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		t.Log("REMOVE idempotency verified")
@@ -843,7 +848,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
 				return config != nil && len(config.StandbyIds) == 5
-			}, "ADD should converge to 5 standbys (pooler-2 + standby1..4)")
+			}, "ADD should converge to 5 standbys (realStandby + standby1..4)")
 
 		// REMOVE two
 		_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
@@ -864,10 +869,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 					containsStandbyIDInConfig(config, "test-cell", "standby3")
 			}, "REMOVE should converge")
 
-		// Cohort: realStandbyID (pooler-2) + standby1 + standby3.
+		// Cohort: realStandbyID + standby1 + standby3.
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
 		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
-		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "pooler-2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
@@ -875,7 +880,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect final standby list after ADD+REMOVE sequence")
+		assert.Equal(t, fmt.Sprintf(`ANY 1 ("%s_%s", "test-cell_standby1", "test-cell_standby3")`, setup.CellName, realStandbyName), guc, "GUC should reflect final standby list after ADD+REMOVE sequence")
 		t.Log("ADD then REMOVE sequence verified successfully")
 	})
 
