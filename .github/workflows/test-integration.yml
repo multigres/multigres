@@ -64,6 +64,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --packages="./go/test/endtoend/..." \
             --jsonfile=integration-test-results.jsonl \
+            --junitfile=integration-test-results.xml \
             -- \
             -skip TestPostgreSQLRegression -timeout=30m
 
@@ -75,7 +76,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: integration-test-logs
-          path: integration-test-results.jsonl
+          path: |
+            integration-test-results.jsonl
+            integration-test-results.xml
           retention-days: 14
 
       - name: Test Report
@@ -85,3 +88,14 @@ jobs:
           name: Integration Tests
           path: integration-test-results.jsonl
           reporter: golang-json
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./integration-test-results.xml
+          report_type: test_results
+          flags: integration
+          fail_ci_if_error: false

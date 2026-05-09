@@ -51,6 +51,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --packages="./..." \
             --jsonfile=short-test-results.jsonl \
+            --junitfile=short-test-results.xml \
             -- \
             -short -timeout=20m
 
@@ -59,7 +60,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: short-test-logs
-          path: short-test-results.jsonl
+          path: |
+            short-test-results.jsonl
+            short-test-results.xml
           retention-days: 14
 
       - name: Test Report
@@ -69,3 +72,14 @@ jobs:
           name: Unit Tests
           path: short-test-results.jsonl
           reporter: golang-json
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./short-test-results.xml
+          report_type: test_results
+          flags: short
+          fail_ci_if_error: false
