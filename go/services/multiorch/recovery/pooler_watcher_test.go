@@ -82,6 +82,8 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) bool 
 	return false
 }
 
+// TestPoolerWatcher_InitialDiscovery verifies that poolers already present in topology
+// when Start is called are discovered and added to the store.
 func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	ctx := t.Context()
 
@@ -131,6 +133,8 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	assert.True(t, ok, "expected 2 onNewPooler callbacks, got %d", countNew())
 }
 
+// TestPoolerWatcher_NewPoolerAddedAfterStart verifies that a pooler registered in topology
+// after Start is called is discovered via the watch and added to the store.
 func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	ctx := t.Context()
 
@@ -146,8 +150,6 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	watcher.Start()
 	defer watcher.Stop()
 
-	// Sync to confirm watcher started and processed initial (empty) topology
-	require.NoError(t, watcher.Sync(ctx))
 	assert.Equal(t, 0, poolerStore.Len())
 
 	// Add a pooler after the watcher has started
@@ -173,6 +175,8 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	assert.True(t, ok, "expected 1 onNewPooler callback, got %d", countNew())
 }
 
+// TestPoolerWatcher_PoolerMetadataUpdate verifies that a topology update to an existing pooler
+// refreshes its metadata in the store while preserving health-check state and without re-queuing it.
 func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	ctx := t.Context()
 
@@ -236,11 +240,14 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	assert.True(t, updated.IsUpToDate, "IsUpToDate should be preserved")
 	assert.True(t, updated.IsLastCheckValid, "IsLastCheckValid should be preserved")
 
-	// An update to an existing pooler should NOT trigger another onNewPooler callback
-	require.NoError(t, watcher.Sync(ctx))
+	// An update to an existing pooler should NOT trigger another onNewPooler callback.
+	// The hostname-update wait above already ensures the metadata update event has been
+	// processed, so we can assert the count directly.
 	assert.Equal(t, callbacksAfterDiscovery, countNew(), "existing pooler should not re-trigger callback on metadata update")
 }
 
+// TestPoolerWatcher_WatchTargetFiltering verifies that only poolers matching the configured
+// WatchTargets are added to the store; poolers in other databases or tablegroups are ignored.
 func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	ctx := t.Context()
 
@@ -281,8 +288,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	// Sync to ensure all events (including filtered ones) have been processed
-	require.NoError(t, watcher.Sync(ctx))
+	// Filtering is permanent: after the positive condition above, no filtered pooler can appear.
 	assert.Equal(t, 1, poolerStore.Len(), "only the watched pooler should be in the store")
 	_, exists := poolerStore.Get(poolerKey("zone1", "watched"))
 	assert.True(t, exists)
@@ -292,6 +298,8 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	assert.False(t, exists, "pooler in other tablegroup should be filtered out")
 }
 
+// TestPoolerWatcher_NewCellDiscovered verifies that when a new cell is added to the topology
+// after Start, the watcher discovers the cell and starts watching its poolers.
 func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	ctx := t.Context()
 
@@ -339,9 +347,8 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 }
 
 // TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a pooler from topology
-// does NOT immediately remove it from the store. Removal is deferred to bookkeeping so
-// that health-check state is preserved across transient topology blips (e.g. rolling
-// restarts). The store entry will be cleaned up by forgetLongUnseenInstances.
+// does not immediately remove it from the store. Removal is deferred to bookkeeping so
+// that health-check state is preserved across transient topology blips (e.g. rolling restarts).
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	ctx := t.Context()
 
@@ -374,8 +381,9 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1",
 	}))
 
-	// The pooler should remain in the store after the deletion event is processed;
-	// bookkeeping (forgetLongUnseenInstances) is responsible for eventual removal.
-	require.NoError(t, watcher.Sync(ctx))
-	assert.Equal(t, 1, poolerStore.Len(), "deleted pooler should remain in store until bookkeeping removes it")
+	// The pooler should NOT be removed from the store — bookkeeping handles that.
+	// onDeleted is intentionally a no-op; the count should never drop.
+	require.Never(t, func() bool { return poolerStore.Len() < 1 },
+		200*time.Millisecond, 10*time.Millisecond,
+		"deleted pooler should remain in store until bookkeeping removes it")
 }

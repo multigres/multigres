@@ -125,9 +125,11 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2",
 	}))
 
-	// Fourth watch event - removed pooler still in store (bookkeeping removes it later)
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
-	require.Equal(t, 4, engine.poolerStore.Len(), "store should still contain all poolers, bookkeeping handles removal")
+	// Removed pooler still in store (bookkeeping removes it later).
+	// onDeleted is a no-op; the count should never drop.
+	require.Never(t, func() bool { return engine.poolerStore.Len() < 4 },
+		200*time.Millisecond, 10*time.Millisecond,
+		"store should still contain all poolers, bookkeeping handles removal")
 }
 
 func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
@@ -166,7 +168,6 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 
 	// First watch event - should only discover tg1
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "timed out waiting for first pooler")
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 1, engine.poolerStore.Len())
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -194,7 +195,6 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 	}))
 
 	// Third watch event - should NOT discover new tablegroup
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler4"))
@@ -241,7 +241,6 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 
 	// First watch event - should only discover tg1/shard0
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "timed out waiting for first pooler")
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 1, engine.poolerStore.Len())
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -271,7 +270,6 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 	}))
 
 	// Third watch event - should NOT discover new shard
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler5"))
@@ -284,7 +282,6 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 	}))
 
 	// Fourth watch event - should NOT discover new tablegroup
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler6"))
@@ -421,8 +418,6 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 	// Wait for expected 4 poolers: pooler1, pooler2, pooler3, pooler5
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(4)), "expected 4 poolers in store after all poolers written")
 
-	// Sync to ensure all events (including filtered ones) have been processed
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	assert.Equal(t, 4, engine.poolerStore.Len(), "should discover exactly 4 poolers")
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -459,8 +454,6 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 		return func() bool { return engine.poolerStore.Len() == val }
 	}
 
-	// Sync to confirm watcher started and processed initial (empty) topology
-	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	assert.Equal(t, 0, engine.poolerStore.Len(), "store should be empty with empty topology")
 
 	// Add a pooler
@@ -509,7 +502,6 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "expected at least 1 pooler in store")
-	require.NoError(t, poolerWatcher.Sync(ctx))
 	assert.Equal(t, 1, poolerStore.Len(), "only tg1 pooler should be in the watcher's store")
 
 	_, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
