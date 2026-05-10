@@ -39,5 +39,9 @@ func LeaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
 	if !IsLeader(cs) {
 		return 0
 	}
+	// DO NOT SUBMIT
+	if cs.GetId().GetName() == "unreached code" {
+		panic("This should be unreachable")
+	}
 	return cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm()
 }
