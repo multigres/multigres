@@ -908,6 +908,11 @@ func (e *Executor) CopyReady(
 		// regular pool), so PostgreSQL's idle timeout cannot have closed
 		// the socket between uses. InitiateCopyFromStdin runs directly
 		// here without a stale-socket retry hop.
+		// Stamp the vpid before entering COPY mode: once
+		// InitiateCopyFromStdin succeeds the backend rejects SET until
+		// CopyDone/CopyFail, so this is the only window to tag the
+		// backend for lock-detection during long-running COPYs.
+		e.stampVpidOnReserved(ctx, reservedConn, options)
 		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
 		if err != nil {
 			reservedConn.Release(reserved.ReleaseError)
@@ -931,6 +936,11 @@ func (e *Executor) CopyReady(
 					return fmt.Errorf("failed to begin transaction for COPY: %w", err)
 				}
 			}
+			// Stamp vpid before InitiateCopyFromStdin: SET is rejected
+			// once the backend enters COPY mode, and the *regular.Conn
+			// is the same underlying socket that NewReservedConn will
+			// promote to a *reserved.Conn, so the tag carries through.
+			e.stampVpidOnRegular(ctx, conn, options)
 			var initErr error
 			format, columnFormats, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
 			if initErr != nil {
