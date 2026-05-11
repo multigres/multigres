@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -34,7 +33,6 @@ import (
 type mockReservedConn struct {
 	connID           int64
 	inTxn            bool
-	txnStatus        protocol.TransactionStatus
 	remainingReasons uint32
 
 	beginCalls      []string
@@ -47,10 +45,9 @@ type mockReservedConn struct {
 	streamingErr error
 }
 
-func (m *mockReservedConn) ConnID() int64                         { return m.connID }
-func (m *mockReservedConn) RemainingReasons() uint32              { return m.remainingReasons }
-func (m *mockReservedConn) IsInTransaction() bool                 { return m.inTxn }
-func (m *mockReservedConn) TxnStatus() protocol.TransactionStatus { return m.txnStatus }
+func (m *mockReservedConn) ConnID() int64            { return m.connID }
+func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
+func (m *mockReservedConn) IsInTransaction() bool    { return m.inTxn }
 
 func (m *mockReservedConn) BeginWithQuery(_ context.Context, q string) error {
 	m.beginCalls = append(m.beginCalls, q)
@@ -101,7 +98,6 @@ func noopCallback(_ context.Context, _ *sqltypes.Result) error { return nil }
 func TestStreamExecuteOnReservedConn_AddsTransactionViaBegin(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
-		txnStatus:        protocol.TxnStatusInBlock,
 		remainingReasons: protoutil.ReasonTempTable,
 	}
 	e := newTestExecutor()
@@ -136,7 +132,6 @@ func TestStreamExecuteOnReservedConn_SkipsBeginIfAlreadyInTxn(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
 		inTxn:            true,
-		txnStatus:        protocol.TxnStatusInBlock,
 		remainingReasons: protoutil.ReasonTransaction,
 	}
 	e := newTestExecutor()
@@ -157,8 +152,7 @@ func TestStreamExecuteOnReservedConn_SkipsBeginIfAlreadyInTxn(t *testing.T) {
 // BEGIN entirely and just record the reason on the connection.
 func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 	rc := &mockReservedConn{
-		connID:    42,
-		txnStatus: protocol.TxnStatusIdle,
+		connID: 42,
 	}
 	e := newTestExecutor()
 
@@ -181,7 +175,6 @@ func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 func TestStreamExecuteOnReservedConn_BeginErrorPropagates(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
-		txnStatus:        protocol.TxnStatusIdle,
 		remainingReasons: protoutil.ReasonTempTable,
 		beginErr:         errors.New("boom"),
 	}
@@ -205,7 +198,6 @@ func TestStreamExecuteOnReservedConn_BeginErrorPropagates(t *testing.T) {
 func TestStreamExecuteOnReservedConn_DefaultBeginQueryWhenEmpty(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
-		txnStatus:        protocol.TxnStatusInBlock,
 		remainingReasons: protoutil.ReasonTempTable,
 	}
 	e := newTestExecutor()
@@ -228,7 +220,6 @@ func TestStreamExecuteOnReservedConn_NoReservationOptions(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
 		inTxn:            true,
-		txnStatus:        protocol.TxnStatusInBlock,
 		remainingReasons: protoutil.ReasonTransaction,
 	}
 	e := newTestExecutor()
@@ -241,50 +232,6 @@ func TestStreamExecuteOnReservedConn_NoReservationOptions(t *testing.T) {
 	require.Empty(t, rc.beginCalls)
 	require.Equal(t, uint32(0), rc.addedReasons)
 	require.True(t, rc.streamingCalled)
-}
-
-// TestStreamExecuteOnReservedConn_ReconcilesInlineCommit covers the
-// after-the-fact reconciliation: if the SQL itself contained a COMMIT (e.g.
-// "COMMIT" sent as a raw query), PG returns to TxnStatusIdle and the helper
-// should drop the transaction reason from in-memory tracking.
-func TestStreamExecuteOnReservedConn_ReconcilesInlineCommit(t *testing.T) {
-	rc := &mockReservedConn{
-		connID:           42,
-		inTxn:            true,
-		txnStatus:        protocol.TxnStatusIdle, // PG is no longer in a transaction
-		remainingReasons: protoutil.ReasonTransaction,
-	}
-	e := newTestExecutor()
-
-	_, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc, "COMMIT", nil, noopCallback,
-	)
-
-	require.NoError(t, err)
-	require.Equal(t, protoutil.ReasonTransaction, rc.removedReasons,
-		"helper should drop the transaction reason when PG reports idle")
-}
-
-// TestStreamExecuteOnReservedConn_ReconcilesInlineBegin covers the symmetric
-// case: SQL like "BEGIN; SELECT 1;" leaves PG in TxnStatusInBlock without
-// having gone through ReservationOptions, so the helper must add the reason
-// back so DiscardTempTables / ConcludeTransaction can find it.
-func TestStreamExecuteOnReservedConn_ReconcilesInlineBegin(t *testing.T) {
-	rc := &mockReservedConn{
-		connID:           42,
-		inTxn:            false,
-		txnStatus:        protocol.TxnStatusInBlock, // PG entered a transaction mid-payload
-		remainingReasons: protoutil.ReasonTempTable,
-	}
-	e := newTestExecutor()
-
-	_, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc, "BEGIN; SELECT 1;", nil, noopCallback,
-	)
-
-	require.NoError(t, err)
-	require.Equal(t, protoutil.ReasonTransaction, rc.addedReasons,
-		"helper should add the transaction reason when PG reports in-block")
 }
 
 func TestScramKeysFromOptions(t *testing.T) {

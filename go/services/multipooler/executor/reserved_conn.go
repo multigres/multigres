@@ -17,7 +17,6 @@ package executor
 import (
 	"context"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 )
@@ -34,7 +33,6 @@ type reservedConnAPI interface {
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
-	TxnStatus() protocol.TransactionStatus
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.
