@@ -290,7 +290,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
 	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
