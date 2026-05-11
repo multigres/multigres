@@ -251,7 +251,9 @@ func newExternallyCertifiedDiscoverer(
 	for _, cs := range nodes {
 		rule := cs.GetCurrentPosition().GetRule()
 		if rule == nil {
-			continue
+			// Recruited nodes should always carry a rule.
+			return nil, fmt.Errorf("node %s has no recorded rule; consensus state may be uninitialized",
+				topoclient.ClusterIDString(cs.GetId()))
 		}
 		if CompareRuleNumbers(rule.GetRuleNumber(), certRule) > 0 {
 			return nil, fmt.Errorf("node %s is at rule term %d but certified outgoing rule is term %d",
