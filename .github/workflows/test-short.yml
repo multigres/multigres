@@ -73,8 +73,12 @@ jobs:
           path: short-test-results.jsonl
           reporter: golang-json
 
+      # Only upload test results from main-branch pushes. On PRs, Codecov's
+      # test-results comment template replaces the coverage comment when any
+      # test fails, displacing the coverage diff that PR authors actually want
+      # to see. Flake tracking only needs main-branch history anyway.
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
         with:
