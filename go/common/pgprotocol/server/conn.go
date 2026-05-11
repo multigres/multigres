@@ -339,6 +339,11 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// ReplicationMode returns the replication-protocol mode set during startup.
+func (c *Conn) ReplicationMode() ReplicationMode {
+	return c.replicationMode
+}
+
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the
 // client's authentication handshake, or nil if the session did not
 // authenticate via SCRAM. Used for passthrough auth to backend PostgreSQL.

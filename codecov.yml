@@ -1,6 +1,11 @@
 ignore:
   - "go/pb/**"
   - "go/common/parser/goyacc/**"
+  # goyacc-generated parser for the replication-protocol grammar. Most of
+  # the file is the LALR state machine, which is exercised by parser tests
+  # in aggregate but not line-by-line. The grammar source (grammar.y) is
+  # the authoritative input; the .go file is pure output.
+  - "go/common/parser/replparser/grammar.go"
   - "go/tools/asthelpergen/**"
   - "go/tools/flakyaggregator/**"
   - "go/tools/ruleguard/**"
