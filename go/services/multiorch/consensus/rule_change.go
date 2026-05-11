@@ -26,7 +26,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -267,33 +266,21 @@ func (r *coordinatorLedRuleChange) propose(
 }
 
 // buildFailoverProposal constructs a CoordinatorProposal for normal failover.
-// It picks the first non-resigned eligible leader from result.EligibleLeaders
-// and derives the cohort and durability policy from result.OutgoingRule.
+// It picks the first eligible leader from result.EligibleLeaders and derives
+// the cohort and durability policy from result.OutgoingRule. Resigned poolers
+// are expected to have been filtered out upstream (see Coordinator.runFailover);
+// any pooler reaching this point is treated as a valid leader candidate.
 func buildFailoverProposal(
-	ctx context.Context,
-	logger *slog.Logger,
 	result commonconsensus.RecruitmentResult,
 	poolerByID map[string]*clustermetadatapb.MultiPooler,
-	healthByID map[string]*multiorchdatapb.PoolerHealthState,
 ) (*consensusdatapb.CoordinatorProposal, error) {
 	if result.OutgoingRule == nil {
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
 	}
-
-	var leader *clustermetadatapb.ConsensusStatus
-	for _, cs := range result.EligibleLeaders {
-		key := topoclient.ClusterIDString(cs.GetId())
-		if health, ok := healthByID[key]; ok && types.LeaderNeedsReplacement(health) {
-			logger.InfoContext(ctx, "Skipping resigned primary during leader selection",
-				"pooler", cs.GetId().GetName())
-			continue
-		}
-		leader = cs
-		break
+	if len(result.EligibleLeaders) == 0 {
+		return nil, errors.New("no eligible leaders for failover proposal")
 	}
-	if leader == nil {
-		return nil, errors.New("all eligible leaders have resigned")
-	}
+	leader := result.EligibleLeaders[0]
 
 	mp, ok := poolerByID[topoclient.ClusterIDString(leader.GetId())]
 	if !ok {
