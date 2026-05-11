@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // PgCtlCommand holds the configuration for pgctld commands.
@@ -48,7 +49,7 @@ type PgCtlCommand struct {
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
 	pgInitdbArgs       viperutil.Value[string]
-	initDbSQLFiles     viperutil.Value[[]string]
+	pgInitdbSQLFiles   viperutil.Value[[]string]
 	pgInitdbExtraConf  viperutil.Value[[]string]
 
 	vc        *viperutil.ViperConfig
@@ -116,10 +117,10 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars:  []string{constants.PgInitdbArgsEnvVar},
 			Dynamic:  false,
 		}),
-		initDbSQLFiles: viperutil.Configure(reg, "init-db-sql-file", viperutil.Options[[]string]{
+		pgInitdbSQLFiles: viperutil.Configure(reg, "pg-initdb-sql-files", viperutil.Options[[]string]{
 			Default:  []string{},
-			FlagName: "init-db-sql-file",
-			EnvVars:  []string{constants.PgInitDbSQLFilesEnvVar},
+			FlagName: "pg-initdb-sql-files",
+			EnvVars:  []string{constants.PgInitdbSQLFilesEnvVar},
 			Dynamic:  false,
 		}),
 		pgInitdbExtraConf: viperutil.Configure(reg, "pg-initdb-extra-conf", viperutil.Options[[]string]{
@@ -178,8 +179,17 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
-	root.PersistentFlags().StringSlice("init-db-sql-file", pc.initDbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitDbSQLFilesEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")
 	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
+
+	// Backwards-compat alias: --init-db-sql-file → --pg-initdb-sql-files.
+	// Remove once downstream users have migrated.
+	root.SetGlobalNormalizationFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "init-db-sql-file" {
+			name = "pg-initdb-sql-files"
+		}
+		return pflag.NormalizedName(name)
+	})
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -195,7 +205,7 @@ management for PostgreSQL servers.`,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
 		pc.pgInitdbArgs,
-		pc.initDbSQLFiles,
+		pc.pgInitdbSQLFiles,
 		pc.pgInitdbExtraConf,
 	)
 

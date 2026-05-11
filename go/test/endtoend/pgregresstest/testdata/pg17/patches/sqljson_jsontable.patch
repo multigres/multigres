@@ -23,7 +23,7 @@
 -ERROR: syntax error at or near ")"
 -LINE 1: SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ());
 -^
-+ERROR: parse error at position 46: syntax error
++ERROR: parse error at position 45: syntax error
  SELECT * FROM JSON_TABLE (NULL::jsonb, '$' COLUMNS (v1 timestamp)) AS f (v1, v2);
  ERROR: JSON_TABLE function has 1 columns available but 2 columns specified
  --duplicated column name
@@ -68,7 +68,7 @@
 -ERROR: syntax error at or near "empty"
 -LINE 1: ...sonb '1', '$' COLUMNS (a int exists empty object on empty));
 -^
-+ERROR: parse error at position 84: syntax error
++ERROR: parse error at position 83: syntax error
  -- Test ON ERROR / EMPTY value validity for the function and column types;
  -- all fail
  SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ERROR);

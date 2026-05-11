@@ -112,7 +112,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	// Post-initdb steps that need a running server (custom DB creation, init
 	// SQL files) share a single transient PostgreSQL instance.
-	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitDbSQLFiles) > 0 {
+	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 {
 		if err := postInitdbSetup(logger, cfg); err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
 	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
-		"create_database", createDB, "init_sql_files", len(cfg.InitDbSQLFiles))
+		"create_database", createDB, "init_sql_files", len(cfg.InitdbSQLFiles))
 	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg.Port, cfg.User)
 	if err != nil {
 		return err
@@ -144,16 +144,16 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		}
 	}
 
-	if err := runInitDbSQLFiles(logger, pg, cfg.Database, cfg.InitDbSQLFiles); err != nil {
+	if err := runInitdbSQLFiles(logger, pg, cfg.Database, cfg.InitdbSQLFiles); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// runInitDbSQLFiles executes each SQL file against database with
+// runInitdbSQLFiles executes each SQL file against database with
 // ON_ERROR_STOP=1 so a failing statement aborts its script.
-func runInitDbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, files []string) error {
+func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, files []string) error {
 	for _, file := range files {
 		if _, err := os.Stat(file); err != nil {
 			return fmt.Errorf("init SQL file not accessible (%s): %w", file, err)
@@ -175,7 +175,7 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 		User:                 i.pgCtlCmd.pgUser.Get(),
 		Database:             i.pgCtlCmd.pgDatabase.Get(),
 		Password:             i.pgCtlCmd.pgPassword.Get(),
-		InitDbSQLFiles:       i.pgCtlCmd.initDbSQLFiles.Get(),
+		InitdbSQLFiles:       i.pgCtlCmd.pgInitdbSQLFiles.Get(),
 		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)

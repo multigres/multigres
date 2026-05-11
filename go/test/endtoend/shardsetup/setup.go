@@ -77,7 +77,7 @@ type SetupConfig struct {
 	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
-	InitDbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 }
 
 // SetupOption is a function that configures setup creation.
@@ -248,13 +248,13 @@ func WithMetricsExport() SetupOption {
 	}
 }
 
-// WithInitDbSQLFiles forwards the given SQL file paths to every pgctld in the
-// shard via --init-db-sql-file. pgctld runs each file against the target
+// WithInitdbSQLFiles forwards the given SQL file paths to every pgctld in the
+// shard via --pg-initdb-sql-files. pgctld runs each file against the target
 // database after initdb completes (during the InitDataDir RPC triggered by
 // shard bootstrap). Files run in the order provided.
-func WithInitDbSQLFiles(files ...string) SetupOption {
+func WithInitdbSQLFiles(files ...string) SetupOption {
 	return func(c *SetupConfig) {
-		c.InitDbSQLFiles = files
+		c.InitdbSQLFiles = files
 	}
 }
 
@@ -528,7 +528,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		}
 
 		inst.Multipooler.LogLevel = config.LogLevel
-		inst.Pgctld.InitDbSQLFiles = config.InitDbSQLFiles
+		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",

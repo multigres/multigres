@@ -204,6 +204,12 @@ jobs:
           name: coverage-merged
           path: coverage-merged.txt
           retention-days: 7
+      - name: Upload coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-merged.txt
       - name: Upload coverage to Coveralls
         if: success() || failure()
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
@@ -217,7 +223,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [coverage-direct, coverage-subprocess, merge-and-upload]
     if: always()
-    permissions: {}
+    permissions:
+      pull-requests: write
     steps:
       - name: Coveralls Finished
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
