@@ -956,7 +956,7 @@ func TestBuildProposalCore(t *testing.T) {
 			require.NotNil(t, tt.revocation, "test case must set revocation explicitly")
 			rev := tt.revocation
 			var gotResult RecruitmentResult
-			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.mode, nil,
+			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.mode, discoverMostAdvancedTimeline,
 				func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					gotResult = r
 					return bp(r)
@@ -1588,8 +1588,8 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
 	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
-	// Both fields are required by certLeaderFilter even when the caller has no
-	// real constraint to express.
+	// Both fields are required by newExternallyCertifiedDiscoverer even when
+	// the caller has no real constraint to express.
 	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
 		TermRevocation:     coordRevocation(5),
 		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
@@ -1694,8 +1694,8 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 
 	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
 	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
-	// Both fields are required by certLeaderFilter even when the caller has no
-	// real constraint to express.
+	// Both fields are required by newExternallyCertifiedDiscoverer even when
+	// the caller has no real constraint to express.
 	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
 		TermRevocation:     revocation(5),
 		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
@@ -1703,7 +1703,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 	}
 
 	t.Run("no nodes accepted the revocation", func(t *testing.T) {
-		// filterByRevocation runs before certLeaderFilter, so we early-return
+		// filterByRevocation runs before newExternallyCertifiedDiscoverer, so we early-return
 		// before the cert is inspected. Use neutralCert anyway for consistency.
 		singleCohort := []*clustermetadatapb.ID{zone1.a}
 		_, err := BuildExternallyCertifiedProposal(neutralCert, []*clustermetadatapb.ConsensusStatus{
