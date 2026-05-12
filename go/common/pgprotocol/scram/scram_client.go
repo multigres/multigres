@@ -30,6 +30,10 @@ import (
 // Passthrough mode enables SCRAM key passthrough: after a proxy verifies a client,
 // it can extract the ClientKey and use it to authenticate to the backend database
 // without knowing the plaintext password.
+//
+// When constructed with EnableChannelBinding, the client speaks
+// SCRAM-SHA-256-PLUS instead, embedding the supplied tls-server-end-point
+// hash into its messages.
 type SCRAMClient struct {
 	// Username for authentication.
 	username string
@@ -39,9 +43,15 @@ type SCRAMClient struct {
 	clientKey []byte // For passthrough mode
 	serverKey []byte // For passthrough mode (to verify server signature)
 
+	// channelBindingHash is the tls-server-end-point hash to bind to. When
+	// non-nil the client uses gs2 flag "p=tls-server-end-point" and includes
+	// the hash in the cbind data; when nil it sends "n,,".
+	channelBindingHash []byte
+
 	// State from the SCRAM exchange.
 	clientNonce            string
 	clientFirstMessageBare string
+	gs2Header              string
 	authMessage            string
 }
 
@@ -72,6 +82,22 @@ func NewSCRAMClientWithKeys(username string, clientKey, serverKey []byte) *SCRAM
 // 24 bytes provides 192 bits of entropy, base64-encoded to 32 characters.
 const clientNonceLength = 24
 
+// EnableChannelBinding configures the client to negotiate SCRAM-SHA-256-PLUS
+// using the tls-server-end-point binding type, with the supplied hash as the
+// cbind-data. Call before ClientFirstMessage. Pass nil to clear.
+func (c *SCRAMClient) EnableChannelBinding(tlsServerEndPointHash []byte) {
+	c.channelBindingHash = tlsServerEndPointHash
+}
+
+// Mechanism returns the SASL mechanism name the client will use, based on
+// whether channel binding has been enabled.
+func (c *SCRAMClient) Mechanism() string {
+	if c.channelBindingHash != nil {
+		return ScramSHA256PlusMechanism
+	}
+	return ScramSHA256Mechanism
+}
+
 // ClientFirstMessage generates the client-first-message to send to the server.
 // This starts the SCRAM authentication handshake.
 // Returns the full message including the GS2 header.
@@ -86,9 +112,15 @@ func (c *SCRAMClient) ClientFirstMessage() (string, error) {
 	// Build client-first-message-bare: n=<username>,r=<nonce>
 	c.clientFirstMessageBare = "n=" + encodeSaslName(c.username) + ",r=" + c.clientNonce
 
-	// Full client-first-message with GS2 header.
-	// "n,," means: no channel binding, no authorization identity
-	return "n,," + c.clientFirstMessageBare, nil
+	// GS2 header: "p=tls-server-end-point,," when channel binding is on,
+	// "n,," otherwise. The authzid slot stays empty in both cases.
+	if c.channelBindingHash != nil {
+		c.gs2Header = "p=" + ChannelBindingTypeTLSServerEndPoint + ",,"
+	} else {
+		c.gs2Header = "n,,"
+	}
+
+	return c.gs2Header + c.clientFirstMessageBare, nil
 }
 
 // ProcessServerFirst processes the server-first-message and generates the client-final-message.
@@ -106,9 +138,12 @@ func (c *SCRAMClient) ProcessServerFirst(serverFirst string) (string, error) {
 		return "", errors.New("server nonce does not start with client nonce (possible attack)")
 	}
 
-	// Build client-final-message-without-proof.
-	// Channel binding data for "n,," is "biws" (base64 of "n,,").
-	channelBinding := base64.StdEncoding.EncodeToString([]byte("n,,"))
+	// Build cbind data: gs2-header || cbind-data (PLUS) or just gs2-header.
+	cbind := []byte(c.gs2Header)
+	if c.channelBindingHash != nil {
+		cbind = append(cbind, c.channelBindingHash...)
+	}
+	channelBinding := base64.StdEncoding.EncodeToString(cbind)
 	clientFinalWithoutProof := "c=" + channelBinding + ",r=" + combinedNonce
 
 	// Build AuthMessage.

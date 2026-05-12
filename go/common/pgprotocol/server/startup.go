@@ -16,6 +16,7 @@ package server
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -190,6 +191,33 @@ func (c *Conn) handleSSLRequest() error {
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
 	c.tlsHandshakeComplete = true
+
+	// Capture the leaf certificate offered to the client for SCRAM-SHA-256-PLUS
+	// channel binding. Prefer the pre-parsed Leaf (set when callers populate it),
+	// fall back to parsing Certificate[0] for the common case where Leaf was
+	// left nil. A failure here is non-fatal: we just won't advertise PLUS and
+	// auth will fall back to SCRAM-SHA-256.
+	//
+	// LIMITATION: tlsConfig.Certificates[0] is the canonical cert in this
+	// config slot. If a deployment uses tlsConfig.GetCertificate or
+	// GetConfigForClient (dynamic SNI), the cert actually negotiated for
+	// this handshake may differ — PLUS will then fall back to base SCRAM
+	// because Go's tls.Conn.ConnectionState() does not expose the server-
+	// presented cert. A wrapper-based fix that captures the actually-
+	// selected cert per-Conn before this point is tracked separately.
+	if len(c.tlsConfig.Certificates) > 0 {
+		cert := &c.tlsConfig.Certificates[0]
+		switch {
+		case cert.Leaf != nil:
+			c.tlsServerCert = cert.Leaf
+		case len(cert.Certificate) > 0:
+			if parsed, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
+				c.tlsServerCert = parsed
+			} else {
+				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "err", err)
+			}
+		}
+	}
 
 	c.logger.Info("TLS connection established",
 		"version", tlsConn.ConnectionState().Version,
@@ -623,8 +651,34 @@ func (c *Conn) authenticateSCRAM() error {
 	// Create the SCRAM authenticator with the pre-fetched hash.
 	auth := scram.NewScramAuthenticator(creds.Hash, c.database)
 
+	// Tell the authenticator whether we're over TLS regardless of whether
+	// we manage to compute a cbind hash — the downgrade-attempt detection
+	// (gs2 flag "y") must fire on any TLS connection.
+	auth.SetOverTLS(c.tlsHandshakeComplete)
+
+	// Attach channel binding context when the connection is over TLS so the
+	// authenticator advertises SCRAM-SHA-256-PLUS in addition to SCRAM-SHA-256.
+	// Plaintext sessions skip this and continue to advertise SCRAM-SHA-256 only.
+	if c.tlsServerCert != nil {
+		cbHash, hashErr := scram.ComputeTLSServerEndPointHash(c.tlsServerCert)
+		if hashErr != nil {
+			// Don't fail the connection — log and fall back to plain
+			// SCRAM-SHA-256 so unusual certs (e.g. unsupported signature
+			// algorithms) still permit auth, matching PG's permissive
+			// behavior. The downgrade-detection gate on overTLS still
+			// fires here.
+			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "err", hashErr)
+		} else {
+			auth.SetChannelBinding(&scram.ChannelBinding{TLSServerEndPointHash: cbHash})
+		}
+	}
+
 	// Send AuthenticationSASL with supported mechanisms.
 	mechanisms := auth.StartAuthentication()
+	advertised := make(map[string]struct{}, len(mechanisms))
+	for _, m := range mechanisms {
+		advertised[m] = struct{}{}
+	}
 	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
 		return fmt.Errorf("failed to send AuthenticationSASL: %w", err)
 	}
@@ -632,8 +686,8 @@ func (c *Conn) authenticateSCRAM() error {
 		return fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
 	}
 
-	// Read SASLInitialResponse (contains client-first-message).
-	clientFirstMessage, err := c.readSASLInitialResponse()
+	// Read SASLInitialResponse (chosen mechanism + client-first-message).
+	selectedMechanism, clientFirstMessage, err := c.readSASLInitialResponse(advertised)
 	if err != nil {
 		return fmt.Errorf("failed to read SASLInitialResponse: %w", err)
 	}
@@ -641,8 +695,12 @@ func (c *Conn) authenticateSCRAM() error {
 	// Process client-first-message and generate server-first-message.
 	// Pass the username from the startup message as fallback for clients that
 	// send empty username in SCRAM (like pgx).
-	serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, c.user)
+	serverFirstMessage, err := auth.HandleClientFirst(selectedMechanism, clientFirstMessage, c.user)
 	if err != nil {
+		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "err", err)
+			return ferr
+		}
 		return fmt.Errorf("failed to handle client-first-message: %w", err)
 	}
 
@@ -666,6 +724,10 @@ func (c *Conn) authenticateSCRAM() error {
 		if errors.Is(err, scram.ErrAuthenticationFailed) {
 			c.logger.Warn("authentication failed: invalid password", "user", c.user)
 			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "err", err)
+			return ferr
 		}
 		return fmt.Errorf("failed to handle client-final-message: %w", err)
 	}
@@ -719,24 +781,27 @@ func (c *Conn) sendAuthenticationSASLFinal(data string) error {
 }
 
 // readSASLInitialResponse reads SASLInitialResponse from the client.
-// Returns the SASL data (client-first-message for SCRAM).
-func (c *Conn) readSASLInitialResponse() (string, error) {
+// Returns the SASL mechanism the client picked and the SASL data
+// (client-first-message for SCRAM). The mechanism is validated against the
+// set the server advertised — anything else is rejected so a malicious or
+// confused client can't downgrade past what was offered.
+func (c *Conn) readSASLInitialResponse(advertised map[string]struct{}) (string, string, error) {
 	msgType, err := c.ReadMessageType()
 	if err != nil {
-		return "", fmt.Errorf("failed to read message type: %w", err)
+		return "", "", fmt.Errorf("failed to read message type: %w", err)
 	}
 	if msgType != protocol.MsgPasswordMsg {
-		return "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
+		return "", "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
 	}
 
 	length, err := c.ReadMessageLength()
 	if err != nil {
-		return "", fmt.Errorf("failed to read message length: %w", err)
+		return "", "", fmt.Errorf("failed to read message length: %w", err)
 	}
 
 	body, err := c.readMessageBody(length)
 	if err != nil {
-		return "", fmt.Errorf("failed to read message body: %w", err)
+		return "", "", fmt.Errorf("failed to read message body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
@@ -745,34 +810,34 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	// Read mechanism name.
 	mechanism, err := reader.ReadString()
 	if err != nil {
-		return "", fmt.Errorf("failed to read mechanism: %w", err)
+		return "", "", fmt.Errorf("failed to read mechanism: %w", err)
 	}
-	if mechanism != scram.ScramSHA256Mechanism {
-		return "", fmt.Errorf("unsupported SASL mechanism: %s", mechanism)
+	if _, ok := advertised[mechanism]; !ok {
+		return "", "", fmt.Errorf("unsupported SASL mechanism: %s", mechanism)
 	}
 
 	// Read data length.
 	dataLen, err := reader.ReadInt32()
 	if err != nil {
-		return "", fmt.Errorf("failed to read data length: %w", err)
+		return "", "", fmt.Errorf("failed to read data length: %w", err)
 	}
 
 	// Handle case where client sends no initial data (length = -1).
 	// This shouldn't happen for SCRAM-SHA-256, but some clients may do this.
 	if dataLen == -1 {
-		return "", errors.New("client sent SASLInitialResponse with no initial data (length=-1)")
+		return "", "", errors.New("client sent SASLInitialResponse with no initial data (length=-1)")
 	}
 	if dataLen < 0 {
-		return "", fmt.Errorf("invalid SASL data length: %d", dataLen)
+		return "", "", fmt.Errorf("invalid SASL data length: %d", dataLen)
 	}
 
 	// Read SASL data.
 	data, err := reader.ReadBytes(int(dataLen))
 	if err != nil {
-		return "", fmt.Errorf("failed to read SASL data: %w", err)
+		return "", "", fmt.Errorf("failed to read SASL data: %w", err)
 	}
 
-	return string(data), nil
+	return mechanism, string(data), nil
 }
 
 // readSASLResponse reads SASLResponse from the client.
@@ -821,6 +886,61 @@ func (c *Conn) sendAuthError(message string) error {
 func (c *Conn) sendLoginDisabledError() error {
 	msg := "role \"" + c.user + "\" is not permitted to log in"
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec, msg, "")); err != nil {
+		return err
+	}
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
+}
+
+// mapSCRAMProtocolError converts a SCRAM authenticator error into the exact
+// PostgreSQL-style FATAL the client expects to see on the wire.
+//
+// Returns handled=true iff the error matched a SCRAM protocol class and a
+// FATAL has been written. The caller MUST then return ferr up the stack so
+// authenticate() short-circuits — ferr is errAuthRejected on success, or the
+// underlying write error on failure.
+//
+// Returns handled=false, nil when the error is not a SCRAM protocol error
+// — caller should continue with other classifications.
+//
+// SQLSTATE + message mapping comes straight from PG17 auth-scram.c so libpq
+// and any other PG-compatible client see identical diagnostics.
+func (c *Conn) mapSCRAMProtocolError(err error) (handled bool, ferr error) {
+	if err == nil {
+		return false, nil
+	}
+	switch {
+	case errors.Is(err, scram.ErrChannelBindingNegotiation):
+		return true, c.sendScramFatal(mterrors.PgSSInvalidAuthSpec,
+			"SCRAM channel binding negotiation error",
+			"The client supports SCRAM channel binding but thinks the server does not.  However, this server does support channel binding.")
+	case errors.Is(err, scram.ErrChannelBindingCheck):
+		return true, c.sendScramFatal(mterrors.PgSSInvalidAuthSpec,
+			"SCRAM channel binding check failed", "")
+	case errors.Is(err, scram.ErrAuthzidNotSupported):
+		return true, c.sendScramFatal(mterrors.PgSSFeatureNotSupported,
+			"client uses authorization identity, but it is not supported", "")
+	case errors.Is(err, scram.ErrSASLProtocol):
+		var sp *scram.SASLProtocolError
+		if errors.As(err, &sp) {
+			msg := sp.Msg
+			if msg == "" {
+				msg = "malformed SCRAM message"
+			}
+			return true, c.sendScramFatal(mterrors.PgSSProtocolViolation, msg, sp.Detail)
+		}
+		return true, c.sendScramFatal(mterrors.PgSSProtocolViolation, "malformed SCRAM message", "")
+	}
+	return false, nil
+}
+
+// sendScramFatal emits a FATAL ErrorResponse with the supplied SQLSTATE,
+// errmsg, and (optional) errdetail. Returns errAuthRejected on success so
+// authenticate() short-circuits, matching the sendAuthError pattern.
+func (c *Conn) sendScramFatal(sqlState, msg, detail string) error {
+	if err := c.writeError(mterrors.NewPgError("FATAL", sqlState, msg, detail)); err != nil {
 		return err
 	}
 	if err := c.flush(); err != nil {
