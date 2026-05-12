@@ -437,6 +437,17 @@ func (ctx *ParseContext) CurrentChar() rune {
 	return r
 }
 
+// CurrentRune returns the current character at ScanPos along with its byte
+// length. Unlike CurrentChar + utf8.RuneLen, this preserves the size that
+// utf8.DecodeRune actually consumed, so invalid UTF-8 sequences advance by
+// exactly one byte instead of overshooting by re-encoding U+FFFD as 3 bytes.
+func (ctx *ParseContext) CurrentRune() (rune, int) {
+	if ctx.scanPos >= len(ctx.scanBuf) {
+		return 0, 0
+	}
+	return utf8.DecodeRune(ctx.scanBuf[ctx.scanPos:])
+}
+
 // PeekChar returns the next character without advancing
 func (ctx *ParseContext) PeekChar() rune {
 	if ctx.scanPos >= len(ctx.scanBuf) {
@@ -980,6 +991,20 @@ func (ctx *ParseContext) ScanBuf() []byte {
 	buf := make([]byte, len(ctx.scanBuf))
 	copy(buf, ctx.scanBuf)
 	return buf
+}
+
+// HasPrefixAtScanPos reports whether scanBuf at the current scan position
+// starts with needle. Avoids copying the entire buffer (as ScanBuf does) so
+// repeated lookups inside hot scanning loops stay zero-alloc.
+// needle is taken as a string so callers don't have to allocate a []byte:
+// `string(byteSlice) == stringLit` lowers to a direct memcmp in the Go
+// compiler with no heap allocation.
+func (ctx *ParseContext) HasPrefixAtScanPos(needle string) bool {
+	pos := ctx.scanPos
+	if len(ctx.scanBuf)-pos < len(needle) {
+		return false
+	}
+	return string(ctx.scanBuf[pos:pos+len(needle)]) == needle
 }
 
 func (ctx *ParseContext) SetScanPos(pos int) {

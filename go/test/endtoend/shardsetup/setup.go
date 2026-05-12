@@ -55,28 +55,29 @@ import (
 
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
-	MultipoolerCount                    int
-	MultiOrchCount                      int
-	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
-	EnableMultigatewayTLS               bool // Enable TLS for multigateway PostgreSQL listener
-	Database                            string
-	TableGroup                          string
-	Shard                               string
-	CellName                            string
-	DurabilityPolicy                    string   // Durability policy (e.g., "AT_LEAST_2")
-	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
-	DeferMultipoolerStart               bool     // Start pgctld only; test starts multipooler itself
-	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
-	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
-	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
-	S3BackupRegion                      string   // S3 region
-	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
-	EnableMultigatewayReplicaPort       bool     // Enable replica-reads port on multigateway
-	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
-	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
-	EnableMetricsExport                 bool     // Enable Prometheus metrics export on all services
-	LogLevel                            string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
-	InitDbSQLFiles                      []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	MultipoolerCount                   int
+	MultiOrchCount                     int
+	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
+	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
+	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
+	Database                           string
+	TableGroup                         string
+	Shard                              string
+	CellName                           string
+	DurabilityPolicy                   string   // Durability policy (e.g., "AT_LEAST_2")
+	SkipInitialization                 bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	DeferMultipoolerStart              bool     // Start pgctld only; test starts multipooler itself
+	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (default: "0s" for tests)
+	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
+	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
+	S3BackupRegion                     string   // S3 region
+	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
+	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
+	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
+	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
+	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 }
 
 // SetupOption is a function that configures setup creation.
@@ -164,13 +165,39 @@ func WithMultigatewayTLS() SetupOption {
 	}
 }
 
-// WithPrimaryFailoverGracePeriod sets the grace period configuration for primary failover.
+// WithMultigatewayRequireSSL enables TLS for the multigateway PostgreSQL
+// listener AND sets --pg-require-ssl=true, so plaintext StartupMessage is
+// rejected. Implies WithMultigatewayTLS(). Exercises the hostssl-equivalent
+// posture end-to-end.
+func WithMultigatewayRequireSSL() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayTLS = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, "--pg-require-ssl=true")
+	}
+}
+
+// WithMultipoolerPGTLS provisions postgres with TLS via pgctld's
+// --pg-initdb-extra-conf hook and configures every multipooler in the setup to
+// dial postgres over TCP with sslmode=verify-full and the matching CA bundle.
+// Used to exercise the multipooler → postgres TLS path end-to-end (MUL-370).
+//
+// Switching the multipooler from Unix socket to TCP is necessary because
+// libpq (and the pgprotocol/client mirror used here) skips the SSLRequest
+// negotiation entirely on socket dials.
+func WithMultipoolerPGTLS() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultipoolerPGTLS = true
+	}
+}
+
+// WithLeaderFailoverGracePeriod sets the grace period configuration for leader failover.
 // Default is "0s" for both base and maxJitter to make tests run fast.
 // Use this to test grace period behavior explicitly.
-func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
+func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
-		c.PrimaryFailoverGracePeriodBase = base
-		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter
+		c.LeaderFailoverGracePeriodBase = base
+		c.LeaderFailoverGracePeriodMaxJitter = maxJitter
 	}
 }
 
@@ -233,13 +260,13 @@ func WithMetricsExport() SetupOption {
 	}
 }
 
-// WithInitDbSQLFiles forwards the given SQL file paths to every pgctld in the
-// shard via --init-db-sql-file. pgctld runs each file against the target
+// WithInitdbSQLFiles forwards the given SQL file paths to every pgctld in the
+// shard via --pg-initdb-sql-files. pgctld runs each file against the target
 // database after initdb completes (during the InitDataDir RPC triggered by
 // shard bootstrap). Files run in the order provided.
-func WithInitDbSQLFiles(files ...string) SetupOption {
+func WithInitdbSQLFiles(files ...string) SetupOption {
 	return func(c *SetupConfig) {
-		c.InitDbSQLFiles = files
+		c.InitdbSQLFiles = files
 	}
 }
 
@@ -469,6 +496,13 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		BackupLocation:     backupLocation,
 	}
 
+	// Provision postgres-side TLS assets up front so every pgctld + multipooler
+	// shares the same CA / server cert. Done before the per-pooler loop so the
+	// snippet path is available when wiring each ProcessInstance.
+	if config.EnableMultipoolerPGTLS {
+		setup.generateMultipoolerPGTLSAssets(t)
+	}
+
 	// Create all multipooler instances (but don't start yet)
 	var multipoolerInstances []*MultipoolerInstance
 	for i := 0; i < config.MultipoolerCount; i++ {
@@ -478,6 +512,22 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		if config.EnableMultipoolerPGTLS {
+			paths := setup.MultipoolerPGTLSCertPaths
+			// Append SSL config to postgresql.conf at init time.
+			inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths.ExtraConfFile)
+			// Use a permissive pg_hba template that trusts 127.0.0.1 over TLS so
+			// the multipooler's per-user pools (which dial password="" without
+			// SCRAM passthrough plumbing) can authenticate over the encrypted
+			// channel.
+			inst.Pgctld.PgHbaTemplate = paths.HbaTemplateFile
+			// Switch the multipooler off Unix socket onto TCP so SSLRequest is
+			// actually exchanged, and point it at the same CA the postgres
+			// server cert was issued from.
+			inst.Multipooler.SocketFile = ""
+			inst.Multipooler.PgClientSSLMode = "verify-full"
+			inst.Multipooler.PgClientSSLRootCert = paths.CACertFile
+		}
 
 		// Configure Prometheus metrics export on multipooler if enabled.
 		if config.EnableMetricsExport {
@@ -490,7 +540,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		}
 
 		inst.Multipooler.LogLevel = config.LogLevel
-		inst.Pgctld.InitDbSQLFiles = config.InitDbSQLFiles
+		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -1925,9 +1975,11 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 		// Query shard status for the default shard
 		// TODO: Handle multiple shards if needed
 		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
-			Database:   "postgres",
-			TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
-			Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "postgres",
+				TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
+				Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
+			},
 		})
 		if err != nil {
 			t.Logf("%s: multiorch %s: RPC failed: %v", label, name, err)

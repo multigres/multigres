@@ -37,7 +37,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "Transaction",
-			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "default", nil),
+			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "default", nil),
 			want:      engine.PlanTypeTransaction,
 		},
 		{
@@ -52,7 +52,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "GatewaySessionState",
-			primitive: engine.NewStatementTimeoutSet("SET statement_timeout = '5s'", 5*time.Second),
+			primitive: engine.NewStatementTimeoutSet("SET statement_timeout = '5s'", 5*time.Second, false),
 			want:      engine.PlanTypeGatewaySessionState,
 		},
 		{

@@ -343,7 +343,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 		},
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithPrimaryFailoverGracePeriod("0s", "0s"),
+		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
 	setup.StartMultiOrchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)

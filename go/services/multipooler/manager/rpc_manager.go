@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -323,7 +324,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	// Get cohort members from the current rule (best-effort).
 	if pos, err := pm.rules.observePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
-	} else if pos != nil && pos.Rule != nil {
+	} else if pos.Rule != nil {
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
 	}
 
@@ -476,6 +477,25 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		"reload_config", reloadConfig)
 
 	return nil
+}
+
+// applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
+// GUCs without the primary guardrail or rule-history write. Safe to call on a standby
+// (e.g., before pg_promote) so the promoted primary inherits the correct config.
+// The caller must hold the action lock.
+func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
+	ctx context.Context,
+	cfg *commonconsensus.LeaderDurabilityPostgresConfig,
+) error {
+	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
+	if err != nil {
+		return err
+	}
+	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
+		return err
+	}
+	return pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
+	// TODO: Somehow make sure the GUC change has actually propagated
 }
 
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
@@ -920,7 +940,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
-		if err := pm.setResignedPrimaryAtTerm(ctx, primaryTerm); err != nil {
+		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 		// Broadcast immediately so multiorch sees leadership_status.REQUESTING_DEMOTION
@@ -936,7 +956,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	pm.healthStreamer.UpdatePrimaryObservation(nil)
+	pm.healthStreamer.UpdateLeaderObservation(nil)
 
 	// Suppress the postgres monitor until a rewind completes; the monitor would
 	// otherwise restart postgres on this demoted node.
@@ -1078,9 +1098,9 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Report the new primary (source) so the gateway can use this observation.
-	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-		PrimaryID:   source.Id,
-		PrimaryTerm: consensusTerm,
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   source.Id,
+		LeaderTerm: consensusTerm,
 	})
 
 	// Update consensus term to match the correct primary's term after successful demotion
@@ -1202,13 +1222,13 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// explicitly re-promoted us at a new term. A higher primary_term implicitly
 	// invalidates the old signal, but clearing eagerly avoids a window where
 	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
-	if err := pm.clearResignedPrimaryAtTerm(ctx); err != nil {
+	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
 	}
 
-	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-		PrimaryID:   pm.serviceID,
-		PrimaryTerm: consensusTerm,
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   pm.serviceID,
+		LeaderTerm: consensusTerm,
 	})
 
 	// Write rule history record - this validates that sync replication is working.

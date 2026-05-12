@@ -205,6 +205,37 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 		}
 	})
 
+	// Regression for the simple-protocol shape `SELECT set_config(...), <literal>`.
+	// The normalizer skips inside set_config but still parameterizes the
+	// sibling literal, and the planner emits a Sequence whose trailing Route
+	// reconstructs the SQL from bindVars. If Sequence.StreamExecute drops
+	// bindVars on its way to children, Route ships the normalized `$N`
+	// placeholder to PG and the backend errors with "there is no parameter
+	// $1". Verify both the row data the client sees and the tracker update
+	// for the set_config side effect.
+	t.Run("SELECT set_config alongside sibling literal", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err)
+
+		var setConfigVal string
+		var num int
+		err = db.QueryRowContext(ctx,
+			"SELECT set_config('work_mem', '256MB', false), 42 AS num").
+			Scan(&setConfigVal, &num)
+		require.NoError(t, err, "sibling literal alongside set_config must not break SQL reconstruction")
+		assert.Equal(t, "256MB", setConfigVal)
+		assert.Equal(t, 42, num)
+
+		// Tracker must still reflect the set_config so the value persists
+		// across pool rotations.
+		for i := range 50 {
+			var got string
+			err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&got)
+			require.NoError(t, err, "iteration %d", i)
+			require.Equal(t, "256MB", got, "iteration %d", i)
+		}
+	})
+
 	// set_config(..., true) — transaction-scoped — is allowed but NOT tracked
 	// by the pooler (it's scoped to the backend transaction, so the pool
 	// shouldn't carry it forward). PG handles it directly.

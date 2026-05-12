@@ -58,14 +58,31 @@ type Config struct {
 	// Password is the user's password (optional for trust auth).
 	Password string
 
+	// ScramClientKey and ScramServerKey enable SCRAM-SHA-256 passthrough
+	// authentication. When both are set, the client uses them to produce a
+	// valid SCRAM proof without knowing the plaintext password. Both must
+	// be 32 bytes (HMAC-SHA-256 output). If set, they take precedence over
+	// Password when the server requests SASL. Leave nil for the standard
+	// password-based path.
+	ScramClientKey []byte
+	ScramServerKey []byte
+
 	// Database is the database name to connect to.
 	Database string
 
 	// Parameters are additional connection parameters.
 	Parameters map[string]string
 
+	// SSLMode controls libpq-style sslmode behavior on TCP connections.
+	// Empty string is treated as SSLModeDisable; only consulted when SocketFile
+	// is unset. The dial path uses this together with TLSConfig to decide
+	// whether to send SSLRequest, whether to fall back to plaintext on refusal,
+	// and which verification rules apply.
+	SSLMode SSLMode
+
 	// TLSConfig is the TLS configuration for SSL connections.
-	// Only used for TCP connections. If nil, SSL is not used.
+	// Only used for TCP connections. Pair with SSLMode; for prefer/require/
+	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.
 	TLSConfig *tls.Config
 
 	// DialTimeout is the timeout for establishing the connection.
@@ -84,8 +101,27 @@ type Conn struct {
 	// bufferedWriter is used for writing to the connection.
 	bufferedWriter *bufio.Writer
 
-	// bufmu protects bufferedReader and bufferedWriter during concurrent access.
-	bufmu sync.Mutex
+	// bufMu serializes the multi-step request/response sequences that
+	// write through bufferedWriter and read from bufferedReader. The
+	// client side is single-owner, so this is about ensuring whole
+	// extended-protocol pipelines (Parse+Bind+Describe+Execute+Sync)
+	// land contiguously rather than guarding against concurrent I/O.
+	bufMu sync.Mutex
+
+	// outboundPoolBuf holds the package-level bufpool buffer that
+	// startPacket grabbed for an oversize (slow-path) packet. Non-nil
+	// only between startPacket and writePacket, and only on the slow
+	// path. writePacket returns it to the pool. Protected by the
+	// caller-held bufMu.
+	//
+	// Stored as the original *[]byte the pool returned (rather than
+	// taking &buf inside writePacket) because passing the address of a
+	// stack-local slice to bufPool.Put would force the slice header to
+	// escape to the heap on every call, even when the slow path
+	// doesn't fire — sync.Pool retains its arguments. Going through
+	// this field, which already points at heap memory the pool owns,
+	// avoids that escape.
+	outboundPoolBuf *[]byte
 
 	// config is the connection configuration.
 	config *Config
@@ -223,6 +259,12 @@ func (c *Conn) Close() error {
 	_ = c.writeTerminate()
 	_ = c.flush()
 
+	// Defensive cleanup: if a writer panicked between startPacket and
+	// writePacket, the slow-path pool buffer is still stashed on the
+	// Conn (writePacket's defer never fired). Close runs after
+	// concurrent access has stopped, so an unlocked Put is safe.
+	c.returnOutboundBuffer()
+
 	return c.conn.Close()
 }
 
@@ -317,59 +359,42 @@ func (c *Conn) flush() error {
 // The data should already be appropriately sized by upstream layers
 // (client chunking, gRPC message limits, protocol reading).
 func (c *Conn) WriteCopyData(data []byte) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
-	// Write message: 'd' + length (4 bytes) + data
-	msgLen := 4 + len(data)
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyData); err != nil {
-		return fmt.Errorf("failed to write CopyData type: %w", err)
+	buf, pos := c.startPacket(protocol.MsgCopyData, len(data))
+	pos = writeBytesAt(buf, pos, data)
+	if err := c.writePacket(buf, pos); err != nil {
+		return fmt.Errorf("failed to write CopyData: %w", err)
 	}
-	if err := c.writeUint32(uint32(msgLen)); err != nil {
-		return fmt.Errorf("failed to write CopyData length: %w", err)
-	}
-	if _, err := c.bufferedWriter.Write(data); err != nil {
-		return fmt.Errorf("failed to write CopyData body: %w", err)
-	}
-
 	return c.flush()
 }
 
 // WriteCopyDone sends a CopyDone ('c') message to PostgreSQL
 // This signals that all COPY data has been sent
 func (c *Conn) WriteCopyDone() error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyDone); err != nil {
-		return fmt.Errorf("failed to write CopyDone type: %w", err)
+	buf, pos := c.startPacket(protocol.MsgCopyDone, 0)
+	if err := c.writePacket(buf, pos); err != nil {
+		return fmt.Errorf("failed to write CopyDone: %w", err)
 	}
-	if err := c.writeUint32(4); err != nil { // Length only (no body)
-		return fmt.Errorf("failed to write CopyDone length: %w", err)
-	}
-
 	return c.flush()
 }
 
 // WriteCopyFail sends a CopyFail ('f') message to PostgreSQL
 // This aborts the COPY operation with the given error message
 func (c *Conn) WriteCopyFail(errorMsg string) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
-	msgBytes := append([]byte(errorMsg), 0) // Null-terminated
-	msgLen := 4 + len(msgBytes)
-
-	if err := c.bufferedWriter.WriteByte(protocol.MsgCopyFail); err != nil {
-		return fmt.Errorf("failed to write CopyFail type: %w", err)
+	bodyLen := len(errorMsg) + 1 // null terminator
+	buf, pos := c.startPacket(protocol.MsgCopyFail, bodyLen)
+	pos = writeStringAt(buf, pos, errorMsg)
+	if err := c.writePacket(buf, pos); err != nil {
+		return fmt.Errorf("failed to write CopyFail: %w", err)
 	}
-	if err := c.writeUint32(uint32(msgLen)); err != nil {
-		return fmt.Errorf("failed to write CopyFail length: %w", err)
-	}
-	if _, err := c.bufferedWriter.Write(msgBytes); err != nil {
-		return fmt.Errorf("failed to write CopyFail body: %w", err)
-	}
-
 	return c.flush()
 }
 
@@ -378,8 +403,8 @@ func (c *Conn) WriteCopyFail(errorMsg string) error {
 // Note: In simple query protocol, PostgreSQL sends CommandComplete followed by ReadyForQuery
 // We need to consume both messages to clear the buffer
 func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	var commandTag string
 	var rowsAffected uint64
@@ -452,8 +477,8 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 // as the expected (normal) response and continues reading until ReadyForQuery,
 // leaving the connection in a clean protocol state.
 func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	gotError := false
 
@@ -498,8 +523,8 @@ func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
 // This message is sent in response to a COPY FROM STDIN command
 // Returns the overall format and per-column formats
 func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {
@@ -547,13 +572,11 @@ func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err er
 // This is a special operation that doesn't follow the normal query flow.
 // Returns the COPY format and column formats from the CopyInResponse.
 func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
-	// Send the COPY query
-	w := NewMessageWriter()
-	w.WriteString(copyQuery)
-	if err := c.writeMessage(protocol.MsgQuery, w.Bytes()); err != nil {
+	// Send the COPY query (simple-protocol Q message + flush).
+	if err := c.writeQueryMessage(copyQuery); err != nil {
 		return 0, nil, fmt.Errorf("failed to send COPY query: %w", err)
 	}
 
@@ -639,8 +662,8 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 // This message is sent in response to a COPY TO STDOUT command
 // Returns the overall format and per-column formats
 func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {
@@ -688,8 +711,8 @@ func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err e
 // This is used during COPY TO STDOUT to receive data rows.
 // Returns the data bytes, or io.EOF when CopyDone is received to signal end of stream.
 func (c *Conn) ReadCopyData() ([]byte, error) {
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	msgType, err := c.readMessageType()
 	if err != nil {

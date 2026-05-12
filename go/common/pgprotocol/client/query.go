@@ -168,8 +168,8 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 	ctx, span := telemetry.Tracer().Start(ctx, opName+" postgresql", attrs...)
 	defer span.End()
 
-	c.bufmu.Lock()
-	defer c.bufmu.Unlock()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
 
 	// Send the Query message.
 	if err := c.writeQueryMessage(queryStr); err != nil {
@@ -189,9 +189,13 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 
 // writeQueryMessage writes a 'Q' (Query) message.
 func (c *Conn) writeQueryMessage(queryStr string) error {
-	w := NewMessageWriter()
-	w.WriteString(queryStr)
-	return c.writeMessage(protocol.MsgQuery, w.Bytes())
+	bodyLen := len(queryStr) + 1 // null terminator
+	buf, pos := c.startPacket(protocol.MsgQuery, bodyLen)
+	pos = writeStringAt(buf, pos, queryStr)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	return c.flush()
 }
 
 // processQueryResponses processes all responses to a query until ReadyForQuery.

@@ -24,7 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -42,11 +41,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "test-coord",
 	}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default(), false)
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &ShardNeedsInitializationAnalyzer{factory: factory}
-	shardKey := commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	policy := topoclient.AtLeastN(2)
 
 	initialized := func(name string) *PoolerAnalysis {
@@ -105,7 +104,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
 		withCohortAndPrimary := initialized("pooler-1")
-		withCohortAndPrimary.IsPrimary = true
+		withCohortAndPrimary.IsLeader = true
 		withCohortAndPrimary.CohortMembers = []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-1"},
 		}

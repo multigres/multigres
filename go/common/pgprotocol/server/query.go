@@ -15,7 +15,6 @@
 package server
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -33,34 +32,29 @@ import (
 //   - Length: int32 (includes length field itself)
 //   - Query string: null-terminated string
 func (c *Conn) readQueryMessage() (string, error) {
-	// Read the message length (includes itself, 4 bytes).
-	var length int32
-	if err := binary.Read(c.bufferedReader, binary.BigEndian, &length); err != nil {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
 		return "", fmt.Errorf("reading query length: %w", err)
 	}
-
-	// Validate length (must be at least 4 for the length field + 1 for null terminator).
-	if length < 5 {
-		return "", fmt.Errorf("invalid query message length: %d", length)
+	if bodyLen < 1 {
+		return "", fmt.Errorf("invalid query message length: %d", bodyLen+4)
 	}
 
-	// Calculate body size (length - 4 bytes for length field).
-	bodySize := length - 4
-
-	// Read the query string.
-	queryBytes := make([]byte, bodySize)
-	if _, err := io.ReadFull(c.bufferedReader, queryBytes); err != nil {
+	queryBytes, err := c.readMessageBody(bodyLen)
+	if err != nil {
 		return "", fmt.Errorf("reading query body: %w", err)
 	}
+	defer c.returnReadBuffer()
 
 	// Verify null terminator.
 	if queryBytes[len(queryBytes)-1] != 0 {
 		return "", errors.New("query string missing null terminator")
 	}
 
-	// Convert to string (excluding null terminator).
-	queryStr := string(queryBytes[:len(queryBytes)-1])
-	return queryStr, nil
+	// Convert to string (excluding null terminator). The string()
+	// conversion copies, so the body buffer can safely be returned
+	// to the pool by the deferred returnReadBuffer.
+	return string(queryBytes[:len(queryBytes)-1]), nil
 }
 
 // writeParameterDescription writes a 't' (ParameterDescription) message.
@@ -71,34 +65,13 @@ func (c *Conn) readQueryMessage() (string, error) {
 //   - For each parameter:
 //   - Type OID: int32
 func (c *Conn) writeParameterDescription(params []*query.ParameterDescription) error {
-	// Calculate message size: length + param count + (param count * 4 bytes per OID).
-	size := 4 + 2 + (len(params) * 4)
-
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgParameterDescription); err != nil {
-		return err
-	}
-
-	// Write message length.
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write parameter count.
-	if err := writeInt16(w, int16(len(params))); err != nil {
-		return err
-	}
-
-	// Write each parameter OID.
+	bodyLen := 2 + 4*len(params)
+	buf, pos := c.startPacket(protocol.MsgParameterDescription, bodyLen)
+	pos = writeInt16At(buf, pos, int16(len(params)))
 	for _, param := range params {
-		if err := writeInt32(w, int32(param.DataTypeOid)); err != nil {
-			return err
-		}
+		pos = writeInt32At(buf, pos, int32(param.DataTypeOid))
 	}
-
-	return nil
+	return c.writePacket(buf, pos)
 }
 
 // writeRowDescription writes a 'T' (RowDescription) message.
@@ -115,74 +88,24 @@ func (c *Conn) writeParameterDescription(params []*query.ParameterDescription) e
 //   - Type modifier: int32
 //   - Format code: int16 (0=text, 1=binary)
 func (c *Conn) writeRowDescription(fields []*query.Field) error {
-	// Calculate message size.
-	size := 4 + 2 // length + field count
+	bodyLen := 2 // field count
 	for _, field := range fields {
-		size += len(field.Name) + 1 // name + null terminator
-		size += 4                   // table OID
-		size += 2                   // column number
-		size += 4                   // type OID
-		size += 2                   // type size
-		size += 4                   // type modifier
-		size += 2                   // format code
+		bodyLen += len(field.Name) + 1 // name + null terminator
+		bodyLen += 4 + 2 + 4 + 2 + 4 + 2
 	}
 
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgRowDescription); err != nil {
-		return err
-	}
-
-	// Write message length.
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write field count.
-	if err := writeInt16(w, int16(len(fields))); err != nil {
-		return err
-	}
-
-	// Write each field.
+	buf, pos := c.startPacket(protocol.MsgRowDescription, bodyLen)
+	pos = writeInt16At(buf, pos, int16(len(fields)))
 	for _, field := range fields {
-		// Field name (null-terminated).
-		if err := writeString(w, field.Name); err != nil {
-			return err
-		}
-
-		// Table OID.
-		if err := writeInt32(w, int32(field.TableOid)); err != nil {
-			return err
-		}
-
-		// Column number (attribute number).
-		if err := writeInt16(w, int16(field.TableAttributeNumber)); err != nil {
-			return err
-		}
-
-		// Type OID.
-		if err := writeInt32(w, int32(field.DataTypeOid)); err != nil {
-			return err
-		}
-
-		// Type size.
-		if err := writeInt16(w, int16(field.DataTypeSize)); err != nil {
-			return err
-		}
-
-		// Type modifier.
-		if err := writeInt32(w, field.TypeModifier); err != nil {
-			return err
-		}
-
-		// Format code.
-		if err := writeInt16(w, int16(field.Format)); err != nil {
-			return err
-		}
+		pos = writeStringAt(buf, pos, field.Name)
+		pos = writeInt32At(buf, pos, int32(field.TableOid))
+		pos = writeInt16At(buf, pos, int16(field.TableAttributeNumber))
+		pos = writeInt32At(buf, pos, int32(field.DataTypeOid))
+		pos = writeInt16At(buf, pos, int16(field.DataTypeSize))
+		pos = writeInt32At(buf, pos, field.TypeModifier)
+		pos = writeInt16At(buf, pos, int16(field.Format))
 	}
-
-	return nil
+	return c.writePacket(buf, pos)
 }
 
 // writeDataRow writes a 'D' (DataRow) message.
@@ -194,51 +117,25 @@ func (c *Conn) writeRowDescription(fields []*query.Field) error {
 //   - Value length: int32 (-1 for NULL)
 //   - Value bytes: []byte (if not NULL)
 func (c *Conn) writeDataRow(row *sqltypes.Row) error {
-	// Calculate message size.
-	size := 4 + 2 // length + column count
+	bodyLen := 2 // column count
 	for _, value := range row.Values {
-		size += 4 // value length
+		bodyLen += 4
 		if value != nil {
-			size += len(value)
+			bodyLen += len(value)
 		}
 	}
 
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgDataRow); err != nil {
-		return err
-	}
-
-	// Write message length.
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write column count.
-	if err := writeInt16(w, int16(len(row.Values))); err != nil {
-		return err
-	}
-
-	// Write each column value.
+	buf, pos := c.startPacket(protocol.MsgDataRow, bodyLen)
+	pos = writeInt16At(buf, pos, int16(len(row.Values)))
 	for _, value := range row.Values {
 		if value == nil {
-			// NULL value.
-			if err := writeInt32(w, -1); err != nil {
-				return err
-			}
+			pos = writeInt32At(buf, pos, -1)
 		} else {
-			// Non-NULL value.
-			if err := writeInt32(w, int32(len(value))); err != nil {
-				return err
-			}
-			if _, err := w.Write(value); err != nil {
-				return fmt.Errorf("writing data row value: %w", err)
-			}
+			pos = writeInt32At(buf, pos, int32(len(value)))
+			pos = writeBytesAt(buf, pos, value)
 		}
 	}
-
-	return nil
+	return c.writePacket(buf, pos)
 }
 
 // writeCommandComplete writes a 'C' (CommandComplete) message.
@@ -247,27 +144,9 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 //   - Length: int32
 //   - Command tag: null-terminated string (e.g., "SELECT 5", "INSERT 0 1")
 func (c *Conn) writeCommandComplete(tag string) error {
-	// Calculate message size: length + tag + null terminator.
-	size := 4 + len(tag) + 1
-
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgCommandComplete); err != nil {
-		return err
-	}
-
-	// Write message length.
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write command tag (null-terminated).
-	if err := writeString(w, tag); err != nil {
-		return err
-	}
-
-	return nil
+	buf, pos := c.startPacket(protocol.MsgCommandComplete, len(tag)+1)
+	pos = writeStringAt(buf, pos, tag)
+	return c.writePacket(buf, pos)
 }
 
 // writeReadyForQuery writes a 'Z' (ReadyForQuery) message.
@@ -276,24 +155,9 @@ func (c *Conn) writeCommandComplete(tag string) error {
 //   - Length: int32 (always 5)
 //   - Transaction status: byte ('I', 'T', or 'E')
 func (c *Conn) writeReadyForQuery() error {
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgReadyForQuery); err != nil {
-		return err
-	}
-
-	// Write message length (always 5: 4 for length + 1 for status).
-	if err := writeInt32(w, 5); err != nil {
-		return err
-	}
-
-	// Write transaction status.
-	if err := writeByte(w, byte(c.txnStatus)); err != nil {
-		return err
-	}
-
-	return nil
+	buf, pos := c.startPacket(protocol.MsgReadyForQuery, 1)
+	pos = writeByteAt(buf, pos, byte(c.txnStatus))
+	return c.writePacket(buf, pos)
 }
 
 // writeEmptyQueryResponse writes an 'I' (EmptyQueryResponse) message.
@@ -302,19 +166,8 @@ func (c *Conn) writeReadyForQuery() error {
 //   - Type: 'I'
 //   - Length: int32 (always 4)
 func (c *Conn) writeEmptyQueryResponse() error {
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, protocol.MsgEmptyQueryResponse); err != nil {
-		return err
-	}
-
-	// Write message length (always 4: just the length field itself).
-	if err := writeInt32(w, 4); err != nil {
-		return err
-	}
-
-	return nil
+	buf, pos := c.startPacket(protocol.MsgEmptyQueryResponse, 0)
+	return c.writePacket(buf, pos)
 }
 
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
@@ -392,104 +245,61 @@ func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *mterrors.PgDiagnost
 }
 
 // writeErrorOrNotice writes an error or notice message with the given fields.
+//
+// PostgreSQL field order (S, V, C, M, D, H, P, p, q, W, s, t, c, d, n, F, L, R)
+// is preserved across the bodyLen pre-pass and the in-place encoding so the
+// buffer is sized to exactly the bytes encoded.
+var diagFieldOrder = [...]byte{
+	protocol.FieldSeverity,
+	protocol.FieldSeverityV,
+	protocol.FieldCode,
+	protocol.FieldMessage,
+	protocol.FieldDetail,
+	protocol.FieldHint,
+	protocol.FieldPosition,
+	protocol.FieldInternalPosition,
+	protocol.FieldInternalQuery,
+	protocol.FieldWhere,
+	protocol.FieldSchema,
+	protocol.FieldTable,
+	protocol.FieldColumn,
+	protocol.FieldDataType,
+	protocol.FieldConstraint,
+	protocol.FieldFile,
+	protocol.FieldLine,
+	protocol.FieldRoutine,
+}
+
 func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
-	// Calculate message size.
-	size := 4 + 1 // length + terminator
-	for _, value := range fields {
-		size += 1              // field type
-		size += len(value) + 1 // value + null terminator
-	}
-
-	w := c.getWriter()
-
-	// Write message type.
-	if err := writeByte(w, msgType); err != nil {
-		return err
-	}
-
-	// Write message length.
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write fields in a defined order for consistency.
-	// Order follows PostgreSQL convention: S, V, C, M, D, H, P, p, q, W, s, t, c, d, n, F, L, R
-	fieldOrder := []byte{
-		protocol.FieldSeverity,
-		protocol.FieldSeverityV,
-		protocol.FieldCode,
-		protocol.FieldMessage,
-		protocol.FieldDetail,
-		protocol.FieldHint,
-		protocol.FieldPosition,
-		protocol.FieldInternalPosition,
-		protocol.FieldInternalQuery,
-		protocol.FieldWhere,
-		protocol.FieldSchema,
-		protocol.FieldTable,
-		protocol.FieldColumn,
-		protocol.FieldDataType,
-		protocol.FieldConstraint,
-		protocol.FieldFile,
-		protocol.FieldLine,
-		protocol.FieldRoutine,
-	}
-
-	for _, fieldType := range fieldOrder {
+	bodyLen := 1 // trailing null terminator
+	for _, fieldType := range diagFieldOrder {
 		if value, ok := fields[fieldType]; ok {
-			if err := writeByte(w, fieldType); err != nil {
-				return err
-			}
-			if err := writeString(w, value); err != nil {
-				return err
-			}
+			bodyLen += 1 + len(value) + 1 // type + value + null
 		}
 	}
 
-	// Write terminator.
-	if err := writeByte(w, 0); err != nil {
-		return err
+	buf, pos := c.startPacket(msgType, bodyLen)
+	for _, fieldType := range diagFieldOrder {
+		if value, ok := fields[fieldType]; ok {
+			pos = writeByteAt(buf, pos, fieldType)
+			pos = writeStringAt(buf, pos, value)
+		}
 	}
-
-	return nil
+	pos = writeByteAt(buf, pos, 0)
+	return c.writePacket(buf, pos)
 }
 
 // WriteCopyInResponse writes a CopyInResponse ('G') message to the client
 // This tells the client that the server is ready to receive COPY data
 func (c *Conn) WriteCopyInResponse(format int16, columnFormats []int16) error {
-	// Calculate message size: 4 (length) + 1 (format as Int8) + 2 (num columns) + 2*numCols (column formats)
-	size := 4 + 1 + 2 + (2 * len(columnFormats))
-
-	w := c.getWriter()
-
-	// Write message type
-	if err := writeByte(w, protocol.MsgCopyInResponse); err != nil {
-		return err
-	}
-
-	// Write message length
-	if err := writeInt32(w, int32(size)); err != nil {
-		return err
-	}
-
-	// Write overall format as Int8 (1 byte) - 0=text, 1=binary
-	if err := writeByte(w, byte(format)); err != nil {
-		return err
-	}
-
-	// Write number of columns (Int16, 2 bytes)
-	if err := writeInt16(w, int16(len(columnFormats))); err != nil {
-		return err
-	}
-
-	// Write format code for each column (Int16 each)
+	bodyLen := 1 + 2 + 2*len(columnFormats)
+	buf, pos := c.startPacket(protocol.MsgCopyInResponse, bodyLen)
+	pos = writeByteAt(buf, pos, byte(format))
+	pos = writeInt16At(buf, pos, int16(len(columnFormats)))
 	for _, fmt := range columnFormats {
-		if err := writeInt16(w, fmt); err != nil {
-			return err
-		}
+		pos = writeInt16At(buf, pos, fmt)
 	}
-
-	return nil
+	return c.writePacket(buf, pos)
 }
 
 // ReadCopyDataMessage reads a CopyData ('d') message body
@@ -540,43 +350,4 @@ func (c *Conn) ReadCopyFailMessage(length int) (string, error) {
 	}
 
 	return string(data), nil
-}
-
-// Helper functions for writing protocol data types.
-
-func writeByte(w io.Writer, b byte) error {
-	_, err := w.Write([]byte{b})
-	if err != nil {
-		return fmt.Errorf("writing byte: %w", err)
-	}
-	return nil
-}
-
-func writeInt16(w io.Writer, n int16) error {
-	var buf [2]byte
-	binary.BigEndian.PutUint16(buf[:], uint16(n))
-	if _, err := w.Write(buf[:]); err != nil {
-		return fmt.Errorf("writing int16: %w", err)
-	}
-	return nil
-}
-
-func writeInt32(w io.Writer, n int32) error {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], uint32(n))
-	if _, err := w.Write(buf[:]); err != nil {
-		return fmt.Errorf("writing int32: %w", err)
-	}
-	return nil
-}
-
-func writeString(w io.Writer, s string) error {
-	if _, err := w.Write([]byte(s)); err != nil {
-		return fmt.Errorf("writing string: %w", err)
-	}
-	// Write null terminator.
-	if err := writeByte(w, 0); err != nil {
-		return err
-	}
-	return nil
 }

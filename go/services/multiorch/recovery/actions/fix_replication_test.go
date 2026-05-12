@@ -25,7 +25,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -46,11 +45,11 @@ func TestFixReplicationAction_Metadata(t *testing.T) {
 	assert.Equal(t, 45*time.Second, metadata.Timeout)
 }
 
-func TestFixReplicationAction_RequiresHealthyPrimary(t *testing.T) {
+func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
 	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
 
 	// FixReplication requires a healthy primary to configure replication
-	assert.True(t, action.RequiresHealthyPrimary())
+	assert.True(t, action.RequiresHealthyLeader())
 }
 
 func TestFixReplicationAction_Priority(t *testing.T) {
@@ -71,7 +70,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -117,7 +116,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -192,7 +191,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaLagging, // Not yet supported
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -284,7 +283,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -374,7 +373,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -582,7 +581,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
+		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",

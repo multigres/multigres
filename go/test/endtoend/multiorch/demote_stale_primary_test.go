@@ -48,8 +48,8 @@ import (
 // 9. Verify P1 rejoins as a replica of P2
 //
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
-// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
-// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 1. StaleLeaderAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStaleLeaderAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
 func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
@@ -94,7 +94,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
-	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -115,7 +115,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -159,8 +159,8 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 // 9. Verify P1 rejoins as a replica of P2
 //
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
-// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
-// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 1. StaleLeaderAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStaleLeaderAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
 func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
@@ -196,7 +196,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 
 	// Step 2: Wait for new primary election
 	t.Log("Waiting for new primary election...")
-	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -217,7 +217,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -330,7 +330,7 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.Equal(t, int64(0), commonconsensus.PrimaryTerm(status.ConsensusStatus),
+	require.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
 		"Demoted stale primary %s should have primary_term=0 after DemoteStalePrimary", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }

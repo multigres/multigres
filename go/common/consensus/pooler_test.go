@@ -22,15 +22,15 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-func TestIsPrimary(t *testing.T) {
+func TestIsLeader(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
 	}
-	statusWithRule := func(self, primary *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
+	statusWithRule := func(self, leader *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{
 			Id: self,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{PrimaryId: primary},
+				Rule: &clustermetadatapb.ShardRule{LeaderId: leader},
 			},
 		}
 	}
@@ -64,12 +64,12 @@ func TestIsPrimary(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "nil primary_id",
+			name: "nil leader_id",
 			cs:   statusWithRule(id("zone1", "pooler-1"), nil),
 			want: false,
 		},
 		{
-			name: "self matches primary",
+			name: "self matches leader",
 			cs:   statusWithRule(id("zone1", "pooler-1"), id("zone1", "pooler-1")),
 			want: true,
 		},
@@ -87,7 +87,69 @@ func TestIsPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsPrimary(tt.cs))
+			assert.Equal(t, tt.want, IsLeader(tt.cs))
+		})
+	}
+}
+
+func TestLeaderTerm(t *testing.T) {
+	id := func(cell, name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{Cell: cell, Name: name}
+	}
+
+	tests := []struct {
+		name string
+		cs   *clustermetadatapb.ConsensusStatus
+		want int64
+	}{
+		{
+			name: "nil status",
+			cs:   nil,
+			want: 0,
+		},
+		{
+			name: "not leader",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("zone1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						LeaderId:   id("zone1", "pooler-2"),
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+					},
+				},
+			},
+			want: 0,
+		},
+		{
+			name: "is leader with term",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("zone1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						LeaderId:   id("zone1", "pooler-1"),
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+					},
+				},
+			},
+			want: 7,
+		},
+		{
+			name: "is leader with no rule number",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: id("zone1", "pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						LeaderId: id("zone1", "pooler-1"),
+					},
+				},
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, LeaderTerm(tt.cs))
 		})
 	}
 }

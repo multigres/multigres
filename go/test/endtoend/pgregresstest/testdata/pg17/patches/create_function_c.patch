@@ -4,7 +4,7 @@
  -- is checked in many other test scripts.)
  --
  LOAD :'regresslib';
-+ERROR:  LOAD is not supported: loading shared libraries is not permitted through the connection pooler
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
  -- Things that shouldn't work:
  CREATE FUNCTION test1 (int) RETURNS int LANGUAGE C
-     AS 'nosuchfile';
+ AS 'nosuchfile';

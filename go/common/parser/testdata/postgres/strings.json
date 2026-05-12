@@ -7,7 +7,7 @@
   {
     "comment": "strings - Statement 2",
     "query": "SELECT 'first line' ' - next line' /* this comment is not allowed here */ ' - third line' AS \"Illegal comment within continuation\"",
-    "error": "parse error at position 36: syntax error"
+    "error": "parse error at position 34: syntax error"
   },
   {
     "comment": "strings - Statement 3",
@@ -62,32 +62,32 @@
   {
     "comment": "strings - Statement 13",
     "query": "SELECT U\u0026'wrong: \\db99'",
-    "expected": "SELECT 'wrong: �'"
+    "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 14",
     "query": "SELECT U\u0026'wrong: \\db99xy'",
-    "expected": "SELECT 'wrong: �xy'"
+    "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 15",
     "query": "SELECT U\u0026'wrong: \\db99\\\\'",
-    "expected": "SELECT 'wrong: �\\'"
+    "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 16",
     "query": "SELECT U\u0026'wrong: \\db99\\0061'",
-    "expected": "SELECT 'wrong: �a'"
+    "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 17",
     "query": "SELECT U\u0026'wrong: \\+00db99\\+000061'",
-    "expected": "SELECT 'wrong: �a'"
+    "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 18",
     "query": "SELECT U\u0026'wrong: \\+2FFFFF'",
-    "expected": "SELECT 'wrong: �'"
+    "error": "invalid Unicode escape value"
   },
   {
     "comment": "strings - Statement 19",

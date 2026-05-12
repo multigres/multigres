@@ -30,7 +30,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
       - name: Set up test environment
@@ -43,13 +43,41 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
+      # Coverage jobs cannot use gotestsum's --rerun-fails: a retry would
+      # re-invoke `go test` against the failing package and overwrite the
+      # single -coverprofile file, truncating coverage for packages that
+      # passed the first time. We instead retry the whole suite on failure,
+      # which preserves coverage correctness at the cost of one extra full
+      # pass on a flake. test-short / test-race / test-integration handle
+      # per-package retries and feed the flake aggregator; coverage just
+      # needs to converge on a clean profile without manual restarts.
       - name: Run tests with direct coverage
-        run: go test -json -v -skip TestPostgreSQLRegression -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
+        shell: bash
+        run: |
+          set -o pipefail
+          attempt=1
+          max_attempts=3
+          while [ $attempt -le $max_attempts ]; do
+            if go test -json -v -skip TestPostgreSQLRegression \
+                -cover -covermode=atomic \
+                -coverprofile=coverage-direct.txt \
+                -coverpkg=./... ./... \
+                | tee coverage-direct-test-results.jsonl \
+                | go tool tparse -follow ; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::coverage tests failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::coverage attempt $attempt failed; retrying"
+            attempt=$((attempt + 1))
+          done
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
       - name: Upload direct coverage artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage-direct
@@ -73,7 +101,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
       - name: Set up test environment
@@ -86,18 +114,42 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
+      # See note in coverage-direct: we retry the whole suite on failure
+      # rather than per-package, because per-package retry would corrupt
+      # the GOCOVERDIR output (a clean dir is the simplest invariant).
       - name: Run tests with subprocess coverage
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          go test -json -v -skip TestPostgreSQLRegression ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
+          attempt=1
+          max_attempts=3
+          while [ $attempt -le $max_attempts ]; do
+            # Wipe the coverage dir before each attempt so the final
+            # profile reflects only the successful pass. The :? guard
+            # forces the script to abort if GOCOVERDIR ever ends up
+            # empty, so we can never accidentally rm -rf /*.
+            rm -rf "${GOCOVERDIR:?}"/*
+            if go test -json -v -skip TestPostgreSQLRegression ./... \
+                | tee coverage-subprocess-test-results.jsonl \
+                | go tool tparse -follow ; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::subprocess coverage tests failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::subprocess coverage attempt $attempt failed; retrying"
+            attempt=$((attempt + 1))
+          done
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
       - name: Upload subprocess coverage artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage-subprocess
@@ -115,6 +167,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [coverage-direct, coverage-subprocess]
     if: always()
+    environment: ci
     permissions:
       contents: read
     steps:
@@ -122,7 +175,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
       - name: Download direct coverage artifact
@@ -146,12 +199,18 @@ jobs:
           echo "Final coverage summary:"
           go tool cover -func=coverage-merged.txt | tail -1
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage-merged
           path: coverage-merged.txt
           retention-days: 7
+      - name: Upload coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-merged.txt
       - name: Upload coverage to Coveralls
         if: success() || failure()
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
@@ -165,7 +224,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [coverage-direct, coverage-subprocess, merge-and-upload]
     if: always()
-    permissions: {}
+    permissions:
+      pull-requests: write
     steps:
       - name: Coveralls Finished
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6

@@ -229,7 +229,7 @@ func (l *Listener) run(ctx context.Context) {
 	connect := func() {
 		releaseConn(reserved.ReleaseError)
 		var err error
-		conn, err = l.poolManager.NewReservedConn(ctx, nil, l.poolManager.PgUser())
+		conn, err = l.poolManager.NewReservedConn(ctx, nil, l.poolManager.PgUser(), nil, nil)
 		if err != nil {
 			l.logger.ErrorContext(ctx, "pubsub: failed to acquire reserved connection", "error", err)
 			conn = nil

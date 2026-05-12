@@ -277,6 +277,17 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return errors.New("PGDATA environment variable is required")
 	}
 
+	// Validate libpq-style sslmode + sslrootcert before any pool opens. A typo
+	// or missing CA bundle should fail startup rather than silently downgrading
+	// the multipooler → postgres dials to plaintext.
+	pgHost := ""
+	if mp.socketFilePath.Get() == "" {
+		pgHost = mp.senv.GetHostname()
+	}
+	if err := mp.connPoolConfig.ValidatePGSSL(pgHost); err != nil {
+		return err
+	}
+
 	// Create multipooler record with all fields now that servenv.Init() has set them up
 	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())

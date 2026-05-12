@@ -126,7 +126,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 
 	// Get a connection from the pool for this user
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	clientKey, serverKey := scramKeysFromOptions(options)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -232,7 +233,8 @@ func (e *Executor) StreamExecute(
 	}
 
 	// Get a connection from the pool for this user
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	clientKey, serverKey := scramKeysFromOptions(options)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -305,7 +307,8 @@ func (e *Executor) reserveAndStreamExecute(
 	}
 
 	// Create a reserved connection
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, reservedOpts...)
+	clientKey, serverKey := scramKeysFromOptions(options)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -419,12 +422,16 @@ func (e *Executor) Close() error {
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
 // If MaxRows > 0, a reserved connection is used since the portal may be suspended and need resumption.
 // Otherwise, a regular connection is used for better pool efficiency.
+//
+// portalOptions carries portal-only knobs (e.g. include_describe). Nil leaves
+// every field at the proto default.
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
+	portalOptions *multipoolerpb.PortalExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	if target == nil {
@@ -460,15 +467,18 @@ func (e *Executor) PortalStreamExecute(
 	paramFormats := int32ToInt16Slice(portal.ParamFormats)
 	resultFormats := int32ToInt16Slice(portal.ResultFormats)
 
+	includeDescribe := portalOptions.GetIncludeDescribe()
+
 	// Use reserved connection if:
 	// 1. ReservedConnectionId is already set (e.g., from transaction or previous portal)
 	// 2. MaxRows > 0 (portal may be suspended and need resumption)
 	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 {
-		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, paramFormats, resultFormats, callback)
+		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
 	// Use regular connection for non-suspended execution with no existing reservation
-	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, paramFormats, resultFormats, callback)
+	clientKey, serverKey := scramKeysFromOptions(options)
+	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, includeDescribe, clientKey, serverKey, paramFormats, resultFormats, callback)
 }
 
 // portalExecuteWithReserved executes a portal using a reserved connection.
@@ -480,6 +490,7 @@ func (e *Executor) portalExecuteWithReserved(
 	settings map[string]string,
 	user string,
 	maxRows int32,
+	includeDescribe bool,
 	paramFormats, resultFormats []int16,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
@@ -500,7 +511,8 @@ func (e *Executor) portalExecuteWithReserved(
 		// closed by PostgreSQL. The post-acquire ensurePrepared call
 		// below is a no-op for the new-conn path because connState
 		// dedupes by canonical name.
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+		clientKey, serverKey := scramKeysFromOptions(options)
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))
@@ -518,9 +530,17 @@ func (e *Executor) portalExecuteWithReserved(
 		return nil, err
 	}
 
-	// Bind and execute using the portal's own name and the canonical statement name
+	// Bind and execute using the portal's own name and the canonical statement name.
+	// When the protocol layer folded Describe('P') into Execute, fuse the
+	// backend round trip too so the portal description rides on the Execute
+	// response.
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	completed, err := reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+	var completed bool
+	if includeDescribe {
+		completed, err = reservedConn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+	} else {
+		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+	}
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
 		return nil, wrapQueryError(err)
@@ -543,16 +563,20 @@ func (e *Executor) portalExecuteWithReserved(
 }
 
 // portalExecuteWithRegular executes a portal using a regular pooled connection.
+// clientKey and serverKey are the SCRAM passthrough keys forwarded by the
+// caller's session; see connpoolmanager.GetRegularConn.
 func (e *Executor) portalExecuteWithRegular(
 	ctx context.Context,
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	settings map[string]string,
 	user string,
+	includeDescribe bool,
+	clientKey, serverKey []byte,
 	paramFormats, resultFormats []int16,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -564,9 +588,16 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, err
 	}
 
-	// Bind and execute with maxRows=0 (fetch all) using the portal's own name and canonical statement name
+	// Bind and execute with maxRows=0 (fetch all) using the portal's own name and canonical statement name.
+	// When the protocol layer folded Describe('P') into Execute, fuse the
+	// backend round trip too so the portal description rides on the Execute
+	// response.
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	_, err = conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+	if includeDescribe {
+		_, err = conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+	} else {
+		_, err = conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+	}
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
@@ -621,7 +652,8 @@ func (e *Executor) Describe(
 
 		conn = reservedConn.Conn()
 	} else {
-		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+		clientKey, serverKey := scramKeysFromOptions(options)
+		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 		}
@@ -797,7 +829,8 @@ func (e *Executor) CopyReady(
 			return nil
 		}
 
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, reserved.WithValidate(validate))
+		clientKey, serverKey := scramKeysFromOptions(options)
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}
@@ -1015,6 +1048,21 @@ func (e *Executor) getUserFromOptions(options *query.ExecuteOptions) string {
 	}
 	// Default to postgres superuser if no user specified
 	return "postgres"
+}
+
+// scramKeysFromOptions returns the SCRAM passthrough keys carried on the
+// request, or (nil, nil) if no keys were forwarded. The connpoolmanager
+// consults the passthrough flag before consuming them, so it is always safe
+// to pass these through.
+func scramKeysFromOptions(options *query.ExecuteOptions) (clientKey, serverKey []byte) {
+	if options == nil {
+		return nil, nil
+	}
+	auth := options.GetUserAuth()
+	if auth == nil {
+		return nil, nil
+	}
+	return auth.GetClientKey(), auth.GetServerKey()
 }
 
 // int32ToInt16Slice converts a slice of int32 to int16.

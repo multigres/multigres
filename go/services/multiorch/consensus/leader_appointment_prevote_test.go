@@ -88,7 +88,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("passes when enough healthy poolers and no recent acceptances", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// Create 3 healthy poolers with no recent acceptances
 		oldTime := time.Now().Add(-20 * time.Second)
@@ -109,7 +109,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("backs off when recent term acceptance detected", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// One pooler accepted a term very recently (2 seconds ago)
 		recentTime := time.Now().Add(-2 * time.Second)
@@ -136,7 +136,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("fails when insufficient healthy poolers for quorum", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// Only 1 healthy pooler out of 3 (need 2 for quorum)
 		cohort := []*multiorchdatapb.PoolerHealthState{
@@ -156,7 +156,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("fails when poolers have no consensus term info", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// Poolers with no consensus term (uninitialized)
 		cohort := []*multiorchdatapb.PoolerHealthState{
@@ -176,7 +176,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("passes when only unhealthy poolers have recent acceptances", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// Unhealthy pooler has recent acceptance, but we ignore it
 		recentTime := time.Now().Add(-2 * time.Second)
@@ -203,7 +203,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("passes with valid quorum rule", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createPoolerForPreVote("mp1", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */),
@@ -221,7 +221,7 @@ func TestPreVote(t *testing.T) {
 
 	t.Run("fails when postgres is not running on poolers", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+		coord := NewCoordinator(coordID, nil, fakeClient, logger, false)
 
 		// Create 3 poolers: 2 healthy but with postgres not running, 1 healthy with postgres running
 		pooler1 := createPoolerForPreVote("mp1", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)

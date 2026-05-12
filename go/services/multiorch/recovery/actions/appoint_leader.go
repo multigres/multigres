@@ -68,12 +68,12 @@ func NewAppointLeaderAction(
 // Execute performs leader appointment by running the coordinator's consensus protocol
 func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem) error {
 	a.logger.InfoContext(ctx, "executing appoint leader action",
-		"shard_key", problem.ShardKey.String())
+		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
 	// Fetch cohort and recheck the problem
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
-		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
+		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
 
 	// Check if a primary already exists and is healthy (problem resolved).
@@ -81,6 +81,12 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// PostgreSQL is ready (IsPostgresReady). If the pooler is up but Postgres
 	// is not ready, or if the primary has signalled it needs replacement, we still
 	// need to trigger failover.
+	//
+	// Note: this relies on the resign flow maintaining PoolerType_PRIMARY until
+	// DemoteStalePrimary completes. If a node somehow becomes the consensus leader
+	// while reporting PoolerType_REPLICA (e.g. a crash-restart as standby without
+	// going through the normal resign → appoint → demote flow), this check would
+	// miss it and proceed with an appointment unnecessarily.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
@@ -88,20 +94,20 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 			!pooler.GetStatus().GetPostgresReady() {
 			continue
 		}
-		if types.PrimaryNeedsReplacement(pooler) {
+		if types.LeaderNeedsReplacement(pooler) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
 				"primary", pooler.MultiPooler.Id.Name,
-				"shard_key", problem.ShardKey.String())
+				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 			continue
 		}
 		a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
 			"primary", pooler.MultiPooler.Id.Name,
-			"shard_key", problem.ShardKey.String())
+			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
 		"cohort_size", len(cohort))
 
 	// Use the coordinator's AppointLeader to handle the election
@@ -116,13 +122,13 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	}
 
 	a.logger.InfoContext(ctx, "appoint leader action completed successfully",
-		"shard_key", problem.ShardKey.String())
+		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
 	return nil
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
-func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
+func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var cohort []*multiorchdatapb.PoolerHealthState
 
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -144,7 +150,7 @@ func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multio
 
 // RecoveryAction interface implementation
 
-func (a *AppointLeaderAction) RequiresHealthyPrimary() bool {
+func (a *AppointLeaderAction) RequiresHealthyLeader() bool {
 	return false // leader appointment doesn't need existing primary
 }
 
@@ -164,7 +170,7 @@ func (a *AppointLeaderAction) Priority() types.Priority {
 
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
-		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
-		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),
 	}
 }

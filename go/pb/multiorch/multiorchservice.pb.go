@@ -40,9 +40,7 @@ const (
 type ShardStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to get status for
-	Database      string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
-	TableGroup    string `protobuf:"bytes,2,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
-	Shard         string `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
+	ShardKey      *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -77,25 +75,11 @@ func (*ShardStatusRequest) Descriptor() ([]byte, []int) {
 	return file_multiorchservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ShardStatusRequest) GetDatabase() string {
+func (x *ShardStatusRequest) GetShardKey() *clustermetadata.ShardKey {
 	if x != nil {
-		return x.Database
+		return x.ShardKey
 	}
-	return ""
-}
-
-func (x *ShardStatusRequest) GetTableGroup() string {
-	if x != nil {
-		return x.TableGroup
-	}
-	return ""
-}
-
-func (x *ShardStatusRequest) GetShard() string {
-	if x != nil {
-		return x.Shard
-	}
-	return ""
+	return nil
 }
 
 type ShardStatusResponse struct {
@@ -153,17 +137,15 @@ func (x *ShardStatusResponse) GetPoolerHealths() []*PoolerHealth {
 }
 
 type DetectedProblem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                            // e.g., "PrimaryIsDead"
-	CheckName     string                 `protobuf:"bytes,2,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"` // Analyzer name
-	PoolerId      *clustermetadata.ID    `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`    // Affected pooler
-	Database      string                 `protobuf:"bytes,4,opt,name=database,proto3" json:"database,omitempty"`
-	TableGroup    string                 `protobuf:"bytes,5,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
-	Shard         string                 `protobuf:"bytes,6,opt,name=shard,proto3" json:"shard,omitempty"`
-	Description   string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
-	Priority      int32                  `protobuf:"varint,8,opt,name=priority,proto3" json:"priority,omitempty"`
-	Scope         string                 `protobuf:"bytes,9,opt,name=scope,proto3" json:"scope,omitempty"` // "Shard" or "Pooler"
-	DetectedAt    *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Code          string                    `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                            // e.g., "PrimaryIsDead"
+	CheckName     string                    `protobuf:"bytes,2,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"` // Analyzer name
+	PoolerId      *clustermetadata.ID       `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`    // Affected pooler
+	ShardKey      *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	Description   string                    `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Priority      int32                     `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
+	Scope         string                    `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"` // "Shard" or "Pooler"
+	DetectedAt    *timestamppb.Timestamp    `protobuf:"bytes,8,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -219,25 +201,11 @@ func (x *DetectedProblem) GetPoolerId() *clustermetadata.ID {
 	return nil
 }
 
-func (x *DetectedProblem) GetDatabase() string {
+func (x *DetectedProblem) GetShardKey() *clustermetadata.ShardKey {
 	if x != nil {
-		return x.Database
+		return x.ShardKey
 	}
-	return ""
-}
-
-func (x *DetectedProblem) GetTableGroup() string {
-	if x != nil {
-		return x.TableGroup
-	}
-	return ""
-}
-
-func (x *DetectedProblem) GetShard() string {
-	if x != nil {
-		return x.Shard
-	}
-	return ""
+	return nil
 }
 
 func (x *DetectedProblem) GetDescription() string {
@@ -710,29 +678,22 @@ var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"g\n" +
-	"\x12ShardStatusRequest\x12\x1a\n" +
-	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
-	"\vtable_group\x18\x02 \x01(\tR\n" +
-	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x03 \x01(\tR\x05shard\"\x8d\x01\n" +
+	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n" +
+	"\x12ShardStatusRequest\x126\n" +
+	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\"\x8d\x01\n" +
 	"\x13ShardStatusResponse\x126\n" +
 	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12>\n" +
-	"\x0epooler_healths\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\rpoolerHealths\"\xda\x02\n" +
+	"\x0epooler_healths\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\rpoolerHealths\"\xbf\x02\n" +
 	"\x0fDetectedProblem\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
 	"\n" +
 	"check_name\x18\x02 \x01(\tR\tcheckName\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x1a\n" +
-	"\bdatabase\x18\x04 \x01(\tR\bdatabase\x12\x1f\n" +
-	"\vtable_group\x18\x05 \x01(\tR\n" +
-	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x06 \x01(\tR\x05shard\x12 \n" +
-	"\vdescription\x18\a \x01(\tR\vdescription\x12\x1a\n" +
-	"\bpriority\x18\b \x01(\x05R\bpriority\x12\x14\n" +
-	"\x05scope\x18\t \x01(\tR\x05scope\x12;\n" +
-	"\vdetected_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x126\n" +
+	"\tshard_key\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1a\n" +
+	"\bpriority\x18\x06 \x01(\x05R\bpriority\x12\x14\n" +
+	"\x05scope\x18\a \x01(\tR\x05scope\x12;\n" +
+	"\vdetected_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"detectedAt\"\x8c\x02\n" +
 	"\fPoolerHealth\x120\n" +
 	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x1c\n" +
@@ -792,31 +753,34 @@ var file_multiorchservice_proto_goTypes = []any{
 	(*GetRecoveryStatusResponse)(nil),  // 9: multiorch.GetRecoveryStatusResponse
 	(*TriggerRecoveryNowRequest)(nil),  // 10: multiorch.TriggerRecoveryNowRequest
 	(*TriggerRecoveryNowResponse)(nil), // 11: multiorch.TriggerRecoveryNowResponse
-	(*clustermetadata.ID)(nil),         // 12: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),      // 13: google.protobuf.Timestamp
+	(*clustermetadata.ShardKey)(nil),   // 12: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),         // 13: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),      // 14: google.protobuf.Timestamp
 }
 var file_multiorchservice_proto_depIdxs = []int32{
-	2,  // 0: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
-	3,  // 1: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
-	12, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	13, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
-	12, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
-	13, // 5: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
-	0,  // 6: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 7: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 8: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 9: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 10: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	1,  // 11: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 12: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 13: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	12, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
+	2,  // 1: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
+	3,  // 2: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
+	13, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
+	12, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
+	14, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
+	13, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
+	14, // 7: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
+	0,  // 8: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 9: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 10: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 11: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 12: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	1,  // 13: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 14: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 15: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 16: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 17: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }

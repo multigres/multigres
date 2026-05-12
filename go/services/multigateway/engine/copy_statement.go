@@ -145,6 +145,7 @@ func (c *CopyStatement) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return c.StreamExecute(ctx, exec, conn, state, nil, callback)

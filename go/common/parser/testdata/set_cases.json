@@ -40,8 +40,7 @@
   },
   {
     "comment": "SET TIME ZONE DEFAULT",
-    "query": "SET TIME ZONE DEFAULT",
-    "expected": "SET TIME ZONE default"
+    "query": "SET TIME ZONE DEFAULT"
   },
   {
     "comment": "SET TIME ZONE LOCAL",

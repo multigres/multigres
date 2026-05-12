@@ -37,17 +37,17 @@ const (
 	// Shard bootstrap problems (highest priority - shard cannot function at all).
 	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
-	// Primary problems (catastrophic - block everything else).
-	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
-	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
-	ProblemStalePrimary       ProblemCode = "StalePrimary"
+	// Leader problems (catastrophic - block everything else).
+	ProblemLeaderIsDead      ProblemCode = "LeaderIsDead"
+	ProblemLeaderDiskStalled ProblemCode = "LeaderDiskStalled"
+	ProblemStaleLeader       ProblemCode = "StaleLeader"
 
-	// Primary configuration problems (can fix while primary alive).
-	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"
-	ProblemPrimaryMisconfigured      ProblemCode = "PrimaryMisconfigured"
-	ProblemPrimaryIsReadOnly         ProblemCode = "PrimaryIsReadOnly"
+	// Leader configuration problems (can fix while leader alive).
+	ProblemLeaderNotAcceptingWrites ProblemCode = "LeaderNotAcceptingWrites"
+	ProblemLeaderMisconfigured      ProblemCode = "LeaderMisconfigured"
+	ProblemLeaderIsReadOnly         ProblemCode = "LeaderIsReadOnly"
 
-	// Replica problems (require healthy primary).
+	// Replica problems (require healthy leader).
 	ProblemReplicaNotReplicating   ProblemCode = "ReplicaNotReplicating"
 	ProblemReplicaNotInStandbyList ProblemCode = "ReplicaNotInStandbyList"
 	ProblemReplicaWrongPrimary     ProblemCode = "ReplicaWrongPrimary"
@@ -56,14 +56,14 @@ const (
 	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
 
 	// Non-actionable: if all hosts are down, there is no way we can failover.
-	ProblemPrimaryAndReplicasDead ProblemCode = "PrimaryAndReplicasDead"
+	ProblemLeaderAndReplicasDead ProblemCode = "LeaderAndReplicasDead"
 )
 
 // Category groups checks by what they monitor.
 type Category string
 
 const (
-	CategoryPrimary       Category = "Primary"
+	CategoryLeader        Category = "Leader"
 	CategoryReplica       Category = "Replica"
 	CategoryConfiguration Category = "Configuration"
 )
@@ -78,7 +78,7 @@ const (
 	// Arbitrarily high priority, to leave room for other priorities.
 	PriorityShardBootstrap Priority = 10000
 
-	// PriorityEmergency is for catastrophic issues like dead primary.
+	// PriorityEmergency is for catastrophic issues like dead leader.
 	// These must be fixed before anything else can proceed.
 	PriorityEmergency Priority = 1000
 
@@ -87,7 +87,7 @@ const (
 	PriorityHigh Priority = 500
 
 	// PriorityNormal is for configuration drift and minor issues.
-	// Examples: primary not accepting writes, replica is writable.
+	// Examples: leader not accepting writes, replica is writable.
 	PriorityNormal Priority = 100
 )
 
@@ -95,26 +95,26 @@ const (
 type ProblemScope string
 
 const (
-	// ScopeShard indicates the problem affects the entire shard (e.g., primary dead).
+	// ScopeShard indicates the problem affects the entire shard (e.g., leader dead).
 	// Recovery requires refreshing all poolers in the shard and may involve shard-wide operations like failover.
 	ScopeShard ProblemScope = "Shard"
 
 	// ScopePooler indicates the problem affects only a specific pooler.
-	// Recovery only requires refreshing the affected pooler and potentially the primary.
+	// Recovery only requires refreshing the affected pooler and potentially the leader.
 	ScopePooler ProblemScope = "Pooler"
 )
 
 // Problem represents a detected issue.
 type Problem struct {
-	Code           ProblemCode           // Category of problem
-	CheckName      CheckName             // Which check detected it
-	PoolerID       *clustermetadatapb.ID // Affected pooler; can be nil for shard-scoped problems
-	ShardKey       commontypes.ShardKey  // Identifies the affected shard
-	Description    string                // Human-readable description
-	Priority       Priority              // Priority of this problem
-	Scope          ProblemScope          // Whether this affects the whole cluster or just one pooler
-	DetectedAt     time.Time             // When the problem was detected
-	RecoveryAction RecoveryAction        // What to do about it
+	Code           ProblemCode                 // Category of problem
+	CheckName      CheckName                   // Which check detected it
+	PoolerID       *clustermetadatapb.ID       // Affected pooler; can be nil for shard-scoped problems
+	ShardKey       *clustermetadatapb.ShardKey // Identifies the affected shard
+	Description    string                      // Human-readable description
+	Priority       Priority                    // Priority of this problem
+	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
+	DetectedAt     time.Time                   // When the problem was detected
+	RecoveryAction RecoveryAction              // What to do about it
 }
 
 // IsShardWide reports whether this problem affects the entire shard.
@@ -129,7 +129,7 @@ func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
 		return topoclient.MultiPoolerIDString(p.PoolerID)
 	}
-	return p.ShardKey.String()
+	return string(commontypes.FormatShardKey(p.ShardKey))
 }
 
 // GracePeriodConfig holds grace period settings for recovery actions.
@@ -146,11 +146,11 @@ type RecoveryAction interface {
 	// Metadata returns info about this recovery.
 	Metadata() RecoveryMetadata
 
-	// RequiresHealthyPrimary indicates if this recovery requires a healthy primary.
-	// If true, the recovery will be skipped when the primary is unhealthy.
+	// RequiresHealthyLeader indicates if this recovery requires a healthy leader.
+	// If true, the recovery will be skipped when the leader is unhealthy.
 	// This provides an extra guardrail to avoid accidental operations on replicas
-	// when the cluster is not healthy (e.g., can't fix replica replication if primary is dead).
-	RequiresHealthyPrimary() bool
+	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
+	RequiresHealthyLeader() bool
 
 	// Priority returns the priority of this recovery action.
 	// Higher priority actions are attempted first.

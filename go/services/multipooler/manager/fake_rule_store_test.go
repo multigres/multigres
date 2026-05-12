@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -25,24 +26,50 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// testBootstrapPolicy returns a minimal valid durability policy for use in tests.
+func testBootstrapPolicy() *clustermetadatapb.DurabilityPolicy {
+	return &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+}
+
 // fakeRuleStore is a test double for ruleStorer that returns a preset position
 // without hitting postgres. Both observePosition and updateRule return pos
 // (or observeErr/updateErr when set). updateRule records all calls in updates.
+//
+// If posSequence is non-empty, observePosition returns positions from the
+// sequence in order (consuming each entry), then falls back to pos once
+// the sequence is exhausted. This is useful for simulating a position that
+// changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu         sync.Mutex
-	pos        *clustermetadatapb.PoolerPosition
-	observeErr error
-	updateErr  error
-	updates    []*ruleUpdateBuilder
+	mu          sync.Mutex
+	pos         *clustermetadatapb.PoolerPosition
+	posSequence []*clustermetadatapb.PoolerPosition
+	observeErr  error
+	updateErr   error
+	updates     []*ruleUpdateBuilder
 }
 
 func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(f.posSequence) > 0 {
+		pos := f.posSequence[0]
+		f.posSequence = f.posSequence[1:]
+		if pos == nil && f.observeErr == nil {
+			return nil, errors.New("fakeRuleStore: no position set")
+		}
+		return pos, f.observeErr
+	}
+	if f.pos == nil && f.observeErr == nil {
+		return nil, errors.New("fakeRuleStore: no position set")
+	}
 	return f.pos, f.observeErr
 }
 
-func (f *fakeRuleStore) createRuleTables(_ context.Context) error {
+func (f *fakeRuleStore) createRuleTables(_ context.Context, _ *clustermetadatapb.DurabilityPolicy) error {
 	return nil
 }
 

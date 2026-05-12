@@ -168,6 +168,23 @@ message PortalStreamExecuteRequest {
 
   // options contains execution options including max rows and reserved connection ID
   query.ExecuteOptions options = 5;
+
+  // portal_options contains portal-specific knobs that don't apply to plain
+  // StreamExecute. Kept on PortalStreamExecuteRequest (rather than
+  // ExecuteOptions) so the portal-only fields don't leak into every other
+  // request type that carries ExecuteOptions.
+  PortalExecuteOptions portal_options = 6;
+}
+
+// PortalExecuteOptions carries knobs that only make sense on the portal
+// (extended-protocol) execution path.
+message PortalExecuteOptions {
+  // include_describe asks the multipooler to fuse a portal Describe('P')
+  // into the same backend round trip as Execute, so the gateway can resolve
+  // libpq-style Bind+Describe(P)+Execute+Sync batches without two RPCs.
+  // The portal RowDescription rides back on the streaming response Fields
+  // of the first chunk; for DML (NoData) the Fields stay nil.
+  bool include_describe = 1;
 }
 
 // PortalStreamExecuteResponse represents a response in the portal execution stream
@@ -220,6 +237,12 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -412,9 +435,9 @@ message StreamPoolerHealthResponse {
   // serving_status is the current serving state of the pooler.
   clustermetadata.PoolerServingStatus serving_status = 3;
 
-  // primary_observation contains this pooler's view of who the primary is.
-  // Used by clients to identify the true primary when multiple poolers exist.
-  PrimaryObservation primary_observation = 4;
+  // leader_observation contains this pooler's view of who the consensus leader is.
+  // Used by clients to identify the true leader when multiple poolers exist.
+  LeaderObservation leader_observation = 4;
 
   // recommended_staleness_timeout is the duration clients should use
   // to detect a stale/dead health stream. If no message is received within
@@ -422,20 +445,20 @@ message StreamPoolerHealthResponse {
   google.protobuf.Duration recommended_staleness_timeout = 5;
 
   // replication_lag_ns is the current replication lag in nanoseconds,
-  // measured via heartbeat timestamps. Zero on the primary or when unknown.
+  // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
 }
 
-// PrimaryObservation represents a pooler's view of who the primary is.
-message PrimaryObservation {
-  // primary_id is the ID of the pooler this node believes is the primary.
-  // May be this pooler's own ID if it believes itself to be primary.
-  clustermetadata.ID primary_id = 1;
+// LeaderObservation represents a pooler's view of who the consensus leader is.
+message LeaderObservation {
+  // leader_id is the ID of the pooler this node believes is the consensus leader.
+  // May be this pooler's own ID if it believes itself to be leader.
+  clustermetadata.ID leader_id = 1;
 
-  // primary_term is the primary term at which this observation was made.
-  // The primary never changes within a primary_term. Higher values indicate
-  // more recent primary appointments.
-  int64 primary_term = 2;
+  // leader_term is the consensus term at which this observation was made.
+  // The leader never changes within a leader_term. Higher values indicate
+  // more recent leader appointments.
+  int64 leader_term = 2;
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.

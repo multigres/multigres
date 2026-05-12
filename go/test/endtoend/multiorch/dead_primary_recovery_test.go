@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -116,7 +116,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
 	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
-	// and multigateway learns the new primary via PrimaryObservation health streams,
+	// and multigateway learns the new primary via LeaderObservation health streams,
 	// so neither component requires etcd during or after failover.
 	t.Log("Stopping etcd to verify etcd-independent failover...")
 	setup.StopEtcd(t)
@@ -144,10 +144,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
-		// 8–12s grace period (configured via WithPrimaryFailoverGracePeriod), plus
+		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
 		// several seconds for failover execution (BeginTerm + Promote + Demote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
-		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -160,7 +160,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
 		// before the next iteration begins — otherwise the grace period would carry over.
-		setup.RequireRecovery(t, "multiorch", 20*time.Second)
+		// 45s budget: DemoteStalePrimary is synchronous and includes a 5s drain +
+		// up to ~15s pg_rewind + ~5s postgres restart on slow CI.
+		setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
 		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
@@ -171,7 +173,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryClient.Close()
 		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-		newPrimaryTermActual := commonconsensus.PrimaryTerm(status.ConsensusStatus)
+		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -237,7 +239,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// the SIGKILL case. Added to 8–12s grace period and execution time, the worst-case
 	// path needs ~25s — 30s gives adequate headroom.
 	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
-	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after emergency demotion")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -307,7 +309,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-			assert.Zero(t, commonconsensus.PrimaryTerm(status.ConsensusStatus),
+			assert.Zero(t, commonconsensus.LeaderTerm(status.ConsensusStatus),
 				"Replica %s should have primary_term=0 (never been primary)", name)
 		}
 		client.Close()
@@ -396,7 +398,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+		assert.Contains(t, reason, "LeaderIsDead", "reason should indicate leader failure")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string
@@ -523,33 +525,6 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
 	require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
-}
-
-// checkPrimary checks if a specific multipooler is the primary.
-// Returns the multipooler name if it's a primary, empty string otherwise.
-// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
-	t.Helper()
-
-	var poolers []*shardsetup.MultipoolerInstance
-	for _, inst := range setup.Multipoolers {
-		poolers = append(poolers, inst)
-	}
-
-	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
-		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
-			for _, r := range statuses {
-				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
-					continue
-				}
-				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					return r.Name, true, ""
-				}
-			}
-			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
-		},
-		"new primary not elected within %v", timeout,
-	)
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch

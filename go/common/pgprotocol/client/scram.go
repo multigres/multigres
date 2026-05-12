@@ -73,19 +73,28 @@ func (s *scramClient) authenticate() error {
 }
 
 // sendClientFirst sends the SASLInitialResponse with client-first message.
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (s *scramClient) sendClientFirst() error {
 	clientFirstMessage, err := s.client.ClientFirstMessage()
 	if err != nil {
 		return err
 	}
 
-	// Send SASLInitialResponse message.
-	w := NewMessageWriter()
-	w.WriteString(scram.ScramSHA256Mechanism)
-	w.WriteInt32(int32(len(clientFirstMessage)))
-	w.WriteBytes([]byte(clientFirstMessage))
-
-	return s.conn.writeMessage(protocol.MsgPasswordMsg, w.Bytes())
+	// Send SASLInitialResponse message:
+	//   - mechanism (null-terminated string)
+	//   - client-first-message length (int32)
+	//   - client-first-message bytes
+	bodyLen := len(scram.ScramSHA256Mechanism) + 1 + 4 + len(clientFirstMessage)
+	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
+	pos = writeStringAt(buf, pos, scram.ScramSHA256Mechanism)
+	pos = writeInt32At(buf, pos, int32(len(clientFirstMessage)))
+	pos = writeBytesAt(buf, pos, []byte(clientFirstMessage))
+	if err := s.conn.writePacket(buf, pos); err != nil {
+		return err
+	}
+	return s.conn.flush()
 }
 
 // receiveServerFirst receives and parses the AuthenticationSASLContinue message.
@@ -124,17 +133,23 @@ func (s *scramClient) receiveServerFirst() (string, error) {
 }
 
 // sendClientFinal computes the proof and sends the client-final message.
+//
+// Called only during single-threaded connection setup, so it does not
+// acquire bufMu (no other writer can race on this connection yet).
 func (s *scramClient) sendClientFinal(serverFirst string) error {
 	clientFinalMessage, err := s.client.ProcessServerFirst(serverFirst)
 	if err != nil {
 		return err
 	}
 
-	// Send SASLResponse message.
-	w := NewMessageWriter()
-	w.WriteBytes([]byte(clientFinalMessage))
-
-	return s.conn.writeMessage(protocol.MsgPasswordMsg, w.Bytes())
+	// Send SASLResponse message: just the client-final-message bytes.
+	bodyLen := len(clientFinalMessage)
+	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
+	pos = writeBytesAt(buf, pos, []byte(clientFinalMessage))
+	if err := s.conn.writePacket(buf, pos); err != nil {
+		return err
+	}
+	return s.conn.flush()
 }
 
 // receiveServerFinal receives and verifies the AuthenticationSASLFinal message.

@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -124,7 +123,7 @@ func (pg *PoolerGateway) withBuffering(
 	inner func(conn *PoolerConnection) error,
 ) error {
 	bufferedOnce := false
-	sk := commontypes.ShardKey{
+	sk := &clustermetadatapb.ShardKey{
 		TableGroup: target.TableGroup,
 		Shard:      target.Shard,
 	}
@@ -239,12 +238,13 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
+	portalOptions *multipoolerpb.PortalExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, callback)
 		return err
 	})
 	return state, err

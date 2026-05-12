@@ -50,7 +50,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 	}
 
 	// Only analyze replicas
-	if poolerAnalysis.IsPrimary {
+	if poolerAnalysis.IsLeader {
 		return nil, nil
 	}
 
@@ -60,7 +60,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 	}
 
 	// Skip if primary is unreachable (PrimaryIsDead handles that)
-	if sa.HighestTermDiscoveredPrimaryID != nil && !sa.PrimaryReachable {
+	if sa.HighestTermDiscoveredLeaderID != nil && !sa.LeaderReachable {
 		return nil, nil
 	}
 

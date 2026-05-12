@@ -80,7 +80,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 					break
 				}
 			}
-			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), shardAnalysis.ShardKey.String(), analyzer.RecoveryAction(), !shardHasProblem)
+			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(commontypes.FormatShardKey(shardAnalysis.ShardKey)), analyzer.RecoveryAction(), !shardHasProblem)
 
 			problems = append(problems, detectedProblems...)
 		}
@@ -101,12 +101,12 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 
 	// Process each shard independently in parallel
 	var wg sync.WaitGroup
-	for shardKey, shardProblems := range problemsByShard {
+	for _, shardProblems := range problemsByShard {
 		wg.Add(1)
-		go func(key commontypes.ShardKey, problems []types.Problem) {
+		go func(problems []types.Problem) {
 			defer wg.Done()
-			re.processShardProblems(ctx, key, problems)
-		}(shardKey, shardProblems)
+			re.processShardProblems(ctx, problems[0].ShardKey, problems)
+		}(shardProblems)
 	}
 	wg.Wait()
 
@@ -115,19 +115,20 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	re.recoveryRunner.UpdateInterval(newInterval)
 }
 
-// groupProblemsByShard groups problems by their shard.
-func (re *Engine) groupProblemsByShard(problems []types.Problem) map[commontypes.ShardKey][]types.Problem {
-	grouped := make(map[commontypes.ShardKey][]types.Problem)
+// groupProblemsByShard groups problems by their shard string key.
+func (re *Engine) groupProblemsByShard(problems []types.Problem) map[string][]types.Problem {
+	grouped := make(map[string][]types.Problem)
 
 	for _, problem := range problems {
-		grouped[problem.ShardKey] = append(grouped[problem.ShardKey], problem)
+		key := string(commontypes.FormatShardKey(problem.ShardKey))
+		grouped[key] = append(grouped[key], problem)
 	}
 
 	return grouped
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes.ShardKey, problems []types.Problem) {
+func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermetadatapb.ShardKey, problems []types.Problem) {
 	re.logger.DebugContext(ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,
@@ -138,14 +139,14 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	// Sort by priority and apply filtering logic
 	filteredProblems := re.filterAndPrioritize(problems)
 
-	// Check if there's a primary problem in this shard
-	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
+	// Check if there's a leader problem in this shard
+	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
 
 	// Attempt recoveries in priority order
 	for _, problem := range filteredProblems {
-		// Skip replica recoveries if primary is unhealthy and action requires healthy primary
-		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
-			re.logger.InfoContext(ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
+		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
+		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
+			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
 			)
@@ -156,9 +157,9 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes
 	}
 }
 
-// hasPrimaryProblem checks if any of the problems indicate an unhealthy primary.
-// Shard-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
-func (re *Engine) hasPrimaryProblem(problems []types.Problem) bool {
+// hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
+// Shard-wide problems (e.g., LeaderIsDead) imply an unhealthy leader.
+func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 	for _, problem := range problems {
 		if problem.IsShardWide() {
 			return true

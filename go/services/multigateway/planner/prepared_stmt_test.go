@@ -55,7 +55,7 @@ func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ s
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	m.portalStreamExecuteCalled = true
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1", Rows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("1")}}}})
 }
@@ -104,7 +104,7 @@ func (m *mockHandlerExecutor) StreamExecute(ctx context.Context, _ *server.Conn,
 	return &handler.ExecuteResult{}, err
 }
 
-func (m *mockHandlerExecutor) PortalStreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
+func (m *mockHandlerExecutor) PortalStreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
 	m.portalStreamExecuteCalled = true
 	err := callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 	return &handler.ExecuteResult{}, err

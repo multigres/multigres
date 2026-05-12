@@ -37,7 +37,6 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -63,6 +62,8 @@ type MultiGateway struct {
 	pgTLSCertFile viperutil.Value[string]
 	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
 	pgTLSKeyFile viperutil.Value[string]
+	// pgRequireSSL rejects plaintext client connections; requires cert + key.
+	pgRequireSSL viperutil.Value[bool]
 	// poolerDiscovery handles discovery of multipoolers across all cells
 	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
@@ -96,10 +97,14 @@ type MultiGateway struct {
 	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
+	// authenticationTimeout bounds the PG startup phase (SSL handshake,
+	// StartupMessage, SCRAM exchange). Equivalent to PostgreSQL's
+	// authentication_timeout GUC.
+	authenticationTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
-	// tracking (0 disables fingerprint labeling and /debug/queries).
+	// tracking (0 disables fingerprint labeling and the registry RPCs).
 	queryMetricsMemory viperutil.Value[int]
 	// queryMetricsSQLMaxBytes is the maximum bytes of representative normalized
 	// SQL stored per tracked fingerprint.
@@ -155,6 +160,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
 		}),
+		authenticationTimeout: viperutil.Configure(reg, "authentication-timeout", viperutil.Options[time.Duration]{
+			Default:  60 * time.Second,
+			FlagName: "authentication-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_AUTHENTICATION_TIMEOUT"},
+		}),
 		planCacheMemory: viperutil.Configure(reg, "plan-cache-memory", viperutil.Options[int]{
 			Default:  4 * 1024 * 1024, // 4 MB
 			FlagName: "plan-cache-memory",
@@ -162,7 +173,7 @@ func NewMultiGateway() *MultiGateway {
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
-			Default:  2 * 1024 * 1024, // 2 MB; 0 disables per-query tracking
+			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
 			FlagName: "query-metrics-memory",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_METRICS_MEMORY"},
@@ -184,6 +195,12 @@ func NewMultiGateway() *MultiGateway {
 			FlagName: "pg-tls-key-file",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
+		}),
+		pgRequireSSL: viperutil.Configure(reg, "pg-require-ssl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "pg-require-ssl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_REQUIRE_SSL"},
 		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
@@ -214,8 +231,6 @@ func NewMultiGateway() *MultiGateway {
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
-				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
-				{"Queries", "Per-query-shape metrics", "/debug/queries"},
 			},
 		},
 	}
@@ -239,13 +254,15 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
+	fs.Duration("authentication-timeout", mg.authenticationTimeout.Default(), "Maximum time allowed to complete client authentication (SSL handshake, startup message, SCRAM). Negative disables; 0 uses the protocol default of 60s.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
+	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
-	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and /debug/queries")
+	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	viperutil.BindFlags(fs,
 		mg.cell,
@@ -253,8 +270,10 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgPort,
 		mg.pgBindAddress,
 		mg.statementTimeout,
+		mg.authenticationTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
+		mg.pgRequireSSL,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
@@ -336,7 +355,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		// This is a direct signal from the pooler's health stream — more reliable
 		// and lower latency than topology-based propagation via etcd.
 		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(commontypes.ShardKey{
+			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
 				TableGroup: tableGroup,
 				Shard:      shard,
 			})
@@ -354,18 +373,25 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 
-	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)
+	// Create the credential provider for SCRAM authentication and the
+	// replication-role gate. A single GetAuthCredentials RPC feeds both,
+	// so admitting a replication connection never costs two pooler hops.
+	credentialProvider := auth.NewPoolerCredentialProvider(mg.poolerGateway)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
 	keyFile := mg.pgTLSKeyFile.Get()
+	requireSSL := mg.pgRequireSSL.Get()
 	pgTLSConfig, err := buildPGTLSConfig(certFile, keyFile)
 	if err != nil {
 		return err
 	}
+	if requireSSL && pgTLSConfig == nil {
+		return errors.New("--pg-require-ssl=true requires --pg-tls-cert-file and --pg-tls-key-file")
+	}
 	if pgTLSConfig != nil {
-		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
+		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener",
+			"cert_file", certFile, "key_file", keyFile, "require_ssl", requireSSL)
 	}
 
 	// Build the full gateway record. All info (hostname, ports) is available
@@ -420,10 +446,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Construct the per-query-shape metrics registry. Shared across primary
 	// and replica handlers so a query hitting either listener aggregates to
 	// the same stats bucket.
-	mg.queryRegistry = queryregistry.New(queryregistry.Config{
-		MaxMemoryBytes: mg.queryMetricsMemory.Get(),
-		MaxSQLLength:   mg.queryMetricsSQLMaxBytes.Get(),
-	})
+	// Start from DefaultConfig so SampleInterval / TrendWindowSamples are
+	// populated; only the operator-tunable size knobs come from flags.
+	registryCfg := queryregistry.DefaultConfig()
+	registryCfg.MaxMemoryBytes = mg.queryMetricsMemory.Get()
+	registryCfg.MaxSQLLength = mg.queryMetricsSQLMaxBytes.Get()
+	mg.queryRegistry = queryregistry.New(registryCfg)
 	if err := mg.queryRegistry.RegisterMetrics(); err != nil {
 		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
 	}
@@ -457,12 +485,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address:      pgAddr,
-		Handler:      mg.pgHandler,
-		GatewayID:    pidPrefix,
-		HashProvider: hashProvider,
-		TLSConfig:    pgTLSConfig,
-		Logger:       logger,
+		Address:               pgAddr,
+		Handler:               mg.pgHandler,
+		GatewayID:             pidPrefix,
+		CredentialProvider:    credentialProvider,
+		TLSConfig:             pgTLSConfig,
+		RequireTLS:            requireSSL,
+		AuthenticationTimeout: mg.authenticationTimeout.Get(),
+		Logger:                logger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
@@ -476,12 +506,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
-			Address:      replicaAddr,
-			Handler:      replicaHandler,
-			GatewayID:    pidPrefix,
-			HashProvider: hashProvider,
-			TLSConfig:    pgTLSConfig,
-			Logger:       logger,
+			Address:               replicaAddr,
+			Handler:               replicaHandler,
+			GatewayID:             pidPrefix,
+			CredentialProvider:    credentialProvider,
+			TLSConfig:             pgTLSConfig,
+			RequireTLS:            requireSSL,
+			AuthenticationTimeout: mg.authenticationTimeout.Get(),
+			Logger:                logger,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
@@ -523,10 +555,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
 	}
-	// Register the gRPC service via OnRun because grpcServer.Server is only
+	// Register gRPC services via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
+	managerServer := NewManagerServer(mg.queryRegistry, mg.pgHandler)
 	mg.senv.OnRun(func() {
 		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
 
 	// Start the PostgreSQL listener in a goroutine
@@ -559,7 +593,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	)
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
-	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
 
 	// The gateway is ready only when both conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -575,7 +608,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 		return nil
 	})
-	mg.senv.HTTPHandleFunc("/debug/queries", mg.handleQueriesDebug)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()

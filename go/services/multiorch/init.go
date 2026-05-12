@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -166,6 +167,12 @@ func (mo *MultiOrch) Init() error {
 		}
 		return nil
 	})
+	mo.senv.RegisterReadyCheck(func() error {
+		ctx, cancel := context.WithTimeout(context.TODO(), timeouts.ReadyTopoCheckTimeout)
+		defer cancel()
+		_, err := mo.ts.GetCellNames(ctx)
+		return err
+	})
 
 	// Create RPC client for recovery engine health checks
 	transportCreds, err := mo.connConfig.TransportCredentials(logger)
@@ -175,7 +182,7 @@ func (mo *MultiOrch) Init() error {
 	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections, transportCreds)
 
 	// Create coordinator for consensus operations
-	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)
+	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger, mo.cfg.GetUseNewConsensusFlow())
 
 	// Create and start recovery engine
 	mo.recoveryEngine = recovery.NewEngine(

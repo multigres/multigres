@@ -52,3 +52,8 @@ const PollResponseWait = 500 * time.Millisecond
 // 500ms stays well within Kubernetes' default probe timeoutSeconds: 1, leaving
 // headroom for HTTP overhead. It is a safety net for a kernel under extreme load.
 const ReadyDialTimeout = 500 * time.Millisecond
+
+// ReadyTopoCheckTimeout bounds the etcd connectivity probe in /ready handlers.
+// etcd round-trips are network calls. 4s fits within a probe "timeoutSeconds: 5"
+// while still detecting a genuinely unreachable etcd quickly.
+const ReadyTopoCheckTimeout = 4 * time.Second

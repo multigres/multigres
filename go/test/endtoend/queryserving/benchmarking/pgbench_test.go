@@ -185,6 +185,7 @@ func TestPgBench(t *testing.T) {
 	// Generate reports.
 	report := &BenchmarkReport{
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		LoadTool:    "pgbench",
 		Results:     allResults,
 		Environment: CaptureEnvironment(t, runner.pgbenchBinary),
 	}

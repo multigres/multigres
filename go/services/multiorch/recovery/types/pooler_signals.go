@@ -15,7 +15,7 @@
 package types
 
 // TODO: stateless helpers for interpreting consensus and availability signals
-// (like PrimaryNeedsReplacement) live here to avoid an import cycle between the
+// (like LeaderNeedsReplacement) live here to avoid an import cycle between the
 // analysis and actions packages. Once these utilities are needed more broadly they
 // should move to go/common/consensus or a similar shared package.
 
@@ -25,7 +25,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// PrimaryNeedsReplacement reports whether a primary pooler has voluntarily
+// LeaderNeedsReplacement reports whether a primary pooler has voluntarily
 // signalled that it should be replaced via a new election. It reads the
 // self-reported AvailabilityStatus from the consensus status RPC.
 //
@@ -38,7 +38,7 @@ import (
 // PoolerHealthState.AvailabilityStatus instead of ConsensusStatus so that
 // coordinator-synthesized signals (e.g. TEMPORARILY_UNAVAILABLE for unreachable
 // nodes) are handled here too.
-func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
+func LeaderNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 	leadershipStatus := p.GetAvailabilityStatus().GetLeadershipStatus()
 	if leadershipStatus == nil {
 		return false
@@ -47,6 +47,6 @@ func PrimaryNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	primaryTerm := commonconsensus.PrimaryTerm(p.GetConsensusStatus())
-	return leadershipStatus.PrimaryTerm != 0 && leadershipStatus.PrimaryTerm == primaryTerm
+	primaryTerm := commonconsensus.LeaderTerm(p.GetConsensusStatus())
+	return leadershipStatus.LeaderTerm != 0 && leadershipStatus.LeaderTerm == primaryTerm
 }

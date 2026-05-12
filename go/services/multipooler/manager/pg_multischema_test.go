@@ -194,7 +194,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.createSidecarSchema(ctx)
+			err := pm.createSidecarSchema(ctx, testBootstrapPolicy())
 
 			if tt.expectError {
 				assert.Error(t, err)

@@ -498,17 +498,17 @@
   {
     "comment": "psql - Statement 107",
     "query": "SELECT 1 AS a '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 32: syntax error"
+    "error": "parse error at position 31: syntax error"
   },
   {
     "comment": "psql - Statement 108",
     "query": "SELECT 2 AS b; SELECT 3 AS c; SELECT 4 AS d '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 62: syntax error"
+    "error": "parse error at position 61: syntax error"
   },
   {
     "comment": "psql - Statement 109",
     "query": "COPY (SELECT 'foo') TO STDOUT ; COPY (SELECT 'bar') TO STDOUT '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 80: syntax error"
+    "error": "parse error at position 79: syntax error"
   },
   {
     "comment": "psql - Statement 110",
@@ -536,7 +536,7 @@
   {
     "comment": "psql - Statement 115",
     "query": "COPY (SELECT 'foo2') TO STDOUT ; COPY (SELECT 'bar2') TO STDOUT '/tmp/output.txt' \\o COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 82: syntax error"
+    "error": "parse error at position 81: syntax error"
   },
   {
     "comment": "psql - Statement 116",

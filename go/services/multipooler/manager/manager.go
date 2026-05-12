@@ -28,11 +28,11 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
-	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
@@ -135,11 +135,11 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
-	// resignedPrimaryAtTerm is set when this node voluntarily resigns as primary
+	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
 	// (via EmergencyDemote). The value is the consensus term at which the primary
 	// resigned. A non-zero value signals the coordinator to trigger an immediate
 	// election. Protected by mu. Cleared when this node is elected primary again.
-	resignedPrimaryAtTerm int64
+	resignedLeaderAtTerm int64
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
@@ -514,6 +514,39 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			Port:       pgPort,
 			Database:   pm.multipooler.Database,
 		}
+		// When no Unix socket is configured, fall back to a TCP dial against
+		// the multipooler's own hostname. Postgres is colocated with pgctld on
+		// the same host, so the multipooler's hostname always points at it.
+		if connConfig.SocketFile == "" {
+			connConfig.Host = pm.multipooler.GetHostname()
+		}
+		// Apply libpq-style TLS settings on the multipooler → postgres leg.
+		// TLS is honored only on TCP dials; Unix-socket connections always run
+		// plaintext, matching libpq behavior.
+		//
+		// Both ParseSSLMode and BuildTLSConfig already ran successfully during
+		// startup validation (multipooler.Init → ConnPoolConfig.ValidatePGSSL),
+		// so any error here would indicate the cert files were tampered with
+		// after startup. Treat that as fatal-by-strict: keep the requested
+		// sslMode but leave TLSConfig nil, which makes every dial fail
+		// explicitly at negotiateSSL with "TLS config is nil but sslmode
+		// requested SSL" rather than silently downgrading to plaintext.
+		if connConfig.SocketFile == "" {
+			sslMode, err := pm.config.ConnPoolConfig.PgSSLMode()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-sslmode at pool open; dials will fail", "error", err)
+				connConfig.SSLMode = client.SSLModeVerifyFull // strict sentinel; any TCP dial errors out
+				connConfig.TLSConfig = nil
+			} else {
+				tlsCfg, err := client.BuildTLSConfig(sslMode, pm.config.ConnPoolConfig.PgSSLRootCert(), connConfig.Host)
+				if err != nil {
+					pm.logger.ErrorContext(pm.ctx, "failed to build PG client TLS config at pool open; dials will fail in TLS-required modes", "error", err, "sslmode", sslMode)
+					tlsCfg = nil
+				}
+				connConfig.SSLMode = sslMode
+				connConfig.TLSConfig = tlsCfg
+			}
+		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
 	}
@@ -612,8 +645,8 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 }
 
 // shardKey returns a ShardKey identifying this pooler's shard.
-func (pm *MultiPoolerManager) shardKey() commontypes.ShardKey {
-	return commontypes.ShardKey{
+func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
+	return &clustermetadatapb.ShardKey{
 		Database:   pm.multipooler.Database,
 		TableGroup: pm.multipooler.TableGroup,
 		Shard:      pm.multipooler.Shard,
@@ -738,14 +771,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			close(pm.readyChan)
 		}
 
-		// Set initial primary observation from the highest known rule.
-		// commonconsensus.PrimaryTerm returns 0 unless the rule names us as the
-		// primary, so publishing serviceID here is safe.
+		// Set initial leader observation from the highest known rule.
+		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
+		// leader, so publishing serviceID here is safe.
 		if cs, err := pm.getInconsistentConsensusStatus(pm.ctx); err == nil {
-			if primaryTerm := commonconsensus.PrimaryTerm(cs); primaryTerm > 0 {
-				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
-					PrimaryID:   pm.serviceID,
-					PrimaryTerm: primaryTerm,
+			if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
+				pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+					LeaderID:   pm.serviceID,
+					LeaderTerm: primaryTerm,
 				})
 			}
 		}
@@ -1668,7 +1701,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		// Lock-free first pass from the monitor: use the inconsistent read,
 		// which falls back to the cached rule when postgres is unreachable.
 		if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
-			state.primaryTerm = commonconsensus.PrimaryTerm(cs)
+			state.primaryTerm = commonconsensus.LeaderTerm(cs)
 		}
 	}
 
@@ -1698,13 +1731,13 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 //
 // Callers that cannot hold the action lock should read
 // getInconsistentConsensusStatus themselves and pass the result to
-// consensus.PrimaryTerm.
+// consensus.LeaderTerm.
 func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
 	cs, err := pm.getConsensusStatus(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read consensus status: %w", err)
 	}
-	return commonconsensus.PrimaryTerm(cs), nil
+	return commonconsensus.LeaderTerm(cs), nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
@@ -1737,7 +1770,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		// lost after a process restart following EmergencyDemote.
 		if !currentState.isPrimary {
 			pm.mu.Lock()
-			resigned := pm.resignedPrimaryAtTerm
+			resigned := pm.resignedLeaderAtTerm
 			pm.mu.Unlock()
 			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
@@ -1804,7 +1837,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// election. Use the primary_term (the term at which we were elected) since
 		// the coordinator uses this to decide whether the signal is still active.
 		if state.primaryTerm != 0 {
-			if err := pm.setResignedPrimaryAtTerm(ctx, state.primaryTerm); err != nil {
+			if err := pm.setResignedLeaderAtTerm(ctx, state.primaryTerm); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 				return
 			}

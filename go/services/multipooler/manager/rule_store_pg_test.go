@@ -228,7 +228,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs)
-	if err := rs.createRuleTables(ctx); err != nil {
+	if err := rs.createRuleTables(ctx, testBootstrapPolicy()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create rule tables: %w", err)
 	}
@@ -266,7 +266,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs)
-	require.NoError(t, rs.createRuleTables(ctx))
+	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy()))
 }
 
 // skipIfNoPG lazily starts the shared postgres fixture on first call and skips
@@ -301,7 +301,40 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 
 	pos, err := rs.observePosition(ctx)
 	require.NoError(t, err)
-	assert.Nil(t, pos, "fresh sentinel row (coordinator_term=0) should return nil position")
+	require.NotNil(t, pos, "fresh state should still return a position with the current LSN")
+	assert.Equal(t, int64(0), pos.GetRule().GetRuleNumber().GetCoordinatorTerm(), "fresh sentinel row has coordinator_term=0")
+	assert.NotEmpty(t, pos.GetLsn(), "fresh state should include the current WAL LSN")
+
+	// The sentinel row written by createRuleTables must carry the bootstrap durability policy.
+	dp := pos.GetRule().GetDurabilityPolicy()
+	require.NotNil(t, dp, "sentinel row must carry the bootstrap durability policy")
+	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
+	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
+	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
+}
+
+func TestRuleStorePG_ObservePosition_SentinelPolicyCarriedThroughUpdate(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+
+	// Write a rule without specifying a durability policy — the sentinel row's policy must carry forward.
+	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
+	require.NoError(t, err)
+
+	pos, err := rs.observePosition(ctx)
+	require.NoError(t, err)
+
+	dp := pos.GetRule().GetDurabilityPolicy()
+	require.NotNil(t, dp, "sentinel policy must carry forward through updateRule without withDurabilityPolicy")
+	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
+	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
+	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
 }
 
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
@@ -416,9 +449,9 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	assert.Equal(t, int64(3), pos.Rule.RuleNumber.CoordinatorTerm)
 	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm)
 
-	require.NotNil(t, pos.Rule.PrimaryId)
-	assert.Equal(t, "zone1", pos.Rule.PrimaryId.Cell)
-	assert.Equal(t, "leader-1", pos.Rule.PrimaryId.Name)
+	require.NotNil(t, pos.Rule.LeaderId)
+	assert.Equal(t, "zone1", pos.Rule.LeaderId.Cell)
+	assert.Equal(t, "leader-1", pos.Rule.LeaderId.Name)
 
 	require.NotNil(t, pos.Rule.CoordinatorId)
 	assert.Equal(t, "zone1", pos.Rule.CoordinatorId.Cell)
@@ -620,6 +653,153 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	assert.Equal(t, int64(1), pos.Rule.RuleNumber.CoordinatorTerm)
 	assert.Equal(t, int64(goroutines-1), pos.Rule.RuleNumber.LeaderSubterm,
 		"final subterm should equal goroutines-1 after %d serialized writes", goroutines)
+}
+
+func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	// Use a non-default policy so this test cannot accidentally pass against a default value.
+	policy := &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "MULTI_CELL_AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone2", "member-2"),
+	}
+	now := time.Now()
+
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			withDurabilityPolicy(policy).
+			withCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	pos, err := rs.observePosition(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, pos)
+
+	dp := pos.Rule.GetDurabilityPolicy()
+	require.NotNil(t, dp, "durability policy must be persisted and returned by observePosition")
+	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", dp.PolicyName)
+	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N, dp.QuorumType)
+	assert.Equal(t, int32(2), dp.RequiredCount)
+}
+
+func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	policy := &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "MULTI_CELL_AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone2", "member-2"),
+	}
+	now := time.Now()
+
+	// Write rule with durability policy.
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			withDurabilityPolicy(policy).
+			withCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	// Write another rule without specifying durability policy; it must be preserved via COALESCE.
+	_, err = rs.updateRule(ctx,
+		newRuleUpdate(7, coordinatorID, "config_change", "update", now),
+	)
+	require.NoError(t, err)
+
+	pos, err := rs.observePosition(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, pos)
+
+	dp := pos.Rule.GetDurabilityPolicy()
+	require.NotNil(t, dp, "durability policy must be preserved across updates that omit it")
+	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", dp.PolicyName)
+}
+
+func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	policy := &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "MULTI_CELL_AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone2", "member-2"),
+	}
+	now := time.Now()
+
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			withDurabilityPolicy(policy).
+			withCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	records, err := rs.queryRuleHistory(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	rec := records[0]
+	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", rec.DurabilityPolicyName, "rule_history must store durability_policy_name")
+}
+
+func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	// Policy requires 2 distinct cells, but cohort is all in zone1.
+	policy := &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "MULTI_CELL_AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	singleCellCohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone1", "member-2"),
+	}
+	now := time.Now()
+
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			withDurabilityPolicy(policy).
+			withCohort(singleCellCohort),
+	)
+	require.Error(t, err, "updateRule must reject a cohort that cannot satisfy the durability policy")
+	assert.Contains(t, err.Error(), "cohort cannot achieve durability policy")
 }
 
 // ----------------------------------------------------------------------------

@@ -1,0 +1,52 @@
+--- a
++++ b
+@@ -1,8 +1,6 @@
+ -- JSON()
+ SELECT JSON();
+-ERROR: syntax error at or near ")"
+-LINE 1: SELECT JSON();
+-^
++ERROR: parse error at position 13: syntax error
+ SELECT JSON(NULL);
+ json
+ ------
+@@ -128,9 +126,7 @@
+ 
+ -- JSON_SCALAR()
+ SELECT JSON_SCALAR();
+-ERROR: syntax error at or near ")"
+-LINE 1: SELECT JSON_SCALAR();
+-^
++ERROR: parse error at position 20: syntax error
+ SELECT JSON_SCALAR(NULL);
+ json_scalar
+ -------------
+@@ -219,9 +215,7 @@
+ 
+ -- JSON_SERIALIZE()
+ SELECT JSON_SERIALIZE();
+-ERROR: syntax error at or near ")"
+-LINE 1: SELECT JSON_SERIALIZE();
+-^
++ERROR: parse error at position 23: syntax error
+ SELECT JSON_SERIALIZE(NULL);
+ json_serialize
+ ----------------
+@@ -336,7 +330,7 @@
+ LINE 1: SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING UTF8)...
+ ^
+ SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING);
+-ERROR: unrecognized JSON encoding: invalid_encoding
++ERROR: parse error at position 71: unrecognized JSON encoding: invalid_encoding
+ SELECT JSON_OBJECT(RETURNING bytea);
+ json_object
+ -------------
+@@ -631,7 +625,7 @@
+ LINE 1: SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING UTF8);
+ ^
+ SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING);
+-ERROR: unrecognized JSON encoding: invalid_encoding
++ERROR: parse error at position 70: unrecognized JSON encoding: invalid_encoding
+ SELECT JSON_ARRAY(RETURNING bytea);
+ json_array
+ ------------

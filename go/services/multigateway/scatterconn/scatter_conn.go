@@ -72,6 +72,27 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	}
 }
 
+// userAuthFrom builds the outbound UserAuth payload from the session's captured
+// SCRAM passthrough keys. Returns nil for sessions that did not authenticate via
+// SCRAM (e.g. trust in tests), so this field stays absent on the wire instead of
+// carrying empty slices.
+//
+// Keys are copied rather than referenced: Conn.Close zeroizes the accessor's
+// backing slice in place, and gRPC may marshal lazily (stream init) or re-
+// marshal on transient retry. A detached copy guarantees the proto carries
+// live bytes for the full lifetime of the RPC.
+func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
+	clientKey := conn.ScramClientKey()
+	serverKey := conn.ScramServerKey()
+	if clientKey == nil && serverKey == nil {
+		return nil
+	}
+	return &querypb.UserAuth{
+		ClientKey: append([]byte(nil), clientKey...),
+		ServerKey: append([]byte(nil), serverKey...),
+	}
+}
+
 // buildTarget constructs a routing target from the given tableGroup and shard.
 // When the connection arrived on the replica-reads port (state.TargetReplica()),
 // the target's PoolerType is set to REPLICA; otherwise PRIMARY.
@@ -157,6 +178,7 @@ func (sc *ScatterConn) StreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:          userAuthFrom(conn),
 		User:              conn.User(),
 		SessionSettings:   state.GetSessionSettings(),
 		PreparedStatement: preparedStatement,
@@ -281,6 +303,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
+	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -307,9 +330,20 @@ func (sc *ScatterConn) PortalStreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		MaxRows:         uint64(maxRows),
 		SessionSettings: state.GetSessionSettings(),
+	}
+
+	// When the protocol layer folded a Describe('P') into this Execute, ask
+	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
+	// backend round trip. The portal RowDescription rides back through
+	// the streaming callback's Fields on the first chunk; pgwire-server's
+	// handleExecute writes it to the wire before any DataRow.
+	var portalOpts *multipoolerpb.PortalExecuteOptions
+	if includeDescribe {
+		portalOpts = &multipoolerpb.PortalExecuteOptions{IncludeDescribe: true}
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -343,6 +377,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 			"reasons", protoutil.ReasonsString(reasons))
 
 		noopEo := &querypb.ExecuteOptions{
+			UserAuth:        userAuthFrom(conn),
 			User:            conn.User(),
 			SessionSettings: state.GetSessionSettings(),
 		}
@@ -373,7 +408,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	// Use the query from the prepared statement
-	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, callback)
+	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, callback)
 	if err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
@@ -418,6 +453,7 @@ func (sc *ScatterConn) Describe(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -523,6 +559,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -627,6 +664,7 @@ func (sc *ScatterConn) DiscardTempTables(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -725,6 +763,7 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create execute options
 	execOptions := &querypb.ExecuteOptions{
+		UserAuth:        userAuthFrom(conn),
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -797,6 +836,7 @@ func (sc *ScatterConn) CopySendData(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -852,6 +892,7 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -915,6 +956,7 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Build options with reserved connection ID
 	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
@@ -950,6 +992,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		}
 
 		eo := &querypb.ExecuteOptions{
+			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),

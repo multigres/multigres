@@ -337,12 +337,12 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
 }
 
-// TestShardSetup_InitDbSQLFilesExecuted validates the --init-db-sql-file flag
+// TestShardSetup_InitdbSQLFilesExecuted validates the --pg-initdb-sql-files flag
 // end-to-end: pgctld runs each provided SQL file against the target database
 // during InitDataDir (triggered by shard bootstrap). We assert that the
 // artifacts those files create — a table with data, and a cluster-wide role —
 // exist on the elected primary.
-func TestShardSetup_InitDbSQLFilesExecuted(t *testing.T) {
+func TestShardSetup_InitdbSQLFilesExecuted(t *testing.T) {
 	skipIfShort(t)
 
 	sqlDir := t.TempDir()
@@ -363,7 +363,7 @@ CREATE ROLE init_db_sql_role NOLOGIN;
 
 	setup, cleanup := NewIsolated(t,
 		WithMultipoolerCount(2),
-		WithInitDbSQLFiles(tableFile, roleFile),
+		WithInitdbSQLFiles(tableFile, roleFile),
 	)
 	defer cleanup()
 

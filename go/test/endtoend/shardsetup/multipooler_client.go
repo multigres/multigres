@@ -107,9 +107,9 @@ func (c *MultiPoolerTestClient) Address() string {
 	return c.addr
 }
 
-// IsPrimary checks if the multipooler is the primary by calling the Status RPC.
-// Returns true if the pooler is PRIMARY, false otherwise.
-func IsPrimary(addr string) (bool, error) {
+// IsLeader checks if the multipooler is the consensus leader by calling the Status RPC.
+// Returns true if the pooler is PRIMARY (leader), false otherwise.
+func IsLeader(addr string) (bool, error) {
 	conn, err := grpc.NewClient("passthrough:///"+addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return false, fmt.Errorf("failed to create client: %w", err)

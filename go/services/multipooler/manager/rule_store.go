@@ -33,12 +33,15 @@ import (
 // ruleStorer is the interface for reading and writing the current shard rule.
 // *ruleStore implements this; tests use fakeRuleStore.
 type ruleStorer interface {
+	// observePosition reads the current rule and WAL LSN from postgres.
+	// Always returns a non-nil position when err is nil (the sentinel row guarantees a row exists).
 	observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
 	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
 	// createRuleTables creates multigres.current_rule and multigres.rule_history
 	// if they do not already exist, and inserts the zero-state sentinel row for
-	// the default shard. It is idempotent and safe to call multiple times.
-	createRuleTables(ctx context.Context) error
+	// the default shard initialized with the given durability policy. It is
+	// idempotent and safe to call multiple times.
+	createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error
 	// cachedPosition returns the most recently observed or written PoolerPosition
 	// from memory, without querying postgres. Returns nil if no position has been
 	// cached yet (e.g. before the first observePosition or updateRule call).
@@ -109,8 +112,9 @@ type ruleUpdateBuilder struct {
 	createdAt     time.Time
 
 	// optional; nil means keep the existing value in current_rule
-	leaderID      *clustermetadatapb.ID
-	cohortMembers []*clustermetadatapb.ID
+	leaderID         *clustermetadatapb.ID
+	cohortMembers    []*clustermetadatapb.ID
+	durabilityPolicy *clustermetadatapb.DurabilityPolicy
 
 	// history-only optional fields
 	walPosition     string
@@ -156,6 +160,11 @@ func (b *ruleUpdateBuilder) withAcceptedMembers(members []*clustermetadatapb.ID)
 	return b
 }
 
+func (b *ruleUpdateBuilder) withDurabilityPolicy(policy *clustermetadatapb.DurabilityPolicy) *ruleUpdateBuilder {
+	b.durabilityPolicy = policy
+	return b
+}
+
 func (b *ruleUpdateBuilder) withForce() *ruleUpdateBuilder {
 	b.force = true
 	return b
@@ -181,7 +190,18 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int6
 // writes; rule_history provides the append-only audit log.
 //
 // coordinator_term=0 in the sentinel row means no rule has been applied yet.
-func (rs *ruleStore) createRuleTables(ctx context.Context) error {
+// policy is written into the sentinel row so all subsequent rule reads have a
+// non-nil DurabilityPolicy; operations that do not change the policy (e.g.
+// Promote) carry it forward via COALESCE in updateRule.
+func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
+	if policy == nil {
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "durability policy required to initialize rule tables")
+	}
+	if policy.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || policy.RequiredCount <= 0 {
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"invalid durability policy: quorum_type=%v required_count=%d", policy.QuorumType, policy.RequiredCount)
+	}
+
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
@@ -192,10 +212,9 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 		leader_id                 TEXT,
 		coordinator_id            TEXT,
 		cohort_members            TEXT[] NOT NULL,
-		durability_policy_name    TEXT,
-		durability_quorum_type    TEXT,
-		durability_required_count INT,
-		durability_async_fallback TEXT,
+		durability_policy_name    TEXT NOT NULL,
+		durability_quorum_type    TEXT NOT NULL,
+		durability_required_count INT NOT NULL,
 		created_at                TIMESTAMPTZ NOT NULL
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create current_rule table")
@@ -203,9 +222,10 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 
 	if _, err := rs.queryService.QueryArgs(execCtx, `
 		INSERT INTO multigres.current_rule
-		  (shard_id, coordinator_term, leader_subterm, cohort_members, created_at)
-		VALUES ($1, 0, 0, '{}', now())`,
-		[]byte("0")); err != nil {
+		  (shard_id, coordinator_term, leader_subterm, cohort_members,
+		   durability_policy_name, durability_quorum_type, durability_required_count, created_at)
+		VALUES ($1, 0, 0, '{}', $2, $3, $4, now())`,
+		[]byte("0"), policy.PolicyName, policy.QuorumType.String(), int64(policy.RequiredCount)); err != nil {
 		return mterrors.Wrap(err, "failed to initialize current_rule")
 	}
 
@@ -222,10 +242,9 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 		accepted_members          TEXT[],
 		reason                    TEXT NOT NULL,
 		cohort_members            TEXT[] NOT NULL,
-		durability_policy_name    TEXT,
-		durability_quorum_type    TEXT,
-		durability_required_count INT,
-		durability_async_fallback TEXT,
+		durability_policy_name    TEXT NOT NULL,
+		durability_quorum_type    TEXT NOT NULL,
+		durability_required_count INT NOT NULL,
 		operation                 TEXT,
 		created_at                TIMESTAMPTZ NOT NULL,
 		PRIMARY KEY (coordinator_term, leader_subterm)
@@ -244,11 +263,9 @@ func (rs *ruleStore) createRuleTables(ctx context.Context) error {
 // check fails: the current rule's term/subterm did not match the expected values.
 var errRuleConflict = errors.New("rule conflict: current rule version mismatch")
 
-// observePosition reads the current rule and WAL LSN from postgres and returns
-// the observed position. Returns nil if no rule has been applied yet
-// (coordinator_term = 0).
-//
-// Returns an error if postgres is unreachable.
+// observePosition reads the current rule and WAL LSN from postgres.
+// Always returns a non-nil position when err is nil.
+// Returns an error if postgres is unreachable or the sentinel row is missing.
 func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -256,7 +273,6 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	result, err := rs.queryService.QueryArgs(queryCtx, `
 		SELECT coordinator_term, leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       durability_async_fallback,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
@@ -268,14 +284,14 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		return nil, mterrors.Wrap(err, "failed to query current position")
 	}
 	if len(result.Rows) == 0 {
-		return nil, nil
+		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule sentinel row missing for shard 0: tables may not be initialized")
 	}
 
 	var coordinatorTerm, leaderSubterm int64
 	var leaderIDStr, coordinatorIDStr *string
 	var cohortNames []string
-	var durabilityPolicyName, durabilityQuorumType, durabilityAsyncFallback *string
-	var durabilityRequiredCount *int64
+	var durabilityPolicyName, durabilityQuorumType string
+	var durabilityRequiredCount int64
 	var lsn string
 	if err := executor.ScanRow(result.Rows[0],
 		&coordinatorTerm,
@@ -286,15 +302,9 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
-		&durabilityAsyncFallback,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan current position")
-	}
-
-	// coordinator_term=0 is the sentinel initial state; no rule has been applied yet.
-	if coordinatorTerm == 0 {
-		return nil, nil
 	}
 
 	var coordinatorIDStrVal string
@@ -304,7 +314,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrVal, cohortNames,
-		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
+		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
 		lsn,
 	)
 	if err != nil {
@@ -389,6 +399,31 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 	defer cancel()
 
+	var dpName, dpQuorumType string
+	var dpRequiredCount *int64
+	if dp := update.durabilityPolicy; dp != nil {
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+		if len(update.cohortMembers) > 0 {
+			policy, err := consensus.NewPolicyFromProto(dp)
+			if err != nil {
+				return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", err)
+			}
+			if err := policy.CheckAchievable(update.cohortMembers); err != nil {
+				return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", err)
+			}
+		}
+		dpName = dp.PolicyName
+		dpQuorumType = dp.QuorumType.String()
+		rc := int64(dp.RequiredCount)
+		dpRequiredCount = &rc
+	}
+	// TODO: It'd be nice to validate that the rule is achievable if only one of the cohort
+	// or durability policy is modified, but we'd have to look up the previous rule first.
+
 	result, err := rs.queryService.QueryArgs(execCtx, `
 		WITH
 		  params AS (
@@ -404,7 +439,10 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		           $10::text[]      AS accepted_members,
 		           $11::bigint      AS cas_coordinator_term,
 		           $12::bigint      AS cas_leader_subterm,
-		           $13::timestamptz AS created_at
+		           $13::timestamptz AS created_at,
+		           $14::text        AS durability_policy_name,
+		           $15::text        AS durability_quorum_type,
+		           $16::int         AS durability_required_count
 		  ),
 		  locked AS (
 		    -- FOR UPDATE serializes concurrent writes at the database level, complementing
@@ -413,6 +451,8 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		    -- next_leader_subterm: 0 when starting a new coordinator term, otherwise increment within term.
 		    SELECT current_rule.coordinator_term, current_rule.leader_subterm,
 		           current_rule.leader_id, current_rule.cohort_members,
+		           current_rule.durability_policy_name, current_rule.durability_quorum_type,
+		           current_rule.durability_required_count,
 		           CASE WHEN params.coordinator_term > current_rule.coordinator_term THEN 0
 		                ELSE current_rule.leader_subterm + 1
 		           END AS next_leader_subterm
@@ -426,12 +466,15 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		  ),
 		  updated AS (
 		    UPDATE multigres.current_rule
-		    SET coordinator_term = params.coordinator_term,
-		        leader_subterm     = locked.next_leader_subterm,
-		        leader_id        = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
-		        coordinator_id   = NULLIF(params.coordinator_id, ''),
-		        cohort_members   = COALESCE(params.cohort_members, locked.cohort_members),
-		        created_at       = params.created_at
+		    SET coordinator_term          = params.coordinator_term,
+		        leader_subterm            = locked.next_leader_subterm,
+		        leader_id                 = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
+		        coordinator_id            = NULLIF(params.coordinator_id, ''),
+		        cohort_members            = COALESCE(params.cohort_members, locked.cohort_members),
+		        durability_policy_name    = COALESCE(NULLIF(params.durability_policy_name, ''), locked.durability_policy_name),
+		        durability_quorum_type    = COALESCE(NULLIF(params.durability_quorum_type, ''), locked.durability_quorum_type),
+		        durability_required_count = COALESCE(params.durability_required_count, locked.durability_required_count),
+		        created_at                = params.created_at
 		    FROM locked, params
 		    -- Correlates the update target to the specific shard row. If locked is empty
 		    -- (any condition above failed), the cross-join produces zero rows here too.
@@ -439,12 +482,13 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		    RETURNING current_rule.coordinator_term, current_rule.leader_subterm,
 		              current_rule.leader_id, current_rule.coordinator_id, current_rule.cohort_members,
 		              current_rule.durability_policy_name, current_rule.durability_quorum_type,
-		              current_rule.durability_required_count, current_rule.durability_async_fallback
+		              current_rule.durability_required_count
 		  ),
 		  inserted AS (
 		    INSERT INTO multigres.rule_history
 		      (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
-		       wal_position, operation, reason, cohort_members, accepted_members, created_at)
+		       wal_position, operation, reason, cohort_members, accepted_members,
+		       durability_policy_name, durability_quorum_type, durability_required_count, created_at)
 		    SELECT updated.coordinator_term, updated.leader_subterm,
 		           params.event_type,
 		           updated.leader_id,
@@ -452,6 +496,8 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		           NULLIF(params.wal_position, ''), NULLIF(params.operation, ''), params.reason,
 		           updated.cohort_members,
 		           params.accepted_members,
+		           updated.durability_policy_name, updated.durability_quorum_type,
+		           updated.durability_required_count,
 		           params.created_at
 		    FROM updated, params
 		    RETURNING coordinator_term
@@ -461,7 +507,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		SELECT updated.coordinator_term, updated.leader_subterm,
 		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
 		       updated.durability_policy_name, updated.durability_quorum_type,
-		       updated.durability_required_count, updated.durability_async_fallback,
+		       updated.durability_required_count,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
@@ -481,6 +527,9 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		previousTerm,
 		previousSubterm,
 		update.createdAt,
+		dpName,
+		dpQuorumType,
+		dpRequiredCount,
 	)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to write rule history record")
@@ -503,8 +552,8 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	var leaderIDStr *string
 	var coordinatorIDStrResult string
 	var cohortNames []string
-	var durabilityPolicyName, durabilityQuorumType, durabilityAsyncFallback *string
-	var durabilityRequiredCount *int64
+	var durabilityPolicyName, durabilityQuorumType string
+	var durabilityRequiredCount int64
 	var lsn string
 	if err := executor.ScanSingleRow(result,
 		&coordinatorTerm,
@@ -515,7 +564,6 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
-		&durabilityAsyncFallback,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan written rule position")
@@ -524,7 +572,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	pos, err := buildPoolerPosition(
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrResult, cohortNames,
-		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount, durabilityAsyncFallback,
+		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
 		lsn,
 	)
 	if err != nil {
@@ -544,7 +592,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 		SELECT coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       durability_async_fallback, created_at
+		       created_at
 		FROM multigres.rule_history
 		ORDER BY coordinator_term DESC, leader_subterm DESC
 		LIMIT $1`, limit)
@@ -557,7 +605,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 		var rec ruleHistoryRecord
 		var leaderIDStr *string
 		var cohortNames, acceptedNames []string
-		var durabilityRequiredCount *int64
+		var durabilityRequiredCount int64
 		if err := executor.ScanRow(row,
 			&rec.CoordinatorTerm,
 			&rec.LeaderSubterm,
@@ -572,15 +620,11 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 			&rec.DurabilityPolicyName,
 			&rec.DurabilityQuorumType,
 			&durabilityRequiredCount,
-			&rec.DurabilityAsyncFallback,
 			&rec.CreatedAt,
 		); err != nil {
 			return nil, mterrors.Wrap(err, "failed to parse rule_history row")
 		}
-		if durabilityRequiredCount != nil {
-			v := int32(*durabilityRequiredCount)
-			rec.DurabilityRequiredCount = &v
-		}
+		rec.DurabilityRequiredCount = int32(durabilityRequiredCount)
 		if err := scanRuleHistoryRow(&rec, leaderIDStr, cohortNames, acceptedNames); err != nil {
 			return nil, mterrors.Wrap(err, "failed to parse rule_history row")
 		}
@@ -595,15 +639,14 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 
 // buildPoolerPosition constructs a *clustermetadatapb.PoolerPosition from raw DB column values.
 // leaderIDStr and coordinatorIDStr are app-name formatted strings (e.g. "zone1_pooler-name").
-// durability fields are nil when not set in the DB.
+// Durability fields are NOT NULL in the DB and are always populated in the returned position.
 func buildPoolerPosition(
 	coordinatorTerm, leaderSubterm int64,
 	leaderIDStr *string,
 	coordinatorIDStr string,
 	cohortNames []string,
-	durabilityPolicyName, durabilityQuorumType *string,
-	durabilityRequiredCount *int64,
-	durabilityAsyncFallback *string,
+	durabilityPolicyName, durabilityQuorumType string,
+	durabilityRequiredCount int64,
 	lsn string,
 ) (*clustermetadatapb.PoolerPosition, error) {
 	rule := &clustermetadatapb.ShardRule{
@@ -618,7 +661,7 @@ func buildPoolerPosition(
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse leader_id %q", *leaderIDStr)
 		}
-		rule.PrimaryId = id
+		rule.LeaderId = id
 	}
 
 	if coordinatorIDStr != "" {
@@ -635,29 +678,14 @@ func buildPoolerPosition(
 	}
 	rule.CohortMembers = cohortIDs
 
-	if durabilityPolicyName != nil || durabilityQuorumType != nil || durabilityRequiredCount != nil || durabilityAsyncFallback != nil {
-		dp := &clustermetadatapb.DurabilityPolicy{}
-		if durabilityPolicyName != nil {
-			dp.PolicyName = *durabilityPolicyName
-		}
-		if durabilityQuorumType != nil {
-			v, ok := clustermetadatapb.QuorumType_value[*durabilityQuorumType]
-			if !ok {
-				return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown quorum_type %q", *durabilityQuorumType)
-			}
-			dp.QuorumType = clustermetadatapb.QuorumType(v)
-		}
-		if durabilityRequiredCount != nil {
-			dp.RequiredCount = int32(*durabilityRequiredCount)
-		}
-		if durabilityAsyncFallback != nil {
-			v, ok := clustermetadatapb.AsyncReplicationFallbackMode_value[*durabilityAsyncFallback]
-			if !ok {
-				return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown async_fallback %q", *durabilityAsyncFallback)
-			}
-			dp.AsyncFallback = clustermetadatapb.AsyncReplicationFallbackMode(v)
-		}
-		rule.DurabilityPolicy = dp
+	v, ok := clustermetadatapb.QuorumType_value[durabilityQuorumType]
+	if !ok {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown quorum_type %q", durabilityQuorumType)
+	}
+	rule.DurabilityPolicy = &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    durabilityPolicyName,
+		QuorumType:    clustermetadatapb.QuorumType(v),
+		RequiredCount: int32(durabilityRequiredCount),
 	}
 
 	return &clustermetadatapb.PoolerPosition{
@@ -691,10 +719,9 @@ type ruleHistoryRecord struct {
 	Reason                  string
 	CohortMembers           []poolerID
 	AcceptedMembers         []poolerID
-	DurabilityPolicyName    *string
-	DurabilityQuorumType    *string
-	DurabilityRequiredCount *int32
-	DurabilityAsyncFallback *string
+	DurabilityPolicyName    string
+	DurabilityQuorumType    string
+	DurabilityRequiredCount int32
 	CreatedAt               time.Time
 }
 
