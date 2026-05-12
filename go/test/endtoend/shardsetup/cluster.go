@@ -426,7 +426,15 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, "sslmode=disable", "connect_timeout=2")
+	// When TLS is configured on the gateway, use sslmode=require so this
+	// readiness probe still works under --pg-require-ssl=true. The probe
+	// only needs an encrypted transport, not certificate verification, so
+	// sslmode=require is sufficient regardless of cert chain.
+	sslMode := "sslmode=disable"
+	if s.MultigatewayTLSCertPaths != nil {
+		sslMode = "sslmode=require"
+	}
+	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, sslMode, "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)

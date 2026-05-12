@@ -61,6 +61,7 @@ func timeoutTestServer(t *testing.T, authTimeout time.Duration, tlsConfig ...*tl
 		c.handler = listener.handler
 		c.hashProvider = listener.hashProvider
 		c.tlsConfig = listener.tlsConfig
+		c.requireTLS = listener.requireTLS
 		serveErr := c.serve()
 		_ = c.Close()
 		errCh <- serveErr

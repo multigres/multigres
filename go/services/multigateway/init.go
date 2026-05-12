@@ -62,6 +62,8 @@ type MultiGateway struct {
 	pgTLSCertFile viperutil.Value[string]
 	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
 	pgTLSKeyFile viperutil.Value[string]
+	// pgRequireSSL rejects plaintext client connections; requires cert + key.
+	pgRequireSSL viperutil.Value[bool]
 	// poolerDiscovery handles discovery of multipoolers across all cells
 	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
@@ -194,6 +196,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
 		}),
+		pgRequireSSL: viperutil.Configure(reg, "pg-require-ssl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "pg-require-ssl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_REQUIRE_SSL"},
+		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "pg-replica-port",
@@ -249,6 +257,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("authentication-timeout", mg.authenticationTimeout.Default(), "Maximum time allowed to complete client authentication (SSL handshake, startup message, SCRAM). Negative disables; 0 uses the protocol default of 60s.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
+	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
@@ -264,6 +273,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.authenticationTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
+		mg.pgRequireSSL,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
@@ -369,12 +379,17 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
 	keyFile := mg.pgTLSKeyFile.Get()
+	requireSSL := mg.pgRequireSSL.Get()
 	pgTLSConfig, err := buildPGTLSConfig(certFile, keyFile)
 	if err != nil {
 		return err
 	}
+	if requireSSL && pgTLSConfig == nil {
+		return errors.New("--pg-require-ssl=true requires --pg-tls-cert-file and --pg-tls-key-file")
+	}
 	if pgTLSConfig != nil {
-		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
+		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener",
+			"cert_file", certFile, "key_file", keyFile, "require_ssl", requireSSL)
 	}
 
 	// Build the full gateway record. All info (hostname, ports) is available
@@ -473,6 +488,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		GatewayID:             pidPrefix,
 		HashProvider:          hashProvider,
 		TLSConfig:             pgTLSConfig,
+		RequireTLS:            requireSSL,
 		AuthenticationTimeout: mg.authenticationTimeout.Get(),
 		Logger:                logger,
 	})
@@ -493,6 +509,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			GatewayID:             pidPrefix,
 			HashProvider:          hashProvider,
 			TLSConfig:             pgTLSConfig,
+			RequireTLS:            requireSSL,
 			AuthenticationTimeout: mg.authenticationTimeout.Get(),
 			Logger:                logger,
 		})

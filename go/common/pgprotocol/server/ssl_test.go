@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
@@ -593,4 +594,160 @@ func TestGSSENCRequest_ThenSSLRequest_WithTLS(t *testing.T) {
 
 	err = <-errCh
 	require.NoError(t, err)
+}
+
+// TestNewListener_RequireTLS_NoTLSConfig asserts that RequireTLS=true is
+// rejected at construction time if no TLSConfig is provided. Multigateway
+// relies on this fail-fast to avoid booting in a state that would refuse
+// every client.
+func TestNewListener_RequireTLS_NoTLSConfig(t *testing.T) {
+	_, err := NewListener(ListenerConfig{
+		Address:      "127.0.0.1:0",
+		Handler:      &mockHandler{},
+		HashProvider: newMockHashProvider("postgres"),
+		RequireTLS:   true,
+		Logger:       testLogger(t),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RequireTLS=true requires TLSConfig")
+}
+
+// TestSSLRequest_RequireTLS_RejectsPlaintext verifies that when RequireTLS
+// is set, a client that sends a StartupMessage without first negotiating
+// TLS is rejected with a FATAL *PgDiagnostic (SQLSTATE 28000) before any
+// authentication work is performed. The error is returned from
+// handleStartup so the listener's serve() error path emits the
+// ErrorResponse and closes the connection.
+func TestSSLRequest_RequireTLS_RejectsPlaintext(t *testing.T) {
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	tlsConfig, _ := generateTestTLSConfig(t)
+	c := newTestConn(t, serverConn, tlsConfig)
+	c.requireTLS = true
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	// Send startup message directly without SSLRequest.
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber,
+		map[string]string{"user": "plain", "database": "plain"})
+
+	err := <-errCh
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, mterrors.PgSSInvalidAuthSpec, diag.Code)
+	assert.Contains(t, diag.Message, "TLS is required")
+	assert.Empty(t, c.user, "auth must not have run")
+}
+
+// TestSSLRequest_RequireTLS_RejectsPlaintext_WireLevel drives the full
+// serve() path with RequireTLS=true and asserts the client receives a
+// FATAL ErrorResponse over the wire AND the server closes the
+// connection. Complements the in-process handleStartup test above by
+// covering the listener's error-handling glue.
+func TestSSLRequest_RequireTLS_RejectsPlaintext_WireLevel(t *testing.T) {
+	tlsConfig, _ := generateTestTLSConfig(t)
+
+	cfg := ListenerConfig{
+		Address:      "127.0.0.1:0",
+		Handler:      &mockHandler{},
+		HashProvider: newMockHashProvider("postgres"),
+		TLSConfig:    tlsConfig,
+		RequireTLS:   true,
+		Logger:       testLogger(t),
+	}
+	listener, err := NewListener(cfg)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		netConn, acceptErr := listener.listener.Accept()
+		if acceptErr != nil {
+			serverErrCh <- acceptErr
+			return
+		}
+		c := newConn(netConn, listener, 1)
+		c.handler = listener.handler
+		c.hashProvider = listener.hashProvider
+		c.tlsConfig = listener.tlsConfig
+		c.requireTLS = listener.requireTLS
+		serveErr := c.serve()
+		_ = c.Close()
+		serverErrCh <- serveErr
+	}()
+
+	clientConn, err := net.Dial("tcp", listener.Addr().String())
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	require.NoError(t, clientConn.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+	// Send StartupMessage without an SSLRequest first.
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber,
+		map[string]string{"user": "plain", "database": "plain"})
+
+	msgType, body := readMessage(t, clientConn)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.True(t, containsErrField(body, 'S', "FATAL"), "severity should be FATAL")
+	assert.True(t, containsErrField(body, 'C', "28000"), "SQLSTATE should be 28000")
+
+	// Server should close after writing the FATAL — next read returns EOF.
+	one := make([]byte, 1)
+	_, readErr := clientConn.Read(one)
+	require.Error(t, readErr, "server must close connection after FATAL")
+
+	// serve() returns the PgDiagnostic error.
+	require.Error(t, <-serverErrCh)
+}
+
+// TestSSLRequest_RequireTLS_AcceptsTLS verifies that with RequireTLS set,
+// a client that negotiates SSL before sending its StartupMessage is
+// admitted as normal.
+func TestSSLRequest_RequireTLS_AcceptsTLS(t *testing.T) {
+	tlsConfig, caPool := generateTestTLSConfig(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		netConn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			errCh <- acceptErr
+			return
+		}
+		c := newTestConn(t, netConn, tlsConfig)
+		c.requireTLS = true
+		errCh <- c.handleStartup()
+	}()
+
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	writeSSLRequest(t, clientConn)
+	require.Equal(t, byte('S'), readSingleByte(t, clientConn))
+
+	tlsClientConn := tls.Client(clientConn, &tls.Config{
+		RootCAs:    caPool,
+		ServerName: "localhost",
+		MinVersion: tls.VersionTLS12,
+	})
+	require.NoError(t, tlsClientConn.Handshake())
+
+	writeStartupPacketToPipe(t, tlsClientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "tlsuser",
+		"database": "tlsdb",
+	})
+	scramClientHelper(t, tlsClientConn, "tlsuser", "postgres")
+
+	require.NoError(t, <-errCh)
 }

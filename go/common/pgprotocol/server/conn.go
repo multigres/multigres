@@ -120,6 +120,10 @@ type Conn struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// requireTLS rejects a plaintext StartupMessage. Copied from the
+	// listener at accept time. Cancel requests bypass this check.
+	requireTLS bool
+
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool

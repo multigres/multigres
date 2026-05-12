@@ -55,6 +55,10 @@ type Listener struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
+	// hostssl posture. Validated against tlsConfig at construction.
+	requireTLS bool
+
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
 	// authentication_timeout GUC. Negative disables the timeout. The
@@ -135,6 +139,12 @@ type ListenerConfig struct {
 	// When nil, SSLRequest is declined with 'N' (plaintext only).
 	TLSConfig *tls.Config
 
+	// RequireTLS rejects any client that does not negotiate TLS before
+	// sending a StartupMessage. Mirrors the `hostssl` posture in
+	// PostgreSQL's pg_hba.conf. CancelRequest is still accepted over
+	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
+	RequireTLS bool
+
 	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
 	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
 	// client cannot pin a goroutine past this deadline. Zero falls back to
@@ -161,6 +171,10 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("hash provider is required (or TrustAuthProvider for testing)")
 	}
 
+	if config.RequireTLS && config.TLSConfig == nil {
+		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
+	}
+
 	netListener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
@@ -184,6 +198,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		hashProvider:          config.HashProvider,
 		trustAuthProvider:     config.TrustAuthProvider,
 		tlsConfig:             config.TLSConfig,
+		requireTLS:            config.RequireTLS,
 		authenticationTimeout: authTimeout,
 		logger:                logger,
 		gatewayID:             config.GatewayID,
@@ -239,6 +254,7 @@ func (l *Listener) Serve() error {
 		conn.hashProvider = l.hashProvider
 		conn.trustAuthProvider = l.trustAuthProvider
 		conn.tlsConfig = l.tlsConfig
+		conn.requireTLS = l.requireTLS
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

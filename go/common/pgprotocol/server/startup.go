@@ -74,6 +74,15 @@ func (c *Conn) readAndDispatchStartup() error {
 		return c.handleCancelRequest(&reader)
 
 	case protocol.ProtocolVersionNumber:
+		if c.requireTLS && !c.tlsHandshakeComplete {
+			c.logger.Warn("rejecting plaintext connection: TLS required",
+				"remote_addr", c.RemoteAddr())
+			// Returning a *PgDiagnostic lets serve() emit the FATAL
+			// ErrorResponse via its standard startup-error path (which
+			// also clears the auth deadline and closes the connection).
+			return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec,
+				"no encryption: TLS is required for this connection", "")
+		}
 		return c.handleStartupMessage(protocolCode, &reader)
 
 	default:
