@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,6 @@
 package scram
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -23,23 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockHashProvider implements PasswordHashProvider for testing.
-type mockHashProvider struct {
-	hashes map[string]*ScramHash
-	err    error
-}
-
-func (m *mockHashProvider) GetPasswordHash(_ context.Context, username, _ string) (*ScramHash, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	hash, ok := m.hashes[username]
-	if !ok {
-		return nil, ErrUserNotFound
-	}
-	return hash, nil
-}
 
 // createTestHash creates a ScramHash for a given password, salt, and iterations.
 // This simulates what would be stored in pg_authid.
@@ -70,13 +52,13 @@ func extractClientNonce(clientFirstMessage string) string {
 }
 
 func TestNewScramAuthenticator(t *testing.T) {
-	t.Run("creates authenticator with valid config", func(t *testing.T) {
-		provider := &mockHashProvider{}
-		auth := NewScramAuthenticator(provider, "testdb")
+	t.Run("creates authenticator with valid hash", func(t *testing.T) {
+		hash := createTestHash("password", []byte("testsalt12345678"), 4096)
+		auth := NewScramAuthenticator(hash, "testdb")
 		require.NotNil(t, auth)
 	})
 
-	t.Run("panics with nil provider", func(t *testing.T) {
+	t.Run("panics with nil hash", func(t *testing.T) {
 		assert.Panics(t, func() {
 			NewScramAuthenticator(nil, "testdb")
 		})
@@ -85,8 +67,8 @@ func TestNewScramAuthenticator(t *testing.T) {
 
 func TestScramAuthenticator_StartAuthentication(t *testing.T) {
 	t.Run("returns SASL mechanism list", func(t *testing.T) {
-		provider := &mockHashProvider{}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash("password", []byte("testsalt12345678"), 4096)
+		auth := NewScramAuthenticator(hash, "testdb")
 
 		mechanisms := auth.StartAuthentication()
 
@@ -100,12 +82,8 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 	testPassword := "testpassword"
 
 	t.Run("valid client-first-message", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
@@ -113,7 +91,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce := extractClientNonce(clientFirstMessage)
 
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Server-first-message should contain: r=<combined-nonce>, s=<salt-b64>, i=<iterations>
@@ -122,71 +100,47 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		assert.Contains(t, serverFirstMessage, "i=")
 	})
 
-	t.Run("user not found", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
-		auth.StartAuthentication()
-
-		client := NewSCRAMClientWithPassword("unknownuser", "anypassword")
-		clientFirstMessage, err := client.ClientFirstMessage()
-		require.NoError(t, err)
-
-		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage, "unknownuser")
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrUserNotFound))
-	})
-
 	t.Run("invalid client-first-message - empty", func(t *testing.T) {
-		provider := &mockHashProvider{}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
-		_, err := auth.HandleClientFirst(context.Background(), "", "")
+		_, err := auth.HandleClientFirst("", "")
 		require.Error(t, err)
 	})
 
 	t.Run("invalid client-first-message - missing nonce", func(t *testing.T) {
-		provider := &mockHashProvider{}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Note: empty username is now allowed (uses fallback), but missing nonce is still an error
-		_, err := auth.HandleClientFirst(context.Background(), "n,,n=user", "user")
+		_, err := auth.HandleClientFirst("n,,n=user", "user")
 		require.Error(t, err)
 	})
 
 	t.Run("empty username in client-first-message uses startup message username", func(t *testing.T) {
 		// pgx sends empty username in SCRAM client-first-message (n,,n=,r=...)
 		// and expects the server to use the username from the startup message.
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"startupuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Client sends empty username in SCRAM, startup message has "startupuser"
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "startupuser")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "startupuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage, "r=clientnonce12345") // Combined nonce starts with client nonce
 	})
 
 	t.Run("empty username with no startup message username returns error", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Client sends empty username with no startup message username - should fail
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "")
+		_, err := auth.HandleClientFirst(clientFirstMessage, "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "startup message")
 	})
@@ -194,58 +148,33 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 	t.Run("client-first-message username is ignored, startup message username always used", func(t *testing.T) {
 		// PostgreSQL ALWAYS ignores the username from client-first-message and uses
 		// the startup message username. This test verifies that behavior.
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"actualuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Client sends "wronguser" in client-first-message but "actualuser" in startup message.
 		// PostgreSQL behavior: ALWAYS use startup message username.
 		clientFirstMessage := "n,,n=wronguser,r=clientnonce12345"
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "actualuser")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "actualuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage, "r=clientnonce12345")
 
-		// Verify that "actualuser" was used for credential lookup, not "wronguser".
-		// If "wronguser" was used, the test would have failed with ErrUserNotFound.
+		// Verify that the startup-message username was stored, regardless of
+		// what the client put in client-first-message.
 		assert.Equal(t, "actualuser", auth.username)
 	})
 
 	t.Run("channel binding requested but not supported", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Client requests channel binding (p=tls-server-end-point)
 		clientFirstMessage := "p=tls-server-end-point,,n=testuser,r=clientnonce"
 
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		_, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "channel binding")
-	})
-
-	t.Run("hash provider error is propagated", func(t *testing.T) {
-		expectedErr := errors.New("database connection failed")
-		provider := &mockHashProvider{
-			err: expectedErr,
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
-		auth.StartAuthentication()
-
-		client := NewSCRAMClientWithPassword("testuser", "anypassword")
-		clientFirstMessage, err := client.ClientFirstMessage()
-		require.NoError(t, err)
-
-		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "database connection failed")
 	})
 }
 
@@ -255,12 +184,8 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	testPassword := "correctpassword"
 
 	t.Run("valid proof - authentication succeeds", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Use SCRAMClient for the full exchange.
@@ -269,7 +194,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		// Step 1: Client first message.
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Step 2: Client final message with correct password.
@@ -294,12 +219,8 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	})
 
 	t.Run("invalid proof - wrong password", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Client uses wrong password.
@@ -308,7 +229,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		// Step 1: Client first message.
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Step 2: Client final message with WRONG password.
@@ -325,18 +246,14 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	})
 
 	t.Run("invalid client-final-message - empty", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		_, err = auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		_, err = auth.HandleClientFinal("")
@@ -344,18 +261,14 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	})
 
 	t.Run("nonce mismatch - server nonce tampered", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		_, err = auth.HandleClientFirst(clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Send a client-final-message with a different nonce (attacker trying to replay).
@@ -365,8 +278,8 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	})
 
 	t.Run("called without HandleClientFirst - state error", func(t *testing.T) {
-		provider := &mockHashProvider{}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// Skip HandleClientFirst, go directly to HandleClientFinal.
@@ -384,12 +297,8 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		testIterations := 4096
 		testPassword := "pencil"
 
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"user": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 
 		// 1. Server sends mechanism list (AuthSASL).
 		mechanisms := auth.StartAuthentication()
@@ -401,7 +310,7 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce := extractClientNonce(clientFirstMessage)
 
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "user")
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "user")
 		require.NoError(t, err)
 
 		// 3. Verify server-first-message format.
@@ -437,12 +346,8 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		// Username with special characters that need SASL encoding.
 		username := "user=with,special"
 
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				username: createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
 		// SCRAMClient handles username encoding automatically.
@@ -450,7 +355,7 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
 
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, username)
+		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, username)
 		require.NoError(t, err)
 
 		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
@@ -473,18 +378,14 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		testIterations := 4096
 		testPassword := "password"
 
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"testuser": createTestHash(testPassword, testSalt, testIterations),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash(testPassword, testSalt, testIterations)
+		auth := NewScramAuthenticator(hash, "testdb")
 
 		// Complete a successful authentication.
 		auth.StartAuthentication()
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, _ := client.ClientFirstMessage()
-		serverFirstMessage, _ := auth.HandleClientFirst(context.Background(), clientFirstMessage, "testuser")
+		serverFirstMessage, _ := auth.HandleClientFirst(clientFirstMessage, "testuser")
 		clientFinalMessage, _ := client.ProcessServerFirst(serverFirstMessage)
 		_, _ = auth.HandleClientFinal(clientFinalMessage)
 
@@ -504,7 +405,7 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce2 := extractClientNonce(clientFirstMessage2)
 
-		serverFirstMessage2, err := auth.HandleClientFirst(context.Background(), clientFirstMessage2, "testuser")
+		serverFirstMessage2, err := auth.HandleClientFirst(clientFirstMessage2, "testuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage2, "r="+clientNonce2)
 	})
@@ -512,15 +413,11 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 
 func TestScramAuthenticatorState(t *testing.T) {
 	t.Run("state transitions are enforced", func(t *testing.T) {
-		provider := &mockHashProvider{
-			hashes: map[string]*ScramHash{
-				"user": createTestHash("password", []byte("salt12345678"), 4096),
-			},
-		}
-		auth := NewScramAuthenticator(provider, "testdb")
+		hash := createTestHash("password", []byte("salt12345678"), 4096)
+		auth := NewScramAuthenticator(hash, "testdb")
 
 		// Cannot call HandleClientFirst before StartAuthentication.
-		_, err := auth.HandleClientFirst(context.Background(), "n,,n=user,r=nonce", "user")
+		_, err := auth.HandleClientFirst("n,,n=user,r=nonce", "user")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "state")
 
@@ -533,11 +430,11 @@ func TestScramAuthenticatorState(t *testing.T) {
 		assert.Contains(t, err.Error(), "state")
 
 		// Now proceed normally.
-		_, err = auth.HandleClientFirst(context.Background(), "n,,n=user,r=clientnonce", "user")
+		_, err = auth.HandleClientFirst("n,,n=user,r=clientnonce", "user")
 		require.NoError(t, err)
 
 		// Cannot call HandleClientFirst again.
-		_, err = auth.HandleClientFirst(context.Background(), "n,,n=user,r=anothernonce", "user")
+		_, err = auth.HandleClientFirst("n,,n=user,r=anothernonce", "user")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "state")
 	})

@@ -15,7 +15,6 @@
 package scram
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,7 +22,10 @@ import (
 
 // Sentinel errors for SCRAM authentication.
 var (
-	// ErrUserNotFound indicates the user does not exist.
+	// ErrUserNotFound indicates the user does not exist. Callers fetching
+	// credentials before constructing a ScramAuthenticator should return
+	// this so the gateway can emit PG's "password authentication failed"
+	// (SQLSTATE 28P01) without exposing user existence.
 	ErrUserNotFound = errors.New("user not found")
 
 	// ErrAuthenticationFailed indicates the password proof was invalid.
@@ -40,15 +42,6 @@ var (
 	// passwords.
 	ErrPasswordExpired = errors.New("password expired")
 )
-
-// PasswordHashProvider is an interface for retrieving password hashes.
-// This abstraction allows the authenticator to be used with different
-// storage backends (PostgreSQL, cache, etc.).
-type PasswordHashProvider interface {
-	// GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user in a database.
-	// Returns ErrUserNotFound if the user does not exist.
-	GetPasswordHash(ctx context.Context, username, database string) (*ScramHash, error)
-}
 
 // authenticatorState tracks the current state of the SCRAM handshake.
 type authenticatorState int
@@ -80,15 +73,15 @@ const (
 // The Reset() method allows reusing an authenticator sequentially, but only
 // after the previous authentication has completed.
 type ScramAuthenticator struct {
-	provider PasswordHashProvider
-
-	// Database for credential lookup.
+	// Database for credential lookup context (used in logs).
 	database string
 
 	// Current state of the authentication handshake.
 	state authenticatorState
 
-	// Cached hash from the password provider.
+	// SCRAM hash for the authenticating user, supplied by the caller at
+	// construction time. The caller is responsible for fetching it from
+	// the credential source before SCRAM starts.
 	hash *ScramHash
 
 	// Username being authenticated.
@@ -108,16 +101,20 @@ type ScramAuthenticator struct {
 	extractedClientKey []byte
 }
 
-// NewScramAuthenticator creates a new SCRAM authenticator with the given
-// password hash provider and database name for credential lookup.
+// NewScramAuthenticator creates a new SCRAM authenticator for the given
+// pre-fetched password hash and database name. The caller must look up the
+// hash (e.g. via a credential provider) before constructing the authenticator
+// so a single credential fetch can satisfy both SCRAM and any subsequent
+// role-attribute checks the caller wants to perform.
 //
-// Panics if provider is nil.
-func NewScramAuthenticator(provider PasswordHashProvider, database string) *ScramAuthenticator {
-	if provider == nil {
-		panic("auth: password hash provider cannot be nil")
+// Panics if hash is nil. Unknown-user / login-disabled / password-expired
+// cases must be handled by the caller before reaching this constructor.
+func NewScramAuthenticator(hash *ScramHash, database string) *ScramAuthenticator {
+	if hash == nil {
+		panic("auth: scram hash cannot be nil")
 	}
 	return &ScramAuthenticator{
-		provider: provider,
+		hash:     hash,
 		database: database,
 		state:    stateInitial,
 	}
@@ -143,9 +140,10 @@ func (a *ScramAuthenticator) StartAuthentication() []string {
 // the startup message. This parameter should be the username from the startup
 // message.
 //
-// This method looks up the user's password hash and generates the
-// server-first-message containing the combined nonce, salt, and iteration count.
-func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstMessage, startupMessageUsername string) (string, error) {
+// The user's password hash was supplied at construction time; this method
+// generates the server-first-message containing the combined nonce, salt,
+// and iteration count from that hash.
+func (a *ScramAuthenticator) HandleClientFirst(clientFirstMessage, startupMessageUsername string) (string, error) {
 	// Verify state.
 	if a.state != stateStarted {
 		return "", fmt.Errorf("auth: invalid state for HandleClientFirst (expected started, got %d)", a.state)
@@ -176,14 +174,6 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 	a.username = username
 	a.clientNonce = parsed.clientNonce
 	a.clientFirstMessageBare = parsed.clientFirstMessageBare
-
-	// Look up the password hash for this user.
-	hash, err := a.provider.GetPasswordHash(ctx, a.username, a.database)
-	if err != nil {
-		a.state = stateFailed
-		return "", fmt.Errorf("auth: failed to get password hash: %w", err)
-	}
-	a.hash = hash
 
 	// Generate the server-first-message.
 	serverFirstMessage, combinedNonce, err := generateServerFirstMessage(
@@ -289,10 +279,9 @@ func (a *ScramAuthenticator) ExtractedKeys() (clientKey, serverKey []byte) {
 }
 
 // Reset clears the authenticator state, allowing it to be reused for
-// another authentication attempt.
+// another authentication attempt with the same hash.
 func (a *ScramAuthenticator) Reset() {
 	a.state = stateInitial
-	a.hash = nil
 	a.username = ""
 	a.clientNonce = ""
 	a.combinedNonce = ""

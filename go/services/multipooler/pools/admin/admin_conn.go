@@ -133,6 +133,16 @@ func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInf
 	// itself evaluates, and rolreplication. Expressing validity in SQL avoids
 	// timestamp parsing and matches PG's own `now()` semantics (both are
 	// evaluated server-side).
+	//
+	// Note: PG's own has_rolreplication() short-circuits to true for
+	// superusers regardless of rolreplication (miscinit.c:734-750). We do
+	// not include rolsuper in the SELECT because the gateway only consults
+	// IsReplicationRole after SCRAM has already authenticated the role —
+	// reaching that check at all means the role passed login-disabled and
+	// password-validity predicates, and any superuser intended for
+	// replication is expected to also have rolreplication=true. If a
+	// superuser-only-without-rolreplication ever needs walsender access,
+	// extend RolAuthInfo with IsSuperuser and OR it in at the gateway.
 	sql := fmt.Sprintf(
 		"SELECT rolpassword, rolcanlogin, "+
 			"(rolvaliduntil IS NULL OR rolvaliduntil > now()) AS password_valid, "+

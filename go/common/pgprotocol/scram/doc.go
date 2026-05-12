@@ -59,22 +59,23 @@
 //
 //   - ScramAuthenticator: Stateful server-side authenticator handling the protocol exchange
 //   - SCRAMClient: Client-side authenticator supporting password and passthrough modes
-//   - PasswordHashProvider: Interface for retrieving SCRAM password hashes from storage
 //   - Cryptographic functions: RFC 5802 compliant key derivation and verification
 //   - Protocol parsers/generators: Message construction and parsing (unexported)
 //
 // # Usage Example
 //
-//	// Server-side authentication
-//	provider := NewMyPasswordProvider()
-//	auth := scram.NewScramAuthenticator(provider, "mydb")
+//	// Server-side authentication: the caller looks up the hash before
+//	// constructing the authenticator so one credential fetch can also
+//	// satisfy any post-auth role-attribute checks.
+//	hash, err := lookupScramHash(ctx, "myuser", "mydb")
+//	auth := scram.NewScramAuthenticator(hash, "mydb")
 //
 //	// Start SASL negotiation
 //	mechanisms := auth.StartAuthentication()
 //	// Send AuthenticationSASL with mechanisms...
 //
 //	// Handle client-first-message
-//	serverFirst, err := auth.HandleClientFirst(ctx, clientFirstMsg)
+//	serverFirst, err := auth.HandleClientFirst(clientFirstMsg, startupMessageUsername)
 //	// Send AuthenticationSASLContinue with serverFirst...
 //
 //	// Handle client-final-message
@@ -109,17 +110,13 @@
 //
 //	SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>
 //
-// The PasswordHashProvider interface abstracts the storage mechanism:
-//
-//	type PasswordHashProvider interface {
-//	    GetPasswordHash(ctx context.Context, username, database string) (*ScramHash, error)
-//	}
-//
-// Implementations can:
-//   - Query PostgreSQL's pg_authid directly
-//   - Use a credential cache with TTL and invalidation
-//   - Fetch from a centralized credential service
-//   - Combine multiple sources with fallback logic
+// Callers are responsible for fetching the hash from storage (pg_authid, a
+// cache, a remote credential service) before constructing a
+// ScramAuthenticator. Coupling the fetch to the SCRAM state machine forced
+// callers that also needed other per-role attributes to make a second
+// lookup; pushing the fetch out keeps SCRAM purely a state machine and
+// lets one credential lookup serve both the password hash and any
+// follow-up role-attribute checks.
 //
 // # Future Directions
 //

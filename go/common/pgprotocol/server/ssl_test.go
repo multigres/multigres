@@ -134,14 +134,14 @@ func newTestConn(t *testing.T, serverConn net.Conn, tlsConfig *tls.Config) *Conn
 	t.Helper()
 	listener := testListener(t)
 	c := &Conn{
-		conn:           serverConn,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(serverConn),
-		params:         make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
-		tlsConfig:      tlsConfig,
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
+		tlsConfig:          tlsConfig,
 	}
 	c.ctx = context.Background()
 	c.logger = testLogger(t)

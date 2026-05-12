@@ -40,7 +40,7 @@ func timeoutTestServer(t *testing.T, authTimeout time.Duration, tlsConfig ...*tl
 	cfg := ListenerConfig{
 		Address:               "127.0.0.1:0",
 		Handler:               &mockHandler{},
-		HashProvider:          newMockHashProvider("postgres"),
+		CredentialProvider:    newMockCredentialProvider("postgres"),
 		AuthenticationTimeout: authTimeout,
 		Logger:                testLogger(t),
 	}
@@ -59,7 +59,7 @@ func timeoutTestServer(t *testing.T, authTimeout time.Duration, tlsConfig ...*tl
 		}
 		c := newConn(netConn, listener, 1)
 		c.handler = listener.handler
-		c.hashProvider = listener.hashProvider
+		c.credentialProvider = listener.credentialProvider
 		c.tlsConfig = listener.tlsConfig
 		serveErr := c.serve()
 		_ = c.Close()
@@ -232,10 +232,10 @@ func TestAuthenticationTimeout_SuccessfulAuthClearsDeadline(t *testing.T) {
 // default of 60s (matching PostgreSQL).
 func TestAuthenticationTimeout_ConfigDefault(t *testing.T) {
 	listener, err := NewListener(ListenerConfig{
-		Address:      "127.0.0.1:0",
-		Handler:      &mockHandler{},
-		HashProvider: newMockHashProvider("postgres"),
-		Logger:       testLogger(t),
+		Address:            "127.0.0.1:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		Logger:             testLogger(t),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { listener.Close() })
@@ -329,7 +329,7 @@ func TestAuthenticationTimeout_NegativeDisables(t *testing.T) {
 	listener, err := NewListener(ListenerConfig{
 		Address:               "127.0.0.1:0",
 		Handler:               &mockHandler{},
-		HashProvider:          newMockHashProvider("postgres"),
+		CredentialProvider:    newMockCredentialProvider("postgres"),
 		AuthenticationTimeout: -1,
 		Logger:                testLogger(t),
 	})

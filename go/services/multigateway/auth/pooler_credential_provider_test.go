@@ -29,7 +29,7 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// mockPoolerSystemClient is a mock implementation of AuthCredentialsClient for testing.
+// mockPoolerSystemClient is a mock implementation of PoolerSystemClient for testing.
 type mockPoolerSystemClient struct {
 	response *multipoolerpb.GetAuthCredentialsResponse
 	err      error
@@ -39,24 +39,42 @@ func (m *mockPoolerSystemClient) GetAuthCredentials(_ context.Context, _ *multip
 	return m.response, m.err
 }
 
-func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
+func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 	// Valid SCRAM hash from PostgreSQL.
 	// Format: SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>
 	// Salt needs to be at least 8 bytes, keys are base64-encoded.
 	validScramHash := "SCRAM-SHA-256$4096:c2FsdHNhbHRzYWx0$c3RvcmVka2V5MTIzNDU2Nzg5MDEyMw==:c2VydmVya2V5MTIzNDU2Nzg5MDEyMw=="
 
-	t.Run("successful lookup", func(t *testing.T) {
+	t.Run("successful lookup returns hash and rolreplication", func(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			response: &multipoolerpb.GetAuthCredentialsResponse{
-				ScramHash: validScramHash,
+				ScramHash:         validScramHash,
+				IsReplicationRole: true,
 			},
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		hash, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
+		creds, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.NoError(t, err)
-		require.NotNil(t, hash)
-		assert.Equal(t, 4096, hash.Iterations)
+		require.NotNil(t, creds)
+		require.NotNil(t, creds.Hash)
+		assert.Equal(t, 4096, creds.Hash.Iterations)
+		assert.True(t, creds.IsReplicationRole)
+	})
+
+	t.Run("successful lookup with rolreplication=false", func(t *testing.T) {
+		client := &mockPoolerSystemClient{
+			response: &multipoolerpb.GetAuthCredentialsResponse{
+				ScramHash:         validScramHash,
+				IsReplicationRole: false,
+			},
+		}
+		provider := NewPoolerCredentialProvider(client)
+
+		creds, err := provider.GetCredentials(context.Background(), "regular", "testdb")
+		require.NoError(t, err)
+		require.NotNil(t, creds)
+		assert.False(t, creds.IsReplicationRole)
 	})
 
 	t.Run("user not found", func(t *testing.T) {
@@ -65,9 +83,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.NotFound, "user not found")),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "nonexistent", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "nonexistent", "testdb")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, scram.ErrUserNotFound)
 	})
@@ -83,9 +101,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "nologin_user", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "nologin_user", "testdb")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, scram.ErrLoginDisabled)
 	})
@@ -99,9 +117,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "expired_user", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "expired_user", "testdb")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, scram.ErrPasswordExpired)
 	})
@@ -113,9 +131,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.PermissionDenied, "authz: caller not in role")),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "alice", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "alice", "testdb")
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, scram.ErrLoginDisabled)
 		assert.NotErrorIs(t, err, scram.ErrPasswordExpired)
@@ -129,9 +147,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.Unauthenticated, "mTLS: bad client cert")),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "alice", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "alice", "testdb")
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, scram.ErrLoginDisabled)
 		assert.NotErrorIs(t, err, scram.ErrPasswordExpired)
@@ -144,9 +162,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 				ScramHash: "", // No password set
 			},
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "nopassword", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "nopassword", "testdb")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, scram.ErrUserNotFound)
 	})
@@ -155,9 +173,9 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: errors.New("connection refused"),
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get auth credentials")
 	})
@@ -168,82 +186,10 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 				ScramHash: "invalid-hash-format",
 			},
 		}
-		provider := NewPoolerHashProvider(client)
+		provider := NewPoolerCredentialProvider(client)
 
-		_, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
+		_, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse SCRAM hash")
-	})
-}
-
-func TestPoolerHashProvider_IsReplicationRole(t *testing.T) {
-	t.Run("rolreplication=true", func(t *testing.T) {
-		client := &mockPoolerSystemClient{
-			response: &multipoolerpb.GetAuthCredentialsResponse{
-				IsReplicationRole: true,
-			},
-		}
-		provider := NewPoolerHashProvider(client)
-
-		ok, err := provider.IsReplicationRole(context.Background(), "repluser", "postgres")
-		require.NoError(t, err)
-		assert.True(t, ok)
-	})
-
-	t.Run("rolreplication=false", func(t *testing.T) {
-		client := &mockPoolerSystemClient{
-			response: &multipoolerpb.GetAuthCredentialsResponse{
-				IsReplicationRole: false,
-			},
-		}
-		provider := NewPoolerHashProvider(client)
-
-		ok, err := provider.IsReplicationRole(context.Background(), "regular", "postgres")
-		require.NoError(t, err)
-		assert.False(t, ok)
-	})
-
-	t.Run("user not found returns false without error", func(t *testing.T) {
-		// Defensive: by the time IsReplicationRole runs, SCRAM has succeeded
-		// for this user, so NotFound here is unexpected. We still treat it
-		// as "not a replication role" rather than propagate, so the gateway
-		// emits the standard 42501 rejection rather than a generic error.
-		client := &mockPoolerSystemClient{
-			err: mterrors.FromGRPC(status.Error(codes.NotFound, "user not found")),
-		}
-		provider := NewPoolerHashProvider(client)
-
-		ok, err := provider.IsReplicationRole(context.Background(), "ghost", "postgres")
-		require.NoError(t, err)
-		assert.False(t, ok)
-	})
-
-	t.Run("login-disabled diagnostic treated as not-replication", func(t *testing.T) {
-		// Same defensive reasoning: a role rolcanlogin=false couldn't have
-		// passed SCRAM, but if we ever see this here we don't want to leak
-		// it as a transport error.
-		diag := mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec,
-			"role \"x\" is not permitted to log in", "")
-		client := &mockPoolerSystemClient{
-			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
-		}
-		provider := NewPoolerHashProvider(client)
-
-		ok, err := provider.IsReplicationRole(context.Background(), "x", "postgres")
-		require.NoError(t, err)
-		assert.False(t, ok)
-	})
-
-	t.Run("transport error propagated", func(t *testing.T) {
-		// Lookup failure: surface the error so the gateway can fail closed
-		// (the verifier converts a non-nil error into a 42501 FATAL).
-		client := &mockPoolerSystemClient{
-			err: errors.New("connection refused"),
-		}
-		provider := NewPoolerHashProvider(client)
-
-		_, err := provider.IsReplicationRole(context.Background(), "u", "postgres")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get auth credentials")
 	})
 }

@@ -501,6 +501,13 @@ func (c *Conn) finishAuth() error {
 // requested a replication startup connection (replication=true /
 // replication=database). Skipped for normal sessions.
 //
+// The flag was fetched alongside the SCRAM hash during authenticateSCRAM
+// and cached on c.credentials, so this gate is a constant-time field
+// check rather than a second pooler round-trip.
+//
+// For the trust-auth path c.credentials is unset, so we fall back to
+// fetching from the credential provider here. Trust auth is test-only.
+//
 // Mismatches produce PG's exact wording with SQLSTATE 42501, matching
 // what native PostgreSQL emits in walsender startup. The error is sent
 // FATAL so libpq tears down the connection.
@@ -509,29 +516,40 @@ func (c *Conn) verifyReplicationRole() error {
 		return nil
 	}
 
-	// Without a verifier configured, we cannot determine whether the role
-	// has rolreplication=true; fail closed rather than admitting a
-	// potentially-unauthorized walsender session.
-	if c.roleAttrVerifier == nil {
-		c.logger.Warn("rejecting replication connection: no role attribute verifier configured",
+	// Use cached credentials from SCRAM if available.
+	if c.credentials != nil {
+		if !c.credentials.IsReplicationRole {
+			c.logger.Warn("authentication failed: role lacks rolreplication",
+				"user", c.user)
+			return c.sendReplicationRoleError()
+		}
+		return nil
+	}
+
+	// Trust-auth path: no SCRAM lookup happened, so we need to fetch the
+	// flag here. Without a credential provider configured, fail closed.
+	if c.credentialProvider == nil {
+		c.logger.Warn("rejecting replication connection: no credential provider configured",
 			"user", c.user)
 		return c.sendReplicationRoleError()
 	}
 
-	allowed, err := c.roleAttrVerifier.IsReplicationRole(c.ctx, c.user, c.database)
+	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
 	if err != nil {
-		// Lookup failure: fail closed and surface a generic FATAL so we
-		// don't leak whether the user exists. The underlying error is
-		// logged for operators.
+		// Lookup failure (including ErrUserNotFound / ErrLoginDisabled /
+		// ErrPasswordExpired): fail closed with a generic FATAL so we
+		// don't leak which roles exist. Operators see the underlying
+		// error in the logs.
 		c.logger.Error("replication role verification failed",
 			"user", c.user, "error", err)
 		return c.sendReplicationRoleError()
 	}
-	if !allowed {
+	if !creds.IsReplicationRole {
 		c.logger.Warn("authentication failed: role lacks rolreplication",
 			"user", c.user)
 		return c.sendReplicationRoleError()
 	}
+	c.credentials = creds
 	return nil
 }
 
@@ -554,11 +572,47 @@ func (c *Conn) sendReplicationRoleError() error {
 }
 
 // authenticateSCRAM performs SCRAM-SHA-256 authentication with the client.
+//
+// Credentials are fetched once up front via the credential provider; the
+// SCRAM hash drives the handshake and the IsReplicationRole flag is cached
+// on the connection for the later post-auth gate, so one lookup suffices
+// for both. Lookup-time sentinels (login-disabled, expired, missing user)
+// are mapped to the matching native-PG error here, before any SASL frames
+// are emitted, so we don't reveal which case applied.
 func (c *Conn) authenticateSCRAM() error {
 	c.logger.Debug("authenticating client", "method", "scram-sha-256")
 
-	// Create the SCRAM authenticator.
-	auth := scram.NewScramAuthenticator(c.hashProvider, c.database)
+	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
+	if err != nil {
+		// rolcanlogin=false: emit PG's exact wording with SQLSTATE 28000
+		// (invalid_authorization_specification), matching native PG.
+		if errors.Is(err, scram.ErrLoginDisabled) {
+			c.logger.Warn("authentication failed: role not permitted to log in", "user", c.user)
+			return c.sendLoginDisabledError()
+		}
+		// Expired rolvaliduntil and unknown-user both surface as the opaque
+		// "password authentication failed" message (28P01), matching PG's
+		// convention of not disclosing why auth failed.
+		if errors.Is(err, scram.ErrUserNotFound) {
+			c.logger.Warn("authentication failed: user not found", "user", c.user)
+			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		if errors.Is(err, scram.ErrPasswordExpired) {
+			c.logger.Warn("authentication failed: password expired", "user", c.user)
+			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		// Generic credential-lookup failure (pooler unreachable, parse
+		// error, transport error not carrying a PgDiagnostic). Fail
+		// closed with the same opaque message PG sends for wrong
+		// passwords so the client does not learn whether the user
+		// exists; operators see the underlying cause in the logs.
+		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
+		return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+	}
+	c.credentials = creds
+
+	// Create the SCRAM authenticator with the pre-fetched hash.
+	auth := scram.NewScramAuthenticator(creds.Hash, c.database)
 
 	// Send AuthenticationSASL with supported mechanisms.
 	mechanisms := auth.StartAuthentication()
@@ -578,25 +632,8 @@ func (c *Conn) authenticateSCRAM() error {
 	// Process client-first-message and generate server-first-message.
 	// Pass the username from the startup message as fallback for clients that
 	// send empty username in SCRAM (like pgx).
-	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage, c.user)
+	serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, c.user)
 	if err != nil {
-		// rolcanlogin=false: emit PG's exact wording with SQLSTATE 28000
-		// (invalid_authorization_specification), matching native PG.
-		if errors.Is(err, scram.ErrLoginDisabled) {
-			c.logger.Warn("authentication failed: role not permitted to log in", "user", c.user)
-			return c.sendLoginDisabledError()
-		}
-		// Expired rolvaliduntil and unknown-user both surface as the opaque
-		// "password authentication failed" message (28P01), matching PG's
-		// convention of not disclosing why auth failed.
-		if errors.Is(err, scram.ErrUserNotFound) {
-			c.logger.Warn("authentication failed: user not found", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
-		}
-		if errors.Is(err, scram.ErrPasswordExpired) {
-			c.logger.Warn("authentication failed: password expired", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
-		}
 		return fmt.Errorf("failed to handle client-first-message: %w", err)
 	}
 

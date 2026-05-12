@@ -363,8 +363,10 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 
-	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)
+	// Create the credential provider for SCRAM authentication and the
+	// replication-role gate. A single GetAuthCredentials RPC feeds both,
+	// so admitting a replication connection never costs two pooler hops.
+	credentialProvider := auth.NewPoolerCredentialProvider(mg.poolerGateway)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
@@ -471,8 +473,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		Address:               pgAddr,
 		Handler:               mg.pgHandler,
 		GatewayID:             pidPrefix,
-		HashProvider:          hashProvider,
-		RoleAttributeVerifier: hashProvider,
+		CredentialProvider:    credentialProvider,
 		TLSConfig:             pgTLSConfig,
 		AuthenticationTimeout: mg.authenticationTimeout.Get(),
 		Logger:                logger,
@@ -492,8 +493,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			Address:               replicaAddr,
 			Handler:               replicaHandler,
 			GatewayID:             pidPrefix,
-			HashProvider:          hashProvider,
-			RoleAttributeVerifier: hashProvider,
+			CredentialProvider:    credentialProvider,
 			TLSConfig:             pgTLSConfig,
 			AuthenticationTimeout: mg.authenticationTimeout.Get(),
 			Logger:                logger,

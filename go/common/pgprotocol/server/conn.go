@@ -32,7 +32,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
-	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -108,17 +107,21 @@ type Conn struct {
 	// handler processes queries for this connection.
 	handler Handler
 
-	// hashProvider provides password hashes for SCRAM authentication.
-	hashProvider scram.PasswordHashProvider
+	// credentialProvider supplies the SCRAM hash and rolreplication flag
+	// for the authenticating role. A single lookup feeds both SCRAM and
+	// the post-auth replication-role gate; the result is cached on
+	// credentials below so the gate doesn't have to round-trip again.
+	credentialProvider CredentialProvider
+
+	// credentials is the result of a successful credentialProvider lookup,
+	// populated before SCRAM starts. The replication-role gate reads
+	// IsReplicationRole from here so neither path has to round-trip a
+	// second time.
+	credentials *Credentials
 
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
-
-	// roleAttrVerifier enforces role attributes (rolreplication) after
-	// authentication completes. May be nil; replication startup connections
-	// require it.
-	roleAttrVerifier RoleAttributeVerifier
 
 	// tlsConfig holds the TLS configuration for SSL connections.
 	// When set, the server accepts SSLRequest and upgrades to TLS.
