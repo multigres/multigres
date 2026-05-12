@@ -326,3 +326,105 @@ func TestScramKeysFromOptions(t *testing.T) {
 		})
 	}
 }
+
+// --- sessionSettingsForPool tests ---
+
+func TestSessionSettingsForPool_DisabledPassthrough(t *testing.T) {
+	e := &Executor{vpidStampEnabled: false}
+
+	t.Run("nil settings", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(nil))
+	})
+
+	t.Run("application_name preserved", func(t *testing.T) {
+		in := map[string]string{"application_name": "client-app", "search_path": "public"}
+		got := e.sessionSettingsForPool(in)
+		require.Equal(t, in, got)
+	})
+}
+
+func TestSessionSettingsForPool_EnabledFiltersAppName(t *testing.T) {
+	e := &Executor{vpidStampEnabled: true}
+
+	t.Run("nil settings stays nil", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(nil))
+	})
+
+	t.Run("only application_name collapses to nil", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(map[string]string{"application_name": "x"}))
+	})
+
+	t.Run("mixed settings drops application_name only", func(t *testing.T) {
+		got := e.sessionSettingsForPool(map[string]string{
+			"application_name":  "client-app",
+			"search_path":       "public",
+			"statement_timeout": "1000",
+		})
+		require.Equal(t, map[string]string{
+			"search_path":       "public",
+			"statement_timeout": "1000",
+		}, got)
+	})
+
+	t.Run("case-insensitive match on application_name", func(t *testing.T) {
+		got := e.sessionSettingsForPool(map[string]string{
+			"Application_Name": "client-app",
+			"APPLICATION_NAME": "other",
+			"search_path":      "public",
+		})
+		require.Equal(t, map[string]string{"search_path": "public"}, got)
+	})
+
+	t.Run("no application_name returns equivalent map", func(t *testing.T) {
+		in := map[string]string{"search_path": "public"}
+		got := e.sessionSettingsForPool(in)
+		require.Equal(t, in, got)
+	})
+}
+
+// --- stampVpid* early-return tests ---
+//
+// The happy-path SET application_name issue is covered by integration tests
+// (it requires a real pool connection). Here we lock in the guard semantics:
+// the helpers must be safe no-ops when stamping is disabled, options is nil,
+// or ClientConnectionId is zero. A nil conn is intentionally passed to prove
+// the helpers return before touching it.
+
+func TestStampVpidOnReserved_NoOpGuards(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
+	}{
+		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"enabled with nil options", true, nil},
+		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Executor{vpidStampEnabled: tc.enabled}
+			// nil conn would panic on SetApplicationName — guard must short-circuit first.
+			e.stampVpidOnReserved(ctx, nil, tc.options)
+		})
+	}
+}
+
+func TestStampVpidOnRegular_NoOpGuards(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
+	}{
+		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"enabled with nil options", true, nil},
+		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Executor{vpidStampEnabled: tc.enabled}
+			e.stampVpidOnRegular(ctx, nil, tc.options)
+		})
+	}
+}

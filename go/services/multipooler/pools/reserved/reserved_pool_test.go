@@ -837,3 +837,53 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		conn.Release(ReleaseCommit)
 	}
 }
+
+func TestConn_SetApplicationName(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	t.Run("issues SET with quoted literal", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+		defer conn.Release(ReleaseCommit)
+
+		server.ResetQueryLog()
+		require.NoError(t, conn.SetApplicationName(ctx, "multigres_vpid:7"))
+		assert.Equal(t, "set application_name = 'multigres_vpid:7'", server.QueryLog())
+	})
+
+	t.Run("escapes embedded single quotes", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+		defer conn.Release(ReleaseCommit)
+
+		server.ResetQueryLog()
+		require.NoError(t, conn.SetApplicationName(ctx, "weird'name"))
+		assert.Equal(t, "set application_name = 'weird''name'", server.QueryLog())
+	})
+}
+
+func TestConn_SetApplicationName_PropagatesError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// neverFail not set: unmatched query returns an error.
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	// pool.NewConn issues BEGIN-less acquire — leave neverFail off so the SET fails
+	// but the conn itself can still be created (NewConn does no setup queries
+	// when reservationOptions is nil and validate is nil).
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	defer conn.Release(ReleaseError)
+
+	require.Error(t, conn.SetApplicationName(ctx, "vpid:1"))
+}
