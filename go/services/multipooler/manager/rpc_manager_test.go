@@ -621,8 +621,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
@@ -678,8 +677,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
@@ -787,8 +785,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// Mock: Get current LSN (called twice - once after first promote, once in second call)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
@@ -846,8 +843,7 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
@@ -900,8 +896,7 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	fakeRules := &fakeRuleStore{}
 	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
@@ -975,8 +970,7 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 	// Mock: Clear primary_conninfo after promotion (executed before updateRule)
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// updateRule fails (e.g., sync replication timeout)
 	fakeRules := &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for synchronous replication")}
@@ -1040,8 +1034,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	// Clear primary_conninfo after promotion
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
 
 	// Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
@@ -1210,7 +1203,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 		func(sql string) { capturedConnInfoSQL = sql },
 	)
 	// SetPrimaryConnInfo executes pg_reload_conf()
-	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	expectReloadConfig(mockQueryService)
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 	pm.rules = newRuleStore(logger, mockQueryService)
 
