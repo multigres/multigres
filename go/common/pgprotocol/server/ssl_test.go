@@ -602,11 +602,11 @@ func TestGSSENCRequest_ThenSSLRequest_WithTLS(t *testing.T) {
 // every client.
 func TestNewListener_RequireTLS_NoTLSConfig(t *testing.T) {
 	_, err := NewListener(ListenerConfig{
-		Address:      "127.0.0.1:0",
-		Handler:      &mockHandler{},
-		HashProvider: newMockHashProvider("postgres"),
-		RequireTLS:   true,
-		Logger:       testLogger(t),
+		Address:            "127.0.0.1:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		RequireTLS:         true,
+		Logger:             testLogger(t),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "RequireTLS=true requires TLSConfig")
@@ -655,12 +655,12 @@ func TestSSLRequest_RequireTLS_RejectsPlaintext_WireLevel(t *testing.T) {
 	tlsConfig, _ := generateTestTLSConfig(t)
 
 	cfg := ListenerConfig{
-		Address:      "127.0.0.1:0",
-		Handler:      &mockHandler{},
-		HashProvider: newMockHashProvider("postgres"),
-		TLSConfig:    tlsConfig,
-		RequireTLS:   true,
-		Logger:       testLogger(t),
+		Address:            "127.0.0.1:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		TLSConfig:          tlsConfig,
+		RequireTLS:         true,
+		Logger:             testLogger(t),
 	}
 	listener, err := NewListener(cfg)
 	require.NoError(t, err)
@@ -675,7 +675,7 @@ func TestSSLRequest_RequireTLS_RejectsPlaintext_WireLevel(t *testing.T) {
 		}
 		c := newConn(netConn, listener, 1)
 		c.handler = listener.handler
-		c.hashProvider = listener.hashProvider
+		c.credentialProvider = listener.credentialProvider
 		c.tlsConfig = listener.tlsConfig
 		c.requireTLS = listener.requireTLS
 		serveErr := c.serve()
