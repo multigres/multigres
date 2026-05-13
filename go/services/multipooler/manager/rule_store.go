@@ -723,7 +723,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		update.walPosition, // wal_position (NULLIF: optional)
 		update.operation,   // operation    (NULLIF: optional)
 		update.reason,      // reason
-		acceptedParam,      // $17
+		acceptedParam,      // accepted_members
 	)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to write rule history record")

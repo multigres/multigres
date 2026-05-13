@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -699,6 +700,10 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 	return nil
 }
 
+func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+	return reloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
+}
+
 // reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via
 // ALTER SYSTEM, and waits for postmaster to finish re-reading the config files
 // before returning.
@@ -718,10 +723,10 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 // clearing primary_conninfo) should still poll, but they can do so knowing
 // the new config is loaded server-side rather than racing with postmaster's
 // signal handler.
-func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.InternalQueryService) error {
 	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer loadTimeCancel()
-	result, err := pm.query(loadTimeCtx, "SELECT pg_conf_load_time()")
+	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read pg_conf_load_time before reload")
 	}
@@ -730,11 +735,11 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
 	}
 
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+	logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
 	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer reloadCancel()
-	if err := pm.exec(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
+		logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
@@ -750,7 +755,7 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
 		}
 		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
-		result, err := pm.query(queryCtx, "SELECT pg_conf_load_time()")
+		result, err := qs.Query(queryCtx, "SELECT pg_conf_load_time()")
 		queryCancel()
 		if err != nil {
 			return mterrors.Wrap(err, "failed to poll pg_conf_load_time after reload")
@@ -760,6 +765,17 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 			return mterrors.Wrap(err, "failed to scan pg_conf_load_time after reload")
 		}
 		if loadTimeAfter != loadTimeBefore {
+			// TODO: accept a verifier func(ctx) error parameter so callers can
+			// confirm their specific change is visible (e.g. poll a GUC value).
+			// For now, sleep briefly to give pooled backends time to act on the
+			// SIGHUP before the caller proceeds — postmaster having processed the
+			// reload is necessary but not sufficient for every backend to have seen
+			// the new config.
+			select {
+			case <-time.After(100 * time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			return nil
 		}
 	}
