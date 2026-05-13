@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
+	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -455,17 +456,7 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to clear primary_conninfo")
 	}
 
-	// Reload PostgreSQL configuration to apply changes (should be quick)
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-
-	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer reloadCancel()
-	if err := pm.exec(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
-	}
-
-	return nil
+	return pm.reloadPostgresConfig(ctx)
 }
 
 // waitForReplayStabilize waits, best effort, for WAL replay to stop making
@@ -708,10 +699,38 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 	return nil
 }
 
-// reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via ALTER SYSTEM
+// reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via
+// ALTER SYSTEM, and waits for postmaster to finish re-reading the config files
+// before returning.
+//
+// pg_reload_conf() returns immediately after sending SIGHUP to postmaster, well
+// before any of that work has happened. We use pg_conf_load_time() — the
+// timestamp of postmaster's most recent successful config load — as the
+// completion signal: once a follow-up query observes it advance past the
+// pre-reload value, postmaster has re-read postgresql.auto.conf and signalled
+// its child processes.
+//
+// Caveat: this guarantees postmaster has processed the reload, not that every
+// child process has. Backends (the walreceiver, individual query backends)
+// each pick up SIGHUP at their own pace — typically within milliseconds, but
+// not synchronously. Callers that need to observe a child's reaction (e.g.
+// polling pg_stat_wal_receiver for the walreceiver to disconnect after
+// clearing primary_conninfo) should still poll, but they can do so knowing
+// the new config is loaded server-side rather than racing with postmaster's
+// signal handler.
 func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer loadTimeCancel()
+	result, err := pm.query(loadTimeCtx, "SELECT pg_conf_load_time()")
+	if err != nil {
+		return mterrors.Wrap(err, "failed to read pg_conf_load_time before reload")
+	}
+	var loadTimeBefore string
+	if err := executor.ScanSingleRow(result, &loadTimeBefore); err != nil {
+		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
+	}
 
+	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
 	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer reloadCancel()
 	if err := pm.exec(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
@@ -719,7 +738,33 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
-	return nil
+	// Poll pg_conf_load_time() until it advances. retry.New uses "do work, then
+	// back off" semantics, so the backoff timer starts after the previous query
+	// finishes — a slow query under load doesn't cause back-to-back hammering.
+	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer waitCancel()
+	r := retry.New(1*time.Millisecond, 20*time.Millisecond)
+	for _, attemptErr := range r.Attempts(waitCtx) {
+		if attemptErr != nil {
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
+		}
+		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
+		result, err := pm.query(queryCtx, "SELECT pg_conf_load_time()")
+		queryCancel()
+		if err != nil {
+			return mterrors.Wrap(err, "failed to poll pg_conf_load_time after reload")
+		}
+		var loadTimeAfter string
+		if err := executor.ScanSingleRow(result, &loadTimeAfter); err != nil {
+			return mterrors.Wrap(err, "failed to scan pg_conf_load_time after reload")
+		}
+		if loadTimeAfter != loadTimeBefore {
+			return nil
+		}
+	}
+	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
+	return mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
@@ -975,9 +1020,7 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names for demotion")
 	}
 
-	// Reload configuration to apply changes immediately
-	if err := pm.exec(execCtx, "SELECT pg_reload_conf()"); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to reload configuration for demotion", "error", err)
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to reload configuration for demotion")
 	}
 
@@ -999,9 +1042,7 @@ func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) e
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 	}
 
-	// Reload configuration to apply changes
-	if err := pm.exec(execCtx, "SELECT pg_reload_conf()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
 	}
 

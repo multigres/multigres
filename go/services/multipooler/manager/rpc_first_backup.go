@@ -75,7 +75,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast.
-	// The policy is also written into the sentinel row of current_rule so all
+	// The policy is also written into the initial row of current_rule so all
 	// subsequent rule reads carry a non-nil DurabilityPolicy.
 	policy, err := pm.loadDurabilityPolicy(ctx)
 	if err != nil {
@@ -144,7 +144,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
 	}
 
-	// The zero-state sentinel row (term=0, empty cohort) was already inserted by
+	// The initial row (term=0, empty cohort) was already inserted by
 	// createRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
 

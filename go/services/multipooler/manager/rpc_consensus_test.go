@@ -104,7 +104,7 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// pauseReplication: resetPrimaryConnInfo
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
 	// waitForReceiverDisconnect
 	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
@@ -949,11 +949,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
+				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
 				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
+				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedLeaderTerm:         0, // Primary term cleared after demotion
@@ -1014,11 +1014,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
+				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
 				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
+				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 15, // With force, term is NOT updated when older
 			expectedLeaderTerm:         0,  // Primary term is cleared
@@ -1054,11 +1054,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
+				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
 				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
+				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedLeaderTerm:         0, // Primary term cleared
@@ -1230,7 +1230,7 @@ func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo s
 	m.AddQueryPatternOnce("current_setting.*primary_conninfo", mock.MakeQueryResult([]string{"current_setting"}, connInfoRow))
 	// pauseReplication: resetPrimaryConnInfo
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
 	// waitForReceiverDisconnect
 	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
@@ -1542,7 +1542,7 @@ func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
 	// getPrimaryLSN
 	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
@@ -1558,7 +1558,7 @@ func expectReplicaProposeMocks(m *mock.QueryService) {
 	// SET primary_conninfo
 	m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	// reload config
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
 }
 
 func TestPropose(t *testing.T) {
@@ -1898,7 +1898,7 @@ func TestPropose(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:       true,
 			expectErrContains: "failed to reload PostgreSQL configuration",

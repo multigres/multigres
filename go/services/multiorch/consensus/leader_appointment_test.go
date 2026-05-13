@@ -1448,7 +1448,81 @@ func TestPropagate(t *testing.T) {
 		require.ElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
 		require.ElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
+
+	t.Run("fails when cohort is too small for the policy's sync replication requirement", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
+		standbys := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil),
+		}
+
+		// AT_LEAST_N(4) needs 3 sync acks from a cohort that, including the
+		// candidate, only has 2 members. AtLeastNPolicy.BuildSyncReplicationConfig
+		// rejects this, and EstablishLeadership must surface it under its
+		// "failed to build synchronous replication config" wrap.
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 4,
+			Description:   "Test quorum (too large for cohort)",
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, mustPolicy(t, quorumRule), "test_election", cohort, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to build synchronous replication config")
+		require.Contains(t, err.Error(), "insufficient cohort members")
+	})
+
+	t.Run("fails when policy returns nil config without error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
+		standbys := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil),
+		}
+		cohort := append([]*multiorchdatapb.PoolerHealthState{candidate}, standbys...)
+		recruited := append([]*multiorchdatapb.PoolerHealthState{candidate}, standbys...)
+
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, nilConfigPolicy{}, "test_election", cohort, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "BuildSyncReplicationConfig returned nil config without error")
+		// Promote must not have been dispatched when the contract is violated.
+		_, sent := fakeClient.PromoteRequests["multipooler-zone1-mp1"]
+		require.False(t, sent, "promotion must not be attempted when policy contract is violated")
+	})
 }
+
+// nilConfigPolicy implements DurabilityPolicy but violates its contract by
+// returning (nil, nil) from BuildSyncReplicationConfig. Used to exercise
+// EstablishLeadership's defensive check that refuses to promote when a buggy
+// policy fails to return a config or an error.
+type nilConfigPolicy struct{}
+
+func (nilConfigPolicy) CheckAchievable([]*clustermetadatapb.ID) error { return nil }
+
+func (nilConfigPolicy) CheckSufficientRecruitment(_, _ []*clustermetadatapb.ID) error {
+	return nil
+}
+
+func (nilConfigPolicy) BuildSyncReplicationConfig(
+	*slog.Logger, []*clustermetadatapb.ID, *clustermetadatapb.ID,
+) (*commonconsensus.SyncReplicationConfig, error) {
+	return nil, nil
+}
+
+func (nilConfigPolicy) Description() string { return "nil-config stub (test only)" }
 
 func TestAppointLeader(t *testing.T) {
 	ctx := context.Background()
