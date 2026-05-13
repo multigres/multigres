@@ -1370,7 +1370,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{"0", "0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
@@ -1422,7 +1422,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{"0", "0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1447,7 +1447,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{"0", "0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
@@ -1473,10 +1473,10 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT COUNT", errors.New("query failed"))
+				m.AddQueryPatternOnceWithError("terminated_count", errors.New("query failed"))
 			},
 			expectError:   true,
-			errorContains: "failed to query pg_stat_wal_receiver",
+			errorContains: "failed to query pg_stat_activity for walreceiver",
 		},
 		{
 			name: "PauseReplayAndReceiver fails on pause",
@@ -1485,7 +1485,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{"0", "0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))

@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -465,6 +466,24 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
+	// pg_reload_conf() sends SIGHUP to the postmaster asynchronously — it returns
+	// before the startup process has updated its in-memory primary_conninfo. If the
+	// startup process hasn't processed SIGHUP yet when we kill the walreceiver, it
+	// may restart it (it still sees the old non-empty value). We handle this by
+	// re-terminating the walreceiver on every poll tick in waitForReceiverDisconnect
+	// until the process is confirmed gone, rather than waiting for the reload here.
+	//
+	// Terminate any walreceiver that is still running after the reload. If the startup
+	// process restarts it before it has seen the empty primary_conninfo, the re-terminate
+	// loop in waitForReceiverDisconnect will catch it on the next tick.
+	//
+	// pg_stat_activity is used instead of pg_stat_wal_receiver because the latter
+	// reads from WalRcvCtlBlock shared memory, which may not yet be populated for a
+	// freshly-started walreceiver.
+	terminateCtx, terminateCancel := context.WithTimeout(ctxutil.Detach(ctx), 500*time.Millisecond)
+	defer terminateCancel()
+	_ = pm.exec(terminateCtx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE backend_type = 'walreceiver'")
+
 	return nil
 }
 
@@ -549,10 +568,19 @@ func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn s
 }
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
-// It polls pg_stat_wal_receiver to confirm the receiver has stopped.
+// It polls pg_stat_activity to confirm the walreceiver process has stopped.
+//
+// pg_stat_activity is preferred over pg_stat_wal_receiver because the latter reads from a shared
+// memory block (WalRcvCtlBlock) that can contain stale entries after a walreceiver process dies
+// unexpectedly (e.g., during a timeline transition). pg_stat_activity reads from the live process
+// table and accurately reflects whether a walreceiver backend is still running.
 func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	// Create a context with timeout for the polling loop
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Create a context with timeout for the polling loop.
+	// 30 s gives enough margin for the case where the walreceiver's upstream
+	// (the primary's postgres) is itself restarting: the walreceiver will not
+	// exit until the upstream TCP connection is torn down, which typically
+	// happens within ~7 s but can take longer under load.
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -569,25 +597,80 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
 
 		case <-ticker.C:
-			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
-			result, err := pm.query(waitCtx, "SELECT COUNT(*) FROM pg_stat_wal_receiver")
+			// Guard against the rare race where both waitCtx.Done() and ticker.C
+			// become ready at the same instant (e.g. at the exact 30 s boundary).
+			// Go's select is non-deterministic when multiple cases are ready.
+			if waitCtx.Err() != nil {
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+			}
+
+			// Use a detached context (not waitCtx) for each individual query.
+			// Under concurrent load the connection pool can be temporarily
+			// saturated; if pool.Get blocks and waitCtx expires while waiting,
+			// pm.query would return ErrCtxTimeout instead of the proper
+			// DEADLINE_EXCEEDED error. ctxutil.Detach strips the cancellation
+			// deadline while preserving trace context; the per-query 500 ms timeout
+			// is the only deadline that matters here.
+			//
+			// Combine the count check and pg_terminate_backend into a single
+			// query so only one pool connection is consumed per tick. Splitting
+			// them into two separate queries can cause the terminate query to fail
+			// silently (ErrCtxTimeout from pool.Get) when the pool is under
+			// pressure, leaving the walreceiver alive indefinitely.
+			//
+			// pg_reload_conf() sends SIGHUP asynchronously: if the startup process
+			// hasn't yet processed the new (empty) primary_conninfo when the
+			// walreceiver exits, it restarts the walreceiver. Re-terminating on
+			// every tick handles that restart loop without requiring a blocking
+			// wait for the config reload.
+			//
+			// We also count successful vs. failed terminate calls separately for
+			// diagnostic logging: pg_terminate_backend returns FALSE when the
+			// backend exits between the pg_stat_activity scan and the kill, so a
+			// zero terminated_count does not mean the query failed.
+			const sqlTerminateAndCount = `
+				SELECT
+					COUNT(*) AS total_count,
+					COUNT(CASE WHEN terminated THEN 1 END) AS terminated_count
+				FROM (
+					SELECT pg_terminate_backend(pid) AS terminated
+					FROM pg_stat_activity
+					WHERE backend_type = 'walreceiver'
+				) t`
+			queryCtx, queryCancel := context.WithTimeout(ctxutil.Detach(ctx), 500*time.Millisecond)
+			result, err := pm.query(queryCtx, sqlTerminateAndCount)
+			queryCancel()
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
-				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+				// If the overall window also expired, report that as the cause.
+				if waitCtx.Err() != nil {
+					pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
+					return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+				}
+				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_activity for walreceiver", "error", err)
+				return nil, mterrors.Wrap(err, "failed to query pg_stat_activity for walreceiver")
 			}
 
-			var receiverCount int64
-			if err := executor.ScanSingleRow(result, &receiverCount); err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan receiver count", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver count")
+			var totalCount, terminatedCount int64
+			if err := executor.ScanSingleRow(result, &totalCount, &terminatedCount); err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to scan walreceiver counts", "error", err)
+				return nil, mterrors.Wrap(err, "failed to scan walreceiver counts from pg_stat_activity")
 			}
 
-			// Once receiver is disconnected, query final replication status
-			if receiverCount == 0 {
+			pm.logger.InfoContext(ctx, "Polling for WAL receiver disconnect",
+				"total_count", totalCount,
+				"terminated_count", terminatedCount)
+
+			// totalCount == 0 means no walreceiver was found in pg_stat_activity:
+			// the process has fully exited. Query final replication status and return.
+			// totalCount > 0 means walreceiver(s) still running; pg_terminate_backend
+			// was called on each. Loop and wait for them to die.
+			if totalCount == 0 {
 				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
 
-				// Get the final replication status
-				status, err := pm.queryReplicationStatus(waitCtx)
+				statusCtx, statusCancel := context.WithTimeout(ctxutil.Detach(ctx), 500*time.Millisecond)
+				status, err := pm.queryReplicationStatus(statusCtx)
+				statusCancel()
 				if err != nil {
 					pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
 					return nil, err

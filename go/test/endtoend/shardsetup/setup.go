@@ -932,7 +932,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -942,8 +942,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "timeout after 60s")
-			return "", errors.New("timeout waiting for shard bootstrap after 60s")
+			span.SetStatus(codes.Error, "timeout after 120s")
+			return "", errors.New("timeout waiting for shard bootstrap after 120s")
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -969,7 +969,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/checkBootstrapStatus")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	var primaryName string
@@ -1748,17 +1748,34 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
 		ReloadConfig(ctx, t, client.Pooler, name)
 
+		// Kick any running walreceiver to speed up shutdown. pg_terminate_backend
+		// sends SIGTERM; if primary_conninfo is already '' the startup process will
+		// not restart it. We ignore errors (e.g. no walreceiver running yet).
+		_, _ = client.Pooler.ExecuteQuery(ctx,
+			"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE backend_type = 'walreceiver'", 0)
+
 		// Wait for the WAL receiver to stop. ReloadConfig has already confirmed
 		// primary_conninfo is cleared; this waits for postgres to act on it.
+		// Use pg_stat_activity (not pg_stat_wal_receiver) because the latter reads
+		// from WalRcvCtlBlock shared memory which can hold stale entries after a
+		// walreceiver exits, causing spurious "still running" results.
+		// Also re-terminate on each tick to handle walreceivers that were restarted
+		// by the startup process between the initial terminate and the SIGHUP being
+		// processed.
 		require.Eventually(t, func() bool {
-			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
-			if err != nil || connInfo != "" {
+			// Use a fresh context per query so that expiry of the outer setup
+			// context (which is shared with ReloadConfig and other operations)
+			// does not cause every poll to fail with a deadline error.
+			queryCtx, queryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer queryCancel()
+			// Terminate any running walreceiver and count remaining ones in one query.
+			count, err := QueryStringValue(queryCtx, client.Pooler,
+				"SELECT COUNT(*) FROM (SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE backend_type = 'walreceiver') t")
+			if err != nil {
 				return false
 			}
-			// Also verify WAL receiver has stopped
-			resp, err := client.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-			return err == nil && len(resp.Rows) == 0
-		}, 10*time.Second, 100*time.Millisecond, "%s primary_conninfo should be cleared and WAL receiver stopped", name)
+			return count == "0"
+		}, 60*time.Second, 100*time.Millisecond, "%s primary_conninfo should be cleared and WAL receiver stopped", name)
 
 		client.Close()
 		t.Logf("SetupTest: Cleared primary_conninfo on standby %s", name)

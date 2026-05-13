@@ -106,7 +106,7 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 	// waitForReceiverDisconnect
-	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
+	m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{int64(0), int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
@@ -1232,7 +1232,7 @@ func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo s
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 	// waitForReceiverDisconnect
-	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
+	m.AddQueryPatternOnce("terminated_count", mock.MakeQueryResult([]string{"total_count", "terminated_count"}, [][]any{{int64(0), int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
