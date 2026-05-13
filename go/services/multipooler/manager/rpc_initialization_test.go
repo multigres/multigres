@@ -542,7 +542,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			pm.rules = &fakeRuleStore{inconsistentGUC: tt.inconsistentGUC}
 			tt.state.primaryTerm = tt.primaryTerm
 
-			got := pm.determineRemedialAction(tt.state)
+			got := pm.determineRemedialAction(t.Context(), tt.state)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}

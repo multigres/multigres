@@ -51,10 +51,11 @@ type SyncStandbyManager interface {
 	Clear(ctx context.Context) error
 
 	// NeedsApply returns true if the given policy would produce GUC strings that
-	// differ from the in-memory cache, meaning a SetPolicy call would issue ALTER
-	// SYSTEM. Returns false when the cache already reflects the desired state.
-	// Safe to call without holding the action lock (purely in-memory).
-	NeedsApply(pc commonconsensus.PolicyWithCohort) (bool, error)
+	// differ from what postgres currently has. It first checks the in-memory cache;
+	// when the cache matches the desired state it validates against the live
+	// postgres value to catch external GUC changes (e.g. manual ALTER SYSTEM).
+	// Safe to call without holding the action lock.
+	NeedsApply(ctx context.Context, pc commonconsensus.PolicyWithCohort) (bool, error)
 }
 
 // postgresqlSyncStandbyManager implements SyncStandbyManager against a live
@@ -151,16 +152,51 @@ func (s *postgresqlSyncStandbyManager) computeGUC(pc commonconsensus.PolicyWithC
 }
 
 // NeedsApply returns true if the given policy would produce GUC strings that
-// differ from the in-memory cache. Safe to call without the action lock.
-func (s *postgresqlSyncStandbyManager) NeedsApply(pc commonconsensus.PolicyWithCohort) (bool, error) {
+// differ from what postgres currently has. Safe to call without the action lock.
+//
+// It queries postgres directly so it can detect GUC changes made outside this
+// manager (e.g. manual ALTER SYSTEM). On any query failure it falls back to the
+// in-memory cache, which is reliable because this manager is the sole writer of
+// these GUCs.
+func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc commonconsensus.PolicyWithCohort) (bool, error) {
 	g, err := s.computeGUC(pc)
 	if err != nil {
 		return false, err
 	}
+
+	// Query postgres for the live GUC values.
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := s.qs.Query(queryCtx, "SELECT current_setting('synchronous_commit'), current_setting('synchronous_standby_names')")
+	if err != nil {
+		// Fall back to cache: unreachable postgres means we can't detect drift,
+		// but the cache is trustworthy since we own all writes to these GUCs.
+		s.mu.Lock()
+		unchanged := s.lastSyncCommit == g.wantCommit && s.lastStandbyNames == g.wantStandby
+		s.mu.Unlock()
+		return !unchanged, nil
+	}
+	var pgCommit, pgStandby string
+	if scanErr := executor.ScanSingleRow(result, &pgCommit, &pgStandby); scanErr != nil {
+		s.mu.Lock()
+		unchanged := s.lastSyncCommit == g.wantCommit && s.lastStandbyNames == g.wantStandby
+		s.mu.Unlock()
+		return !unchanged, nil
+	}
+
+	// Update the cache to reflect confirmed postgres state so SetPolicy
+	// skips redundant ALTER SYSTEM calls (e.g. after a process restart).
 	s.mu.Lock()
-	unchanged := s.lastSyncCommit == g.wantCommit && s.lastStandbyNames == g.wantStandby
+	s.lastSyncCommit = pgCommit
+	s.lastStandbyNames = pgStandby
 	s.mu.Unlock()
-	return !unchanged, nil
+
+	if pgCommit == g.wantCommit && pgStandby == g.wantStandby {
+		return false, nil
+	}
+
+	// Postgres has the wrong values.
+	return true, nil
 }
 
 // SetPolicy computes the Postgres GUC configuration for the given durability policy and applies it.

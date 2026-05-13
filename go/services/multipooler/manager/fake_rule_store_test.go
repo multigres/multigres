@@ -47,7 +47,7 @@ func (noopSyncStandbyManager) Clear(_ context.Context) error {
 	return nil
 }
 
-func (noopSyncStandbyManager) NeedsApply(_ commonconsensus.PolicyWithCohort) (bool, error) {
+func (noopSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
 	return false, nil
 }
 
@@ -106,7 +106,7 @@ func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder)
 	return f.pos, nil
 }
 
-func (f *fakeRuleStore) hasInconsistentGUC() bool {
+func (f *fakeRuleStore) hasInconsistentGUC(_ context.Context) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.inconsistentGUC

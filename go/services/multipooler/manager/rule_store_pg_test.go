@@ -905,7 +905,7 @@ func TestRuleStorePG_HasInconsistentGUC_FalseBeforeAnyObservation(t *testing.T) 
 	localID := testPoolerID(t, "zone1", "primary-1")
 	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
 
-	assert.False(t, rs.hasInconsistentGUC(), "nil cache should not report inconsistency before any observePosition call")
+	assert.False(t, rs.hasInconsistentGUC(t.Context()), "nil cache should not report inconsistency before any observePosition call")
 }
 
 // TestRuleStorePG_GUCReconciliation verifies the full detect-and-fix cycle:
@@ -947,23 +947,23 @@ func TestRuleStorePG_GUCReconciliation(t *testing.T) {
 	_, err := rs.observePosition(ctx)
 	require.NoError(t, err)
 
-	// Cold SSM cache means NeedsApply will compare desired GUC against empty
-	// strings, so hasInconsistentGUC() must report true.
-	assert.True(t, rs.hasInconsistentGUC(), "cold SSM cache with a committed rule should be inconsistent")
+	// Cold SSM cache: postgres has the correct values but cache is empty, so
+	// NeedsApply queries postgres and returns true (cache != desired).
+	assert.True(t, rs.hasInconsistentGUC(ctx), "cold SSM cache with a committed rule should be inconsistent")
 
 	// reconcileGUC should apply the GUC and populate the SSM cache.
 	require.NoError(t, rs.reconcileGUC(ctx, false /* inRecovery */))
 
-	// SSM cache should now reflect the desired state.
-	needs, err := ssm.NeedsApply(commonconsensus.PolicyWithCohort{
+	// After reconcileGUC, NeedsApply queries postgres and finds it already matches.
+	needs, err := ssm.NeedsApply(ctx, commonconsensus.PolicyWithCohort{
 		Policy: mustNewPolicyFromProto(t, policy),
 		Cohort: cohort,
 	})
 	require.NoError(t, err)
-	assert.False(t, needs, "SSM cache should match desired GUC after reconcileGUC")
+	assert.False(t, needs, "postgres should already have desired GUC after reconcileGUC")
 
 	// hasInconsistentGUC should now return false — no spurious re-applies.
-	assert.False(t, rs.hasInconsistentGUC(), "hasInconsistentGUC should be false after reconcileGUC")
+	assert.False(t, rs.hasInconsistentGUC(ctx), "hasInconsistentGUC should be false after reconcileGUC")
 }
 
 // TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked verifies that reconcileGUC
@@ -1012,7 +1012,7 @@ func TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked(t *testing.T) {
 	assert.Less(t, elapsed, 500*time.Millisecond, "NOWAIT should fail fast, not block (got %v)", elapsed)
 
 	// SSM cache must be unchanged: no GUC should have been applied.
-	needs, err2 := ssm.NeedsApply(commonconsensus.PolicyWithCohort{
+	needs, err2 := ssm.NeedsApply(ctx, commonconsensus.PolicyWithCohort{
 		Policy: mustNewPolicyFromProto(t, policy),
 		Cohort: cohort,
 	})

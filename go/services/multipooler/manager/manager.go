@@ -1616,7 +1616,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Determine what remediation is needed
-	action := pm.determineRemedialAction(currentState)
+	action := pm.determineRemedialAction(ctx, currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
 		if currentState.postgresRunning {
@@ -1653,7 +1653,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Re-determine action based on current state
-	action = pm.determineRemedialAction(currentState)
+	action = pm.determineRemedialAction(lockCtx, currentState)
 
 	// Take remedial action with lock held
 	pm.takeRemedialAction(lockCtx, action, currentState)
@@ -1748,7 +1748,7 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
-func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
+func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
 	// Pgctld unavailable: No action possible
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
@@ -1774,7 +1774,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			}
 		}
 		// Pooler type already matches; check for a stale GUC that needs re-applying.
-		if pm.rules.hasInconsistentGUC() {
+		if pm.rules.hasInconsistentGUC(ctx) {
 			return remedialActionReconcileGUC
 		}
 		return remedialActionNone

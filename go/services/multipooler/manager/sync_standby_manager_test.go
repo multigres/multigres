@@ -234,20 +234,81 @@ func TestSetPolicy_RequiresPriorRuleWritesDrained(t *testing.T) {
 	assert.EqualError(t, err, "SetPolicy: SetPolicy requires prior rule writes to be drained (call readCurrentRuleLocked first)")
 }
 
-func TestNeedsApply_TrueWhenCacheCold(t *testing.T) {
-	ssm := newTestSSM(mock.NewQueryService())
-	needs, err := ssm.NeedsApply(ssmTestPolicyWithCohort())
+func TestNeedsApply_TrueWhenCacheColdAndPostgresEmpty(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	// postgres returns empty/default GUC values; policy wants non-empty
+	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
+		[]string{"current_setting", "current_setting"},
+		[][]any{{"on", ""}},
+	))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	assert.True(t, needs)
+	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
-func TestNeedsApply_FalseWhenCacheWarm(t *testing.T) {
-	ssm := newTestSSM(mock.NewQueryService())
-	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
-	needs, err := ssm.NeedsApply(ssmTestPolicyWithCohort())
+func TestNeedsApply_FalseWhenPostgresMatchesPolicy(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
+		[]string{"current_setting", "current_setting"},
+		[][]any{{"on", `ANY 1 ("zone1_standby-1")`}},
+	))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	assert.False(t, needs)
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestNeedsApply_WarmsCacheWhenPostgresAlreadyCorrect(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	// Cache is cold; postgres already has the desired values.
+	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
+		[]string{"current_setting", "current_setting"},
+		[][]any{{"on", `ANY 1 ("zone1_standby-1")`}},
+	))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.False(t, needs)
+	// Cache should now be warm so SetPolicy can skip ALTER SYSTEM.
+	assert.Equal(t, "on", ssm.lastSyncCommit)
+	assert.Equal(t, `ANY 1 ("zone1_standby-1")`, ssm.lastStandbyNames)
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestNeedsApply_TrueAndUpdatesCacheOnDrift(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	// Cache agrees with policy; postgres has been reset behind our back.
+	ssm.lastSyncCommit = "on"
+	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
+		[]string{"current_setting", "current_setting"},
+		[][]any{{"on", ""}},
+	))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.True(t, needs)
+	// Cache is updated to reflect actual postgres state (not the stale desired
+	// value), so SetPolicy will see cache != desired and re-apply.
+	assert.Equal(t, "on", ssm.lastSyncCommit)
+	assert.Empty(t, ssm.lastStandbyNames)
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestNeedsApply_FallsBackToCacheOnQueryError(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	ssm.lastSyncCommit = "on"
+	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	mockQS.AddQueryPatternOnceWithError("SELECT current_setting", errors.New("postgres down"))
+	// Cache matches policy, so fallback returns false (no apply needed).
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.False(t, needs)
+	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
 func TestSyncCommitString(t *testing.T) {

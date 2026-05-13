@@ -49,9 +49,9 @@ type ruleStorer interface {
 	cachedPosition() *clustermetadatapb.PoolerPosition
 
 	// hasInconsistentGUC returns true if the cached rule's policy would produce
-	// different GUC strings than what SyncStandbyManager last applied. Safe to
-	// call without the action lock (purely in-memory comparison).
-	hasInconsistentGUC() bool
+	// different GUC strings than what postgres currently has. Safe to call
+	// without the action lock.
+	hasInconsistentGUC(ctx context.Context) bool
 
 	// reconcileGUC re-reads the current rule (under SELECT FOR UPDATE when
 	// inRecovery is false) and re-applies the GUC if needed. Requires the
@@ -106,10 +106,9 @@ func (rs *ruleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
 }
 
 // hasInconsistentGUC returns true if the cached rule's policy would produce
-// different GUC strings than what syncStandby last applied. Safe to call
-// without the action lock — it is a hint only; reconcileGUC does the
-// authoritative check under lock.
-func (rs *ruleStore) hasInconsistentGUC() bool {
+// different GUC strings than what postgres currently has. Safe to call
+// without the action lock.
+func (rs *ruleStore) hasInconsistentGUC(ctx context.Context) bool {
 	pos := rs.cachedPosition()
 	if pos.GetRule().GetDurabilityPolicy() == nil {
 		return false
@@ -118,7 +117,7 @@ func (rs *ruleStore) hasInconsistentGUC() bool {
 	if err != nil {
 		return false
 	}
-	needs, err := rs.syncStandby.NeedsApply(consensus.PolicyWithCohort{
+	needs, err := rs.syncStandby.NeedsApply(ctx, consensus.PolicyWithCohort{
 		Policy: policy,
 		Cohort: pos.GetRule().GetCohortMembers(),
 	})
