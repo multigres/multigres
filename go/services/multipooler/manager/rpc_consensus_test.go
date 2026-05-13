@@ -54,7 +54,7 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		nil, nil, nil, "0/1",
+		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "0/1",
 	}}
 	return cols, row
 }
@@ -137,13 +137,15 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1089,13 +1091,15 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			}
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
-				Database:      database,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
 				Type:          clustermetadatapb.PoolerType_PRIMARY, // Starting as PRIMARY
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				TableGroup:    constants.DefaultTableGroup,
-				Shard:         constants.DefaultShard,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   database,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 

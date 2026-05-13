@@ -7,7 +7,7 @@
   {
     "comment": "with - Statement 2",
     "query": "SELECT count(*) FROM ( WITH q1(x) AS (SELECT random() FROM generate_series(1, 5)) SELECT * FROM q1 UNION SELECT * FROM q1 ) ss",
-    "expected": "SELECT COUNT(*) FROM (SELECT * FROM q1 UNION SELECT * FROM q1) AS ss"
+    "expected": "SELECT COUNT(*) FROM (WITH q1(x) AS (SELECT random() FROM generate_series(1, 5)) SELECT * FROM q1 UNION SELECT * FROM q1) AS ss"
   },
   {
     "comment": "with - Statement 3",
@@ -74,7 +74,7 @@
   {
     "comment": "with - Statement 16",
     "query": "WITH RECURSIVE outermost(x) AS ( SELECT 1 UNION (WITH innermost1 AS ( SELECT 2 UNION (WITH innermost2 AS ( SELECT 3 UNION (WITH innermost3 AS ( SELECT 4 UNION (WITH innermost4 AS ( SELECT 5 UNION (WITH innermost5 AS ( SELECT 6 UNION (WITH innermost6 AS (SELECT 7) SELECT * FROM innermost6)) SELECT * FROM innermost5)) SELECT * FROM innermost4)) SELECT * FROM innermost3)) SELECT * FROM innermost2)) SELECT * FROM outermost UNION SELECT * FROM innermost1) ) SELECT * FROM outermost ORDER BY 1",
-    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost1)) SELECT * FROM outermost ORDER BY 1"
+    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (WITH innermost1 AS (SELECT 2 UNION (WITH innermost2 AS (SELECT 3 UNION (WITH innermost3 AS (SELECT 4 UNION (WITH innermost4 AS (SELECT 5 UNION (WITH innermost5 AS (SELECT 6 UNION (WITH innermost6 AS (SELECT 7) SELECT * FROM innermost6)) SELECT * FROM innermost5)) SELECT * FROM innermost4)) SELECT * FROM innermost3)) SELECT * FROM innermost2)) SELECT * FROM outermost UNION SELECT * FROM innermost1)) SELECT * FROM outermost ORDER BY 1"
   },
   {
     "comment": "with - Statement 17",
@@ -584,12 +584,12 @@
   {
     "comment": "with - Statement 121",
     "query": "WITH RECURSIVE x(n) AS ( WITH x1 AS (SELECT 1 AS n) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x",
-    "expected": "WITH RECURSIVE x(n) AS (SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
+    "expected": "WITH RECURSIVE x(n) AS (WITH x1 AS (SELECT 1 AS n) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
   },
   {
     "comment": "with - Statement 122",
     "query": "WITH RECURSIVE x(n) AS ( WITH x1 AS (SELECT 1 FROM x) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x",
-    "expected": "WITH RECURSIVE x(n) AS (SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
+    "expected": "WITH RECURSIVE x(n) AS (WITH x1 AS (SELECT 1 FROM x) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
   },
   {
     "comment": "with - Statement 123",
@@ -704,7 +704,7 @@
   {
     "comment": "with - Statement 145",
     "query": "with cte(foo) as ( values(42) ) values((select foo from cte))",
-    "expected": "VALUES ((SELECT foo FROM cte))"
+    "expected": "WITH cte(foo) AS (VALUES (42)) VALUES ((SELECT foo FROM cte))"
   },
   {
     "comment": "with - Statement 146",
@@ -719,32 +719,32 @@
   {
     "comment": "with - Statement 148",
     "query": "select ( with cte(foo) as ( values(f1) ) values((select foo from cte)) ) from int4_tbl",
-    "expected": "SELECT (VALUES ((SELECT foo FROM cte))) FROM int4_tbl"
+    "expected": "SELECT (WITH cte(foo) AS (VALUES (f1)) VALUES ((SELECT foo FROM cte))) FROM int4_tbl"
   },
   {
     "comment": "with - Statement 149",
     "query": "WITH RECURSIVE t(j) AS ( WITH RECURSIVE s(i) AS ( VALUES (1) UNION ALL SELECT i+1 FROM s WHERE i \u003c 10 ) SELECT i FROM s UNION ALL SELECT j+1 FROM t WHERE j \u003c 10 ) SELECT * FROM t",
-    "expected": "WITH RECURSIVE t(j) AS (SELECT i FROM s UNION ALL (SELECT j + 1 FROM t WHERE j \u003c 10)) SELECT * FROM t"
+    "expected": "WITH RECURSIVE t(j) AS (WITH RECURSIVE s(i) AS (VALUES (1) UNION ALL (SELECT i + 1 FROM s WHERE i \u003c 10)) SELECT i FROM s UNION ALL (SELECT j + 1 FROM t WHERE j \u003c 10)) SELECT * FROM t"
   },
   {
     "comment": "with - Statement 150",
     "query": "WITH outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM innermost UNION SELECT 3) ) SELECT * FROM outermost ORDER BY 1",
-    "expected": "WITH outermost(x) AS (SELECT 1 UNION (SELECT * FROM innermost UNION SELECT 3)) SELECT * FROM outermost ORDER BY 1"
+    "expected": "WITH outermost(x) AS (SELECT 1 UNION (WITH innermost AS (SELECT 2) SELECT * FROM innermost UNION SELECT 3)) SELECT * FROM outermost ORDER BY 1"
   },
   {
     "comment": "with - Statement 151",
     "query": "WITH outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost) ) SELECT * FROM outermost ORDER BY 1",
-    "expected": "WITH outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
+    "expected": "WITH outermost(x) AS (SELECT 1 UNION (WITH innermost AS (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
   },
   {
     "comment": "with - Statement 152",
     "query": "WITH RECURSIVE outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost) ) SELECT * FROM outermost ORDER BY 1",
-    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
+    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (WITH innermost AS (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
   },
   {
     "comment": "with - Statement 153",
     "query": "WITH RECURSIVE outermost(x) AS ( WITH innermost as (SELECT 2 FROM outermost) SELECT * FROM innermost UNION SELECT * from outermost ) SELECT * FROM outermost ORDER BY 1",
-    "expected": "WITH RECURSIVE outermost(x) AS (SELECT * FROM innermost UNION SELECT * FROM outermost) SELECT * FROM outermost ORDER BY 1"
+    "expected": "WITH RECURSIVE outermost(x) AS (WITH innermost AS (SELECT 2 FROM outermost) SELECT * FROM innermost UNION SELECT * FROM outermost) SELECT * FROM outermost ORDER BY 1"
   },
   {
     "comment": "with - Statement 154",
@@ -754,12 +754,12 @@
   {
     "comment": "with - Statement 155",
     "query": "WITH RECURSIVE tab(id_key,link) AS (VALUES (1,17), (2,17), (3,17), (4,17), (6,17), (5,17)), iter (id_key, row_type, link) AS ( SELECT 0, 'base', 17 UNION ALL ( WITH remaining(id_key, row_type, link, min) AS ( SELECT tab.id_key, 'true'::text, iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key ), first_remaining AS ( SELECT id_key, row_type, link FROM remaining WHERE id_key=min ), effect AS ( SELECT tab.id_key, 'new'::text, tab.link FROM first_remaining e INNER JOIN tab ON e.id_key=tab.id_key WHERE e.row_type = 'false' ) SELECT * FROM first_remaining UNION ALL SELECT * FROM effect ) ) SELECT * FROM iter",
-    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION ALL (SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
+    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION ALL (WITH remaining(id_key, row_type, link, min) AS (SELECT tab.id_key, CAST('true' AS TEXT), iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key), first_remaining AS (SELECT id_key, row_type, link FROM remaining WHERE id_key = min), effect AS (SELECT tab.id_key, CAST('new' AS TEXT), tab.link FROM first_remaining AS e INNER JOIN tab ON e.id_key = tab.id_key WHERE e.row_type = 'false') SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
   },
   {
     "comment": "with - Statement 156",
     "query": "WITH RECURSIVE tab(id_key,link) AS (VALUES (1,17), (2,17), (3,17), (4,17), (6,17), (5,17)), iter (id_key, row_type, link) AS ( SELECT 0, 'base', 17 UNION ( WITH remaining(id_key, row_type, link, min) AS ( SELECT tab.id_key, 'true'::text, iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key ), first_remaining AS ( SELECT id_key, row_type, link FROM remaining WHERE id_key=min ), effect AS ( SELECT tab.id_key, 'new'::text, tab.link FROM first_remaining e INNER JOIN tab ON e.id_key=tab.id_key WHERE e.row_type = 'false' ) SELECT * FROM first_remaining UNION ALL SELECT * FROM effect ) ) SELECT * FROM iter",
-    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION (SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
+    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION (WITH remaining(id_key, row_type, link, min) AS (SELECT tab.id_key, CAST('true' AS TEXT), iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key), first_remaining AS (SELECT id_key, row_type, link FROM remaining WHERE id_key = min), effect AS (SELECT tab.id_key, CAST('new' AS TEXT), tab.link FROM first_remaining AS e INNER JOIN tab ON e.id_key = tab.id_key WHERE e.row_type = 'false') SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
   },
   {
     "comment": "with - Statement 157",
@@ -779,7 +779,7 @@
   {
     "comment": "with - Statement 160",
     "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT a+5 FROM t2 WHERE a \u003e 5 RETURNING * ), t2 AS ( UPDATE y SET a=a-11 RETURNING * ) SELECT * FROM t UNION ALL SELECT * FROM t2",
-    "expected": "SELECT * FROM t UNION ALL SELECT * FROM t2"
+    "expected": "WITH RECURSIVE t AS (INSERT INTO y (SELECT a + 5 FROM t2 WHERE a \u003e 5) RETURNING *), t2 AS (UPDATE y SET a = a - 11 RETURNING *) SELECT * FROM t UNION ALL SELECT * FROM t2"
   },
   {
     "comment": "with - Statement 161",
@@ -1142,7 +1142,7 @@
   {
     "comment": "with - Statement 236",
     "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT * FROM t ) VALUES(FALSE)",
-    "expected": "VALUES (FALSE)"
+    "expected": "WITH RECURSIVE t AS (INSERT INTO y SELECT * FROM t) VALUES (FALSE)"
   },
   {
     "comment": "with - Statement 237",
@@ -1167,7 +1167,7 @@
   {
     "comment": "with - Statement 241",
     "query": "WITH t AS ( INSERT INTO y VALUES(0) ) VALUES(FALSE)",
-    "expected": "VALUES (FALSE)"
+    "expected": "WITH t AS (INSERT INTO y VALUES (0)) VALUES (FALSE)"
   },
   {
     "comment": "with - Statement 242",

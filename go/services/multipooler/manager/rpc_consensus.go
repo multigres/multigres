@@ -252,19 +252,19 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	//
 	// observePosition also warms the ruleStore cache, allowing getCachedConsensusStatus
 	// below to read the position without an additional postgres round-trip.
-	if nodePosition, err := pm.rules.observePosition(ctx); err != nil {
+	if pos, err := pm.rules.observePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get rule history during revoke; candidate selection may be suboptimal",
 			"term", term, "error", err)
-	} else if nodePosition != nil {
-		response.WalPosition.LeadershipTerm = nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm()
-		pids, pidErr := toPoolerIDs(nodePosition.GetRule().GetCohortMembers())
+	} else {
+		response.WalPosition.LeadershipTerm = pos.GetRule().GetRuleNumber().GetCoordinatorTerm()
+		pids, pidErr := toPoolerIDs(pos.GetRule().GetCohortMembers())
 		if pidErr != nil {
 			pm.logger.WarnContext(ctx, "Some cohort member IDs have invalid format; using approximate names for candidate selection",
 				"term", term, "error", pidErr)
 		}
 		response.WalPosition.CohortMembers = poolerIDsToAppNames(pids)
 		pm.logger.InfoContext(ctx, "Captured coordinator term for candidate selection",
-			"term", term, "coordinator_term", nodePosition.GetRule().GetRuleNumber().GetCoordinatorTerm())
+			"term", term, "coordinator_term", pos.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 
 	// Capture consensus status after WAL positions are frozen (post-revoke snapshot).

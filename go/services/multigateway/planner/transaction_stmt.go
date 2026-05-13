@@ -22,19 +22,22 @@ import (
 // planTransactionStmt creates a plan for transaction control statements.
 //
 // Supported statements:
-// - BEGIN/START TRANSACTION: Deferred execution (sets state, no backend call)
-// - COMMIT: Releases reserved connections with commit
-// - ROLLBACK: Releases reserved connections with rollback
-// - SAVEPOINT, RELEASE, ROLLBACK TO: Pass through to backend (future enhancement)
+//   - BEGIN/START TRANSACTION: Deferred execution (sets state, no backend call)
+//   - COMMIT: Releases reserved connections with commit
+//   - ROLLBACK: Releases reserved connections with rollback
+//   - SAVEPOINT, RELEASE, ROLLBACK TO: Pass through to backend; on success,
+//     update the gateway's savepoint stack so SessionSettings and gateway-managed
+//     variables track PostgreSQL's GUC stack semantics.
 func (p *Planner) planTransactionStmt(
 	sql string,
 	stmt *ast.TransactionStmt,
 ) (*engine.Plan, error) {
 	p.logger.Debug("planning transaction statement",
 		"kind", stmt.Kind.String(),
+		"savepoint", stmt.SavepointName,
 		"sql", sql)
 
-	primitive := engine.NewTransactionPrimitive(stmt.Kind, sql, p.defaultTableGroup, p.txnMetrics)
+	primitive := engine.NewTransactionPrimitive(stmt.Kind, stmt.SavepointName, sql, p.defaultTableGroup, p.txnMetrics)
 	plan := engine.NewPlan(sql, primitive)
 
 	p.logger.Debug("created transaction plan",

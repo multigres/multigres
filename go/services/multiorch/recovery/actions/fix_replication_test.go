@@ -104,11 +104,13 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	}
 	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
 
@@ -164,11 +166,13 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	}
 	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
@@ -178,12 +182,14 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary.example.com",
-			PortMap:    map[string]int32{"postgres": 5432},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
+			PortMap:  map[string]int32{"postgres": 5432},
 		},
 	})
 
@@ -256,11 +262,13 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	}
 	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
@@ -270,12 +278,14 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary.example.com",
-			PortMap:    map[string]int32{"postgres": 5432},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
+			PortMap:  map[string]int32{"postgres": 5432},
 		},
 	})
 
@@ -346,11 +356,13 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	}
 	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
@@ -360,12 +372,14 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary.example.com",
-			PortMap:    map[string]int32{"postgres": 5432},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
+			PortMap:  map[string]int32{"postgres": 5432},
 		},
 	})
 
@@ -544,11 +558,13 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Name:      "replica1",
 	}
 	replica := &clustermetadatapb.MultiPooler{
-		Id:         replicaID,
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Id: replicaID,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
 	primary := &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -556,12 +572,14 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			Cell:      "cell1",
 			Name:      "primary",
 		},
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-		Hostname:   "primary.example.com",
-		PortMap:    map[string]int32{"postgres": 5432},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Type:     clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "primary.example.com",
+		PortMap:  map[string]int32{"postgres": 5432},
 	}
 
 	// Create in topology for markPoolerDrained to work

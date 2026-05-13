@@ -25,13 +25,13 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
-	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -47,6 +47,14 @@ const (
 // Must be a single instance: CancelQuery sets it via context.WithCancelCause,
 // and queryContextError checks it with errors.Is (pointer equality).
 var errQueryCanceled = mterrors.NewQueryCanceled()
+
+// errAuthenticationTimeout is the sentinel returned by serve() when the
+// startup-phase deadline (authentication_timeout) fires. handleConnection
+// matches on this specifically rather than the generic
+// os.ErrDeadlineExceeded so that deadlines added in the future for other
+// reasons (idle timeout, per-query socket deadline, etc.) are not silently
+// suppressed by the same log-noise filter.
+var errAuthenticationTimeout = errors.New("authentication timeout")
 
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
@@ -99,8 +107,17 @@ type Conn struct {
 	// handler processes queries for this connection.
 	handler Handler
 
-	// hashProvider provides password hashes for SCRAM authentication.
-	hashProvider scram.PasswordHashProvider
+	// credentialProvider supplies the SCRAM hash and rolreplication flag
+	// for the authenticating role. A single lookup feeds both SCRAM and
+	// the post-auth replication-role gate; the result is cached on
+	// credentials below so the gate doesn't have to round-trip again.
+	credentialProvider CredentialProvider
+
+	// credentials is the result of a successful credentialProvider lookup,
+	// populated before SCRAM starts. The replication-role gate reads
+	// IsReplicationRole from here so neither path has to round-trip a
+	// second time.
+	credentials *Credentials
 
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
@@ -111,9 +128,21 @@ type Conn struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// requireTLS rejects a plaintext StartupMessage. Copied from the
+	// listener at accept time. Cancel requests bypass this check.
+	requireTLS bool
+
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool
+
+	// tlsHandshakeComplete is set true once handleSSLRequest has accepted
+	// SSL ('S') AND the TLS handshake has finished — i.e., c.conn has been
+	// reassigned to the *tls.Conn. Used during the auth-timeout error path
+	// to decide whether plaintext writes are still intelligible to the
+	// client. Tracking this explicitly (rather than type-asserting c.conn)
+	// keeps the check robust if c.conn is ever wrapped in instrumentation.
+	tlsHandshakeComplete bool
 
 	// gssDone indicates that a GSSENCRequest has already been handled
 	// for this connection. Prevents double negotiation.
@@ -135,6 +164,18 @@ type Conn struct {
 	user     string
 	database string
 	params   map[string]string
+
+	// replicationMode reflects the parsed `replication` startup parameter.
+	// Default ReplicationOff means a normal SQL session. ReplicationPhysical
+	// or ReplicationLogical require pg_authid.rolreplication=true on the
+	// authenticated role; the post-auth verifier enforces that.
+	replicationMode ReplicationMode
+
+	// SCRAM-SHA-256 keys extracted during the client handshake, used for
+	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
+	// sessions. Zeroized in Close.
+	scramClientKey []byte
+	scramServerKey []byte
 
 	// protocolVersion is the negotiated protocol version.
 	protocolVersion protocol.ProtocolVersion
@@ -217,6 +258,17 @@ func (c *Conn) Close() error {
 	// The state is set to nil so handlers should handle nil-checking.
 	c.state = nil
 
+	// Zeroize SCRAM passthrough keys so a post-mortem or memory dump cannot
+	// recover credentials for this session after close.
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
+
 	// Return pooled resources.
 	c.returnReader()
 	// Defensive cleanup: if a handler panicked between readMessageBody
@@ -285,6 +337,19 @@ func (c *Conn) User() string {
 // Database returns the database name.
 func (c *Conn) Database() string {
 	return c.database
+}
+
+// ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the
+// client's authentication handshake, or nil if the session did not
+// authenticate via SCRAM. Used for passthrough auth to backend PostgreSQL.
+func (c *Conn) ScramClientKey() []byte {
+	return c.scramClientKey
+}
+
+// ScramServerKey returns the SCRAM-SHA-256 ServerKey from the user's
+// verifier, or nil if the session did not authenticate via SCRAM.
+func (c *Conn) ScramServerKey() []byte {
+	return c.scramServerKey
 }
 
 // GetStartupParams returns the startup parameters sent by the client,
@@ -448,6 +513,17 @@ func (c *Conn) endWriterBuffering() error {
 	return flushErr
 }
 
+// canSendPlaintextStartupError reports whether a best-effort plaintext
+// ErrorResponse during the startup phase would be intelligible to the
+// client. If the client sent SSLRequest and the server already answered
+// 'S' but the TLS handshake hasn't completed, the underlying conn is
+// still plaintext while the client is waiting for encrypted bytes — so
+// any plaintext write would surface as garbage. Every other startup
+// state (raw plaintext or fully upgraded TLS) can carry the reply.
+func (c *Conn) canSendPlaintextStartupError() bool {
+	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
+}
+
 // generateBackendKey generates a cryptographically secure random backend key for cancellation.
 // The backend key is sent to the client in the BackendKeyData message and is used
 // to authenticate query cancellation requests.
@@ -479,10 +555,19 @@ func generateBackendKey() uint32 {
 // the writer to the pool when the connection genuinely idles between
 // batches.
 func (c *Conn) serve() error {
-	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
-	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
-	// Without this, a client can hold a goroutine indefinitely by stalling during
-	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+	// Bound the startup phase (SSL/GSS negotiation, StartupMessage, SCRAM
+	// exchange) — equivalent to PostgreSQL's authentication_timeout. A
+	// stalled or malicious client cannot pin this goroutine past the
+	// deadline. The deadline is cleared once authentication completes so
+	// the main command loop runs without an I/O timeout.
+	startupDeadlineSet := false
+	if d := c.listener.authenticationTimeout; d > 0 {
+		if err := c.conn.SetDeadline(time.Now().Add(d)); err == nil {
+			startupDeadlineSet = true
+		} else {
+			c.logger.Warn("failed to set startup deadline", "error", err)
+		}
+	}
 
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
@@ -490,18 +575,85 @@ func (c *Conn) serve() error {
 			c.logger.Debug("client disconnected before startup")
 			return nil
 		}
-		c.logger.Error("startup failed", "error", err)
-		// Try to send an error response before closing.
-		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
-		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
-		var diag *mterrors.PgDiagnostic
-		if errors.As(err, &diag) {
-			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-		} else {
-			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		// errAuthRejected: a FATAL was already sent during the auth flow;
+		// no AuthenticationOk was emitted and the connection was not
+		// registered. Skip the command loop entirely so a misbehaving
+		// client cannot send messages on a half-completed session, and
+		// don't write a second error frame.
+		if errors.Is(err, errAuthRejected) {
+			c.logger.Debug("client rejected during startup; FATAL already sent")
+			return nil
 		}
-		_ = c.flush()
+		// Map a deadline-exceeded I/O error during startup to a clean
+		// PG-format FATAL with SQLSTATE 08006 so libpq surfaces it as
+		// "canceling authentication due to timeout" instead of a raw
+		// I/O timeout. The startup deadline is still active here — any
+		// write would inherit the expired deadline and fail — so clear
+		// it first using a brief grace window for the error reply.
+		if startupDeadlineSet && errors.Is(err, os.ErrDeadlineExceeded) {
+			c.logger.Warn("startup phase timed out",
+				"timeout", c.listener.authenticationTimeout,
+				"remote_addr", c.RemoteAddr())
+			if c.canSendPlaintextStartupError() {
+				// Brief grace window: long enough to flush the error
+				// to a well-behaved client, short enough that a wedged
+				// client can't keep this goroutine pinned.
+				_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
+				_ = c.flush()
+			}
+			// Return the sentinel so handleConnection can suppress its
+			// redundant Error log without also swallowing unrelated
+			// deadline-exceeded errors that future code paths may surface.
+			return errAuthenticationTimeout
+		}
+		c.logger.Error("startup failed", "error", err)
+		// Set a brief write-deadline grace window so the best-effort
+		// error reply doesn't race against the still-active auth
+		// deadline (which may fire mid-write on a slow client).
+		if startupDeadlineSet {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		}
+		// Try to send an error response before closing — but only if
+		// it would be intelligible. Same SSL-accepted-but-handshake-
+		// pending guard as the timeout path above: a plaintext
+		// ErrorResponse on a connection where the client expects
+		// encrypted bytes would surface as garbage.
+		if c.canSendPlaintextStartupError() {
+			// If the error is already a PgDiagnostic (e.g., duplicate
+			// SSLRequest with native SQLSTATE), send it directly.
+			// Otherwise, wrap with MTE01.
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+			} else {
+				_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+			}
+			_ = c.flush()
+		}
 		return err
+	}
+
+	// Cancel requests close the connection inside handleStartup and
+	// return nil — there is no authenticated session to enter the
+	// command loop for, and SetDeadline on the closed fd would fail
+	// and surface as a spurious Error log. Bail out cleanly here.
+	if c.closed.Load() {
+		return nil
+	}
+
+	// Authentication complete — clear the startup deadline before the
+	// command loop. Subsequent reads must not inherit the auth-phase
+	// deadline (idle clients are normal, not a protocol violation). If
+	// the clear fails (rare — typically only when the fd is already
+	// closed), abort instead of entering the loop with a stale deadline
+	// that would trip the very next read.
+	if startupDeadlineSet {
+		if err := c.conn.SetDeadline(time.Time{}); err != nil {
+			c.logger.Error("failed to clear startup deadline; tearing down connection",
+				"error", err)
+			return fmt.Errorf("clear startup deadline: %w", err)
+		}
 	}
 
 	// Main command loop.

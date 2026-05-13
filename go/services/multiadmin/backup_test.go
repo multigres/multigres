@@ -174,11 +174,13 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 			Cell:      "cell1",
 			Name:      "replica-pooler",
 		},
-		Hostname:   "replica-pooler.cell1",
-		PortMap:    map[string]int32{"grpc": 8081},
-		Database:   "testdb",
-		TableGroup: "default",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname: "replica-pooler.cell1",
+		PortMap:  map[string]int32{"grpc": 8081},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+		},
+		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
 
@@ -285,11 +287,13 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			Cell:      "cell1",
 			Name:      "primary-pooler",
 		},
-		Hostname:   "primary-pooler.cell1",
-		PortMap:    map[string]int32{"grpc": 8081},
-		Database:   "testdb",
-		TableGroup: "default",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "primary-pooler.cell1",
+		PortMap:  map[string]int32{"grpc": 8081},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+		},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	replicaPooler := &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -297,11 +301,13 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			Cell:      "cell1",
 			Name:      "replica-pooler",
 		},
-		Hostname:   "replica-pooler.cell1",
-		PortMap:    map[string]int32{"grpc": 8081},
-		Database:   "testdb",
-		TableGroup: "default",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname: "replica-pooler.cell1",
+		PortMap:  map[string]int32{"grpc": 8081},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+		},
+		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, primaryPooler))
 	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
@@ -371,11 +377,13 @@ func TestBackup_ForcePrimary(t *testing.T) {
 				Cell:      "cell2",
 				Name:      "primary-only",
 			},
-			Hostname:   "primary-only.cell2",
-			PortMap:    map[string]int32{"grpc": 8081},
-			Database:   "testdb",
-			TableGroup: "default",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-only.cell2",
+			PortMap:  map[string]int32{"grpc": 8081},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, primaryOnly))
 

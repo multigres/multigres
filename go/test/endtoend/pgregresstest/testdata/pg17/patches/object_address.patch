@@ -4,9 +4,9 @@
  CREATE SCHEMA addr_nsp;
  SET search_path TO 'addr_nsp';
  CREATE FOREIGN DATA WRAPPER addr_fdw;
-+ERROR:  CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
  CREATE SERVER addr_fserv FOREIGN DATA WRAPPER addr_fdw;
-+ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
  CREATE TEXT SEARCH DICTIONARY addr_ts_dict (template=simple);
  CREATE TEXT SEARCH CONFIGURATION addr_ts_conf (copy=english);
  CREATE TEXT SEARCH TEMPLATE addr_ts_temp (lexize=dsimple_lexize);
@@ -14,7 +14,7 @@
  CREATE TYPE addr_nsp.gencomptype AS (a int);
  CREATE TYPE addr_nsp.genenum AS ENUM ('one', 'two');
  CREATE FOREIGN TABLE addr_nsp.genftable (a int) SERVER addr_fserv;
-+ERROR:  server "addr_fserv" does not exist
++ERROR: server "addr_fserv" does not exist
  CREATE AGGREGATE addr_nsp.genaggr(int4) (sfunc = int4pl, stype = int4);
  CREATE DOMAIN addr_nsp.gendomain AS int4 CONSTRAINT domconstr CHECK (value > 0);
  CREATE FUNCTION addr_nsp.trig() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN END; $$;
@@ -22,9 +22,9 @@
  CREATE POLICY genpol ON addr_nsp.gentable;
  CREATE PROCEDURE addr_nsp.proc(int4) LANGUAGE SQL AS $$ $$;
  CREATE SERVER "integer" FOREIGN DATA WRAPPER addr_fdw;
-+ERROR:  CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
  CREATE USER MAPPING FOR regress_addr_user SERVER "integer";
-+ERROR:  server "integer" does not exist
++ERROR: server "integer" does not exist
  ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user IN SCHEMA public GRANT ALL ON TABLES TO regress_addr_user;
  ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user REVOKE DELETE ON TABLES FROM regress_addr_user;
  -- this transform would be quite unsafe to leave lying around,
@@ -32,15 +32,15 @@
  CREATE PUBLICATION addr_pub_schema FOR TABLES IN SCHEMA addr_nsp;
  RESET client_min_messages;
  CREATE SUBSCRIPTION regress_addr_sub CONNECTION '' PUBLICATION bar WITH (connect = false, slot_name = NONE);
--WARNING:  subscription was created, but is not connected
--HINT:  To initiate replication, you must manually create the replication slot, enable the subscription, and refresh the subscription.
-+ERROR:  CREATE SUBSCRIPTION is not supported: creating replication subscriptions is not permitted through the connection pooler
+-WARNING: subscription was created, but is not connected
+-HINT: To initiate replication, you must manually create the replication slot, enable the subscription, and refresh the subscription.
++ERROR: CREATE SUBSCRIPTION is not supported: creating replication subscriptions is not permitted through the connection pooler
  CREATE STATISTICS addr_nsp.gentable_stat ON a, b FROM addr_nsp.gentable;
  -- test some error cases
  SELECT pg_get_object_address('stone', '{}', '{}');
 @@ -455,68 +459,16 @@
-      pg_identify_object_as_address(classid, objid, objsubid) AS ioa (typ, nms, args),
-      pg_get_object_address(typ, nms, ioa.args) AS addr2
+ pg_identify_object_as_address(classid, objid, objsubid) AS ioa (typ, nms, args),
+ pg_get_object_address(typ, nms, ioa.args) AS addr2
  ORDER BY addr1.classid, addr1.objid, addr1.objsubid;
 -default acl|NULL|NULL|for role regress_addr_user in schema public on tables|t
 -default acl|NULL|NULL|for role regress_addr_user on tables|t
@@ -92,21 +92,21 @@
 -publication|NULL|addr_pub|addr_pub|t
 -publication relation|NULL|NULL|addr_nsp.gentable in publication addr_pub|t
 -publication namespace|NULL|NULL|addr_nsp in publication addr_pub_schema|t
-+ERROR:  relation "addr_nsp.genftable" does not exist
++ERROR: relation "addr_nsp.genftable" does not exist
  ---
  --- Cleanup resources
  ---
  DROP FOREIGN DATA WRAPPER addr_fdw CASCADE;
--NOTICE:  drop cascades to 4 other objects
--DETAIL:  drop cascades to server addr_fserv
+-NOTICE: drop cascades to 4 other objects
+-DETAIL: drop cascades to server addr_fserv
 -drop cascades to foreign table genftable
 -drop cascades to server integer
 -drop cascades to user mapping for regress_addr_user on server integer
-+ERROR:  foreign-data wrapper "addr_fdw" does not exist
++ERROR: foreign-data wrapper "addr_fdw" does not exist
  DROP PUBLICATION addr_pub;
  DROP PUBLICATION addr_pub_schema;
  DROP SUBSCRIPTION regress_addr_sub;
-+ERROR:  subscription "regress_addr_sub" does not exist
++ERROR: subscription "regress_addr_sub" does not exist
  DROP SCHEMA addr_nsp CASCADE;
- NOTICE:  drop cascades to 14 other objects
- DETAIL:  drop cascades to text search dictionary addr_ts_dict
+ NOTICE: drop cascades to 14 other objects
+ DETAIL: drop cascades to text search dictionary addr_ts_dict

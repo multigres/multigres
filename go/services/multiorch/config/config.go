@@ -157,6 +157,7 @@ type Config struct {
 	leaderFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 	verifyReplicationTimeout           viperutil.Value[time.Duration]
 	leaderPostgresResponseThreshold    viperutil.Value[time.Duration]
+	useNewConsensusFlow                viperutil.Value[bool]
 }
 
 // Constants
@@ -234,6 +235,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_LEADER_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
+		useNewConsensusFlow: viperutil.Configure(reg, "use-new-consensus-flow", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "use-new-consensus-flow",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_USE_NEW_CONSENSUS_FLOW"},
+		}),
 	}
 }
 
@@ -283,6 +290,10 @@ func (c *Config) GetLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Get()
 }
 
+func (c *Config) GetUseNewConsensusFlow() bool {
+	return c.useNewConsensusFlow.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -329,6 +340,10 @@ func (c *Config) DefaultLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Default()
 }
 
+func (c *Config) DefaultUseNewConsensusFlow() bool {
+	return c.useNewConsensusFlow.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -342,6 +357,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
+	fs.Bool("use-new-consensus-flow", c.DefaultUseNewConsensusFlow(), "use the new Recruit/Propose consensus flow instead of BeginTerm/EstablishLeadership (temporary transition flag)")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -353,7 +369,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.leaderFailoverGracePeriodBase,
 		c.leaderFailoverGracePeriodMaxJitter,
 		c.verifyReplicationTimeout,
-		c.leaderPostgresResponseThreshold)
+		c.leaderPostgresResponseThreshold,
+		c.useNewConsensusFlow)
 }
 
 // Test helper functions

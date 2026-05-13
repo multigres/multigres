@@ -173,10 +173,11 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 		// TODO: Add caller_id when we have authentication
 	}
 
-	// Call the gRPC ExecuteQuery
+	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
+	// by the multipooler so the client sees the underlying PostgreSQL error.
 	res, err := g.client.ExecuteQuery(ctx, req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
 	}
 
 	// Convert proto result to sqltypes (preserves NULL vs empty string)
@@ -331,7 +332,7 @@ func (g *grpcQueryService) CopyReady(
 	// Start the bidirectional stream
 	stream, err := g.client.CopyBidiExecute(ctx)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start bidirectional execute stream")
 	}
 
 	// Ensure stream is closed if we fail before adding it to copyStreams
@@ -354,7 +355,7 @@ func (g *grpcQueryService) CopyReady(
 	}
 
 	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to send INITIATE: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
 	}
 
 	g.logger.DebugContext(ctx, "sent INITIATE message", "pooler_id", g.poolerID)
@@ -362,7 +363,7 @@ func (g *grpcQueryService) CopyReady(
 	// Receive READY response
 	resp, err := stream.Recv()
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to receive READY response: %w", err)
+		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive READY response")
 	}
 
 	// Check for ERROR response
@@ -424,7 +425,7 @@ func (g *grpcQueryService) CopySendData(
 	}
 
 	if err := stream.Send(dataReq); err != nil {
-		return fmt.Errorf("failed to send DATA: %w", err)
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DATA")
 	}
 
 	g.logger.DebugContext(ctx, "sent DATA message",
@@ -466,7 +467,7 @@ func (g *grpcQueryService) CopyFinalize(
 	}
 
 	if err := stream.Send(doneReq); err != nil {
-		return nil, nil, fmt.Errorf("failed to send DONE: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DONE")
 	}
 
 	// Close send direction
@@ -482,7 +483,7 @@ func (g *grpcQueryService) CopyFinalize(
 	// Receive RESULT response
 	resp, err := stream.Recv()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to receive RESULT response: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive RESULT response")
 	}
 
 	// Check for ERROR response
@@ -598,10 +599,13 @@ func (g *grpcQueryService) ConcludeTransaction(
 		Conclusion: conclusion,
 	}
 
-	// Call the gRPC ConcludeTransaction
+	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic
+	// attached by the multipooler so the client sees the underlying PostgreSQL
+	// error (sqlstate + message); Wrapf adds a debug-context prefix on top
+	// without breaking the errors.As chain to that diagnostic.
 	response, err := g.client.ConcludeTransaction(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("conclude transaction failed: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -640,10 +644,13 @@ func (g *grpcQueryService) DiscardTempTables(
 		Options: options,
 	}
 
-	// Call the gRPC DiscardTempTables
+	// Call the gRPC DiscardTempTables. FromGRPC restores any *PgDiagnostic
+	// attached by the multipooler so the client sees the underlying PostgreSQL
+	// error; Wrapf adds a debug-context prefix without breaking the
+	// errors.As chain to that diagnostic.
 	response, err := g.client.DiscardTempTables(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("discard temp tables failed: %w", err)
+		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "discard temp tables")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -692,9 +699,12 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 		Options: options,
 	}
 
+	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
+	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
+	// prefix without breaking the errors.As chain to that diagnostic.
 	_, err := g.client.ReleaseReservedConnection(ctx, req)
 	if err != nil {
-		return fmt.Errorf("release reserved connection failed: %w", err)
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}
 
 	g.logger.DebugContext(ctx, "reserved connection released",

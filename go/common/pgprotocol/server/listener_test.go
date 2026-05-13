@@ -25,11 +25,11 @@ import (
 
 func testListenerWithGatewayID(t *testing.T, gatewayID uint32) *Listener {
 	listener, err := NewListener(ListenerConfig{
-		Address:      "localhost:0",
-		Handler:      &mockHandler{},
-		HashProvider: newMockHashProvider("postgres"),
-		GatewayID:    gatewayID,
-		Logger:       testLogger(t),
+		Address:            "localhost:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		GatewayID:          gatewayID,
+		Logger:             testLogger(t),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

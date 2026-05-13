@@ -70,13 +70,15 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	}
 	multipooler := &clustermetadata.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -163,13 +165,15 @@ func TestConsensusService_Status(t *testing.T) {
 	}
 	multipooler := &clustermetadata.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -245,13 +249,15 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	}
 	multipooler := &clustermetadata.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 

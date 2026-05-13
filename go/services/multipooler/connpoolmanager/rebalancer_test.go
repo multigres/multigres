@@ -91,11 +91,11 @@ func TestManager_RebalanceWithUsers(t *testing.T) {
 	ctx := context.Background()
 
 	// Create some user pools
-	conn1, err := manager.GetRegularConn(ctx, "user1")
+	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2")
+	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -121,7 +121,7 @@ func TestManager_GarbageCollectInactivePools_ManualTest(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "inactive-user")
+	conn, err := manager.GetRegularConn(ctx, "inactive-user", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -153,7 +153,7 @@ func TestManager_GarbageCollectPreservesActivePool(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "active-user")
+	conn, err := manager.GetRegularConn(ctx, "active-user", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -176,11 +176,11 @@ func TestManager_GarbageCollectMixedPools(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two user pools
-	conn1, err := manager.GetRegularConn(ctx, "user1")
+	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2")
+	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -213,7 +213,7 @@ func TestManager_RebalancerLoop(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -251,7 +251,7 @@ func TestManager_DemandTrackersCreated(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 

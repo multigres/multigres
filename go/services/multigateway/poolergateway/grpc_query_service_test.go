@@ -420,5 +420,8 @@ func TestConcludeTransaction_Error(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "conclude transaction failed")
+	// The grpc client now passes the multipooler error through FromGRPC so the
+	// underlying PostgreSQL diagnostic surfaces unwrapped. For a generic mock
+	// error we keep its original message instead of an internal RPC prefix.
+	require.Contains(t, err.Error(), "conclude failed")
 }

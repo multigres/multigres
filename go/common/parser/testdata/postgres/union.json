@@ -467,12 +467,12 @@
   {
     "comment": "union - Statement 98",
     "query": "with cte as materialized (select s from generate_series(1,5) s) select from cte union select from cte",
-    "expected": "SELECT FROM cte UNION SELECT FROM cte"
+    "expected": "WITH cte AS MATERIALIZED (SELECT s FROM generate_series(1, 5) AS s) SELECT FROM cte UNION SELECT FROM cte"
   },
   {
     "comment": "union - Statement 99",
     "query": "with cte as not materialized (select s from generate_series(1,5) s) select from cte union select from cte",
-    "expected": "SELECT FROM cte UNION SELECT FROM cte"
+    "expected": "WITH cte AS NOT MATERIALIZED (SELECT s FROM generate_series(1, 5) AS s) SELECT FROM cte UNION SELECT FROM cte"
   },
   {
     "comment": "union - Statement 100",

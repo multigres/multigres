@@ -75,7 +75,10 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast.
-	if _, err := pm.loadDurabilityPolicy(ctx); err != nil {
+	// The policy is also written into the sentinel row of current_rule so all
+	// subsequent rule reads carry a non-nil DurabilityPolicy.
+	policy, err := pm.loadDurabilityPolicy(ctx)
+	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
@@ -133,7 +136,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	if err := pm.createSidecarSchema(ctx); err != nil {
+	if err := pm.createSidecarSchema(ctx, policy); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to create multigres schema")
 	}
 
@@ -237,14 +240,14 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.Database)
+	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.GetShardKey().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.multipooler.Database)
+			"database %s has no durability_policy configured", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

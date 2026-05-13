@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
@@ -75,7 +77,7 @@ func TestManager_Close(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a connection to create a user pool.
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -137,7 +139,7 @@ func TestManager_GetRegularConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a regular connection for a user.
-	conn, err := manager.GetRegularConn(ctx, "testuser")
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -161,7 +163,7 @@ func TestManager_GetRegularConn_EmptyUser(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty user should error.
-	_, err := manager.GetRegularConn(ctx, "")
+	_, err := manager.GetRegularConn(ctx, "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user cannot be empty")
 }
@@ -177,7 +179,7 @@ func TestManager_GetRegularConn_ClosedManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Closed manager should error.
-	_, err := manager.GetRegularConn(ctx, "testuser")
+	_, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is closed")
 }
@@ -200,7 +202,7 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	}
 
 	// Get a connection with settings.
-	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "testuser")
+	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -224,7 +226,7 @@ func TestManager_NewReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -251,7 +253,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	}
 
 	// Create a reserved connection with settings.
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -275,7 +277,7 @@ func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	result, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		if calls == 1 {
 			// Simulate reopenConnections running mid-flight: the pool we
@@ -304,7 +306,7 @@ func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		// No generation bump — manager hasn't been reopened.
 		return 0, connpool.ErrPoolClosed
@@ -327,7 +329,7 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		manager.generation.Add(1)
 		return 0, connpool.ErrPoolClosed
@@ -336,6 +338,128 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
 	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+}
+
+// TestWithReopenRetry_EvictsStalePoolOnAuthError verifies the stale-key
+// self-heal path: when op fails with a class-28 SQLSTATE (SCRAM auth
+// failure against stale cached keys), withReopenRetry must evict the
+// user pool and retry once against a freshly-built replacement so the
+// session's known-current keys get a chance against pg_authid.
+func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
+
+	var seenPools []*UserPool
+	calls := 0
+	result, err := withReopenRetry(manager, "testuser", nil, nil, func(pool *UserPool) (int, error) {
+		calls++
+		seenPools = append(seenPools, pool)
+		if calls == 1 {
+			return 0, fmt.Errorf("dial failed: %w", authErr)
+		}
+		return 42, nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 42, result)
+	assert.Equal(t, 2, calls, "should retry exactly once after auth failure")
+	require.Len(t, seenPools, 2)
+	assert.NotSame(t, seenPools[0], seenPools[1], "retry must run against a freshly-built pool, not the evicted one")
+
+	snap := manager.userPoolsSnapshot.Load()
+	require.NotNil(t, snap, "snapshot must be loaded after retry")
+	assert.True(t, manager.HasUserPool("testuser"), "user pool must be present in fresh snapshot")
+	assert.NotSame(t, seenPools[0], (*snap)["testuser"], "the original stale pool must no longer be in the snapshot")
+}
+
+// TestWithReopenRetry_SurfacesPersistentAuthError ensures that if the retry
+// also fails with an auth error — e.g. because the retrier itself is holding
+// old-password keys — we surface the clean 28xxx error and stop retrying.
+// Without a retry cap this would loop forever.
+func TestWithReopenRetry_SurfacesPersistentAuthError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
+
+	calls := 0
+	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+		calls++
+		return 0, fmt.Errorf("dial failed: %w", authErr)
+	})
+
+	require.Error(t, err)
+	assert.True(t, mterrors.IsAuthenticationError(err), "auth error must propagate with class-28 SQLSTATE intact")
+	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+}
+
+// TestEvictUserPool_RemovesFromSnapshotAndCloses verifies the direct
+// eviction primitive: removes the pool from the snapshot, closes it, and
+// returns true. A subsequent acquire must build a fresh pool.
+func TestEvictUserPool_RemovesFromSnapshotAndCloses(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Warm up: create a user pool.
+	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	require.True(t, manager.HasUserPool("testuser"))
+
+	evicted := manager.evictUserPool("testuser", stale)
+	assert.True(t, evicted, "eviction of the current pool should return true")
+	assert.False(t, manager.HasUserPool("testuser"), "pool must be removed from snapshot")
+
+	// Subsequent acquire must produce a different pool instance.
+	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	assert.NotSame(t, stale, fresh, "post-eviction acquire must build a fresh pool")
+
+	// Real acquisition must still work against the fresh pool.
+	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	require.NoError(t, err)
+	conn.Recycle()
+}
+
+// TestEvictUserPool_NoOpOnRacingEviction verifies that evicting a stale
+// reference that no longer matches the snapshot (because a concurrent call
+// already swapped it) is a no-op and returns false — preventing callers
+// from clobbering a fresh pool built by a racing goroutine.
+func TestEvictUserPool_NoOpOnRacingEviction(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+
+	// Racing goroutine already evicted + recreated.
+	require.True(t, manager.evictUserPool("testuser", stale))
+	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.NoError(t, err)
+	require.NotSame(t, stale, fresh)
+
+	// Late caller still holding the stale reference must not clobber fresh.
+	assert.False(t, manager.evictUserPool("testuser", stale), "stale reference must not evict the fresh pool")
+	assert.True(t, manager.HasUserPool("testuser"), "fresh pool must remain in the snapshot")
 }
 
 // TestManager_NewReservedConn_SurvivesReopen exercises the end-to-end path:
@@ -353,7 +477,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm up: create a user pool.
-	c1, err := manager.NewReservedConn(ctx, nil, "testuser")
+	c1, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	c1.Release(reserved.ReleaseCommit)
 
@@ -367,7 +491,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	})
 
 	// Reserved-conn acquisition must succeed against the fresh pool.
-	c2, err := manager.NewReservedConn(ctx, nil, "testuser")
+	c2, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c2)
 	c2.Release(reserved.ReleaseCommit)
@@ -384,7 +508,7 @@ func TestManager_GetReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	connID := conn.ConnID()
 
@@ -438,11 +562,11 @@ func TestManager_Stats(t *testing.T) {
 	assert.Empty(t, stats.UserPools)
 
 	// Create some user pools.
-	conn1, err := manager.GetRegularConn(ctx, "user1")
+	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2")
+	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -464,15 +588,15 @@ func TestManager_UserPoolReuse(t *testing.T) {
 	ctx := context.Background()
 
 	// Get connections for the same user multiple times.
-	conn1, err := manager.GetRegularConn(ctx, "testuser")
+	conn1, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "testuser")
+	conn2, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	conn3, err := manager.GetRegularConn(ctx, "testuser")
+	conn3, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
 	require.NoError(t, err)
 	conn3.Recycle()
 
@@ -497,7 +621,7 @@ func TestManager_ConcurrentUserPoolCreation(t *testing.T) {
 	// Concurrently create connections for the same user.
 	for range numGoroutines {
 		wg.Go(func() {
-			conn, err := manager.GetRegularConn(ctx, "concurrent-user")
+			conn, err := manager.GetRegularConn(ctx, "concurrent-user", nil, nil)
 			if err != nil {
 				errs <- err
 				return
@@ -537,7 +661,7 @@ func TestManager_ConcurrentDifferentUsers(t *testing.T) {
 		go func(userNum int) {
 			defer wg.Done()
 			user := "user" + string(rune('A'+userNum))
-			conn, err := manager.GetRegularConn(ctx, user)
+			conn, err := manager.GetRegularConn(ctx, user, nil, nil)
 			if err != nil {
 				t.Errorf("unexpected error for %s: %v", user, err)
 				return
@@ -569,12 +693,12 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	}
 
 	// Get connections with the same settings multiple times.
-	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "user1")
+	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "user1", nil, nil)
 	require.NoError(t, err)
 	settings1 := conn1.Conn.Settings()
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "user2")
+	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "user2", nil, nil)
 	require.NoError(t, err)
 	settings2 := conn2.Conn.Settings()
 	conn2.Recycle()
@@ -599,7 +723,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 
 	// Create a reserved connection with initial settings.
 	initialSettings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -629,7 +753,7 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	ctx := context.Background()
 
 	settings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -654,7 +778,7 @@ func TestManager_ApplySettingsToConn_NilSettings(t *testing.T) {
 
 	ctx := context.Background()
 
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -679,7 +803,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 
 	// Create a reserved connection with two settings.
 	initialSettings := map[string]string{"search_path": "public", "work_mem": "256MB"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -717,7 +841,7 @@ func BenchmarkManager_GetUserPool_HotPath(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first (cold path)
-	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -756,7 +880,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first
-	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -765,10 +889,58 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	// Benchmark getting connections for existing user
 	b.ResetTimer()
 	for b.Loop() {
-		conn, err := manager.GetRegularConn(ctx, "benchuser")
+		conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
 		if err != nil {
 			b.Fatalf("failed to get connection: %v", err)
 		}
 		conn.Recycle()
 	}
+}
+
+// --- SCRAM passthrough ---
+
+// TestBuildUserClientConfig_KeysApplied verifies that when both keys are
+// supplied, the resulting client.Config carries them through to the dial.
+func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+
+	ck, sk := bytes32(1), bytes32(2)
+	cfg := manager.buildUserClientConfig("alice", ck, sk)
+
+	assert.Equal(t, ck, cfg.ScramClientKey)
+	assert.Equal(t, sk, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+	assert.Equal(t, "alice", cfg.User)
+}
+
+// TestBuildUserClientConfig_NilKeys_FallsBack ensures that an
+// authenticated-but-keyless session (not expected in practice, but possible
+// during rollout) does not crash and falls back to the empty-password path.
+// An empty-password dial only succeeds against the pg_hba admin-user trust
+// exception; any other user will fail authentication at PostgreSQL.
+func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
+	defer manager.Close()
+
+	cfg := manager.buildUserClientConfig("alice", nil, nil)
+
+	assert.Nil(t, cfg.ScramClientKey)
+	assert.Nil(t, cfg.ScramServerKey)
+	assert.Empty(t, cfg.Password)
+}
+
+// bytes32 returns a deterministic 32-byte slice for key testing.
+func bytes32(seed byte) []byte {
+	out := make([]byte, 32)
+	for i := range out {
+		out[i] = seed
+	}
+	return out
 }

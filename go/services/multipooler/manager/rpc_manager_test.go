@@ -122,13 +122,15 @@ func TestPrimaryPosition(t *testing.T) {
 
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
-				Database:      database,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          tt.poolerType,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				TableGroup:    constants.DefaultTableGroup,
-				Shard:         constants.DefaultShard,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   database,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -199,13 +201,15 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	// Create PRIMARY multipooler for testing
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -410,13 +414,15 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, 
 	// Create as REPLICA (ready for promotion)
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1066,13 +1072,15 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1165,13 +1173,15 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	// Create REPLICA multipooler
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1292,13 +1302,15 @@ func TestReplicationStatus(t *testing.T) {
 		// Create PRIMARY multipooler
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1369,13 +1381,15 @@ func TestReplicationStatus(t *testing.T) {
 		// Create REPLICA multipooler
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1458,13 +1472,15 @@ func TestReplicationStatus(t *testing.T) {
 		// Create PRIMARY multipooler (but PG will be in standby mode - mismatch!)
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1539,13 +1555,15 @@ func TestReplicationStatus(t *testing.T) {
 
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1613,13 +1631,15 @@ func TestReplicationStatus(t *testing.T) {
 		// Create REPLICA multipooler (but PG will be in primary mode - mismatch!)
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1705,13 +1725,15 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1813,13 +1835,15 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1917,14 +1941,16 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	}
 
 	multipooler := &clustermetadatapb.MultiPooler{
-		Id:         serviceID,
-		PoolerDir:  poolerDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-		Database:   "postgres",
+		Id:        serviceID,
+		PoolerDir: poolerDir,
+		Type:      clustermetadatapb.PoolerType_REPLICA,
 		PortMap: map[string]int32{
 			"postgres": 5432,
+		},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
 		},
 	}
 

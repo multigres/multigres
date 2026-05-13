@@ -2340,5 +2340,33 @@
     "comment": "CASE ELSE with interval typecast - verifies :: binds tighter than +",
     "query": "SELECT CASE WHEN x = 1 THEN y ELSE (z + '01:00:00'::interval) END FROM t",
     "expected": "SELECT CASE WHEN x = 1 THEN y ELSE (z + CAST('01:00:00' AS INTERVAL)) END FROM t"
+  },
+  {
+    "comment": "WITH CTE referenced from both branches of UNION (MUL-391)",
+    "query": "WITH cte AS (SELECT 1 AS x) SELECT x FROM cte UNION SELECT x FROM cte"
+  },
+  {
+    "comment": "WITH CTE referenced from both branches of UNION ALL (MUL-391)",
+    "query": "WITH cte AS (SELECT 1 AS x) SELECT x FROM cte UNION ALL SELECT x FROM cte"
+  },
+  {
+    "comment": "WITH CTE referenced from both branches of INTERSECT (MUL-391)",
+    "query": "WITH cte AS (SELECT 1 AS x) SELECT x FROM cte INTERSECT SELECT x FROM cte"
+  },
+  {
+    "comment": "WITH CTE referenced from both branches of EXCEPT (MUL-391)",
+    "query": "WITH cte AS (SELECT 1 AS x) SELECT x FROM cte EXCEPT SELECT x FROM cte"
+  },
+  {
+    "comment": "WITH MATERIALIZED CTE with UNION at top level (MUL-391)",
+    "query": "WITH cte AS MATERIALIZED (SELECT 1 AS x) SELECT x FROM cte UNION SELECT x FROM cte"
+  },
+  {
+    "comment": "Multiple CTEs with UNION at top level (MUL-391)",
+    "query": "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS x) SELECT x FROM a UNION SELECT x FROM b"
+  },
+  {
+    "comment": "WITH CTE referenced from VALUES at top level (MUL-391)",
+    "query": "WITH cte(foo) AS (VALUES (42)) VALUES ((SELECT foo FROM cte))"
   }
 ]
