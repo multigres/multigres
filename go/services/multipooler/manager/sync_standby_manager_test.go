@@ -187,6 +187,40 @@ func TestClear_ReloadFails(t *testing.T) {
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
+func TestSetPolicy_StandbyNamesError(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
+	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("disk full"))
+
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
+	require.NoError(t, mockQS.ExpectationsWereMet())
+
+	assert.Empty(t, ssm.lastSyncCommit)
+	assert.Empty(t, ssm.lastStandbyNames)
+}
+
+func TestClear_RequiresActionLock(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	err := ssm.Clear(t.Context())
+	assert.EqualError(t, err, "context does not hold an action lock")
+}
+
+func TestClear_RecoveryCheckScanError(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	// Return an empty result so ScanSingleRow has no row to scan.
+	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult(nil, nil))
+
+	err := ssm.Clear(withTestActionLock(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not scan pg_is_in_recovery")
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
 func TestSetPolicy_RequiresActionLock(t *testing.T) {
 	ssm := newTestSSM(mock.NewQueryService())
 	ctx := withPriorRuleWritesDrained(t.Context())
