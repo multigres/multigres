@@ -2006,6 +2006,7 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
+		assert.Nil(t, av.LifecycleStatus)
 	})
 
 	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
@@ -2025,5 +2026,26 @@ func TestAvailabilityStatus(t *testing.T) {
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
+	})
+
+	t.Run("lifecycle STOPPED alone makes buildAvailabilityStatus return non-nil", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.lifecycleSignal = clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		require.NotNil(t, av.LifecycleStatus)
+		assert.Equal(t, clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED, av.LifecycleStatus.Signal)
+	})
+
+	t.Run("lifecycle and resignedLeaderAtTerm both set returns both", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		pm.resignedLeaderAtTerm = 5
+		pm.lifecycleSignal = clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED
+		av := pm.buildAvailabilityStatus()
+		require.NotNil(t, av)
+		require.NotNil(t, av.LeadershipStatus)
+		assert.Equal(t, int64(5), av.LeadershipStatus.LeaderTerm)
+		require.NotNil(t, av.LifecycleStatus)
+		assert.Equal(t, clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED, av.LifecycleStatus.Signal)
 	})
 }

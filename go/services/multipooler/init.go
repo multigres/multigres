@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -60,6 +61,11 @@ type MultiPooler struct {
 	// backends so lock-detection can map a multigateway virtual PID to the
 	// real backend PID via pg_stat_activity.application_name.
 	vpidStampEnabled viperutil.Value[bool]
+
+	// Graceful shutdown timeouts.
+	gracefulShutdownFastTimeout          viperutil.Value[time.Duration]
+	gracefulShutdownImmediateTimeout     viperutil.Value[time.Duration]
+	gracefulShutdownFinalSnapshotTimeout viperutil.Value[time.Duration]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -161,6 +167,21 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "vpid-stamp-enabled",
 			Dynamic:  false,
 		}),
+		gracefulShutdownFastTimeout: viperutil.Configure(reg, "graceful-shutdown-fast-timeout", viperutil.Options[time.Duration]{
+			Default:  manager.DefaultGracefulShutdownFastTimeout,
+			FlagName: "graceful-shutdown-fast-timeout",
+			Dynamic:  false,
+		}),
+		gracefulShutdownImmediateTimeout: viperutil.Configure(reg, "graceful-shutdown-immediate-timeout", viperutil.Options[time.Duration]{
+			Default:  manager.DefaultGracefulShutdownImmediateTimeout,
+			FlagName: "graceful-shutdown-immediate-timeout",
+			Dynamic:  false,
+		}),
+		gracefulShutdownFinalSnapshotTimeout: viperutil.Configure(reg, "graceful-shutdown-final-snapshot-timeout", viperutil.Options[time.Duration]{
+			Default:  manager.DefaultGracefulShutdownFinalSnapshotTimeout,
+			FlagName: "graceful-shutdown-final-snapshot-timeout",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -197,6 +218,9 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Stamp multigres_vpid:<id> on PostgreSQL backend application_name for vpid-to-PID mapping used by lock detection. Reserves application_name from client-set values when enabled.")
+	flags.Duration("graceful-shutdown-fast-timeout", mp.gracefulShutdownFastTimeout.Default(), "Bound on the fast-mode pgctld.Stop call before escalating to immediate.")
+	flags.Duration("graceful-shutdown-immediate-timeout", mp.gracefulShutdownImmediateTimeout.Default(), "Bound on the immediate-mode pgctld.Stop call.")
+	flags.Duration("graceful-shutdown-final-snapshot-timeout", mp.gracefulShutdownFinalSnapshotTimeout.Default(), "Time allowed to deliver the final STOPPED snapshot before forcing the health stream closed.")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -214,6 +238,9 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
 		mp.vpidStampEnabled,
+		mp.gracefulShutdownFastTimeout,
+		mp.gracefulShutdownImmediateTimeout,
+		mp.gracefulShutdownFinalSnapshotTimeout,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -333,6 +360,18 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
 		VpidStampEnabled:   mp.vpidStampEnabled.Get(),
+
+		// Graceful shutdown timeouts.
+		GracefulShutdownFastTimeout:          mp.gracefulShutdownFastTimeout.Get(),
+		GracefulShutdownImmediateTimeout:     mp.gracefulShutdownImmediateTimeout.Get(),
+		GracefulShutdownFinalSnapshotTimeout: mp.gracefulShutdownFinalSnapshotTimeout.Get(),
+
+		// Best-effort telemetry flush invoked by the graceful-shutdown
+		// safety-net just before it force-exits the process. Servenv's own
+		// telemetry shutdown only runs after OnTermSync hooks return; if
+		// GracefulShutdown hangs and the safety-net fires, servenv never
+		// reaches that path, so we flush here directly.
+		FlushTelemetry: mp.telemetry.ShutdownTelemetry,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -357,6 +396,17 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
 					func(mp *clustermetadatapb.MultiPooler) error {
 						mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+						// Set PoolerType to DRAINED so administrative views
+						// (e.g. `multigres getpoolers`) reflect that this pooler
+						// has gone away rather than continuing to display its
+						// last live role (often PRIMARY for a node that just
+						// failed over). This is purely cosmetic: failover and
+						// the analyzer's eligibility checks key off the
+						// LifecycleStatus signal in AvailabilityStatus, not off
+						// PoolerType. On restart the pooler re-registers with
+						// PoolerType_REPLICA and the orchestrator promotes as
+						// usual.
+						mp.Type = clustermetadatapb.PoolerType_DRAINED
 						return nil
 					})
 				return err

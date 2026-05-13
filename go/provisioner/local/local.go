@@ -805,6 +805,11 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
 		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
 		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
+		// The graceful-shutdown sequence runs as an OnTermSync hook bounded
+		// by servenv's --onterm-timeout. The multipooler's announced deadline
+		// is 60s; the default 10s would cut the hook off well before it can
+		// complete. 80s gives headroom over the announced budget.
+		"--onterm-timeout", "80s",
 	)
 
 	// Start multipooler process

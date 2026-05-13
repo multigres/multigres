@@ -92,6 +92,29 @@ func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, po
 	return key
 }
 
+// seedPrimaryWithTerm seeds a PRIMARY pooler whose ConsensusStatus carries
+// the given primary term. Use this for tests that need
+// synthesizeRequestingDemotion to fire (which requires Type=PRIMARY and
+// primary_term > 0).
+func seedPrimaryWithTerm(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, primaryTerm int64) string {
+	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	poolerStore.DoUpdate(key, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		existing.ConsensusStatus = &clustermetadata.ConsensusStatus{
+			Id: poolerID,
+			CurrentPosition: &clustermetadata.PoolerPosition{
+				Rule: &clustermetadata.ShardRule{
+					LeaderId: poolerID,
+					RuleNumber: &clustermetadata.RuleNumber{
+						CoordinatorTerm: primaryTerm,
+					},
+				},
+			},
+		}
+		return existing
+	})
+	return key
+}
+
 // waitForStart drains the Sent channel until a start message arrives.
 func waitForStart(t *testing.T, sent <-chan *multipoolermanagerdatapb.ManagerHealthStreamClientMessage) {
 	t.Helper()

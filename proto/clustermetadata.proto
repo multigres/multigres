@@ -556,6 +556,40 @@ message LeadershipStatus {
   LeadershipSignal signal = 2;
 }
 
+// LifecycleSignal describes the lifecycle state of the pooler.
+//
+// This is distinct from LeadershipSignal (which is consensus-role state and
+// leader-only). LifecycleSignal applies to any pooler regardless of role and
+// the signals are orthogonal to leadership status.
+//
+// Absence of LifecycleStatus is treated as "unknown" by consumers, matching
+// the AvailabilityStatus convention ("treat absence as 'unknown,' not 'unfit'").
+// LIFECYCLE_SIGNAL_UNKNOWN is reserved for the genuinely-unknown case;
+// LIFECYCLE_SIGNAL_RUNNING is the explicit "operating normally" value.
+enum LifecycleSignal {
+  // Field was not intentionally set. Distinct from RUNNING: a producer that
+  // has not yet established its lifecycle state should emit UNKNOWN (or omit
+  // LifecycleStatus entirely), not RUNNING.
+  LIFECYCLE_SIGNAL_UNKNOWN = 0;
+
+  // Pooler is operating normally and serving traffic. This is the default
+  // explicit value to indicate a healthy lifecycle state.
+  LIFECYCLE_SIGNAL_RUNNING = 1;
+
+  // Pooler has completed graceful shutdown: Postgres is stopped, drain is
+  // complete, the process is about to exit. The coordinator should fail over
+  // immediately for a primary; for a replica, mark as gone.
+  LIFECYCLE_SIGNAL_STOPPED = 2;
+}
+
+// LifecycleStatus is published by any pooler regardless of role to communicate
+// process-level lifecycle state (currently graceful shutdown intent and
+// completion). Absence is treated as "unknown" — consumers must not assume
+// "running" without an explicit LIFECYCLE_SIGNAL_RUNNING.
+message LifecycleStatus {
+  LifecycleSignal signal = 1;
+}
+
 // AvailabilityStatus carries best-effort operational fitness signals for a pooler.
 // Unlike ConsensusStatus (which is authoritative and backed by postgres WAL and
 // on-disk state), AvailabilityStatus is in-memory and may be absent after a
@@ -571,7 +605,8 @@ message LeadershipStatus {
 // PoolerHealthState.AvailabilityStatus so the analyzer reads from one place
 // regardless of source.
 message AvailabilityStatus {
-  // leadership_status is only set by poolers that are or have been the consensus leader.
+  // leadership_status is only set by poolers that are or have been the
+  // consensus leader.
   LeadershipStatus leadership_status = 1;
 
   // cohort_eligibility_status is published by every pooler regardless of
@@ -581,6 +616,9 @@ message AvailabilityStatus {
   // member signaling INELIGIBLE is a candidate for removal/replacement; a
   // non-member signaling INELIGIBLE should be skipped when growing the cohort.
   CohortEligibilityStatus cohort_eligibility_status = 2;
+
+  // lifecycle_status applies to any pooler regardless of role.
+  LifecycleStatus lifecycle_status = 3;
 }
 
 // CohortEligibilitySignal describes a pooler's self-reported willingness to

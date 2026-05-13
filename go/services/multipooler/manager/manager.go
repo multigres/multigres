@@ -153,6 +153,14 @@ type MultiPoolerManager struct {
 	// snapshot via AvailabilityStatus.CohortEligibilityStatus. Protected by mu.
 	cohortEligibility clustermetadatapb.CohortEligibilitySignal
 
+	// lifecycleSignal is the pooler's process-level lifecycle state published
+	// to the coordinator via AvailabilityStatus. The default (UNKNOWN) means
+	// "no announcement" — treated as unknown by consumers per the
+	// AvailabilityStatus convention. Set to LIFECYCLE_SIGNAL_STOPPED by the
+	// graceful-shutdown sequence once Postgres has stopped and drain has
+	// completed. Protected by mu.
+	lifecycleSignal clustermetadatapb.LifecycleSignal
+
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
@@ -246,6 +254,11 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
+	applyGracefulShutdownDefaults(config)
+	if err := validateGracefulShutdownConfig(config); err != nil {
+		return nil, mterrors.Wrap(err, "graceful shutdown config validation failed")
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
@@ -332,6 +345,20 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	pm.topoPublisher = newTopoPublisher(logger, config.TopoClient)
 
 	return pm, nil
+}
+
+// withLock runs fn with pm.mu held. Use this for short critical sections that
+// only mutate manager fields; for read-then-act patterns or anything that
+// needs to return a value, take the lock explicitly instead.
+//
+// Note: the rest of the package uses the *Locked suffix to mean "caller holds
+// the relevant lock" (see closeLocked, buildLeadershipStatusLocked, etc.).
+// withLock is the inverse — it acquires the lock for you — so the name is
+// deliberately different to avoid that confusion.
+func (pm *MultiPoolerManager) withLock(fn func()) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	fn()
 }
 
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
@@ -1539,6 +1566,13 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	pm.Open()
+
+	// Register the SIGTERM-driven graceful shutdown sequence. Runs as an
+	// OnTermSync hook so it is bounded by the lameduck window and completes
+	// before OnClose hooks (topology unregister) fire.
+	senv.OnTermSync(func() {
+		pm.GracefulShutdown(pm.ctx)
+	})
 
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()

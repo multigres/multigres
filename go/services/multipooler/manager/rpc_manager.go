@@ -44,9 +44,7 @@ import (
 // will receive the latest health snapshot immediately if they are connected, or
 // upon their next connection if they are not currently connected.
 func (pm *MultiPoolerManager) broadcastHealth() {
-	if pm.healthStreamer != nil {
-		pm.healthStreamer.Broadcast()
-	}
+	pm.healthStreamer.Broadcast()
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
