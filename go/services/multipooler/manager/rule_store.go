@@ -183,10 +183,10 @@ type ruleUpdateBuilder struct {
 	operation       string
 	acceptedMembers []*clustermetadatapb.ID
 
-	force               bool
-	externallyCertified bool        // skip BuildSimpleTransitionPolicy; apply incoming GUC directly
-	previousRule        *ruleNumber // for compare-and-swap; nil means no check
-	promotionHook       promotionFn // non-nil iff postgres is known to be in recovery
+	force              bool
+	skipOutgoingQuorum bool        // skip BuildPolicyTransition; apply incoming GUC directly
+	previousRule       *ruleNumber // for compare-and-swap; nil means no check
+	promotionHook      promotionFn // non-nil iff postgres is known to be in recovery
 }
 
 // promotionFn is called by updateRule after the pre-promote GUC is applied and
@@ -240,12 +240,12 @@ func (b *ruleUpdateBuilder) withForce() *ruleUpdateBuilder {
 	return b
 }
 
-// withExternallyCertified marks the update as externally certified by the consensus
-// protocol. When set, updateRule skips BuildSimpleTransitionPolicy and applies the
-// incoming GUC directly (no dual-ack window). Used for Propose-based rule changes
-// where the coordinator has already verified the transition is safe.
-func (b *ruleUpdateBuilder) withExternallyCertified() *ruleUpdateBuilder {
-	b.externallyCertified = true
+// withSkipOutgoingQuorum instructs updateRule to skip BuildPolicyTransition and apply
+// the incoming cohort GUC directly (Both = Incoming). Used for coordinator-directed
+// changes where the outgoing cohort is empty (bootstrap) or the coordinator has already
+// verified the transition is safe, so no dual-ack window is needed.
+func (b *ruleUpdateBuilder) withSkipOutgoingQuorum() *ruleUpdateBuilder {
+	b.skipOutgoingQuorum = true
 	return b
 }
 
@@ -559,10 +559,10 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		return nil, err
 	}
 	var transition *consensus.PolicyTransition
-	if update.externallyCertified {
-		// External certification (Propose-based rule changes) means the coordinator has
-		// already verified the transition is safe via the consensus protocol. Skip the
-		// dual-ack window and apply the incoming GUC directly.
+	if update.skipOutgoingQuorum {
+		// Skip BuildPolicyTransition and apply the incoming cohort directly.
+		// Used when the outgoing cohort is empty (bootstrap) or the coordinator
+		// has already verified the transition is safe.
 		transition = &consensus.PolicyTransition{Both: incomingPWC, Incoming: incomingPWC}
 	} else {
 		outgoingPWC, err := consensus.NewPolicyWithCohort(currentRule.GetCohortMembers(), currentRule.GetDurabilityPolicy())

@@ -853,7 +853,7 @@ func bootstrapRuleState(ctx context.Context, t *testing.T, rs *ruleStore, policy
 		newRuleUpdate(1, coordinatorID, "promotion", "bootstrap", time.Now()).
 			withDurabilityPolicy(policy).
 			withCohort(cohort).
-			withExternallyCertified(),
+			withSkipOutgoingQuorum(),
 	)
 	require.NoError(t, err)
 }

@@ -444,7 +444,8 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		"ConfigureSynchronousReplication called",
 		time.Now()).
 		withCohort(standbyIDs).
-		withOperation("configure")
+		withOperation("configure").
+		withSkipOutgoingQuorum()
 	if force {
 		update.withForce()
 	}
@@ -1250,7 +1251,8 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		withLeader(pm.serviceID).
 		withCohort(cohortMemberIDs).
 		withAcceptedMembers(acceptedMemberIDs).
-		withWALPosition(finalLSN)
+		withWALPosition(finalLSN).
+		withSkipOutgoingQuorum()
 	if force {
 		promoteUpdate.withForce()
 	}

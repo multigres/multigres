@@ -61,10 +61,16 @@ func ssmTestPolicyWithCohort() commonconsensus.PolicyWithCohort {
 	}
 }
 
+func addReloadExpectations(m *mock.QueryService) {
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01"}}))
+}
+
 func addSetPolicyExpectations(m *mock.QueryService) {
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	addReloadExpectations(m)
 }
 
 func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
@@ -131,7 +137,7 @@ func TestClear_ResetsAndInvalidatesCache(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	mockQS.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	addReloadExpectations(mockQS)
 
 	// Pre-seed cache to verify it gets cleared.
 	ssm.lastSyncCommit = "on"
@@ -172,6 +178,7 @@ func TestClear_ReloadFails(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
+	mockQS.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00"}}))
 	mockQS.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
 
 	err := ssm.Clear(withTestActionLock(t))
