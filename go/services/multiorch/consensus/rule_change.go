@@ -42,6 +42,12 @@ type coordinatorLedRuleChange struct {
 	reason                string
 	tryBuildProposal      func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error)
 	checkProposalPossible func(*clustermetadatapb.TermRevocation, []*clustermetadatapb.ConsensusStatus) error
+
+	// revocationOverride, if set, replaces the revocation Run would otherwise
+	// derive via NewTermRevocation from the cohort's cached consensus statuses.
+	// Externally-certified flows pre-build the revocation (so it can be embedded
+	// in the cert) and pass it in here.
+	revocationOverride *clustermetadatapb.TermRevocation
 }
 
 func (c *Coordinator) newRuleChange(
@@ -61,7 +67,8 @@ func (c *Coordinator) newRuleChange(
 // concurrently, and propose as soon as a viable proposal can be assembled.
 // Each node receives its Propose immediately once it has been recruited and
 // the proposal is ready — there is no unnecessary waiting between the two.
-func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) error {
+// Returns the proposal that was applied (matching propReq), or nil on failure.
+func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*consensusdatapb.CoordinatorProposal, error) {
 	// Extract cached consensus statuses to derive the revocation term.
 	var initialStatuses []*clustermetadatapb.ConsensusStatus
 	for _, p := range cohort {
@@ -70,7 +77,10 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}
 	}
 
-	revocation := commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
+	revocation := r.revocationOverride
+	if revocation == nil {
+		revocation = commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
+	}
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
 		"proposed_term", revocation.GetRevokedBelowTerm(),
@@ -79,13 +89,13 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 	// Back off if any node recently accepted a revocation — another coordinator
 	// may be running an election.
 	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
 	}
 
 	// Pre-validate that a proposal would be feasible with current statuses before
 	// committing to a recruitment round.
 	if err := r.checkProposalPossible(revocation, initialStatuses); err != nil {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
 	}
 
 	// Recruit all nodes concurrently.
@@ -168,7 +178,7 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 
 	if propReq == nil {
 		_, err := r.tryBuildProposal(revocation, statuses)
-		return mterrors.Wrap(err, "recruitment failed")
+		return nil, mterrors.Wrap(err, "recruitment failed")
 	}
 	for _, p := range recruits {
 		sendPropose(p)
@@ -216,12 +226,12 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
 			NewPrimary: newPrimary,
 		}, "error", leaderErr)
-		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
+		return nil, mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
 	}
 	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, eventlog.PrimaryPromotion{
 		NewPrimary: newPrimary,
 	})
-	return nil
+	return propReq.GetProposal(), nil
 }
 
 // recruit issues a Recruit RPC to a single pooler and returns the resulting

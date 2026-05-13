@@ -49,6 +49,13 @@ service MultiOrchService {
   // - Returns when either: (1) no problems remain, or (2) context times out
   // - If recovery is disabled, this temporarily enables it during this operation
   rpc TriggerRecoveryNow(TriggerRecoveryNowRequest) returns (TriggerRecoveryNowResponse) {}
+
+  // ApplyCertifiedRuleChange installs a new shard rule using an externally
+  // certified revocation. Handles both initial leader appointment (term 0)
+  // and stuck-quorum recovery (term > 0): the caller supplies the proposed
+  // leader, cohort, and durability policy, plus a cert that attests to which
+  // outgoing rule and WAL position the absent cohort members are frozen at.
+  rpc ApplyCertifiedRuleChange(ApplyCertifiedRuleChangeRequest) returns (ApplyCertifiedRuleChangeResponse) {}
 }
 
 message ShardStatusRequest {
@@ -126,4 +133,45 @@ message TriggerRecoveryNowRequest {
 message TriggerRecoveryNowResponse {
   // remaining_problem_codes lists problem codes still detected (e.g., "REPLICA_NOT_REPLICATING")
   repeated string remaining_problem_codes = 4;
+}
+
+// ApplyCertifiedRuleChangeRequest installs a new shard rule using an externally
+// certified revocation. Multiorch acts as a pure executor: it validates the
+// inputs, runs the Recruit + Propose flow against the proposed cohort, and
+// returns success or failure. The caller is responsible for populating every
+// identity and timing field; multiorch never invents one.
+//
+// The cert is the caller's load-bearing safety attestation: by submitting it,
+// the caller asserts that no member of the outgoing cohort will commit further
+// writes past cert.outgoing_rule_number, and that any candidate leader has
+// reached at least cert.frozen_lsn under that rule. Pooler-side
+// ValidateRevocation enforces this at the WAL level (a node that resumes with
+// progress past the certified rule will refuse the new rule), but callers
+// should not rely on that floor for correctness — the cert is the primary
+// safety contract.
+message ApplyCertifiedRuleChangeRequest {
+  // Shard to apply the rule change to.
+  clustermetadata.ShardKey shard_key = 1;
+
+  // The rule to install. All fields must be populated, including rule_number,
+  // coordinator_id, and creation_time. rule_number.coordinator_term must
+  // equal cert.term_revocation.revoked_below_term.
+  clustermetadata.ShardRule proposed_rule = 2;
+
+  // Externally certified revocation of the outgoing cohort. All fields must
+  // be populated, including term_revocation. The cert's term_revocation is
+  // what each pooler will record on disk via Recruit.
+  //
+  // For initial leader appointment (no prior rule), set
+  // outgoing_rule_number to a zero RuleNumber (coordinator_term=0,
+  // leader_subterm=0) and frozen_lsn to "0/0".
+  clustermetadata.ExternallyCertifiedRevocation cert = 3;
+
+  // Free-text, recorded in rule_history for audit.
+  string reason = 4;
+}
+
+message ApplyCertifiedRuleChangeResponse {
+  // Empty. The applied rule and cert exactly match what the caller sent;
+  // failure is reported via gRPC status.
 }

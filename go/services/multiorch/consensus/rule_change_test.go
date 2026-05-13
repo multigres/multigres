@@ -263,7 +263,8 @@ func TestRun_Success(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
-	require.NoError(t, rc.Run(ctx, cohort))
+	_, err := rc.Run(ctx, cohort)
+	require.NoError(t, err)
 
 	// Both nodes should have received a Propose request.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
@@ -314,7 +315,8 @@ func TestRun_EarlyExit(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	require.NoError(t, rc.Run(ctx, cohort))
+	_, err := rc.Run(ctx, cohort)
+	require.NoError(t, err)
 }
 
 func TestRun_InsufficientRecruitment(t *testing.T) {
@@ -334,7 +336,7 @@ func TestRun_InsufficientRecruitment(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	err := rc.Run(ctx, cohort)
+	_, err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recruitment failed")
 }
@@ -355,7 +357,7 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), nopCheckProposalPossible)
-	err := rc.Run(ctx, cohort)
+	_, err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "another coordinator started recruiting recently")
 	assert.Empty(t, fc.GetCallLog(), "no RPCs should be made when backing off for recent acceptance")
@@ -378,7 +380,7 @@ func TestRun_PreValidateFails(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), checkProposalPossible)
-	err := rc.Run(ctx, cohort)
+	_, err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre-vote failed")
 	assert.Contains(t, err.Error(), preValidateErr.Error())
@@ -436,7 +438,7 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	err := rc.Run(ctx, cohort)
+	_, err := rc.Run(ctx, cohort)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to accept proposal")
 }
@@ -489,7 +491,8 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
-	require.NoError(t, rc.Run(ctx, cohort))
+	_, err := rc.Run(ctx, cohort)
+	require.NoError(t, err)
 
 	// Leader (mp1) received Propose.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)

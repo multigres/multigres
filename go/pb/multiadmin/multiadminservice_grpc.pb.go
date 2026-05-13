@@ -49,6 +49,7 @@ const (
 	MultiAdminService_SetPostgresRestartsEnabled_FullMethodName = "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled"
 	MultiAdminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiAdminService/GetGatewayQueries"
 	MultiAdminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiAdminService/GetGatewayConsolidator"
+	MultiAdminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange"
 )
 
 // MultiAdminServiceClient is the client API for MultiAdminService service.
@@ -95,6 +96,15 @@ type MultiAdminServiceClient interface {
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0).
+	//
+	// The cert can either be supplied explicitly by the caller or, if
+	// unsafe_derive_cert_from_reachable is set, derived by multiadmin from a
+	// Status probe of the proposed cohort. Multiadmin then forwards the request
+	// to the shard's multiorch.
+	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 }
 
 type multiAdminServiceClient struct {
@@ -265,6 +275,16 @@ func (c *multiAdminServiceClient) GetGatewayConsolidator(ctx context.Context, in
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyCertifiedRuleChangeResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiAdminServiceServer is the server API for MultiAdminService service.
 // All implementations must embed UnimplementedMultiAdminServiceServer
 // for forward compatibility.
@@ -309,6 +329,15 @@ type MultiAdminServiceServer interface {
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0).
+	//
+	// The cert can either be supplied explicitly by the caller or, if
+	// unsafe_derive_cert_from_reachable is set, derived by multiadmin from a
+	// Status probe of the proposed cohort. Multiadmin then forwards the request
+	// to the shard's multiorch.
+	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
 
@@ -366,6 +395,9 @@ func (UnimplementedMultiAdminServiceServer) GetGatewayQueries(context.Context, *
 }
 func (UnimplementedMultiAdminServiceServer) GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGatewayConsolidator not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
 func (UnimplementedMultiAdminServiceServer) testEmbeddedByValue()                           {}
@@ -676,6 +708,24 @@ func _MultiAdminService_GetGatewayConsolidator_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyCertifiedRuleChangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).ApplyCertifiedRuleChange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_ApplyCertifiedRuleChange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -746,6 +796,10 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetGatewayConsolidator",
 			Handler:    _MultiAdminService_GetGatewayConsolidator_Handler,
+		},
+		{
+			MethodName: "ApplyCertifiedRuleChange",
+			Handler:    _MultiAdminService_ApplyCertifiedRuleChange_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -131,7 +131,8 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort)
+	_, err := c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort)
+	return err
 }
 
 // appointLeaderWithTerm is the shared core of AppointLeader and AppointInitialLeader.

@@ -53,11 +53,11 @@ func CompareRuleNumbers(a, b *clustermetadatapb.RuleNumber) int {
 	return 0
 }
 
-// comparePosition returns negative, zero, or positive based on whether a is
+// ComparePosition returns negative, zero, or positive based on whether a is
 // behind, equal to, or ahead of b. Rule number takes precedence; LSN breaks
 // ties within the same rule. A missing or unparsable LSN is treated as less
 // than any valid LSN.
-func comparePosition(a, b *clustermetadatapb.PoolerPosition) int {
+func ComparePosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp := CompareRuleNumbers(a.GetRule().GetRuleNumber(), b.GetRule().GetRuleNumber()); cmp != 0 {
 		return cmp
 	}

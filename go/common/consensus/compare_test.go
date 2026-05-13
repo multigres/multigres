@@ -88,7 +88,7 @@ func TestComparePosition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := comparePosition(tt.a, tt.b)
+			got := ComparePosition(tt.a, tt.b)
 			assert.Equal(t, tt.want, got)
 		})
 	}
