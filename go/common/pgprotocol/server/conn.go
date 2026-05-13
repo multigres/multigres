@@ -359,6 +359,13 @@ func (c *Conn) ScramServerKey() []byte {
 	return c.scramServerKey
 }
 
+// ReplicationMode returns the parsed `replication` startup parameter for this
+// connection. ReplicationOff means the client did not request a replication
+// connection (or sent replication=false).
+func (c *Conn) ReplicationMode() ReplicationMode {
+	return c.replicationMode
+}
+
 // GetStartupParams returns the startup parameters sent by the client,
 // excluding 'user' and 'database' which are handled separately.
 func (c *Conn) GetStartupParams() map[string]string {

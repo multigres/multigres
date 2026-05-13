@@ -85,6 +85,18 @@ type Server struct {
 
 	// queryPatternUserCallback stores optional callbacks when a query with a pattern is called.
 	queryPatternUserCallback map[*regexp.Regexp]func(string)
+
+	// credentialProvider is the optional inner CredentialProvider used by
+	// the listener's auth path. Tests that exercise replication startup
+	// (replication=true / replication=database) must install one whose
+	// IsReplicationRole is true; without it, verifyReplicationRole fails
+	// closed for the trust-auth path.
+	credentialProvider server.CredentialProvider
+
+	// lastReplicationMode is the parsed `replication` startup parameter
+	// of the most recently established connection. Recorded via the
+	// ConnectionEstablishedHandler hook.
+	lastReplicationMode server.ReplicationMode
 }
 
 type exprResult struct {
@@ -102,6 +114,55 @@ type trustAllProvider struct{}
 // AllowTrustAuth always returns true, allowing all connections without password.
 func (p *trustAllProvider) AllowTrustAuth(_ context.Context, _, _ string) bool {
 	return true
+}
+
+// GetCredentials dispatches to the test-installed CredentialProvider when one
+// is set. Trust-auth replication startups invoke this path inside
+// verifyReplicationRole (server/startup.go) when the auth-time SCRAM lookup
+// was skipped. Without an installed provider, replication startups are
+// rejected — which is the right default for a fake server.
+func (s *Server) GetCredentials(ctx context.Context, user, database string) (*server.Credentials, error) {
+	s.mu.Lock()
+	provider := s.credentialProvider
+	s.mu.Unlock()
+	if provider == nil {
+		return nil, fmt.Errorf("fakepgserver: no credential provider configured for %q", user)
+	}
+	return provider.GetCredentials(ctx, user, database)
+}
+
+// SetCredentialProvider installs a server.CredentialProvider that the
+// listener's auth path will consult. Tests that exercise replication startup
+// (replication=true / replication=database) must call this with a provider
+// whose Credentials carry IsReplicationRole=true, otherwise the post-auth
+// gate rejects the connection.
+func (s *Server) SetCredentialProvider(provider server.CredentialProvider) *Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.credentialProvider = provider
+	return s
+}
+
+// LastReplicationMode returns the replication mode of the most recently
+// established connection. Returns ReplicationOff if no connection has
+// completed startup, or the last connection was a normal (non-replication)
+// session.
+//
+// The `replication` startup parameter is stripped from GetStartupParams()
+// after parsing, so tests must use this accessor to verify wire-level
+// replication mode.
+func (s *Server) LastReplicationMode() server.ReplicationMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastReplicationMode
+}
+
+// recordReplicationMode is invoked by the handler's ConnectionEstablished
+// hook to stash the most recent connection's mode for test assertions.
+func (s *Server) recordReplicationMode(mode server.ReplicationMode) {
+	s.mu.Lock()
+	s.lastReplicationMode = mode
+	s.mu.Unlock()
 }
 
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
@@ -135,13 +196,18 @@ func New(t testing.TB) *Server {
 	// Create the handler.
 	handler := &fakeHandler{server: s}
 
-	// Create listener on random port with trust auth (simulates Unix socket trust auth).
+	// Create listener on random port with trust auth (simulates Unix socket
+	// trust auth). The server itself is wired as the CredentialProvider so
+	// tests can install one at runtime via SetCredentialProvider — required
+	// for replication-mode startups, which post-auth gate on the role's
+	// IsReplicationRole flag.
 	var err error
 	s.listener, err = server.NewListener(server.ListenerConfig{
-		Address:           "127.0.0.1:0", // Random available port.
-		Handler:           handler,
-		TrustAuthProvider: &trustAllProvider{},
-		Logger:            slog.Default(),
+		Address:            "127.0.0.1:0", // Random available port.
+		Handler:            handler,
+		TrustAuthProvider:  &trustAllProvider{},
+		CredentialProvider: s,
+		Logger:             slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("fakepgserver: failed to create listener: %v", err)

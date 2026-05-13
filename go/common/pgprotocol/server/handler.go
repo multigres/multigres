@@ -128,3 +128,15 @@ type Handler interface {
 	// EXECUTE) without type-asserting to a concrete handler implementation.
 	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
 }
+
+// ConnectionEstablishedHandler is an optional interface a Handler may
+// implement to be notified when a client connection completes the startup
+// phase (authentication and any post-auth role-attribute gates have passed).
+// The hook is invoked via interface assertion, so existing Handler
+// implementations do not need to opt in.
+//
+// Typical use is in test fixtures that need to observe per-connection
+// startup state (replication mode, startup parameters) once it is settled.
+type ConnectionEstablishedHandler interface {
+	ConnectionEstablished(conn *Conn)
+}
