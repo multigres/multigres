@@ -97,6 +97,24 @@ func TestMultiGateway_Authentication(t *testing.T) {
 		assert.Contains(t, err.Error(), "authentication failed")
 	})
 
+	t.Run("replication=true rejected for role without rolreplication", func(t *testing.T) {
+		// Acceptance criterion #1 of MUL-387: a client with replication=true
+		// authenticated as a role lacking rolreplication must be rejected with
+		// PG's exact wording and SQLSTATE 42501. lib/pq supports the
+		// `replication` connection parameter and surfaces the FATAL ErrorResponse
+		// from db.Ping; the test asserts on the message text since the lib/pq
+		// error wraps the body without exposing the raw SQLSTATE field.
+		connStr := fmt.Sprintf("host=localhost port=%d user=testuser1 password=password1 dbname=postgres sslmode=disable connect_timeout=5 replication=true",
+			setup.MultigatewayPgPort)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.Ping()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must be superuser or replication role to start walsender")
+	})
+
 	t.Run("multiple users with separate connection pools", func(t *testing.T) {
 		// Connect as testuser1
 		connStr1 := fmt.Sprintf("host=localhost port=%d user=testuser1 password=password1 dbname=postgres sslmode=disable connect_timeout=5",

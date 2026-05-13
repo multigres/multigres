@@ -41,9 +41,16 @@ import (
 //     remain), syncs pending LISTEN/UNLISTEN subscriptions.
 //   - ROLLBACK: Concludes the transaction on all shards (same reservation semantics
 //     as COMMIT), discards pending LISTEN/UNLISTEN subscriptions.
+//   - SAVEPOINT / RELEASE / ROLLBACK TO: Pass through to backend; on success, push
+//     or pop the gateway's per-savepoint snapshot stack so SessionSettings and
+//     gateway-managed variables track PostgreSQL's GUC stack semantics.
 type TransactionPrimitive struct {
 	// Kind is the type of transaction statement (BEGIN, COMMIT, ROLLBACK, etc.)
 	Kind ast.TransactionStmtKind
+
+	// SavepointName is the savepoint identifier for SAVEPOINT / RELEASE /
+	// ROLLBACK TO statements. Empty for other kinds.
+	SavepointName string
 
 	// Query is the original Query string for this statement.
 	Query string
@@ -57,12 +64,13 @@ type TransactionPrimitive struct {
 }
 
 // NewTransactionPrimitive creates a new TransactionPrimitive.
-func NewTransactionPrimitive(kind ast.TransactionStmtKind, sql, tableGroup string, metrics *TransactionMetrics) *TransactionPrimitive {
+func NewTransactionPrimitive(kind ast.TransactionStmtKind, savepointName, sql, tableGroup string, metrics *TransactionMetrics) *TransactionPrimitive {
 	return &TransactionPrimitive{
-		Kind:       kind,
-		Query:      sql,
-		TableGroup: tableGroup,
-		metrics:    metrics,
+		Kind:          kind,
+		SavepointName: savepointName,
+		Query:         sql,
+		TableGroup:    tableGroup,
+		metrics:       metrics,
 	}
 }
 
@@ -85,11 +93,17 @@ func (t *TransactionPrimitive) StreamExecute(
 	case ast.TRANS_STMT_ROLLBACK:
 		return t.executeRollback(ctx, exec, conn, state, callback)
 
+	case ast.TRANS_STMT_SAVEPOINT:
+		return t.executeSavepoint(ctx, exec, conn, state, callback)
+
+	case ast.TRANS_STMT_RELEASE:
+		return t.executeReleaseSavepoint(ctx, exec, conn, state, callback)
+
 	case ast.TRANS_STMT_ROLLBACK_TO:
 		return t.executeRollbackToSavepoint(ctx, exec, conn, state, callback)
 
 	default:
-		// For other transaction statements (SAVEPOINT, RELEASE SAVEPOINT), pass through to backend
+		// Other transaction statements (e.g., PREPARE TRANSACTION) pass through.
 		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	}
 }
@@ -115,6 +129,10 @@ func (t *TransactionPrimitive) executeBegin(
 	// Record transaction start time for duration tracking.
 	state.TxnStartTime = time.Now()
 
+	// Push a BEGIN-level snapshot of SessionSettings and gateway-managed variables
+	// so a subsequent ROLLBACK can revert any SET / RESET issued in the transaction.
+	state.BeginTransaction()
+
 	// Return synthetic result to client
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "BEGIN",
@@ -134,9 +152,16 @@ func (t *TransactionPrimitive) executeCommit(
 ) error {
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
-	// Clear any SET LOCAL overrides on gateway-managed variables — they're
-	// transaction-scoped and revert at COMMIT.
-	state.ResetAllLocalGUCs()
+	// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
+	// failed state, so SET / RESET issued before the failure must revert
+	// rather than persist. For a healthy COMMIT, drop the savepoint stack and
+	// clear SET LOCAL overrides — current values of non-LOCAL SETs become
+	// persistent session state.
+	if conn.TxnStatus() == protocol.TxnStatusFailed {
+		state.RollbackTransaction()
+	} else {
+		state.CommitTransaction()
+	}
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
@@ -207,9 +232,9 @@ func (t *TransactionPrimitive) executeRollback(
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
-	// Clear any SET LOCAL overrides on gateway-managed variables — they're
-	// transaction-scoped and revert at ROLLBACK.
-	state.ResetAllLocalGUCs()
+	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
+	// snapshot so any SET / RESET issued in the transaction is reverted.
+	state.RollbackTransaction()
 
 	// Record transaction metrics before clearing state.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
@@ -243,11 +268,49 @@ func (t *TransactionPrimitive) executeRollback(
 	return err
 }
 
+// executeSavepoint handles SAVEPOINT by passing through to the backend, then
+// pushing a frame onto the gateway's savepoint stack so SessionSettings and
+// gateway-managed variables can be reverted on a later ROLLBACK TO. State is
+// only mutated on backend success.
+func (t *TransactionPrimitive) executeSavepoint(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback); err != nil {
+		return err
+	}
+	state.PushSavepoint(t.SavepointName)
+	return nil
+}
+
+// executeReleaseSavepoint handles RELEASE SAVEPOINT by passing through to the
+// backend, then dropping the named frame (and any nested ones) from the gateway
+// stack. Per PostgreSQL semantics, current SessionSettings and variable values
+// are kept — RELEASE merges sub-transaction state into the parent scope.
+func (t *TransactionPrimitive) executeReleaseSavepoint(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback); err != nil {
+		return err
+	}
+	state.ReleaseSavepoint(t.SavepointName)
+	return nil
+}
+
 // executeRollbackToSavepoint handles ROLLBACK TO SAVEPOINT by passing through
 // to the backend. On success, transitions TxnStatus from Failed back to InBlock
-// so subsequent statements can execute normally. This matches PostgreSQL's
-// behavior where ROLLBACK TO SAVEPOINT is the primary mechanism for recovering
-// from errors within a transaction.
+// so subsequent statements can execute normally, and restores SessionSettings
+// + gateway-managed variables from the named savepoint's snapshot. This matches
+// PostgreSQL's behavior where ROLLBACK TO SAVEPOINT is the primary mechanism
+// for recovering from errors within a transaction and reverts SET / RESET
+// commands issued under the savepoint.
 func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	ctx context.Context,
 	exec IExecute,
@@ -268,6 +331,11 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	if wasFailed {
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	}
+
+	// Revert SessionSettings and gateway-managed variables to the snapshot
+	// captured when this savepoint was opened. The named frame stays on the
+	// stack — PostgreSQL leaves the savepoint active after ROLLBACK TO.
+	state.RollbackToSavepoint(t.SavepointName)
 
 	return nil
 }

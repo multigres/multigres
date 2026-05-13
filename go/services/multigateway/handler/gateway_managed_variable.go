@@ -26,8 +26,24 @@ package handler
 //
 // GetEffective resolves with priority local > session > default, matching
 // PostgreSQL's behavior.
+//
+// snapshots is a stack of saved (currentValue, isSet, localValue, isLocalSet)
+// tuples driven by SAVEPOINT / RELEASE / ROLLBACK TO and the surrounding
+// BEGIN / COMMIT / ROLLBACK. The stack is managed in lockstep with
+// MultiGatewayConnectionState.savepoints — each frame on the connection's
+// stack corresponds to one snapshot here, by index.
 type GatewayManagedVariable[T comparable] struct {
 	defaultValue T
+	currentValue T
+	isSet        bool
+	localValue   T
+	isLocalSet   bool
+	snapshots    []gmvSnapshot[T]
+}
+
+// gmvSnapshot captures the full mutable state of a GatewayManagedVariable at
+// the moment a savepoint (or BEGIN-level frame) was pushed.
+type gmvSnapshot[T comparable] struct {
 	currentValue T
 	isSet        bool
 	localValue   T
@@ -108,4 +124,51 @@ func (g *GatewayManagedVariable[T]) IsSet() bool {
 // IsLocalSet returns whether a transaction-local override is active.
 func (g *GatewayManagedVariable[T]) IsLocalSet() bool {
 	return g.isLocalSet
+}
+
+// Snapshot pushes the current (currentValue, isSet, localValue, isLocalSet) tuple
+// onto the snapshot stack. Called by MultiGatewayConnectionState when a SAVEPOINT
+// is opened (or at BEGIN-level frame creation).
+func (g *GatewayManagedVariable[T]) Snapshot() {
+	g.snapshots = append(g.snapshots, gmvSnapshot[T]{
+		currentValue: g.currentValue,
+		isSet:        g.isSet,
+		localValue:   g.localValue,
+		isLocalSet:   g.isLocalSet,
+	})
+}
+
+// RestoreFromDepth restores from the snapshot at index `depth`, then truncates the
+// stack to depth+1 so the frame at `depth` remains. Used for ROLLBACK TO sp:
+// PostgreSQL leaves `sp` active after the rollback, so its snapshot must stay so a
+// subsequent ROLLBACK TO sp can be issued again. Precondition: depth < len(snapshots).
+func (g *GatewayManagedVariable[T]) RestoreFromDepth(depth int) {
+	s := g.snapshots[depth]
+	g.currentValue = s.currentValue
+	g.isSet = s.isSet
+	g.localValue = s.localValue
+	g.isLocalSet = s.isLocalSet
+	g.snapshots = g.snapshots[:depth+1]
+}
+
+// PopFrom drops snapshot frames at index `depth` and above, keeping the current
+// in-memory values untouched. Used for RELEASE sp: PG merges sub-transaction
+// changes into the parent, so we drop sp's frame (and any nested ones) but
+// preserve current state.
+func (g *GatewayManagedVariable[T]) PopFrom(depth int) {
+	g.snapshots = g.snapshots[:depth]
+}
+
+// ClearSnapshots drops all snapshot frames. Called at COMMIT (current values
+// become persistent session state) and after RollbackTransaction has restored
+// from the BEGIN-level frame.
+func (g *GatewayManagedVariable[T]) ClearSnapshots() {
+	g.snapshots = nil
+}
+
+// SnapshotDepth returns the current size of the snapshot stack. Used by tests
+// and as an internal sanity check that connection-state and variable stacks
+// stay in lockstep.
+func (g *GatewayManagedVariable[T]) SnapshotDepth() int {
+	return len(g.snapshots)
 }

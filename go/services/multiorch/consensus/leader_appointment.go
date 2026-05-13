@@ -315,7 +315,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 			req := &consensusdatapb.BeginTermRequest{
 				Term:        term,
 				CandidateId: c.coordinatorID,
-				ShardId:     n.MultiPooler.Shard,
+				ShardId:     n.MultiPooler.GetShardKey().GetShard(),
 				Action:      action,
 			}
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)

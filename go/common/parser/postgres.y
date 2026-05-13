@@ -5714,7 +5714,13 @@ json_quotes_clause_opt:
 json_format_clause:
 			FORMAT_LA JSON ENCODING name
 			{
-				// Parse the encoding name and map to JsonEncoding constant
+				// Parse the encoding name and map to JsonEncoding constant.
+				// Match PostgreSQL by rejecting unknown names at parse time
+				// (gram.y json_format_clause raises ereport(ERROR) with
+				// errcode INVALID_PARAMETER_VALUE / "unrecognized JSON
+				// encoding"). The JsonFormat node only carries an enum, so
+				// preserving the raw name through to the backend would mean
+				// reshaping the AST; rejecting here is the simpler match.
 				var encoding ast.JsonEncoding
 				switch $4 {
 				case "utf8":
@@ -5724,6 +5730,7 @@ json_format_clause:
 				case "utf32":
 					encoding = ast.JS_ENC_UTF32
 				default:
+					yylex.Error(fmt.Sprintf("unrecognized JSON encoding: %s", $4))
 					encoding = ast.JS_ENC_DEFAULT
 				}
 				$$ = &ast.JsonFormat{
@@ -5785,6 +5792,17 @@ json_table_column_definition:
 					strNode := $3.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($4)
+				jsonTableCol.Quotes = ast.JsonQuotes($5)
+				if $6 != nil {
+					behaviors := $6.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename json_format_clause
@@ -5802,6 +5820,17 @@ json_table_column_definition:
 				if $3 != nil {
 					jsonTableCol.Format = $3.(*ast.JsonFormat)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($5)
+				jsonTableCol.Quotes = ast.JsonQuotes($6)
+				if $7 != nil {
+					behaviors := $7.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename EXISTS json_table_column_path_clause_opt
@@ -5812,6 +5841,9 @@ json_table_column_definition:
 				if $4 != nil {
 					strNode := $4.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				if $5 != nil {
+					jsonTableCol.OnError = $5.(*ast.JsonBehavior)
 				}
 				$$ = jsonTableCol
 			}
@@ -11931,8 +11963,12 @@ set_rest_more:
 				}
 		|	TIME ZONE zone_value
 				{
-					args := ast.NewNodeList($3)
-					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					if $3 == nil {
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "timezone", nil, false)
+					} else {
+						args := ast.NewNodeList($3)
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					}
 				}
 		|	CATALOG_P Sconst
 				{
@@ -12052,7 +12088,7 @@ zone_value:
 				$$ = ast.NewTypeCast(stringConst, t, 0)
 			}
 		|	NumericOnly								{ $$ = $1 }
-		|	DEFAULT									{ $$ = ast.NewString("default") }
+		|	DEFAULT									{ $$ = nil }
 		|	LOCAL									{ $$ = ast.NewString("local") }
 		;
 

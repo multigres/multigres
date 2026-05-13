@@ -69,10 +69,12 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		Hostname:   "127.0.0.1",
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "127.0.0.1",
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
+		},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
 		PortMap: map[string]int32{
 			"grpc": int32(lis.Addr().(*net.TCPAddr).Port),
 		},

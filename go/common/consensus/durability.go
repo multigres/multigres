@@ -45,7 +45,7 @@ func ParseUserSpecifiedDurabilityPolicy(name string) (*clustermetadatapb.Durabil
 //
 //  1. Achievability: a pre-flight feasibility gate. Checks if the proposed cohort could
 //     satisfy this policy's durability conditions.
-//  2. Sufficient recruitment: the recruited subset of a committed cohort can
+//  2. Sufficient recruitment: the recruited subset of a recorded cohort can
 //     form a fresh quorum (candidacy) AND intersects every other quorum the
 //     cohort could form (revocation).
 type DurabilityPolicy interface {

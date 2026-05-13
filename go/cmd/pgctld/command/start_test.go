@@ -282,7 +282,7 @@ touch "$2/pg_hba.conf"
 	})
 }
 
-func TestRunInitDbSQLFiles(t *testing.T) {
+func TestRunInitdbSQLFiles(t *testing.T) {
 	t.Run("executes each file in order with expected psql args", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_init_sql_test")
 		defer cleanup()
@@ -306,7 +306,7 @@ func TestRunInitDbSQLFiles(t *testing.T) {
 			user:      "postgres",
 			logger:    logger,
 		}
-		err := runInitDbSQLFiles(logger, pg, "mydb", []string{fileA, fileB})
+		err := runInitdbSQLFiles(logger, pg, "mydb", []string{fileA, fileB})
 		require.NoError(t, err)
 
 		logBytes, err := os.ReadFile(argsLog)
@@ -325,7 +325,7 @@ func TestRunInitDbSQLFiles(t *testing.T) {
 	t.Run("returns error on missing file without invoking psql", func(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
 		// nil pgInstance is safe here: os.Stat runs before the first psql call.
-		err := runInitDbSQLFiles(logger, nil, "mydb", []string{"/nonexistent/file.sql"})
+		err := runInitdbSQLFiles(logger, nil, "mydb", []string{"/nonexistent/file.sql"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not accessible")
 	})
@@ -359,7 +359,7 @@ fi
 			user:      "postgres",
 			logger:    logger,
 		}
-		err := runInitDbSQLFiles(logger, pg, "mydb", []string{failFile, nextFile})
+		err := runInitdbSQLFiles(logger, pg, "mydb", []string{failFile, nextFile})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "fail.sql")
 

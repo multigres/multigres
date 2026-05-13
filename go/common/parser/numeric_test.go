@@ -328,6 +328,17 @@ func TestNumericJunkPatterns(t *testing.T) {
 		// real_junk: {real}{identifier}
 		{"scientific followed by letter", "1E10abc", "trailing junk after numeric literal", FCONST, "1E10abc", "real_junk"},
 		{"float exp followed by ident", "3.14E10xyz", "trailing junk after numeric literal", FCONST, "3.14E10xyz", "real_junk"},
+
+		// hex_junk / oct_junk / bin_junk: {hexinteger}{identifier} etc.
+		// postgres/src/backend/parser/scan.l:1066-1076. Identifier-continuation
+		// chars (letter, underscore) trigger the junk error; digit-suffixes that
+		// aren't valid in the radix split into two tokens (handled by the
+		// invalid-digit cases in TestNumericEdgeCases).
+		{"hex invalid letter digit", "0x123g456", "trailing junk after numeric literal", ICONST, "0x123g456", "hex_junk"},
+		{"hex letter alias", "0x0o", "trailing junk after numeric literal", ICONST, "0x0o", "hex_junk"},
+		{"hex y alias", "0x0y", "trailing junk after numeric literal", ICONST, "0x0y", "hex_junk"},
+		{"octal letter alias", "0o0x", "trailing junk after numeric literal", ICONST, "0o0x", "oct_junk"},
+		{"binary letter alias", "0b0x", "trailing junk after numeric literal", ICONST, "0b0x", "bin_junk"},
 	}
 
 	for _, tt := range tests {
@@ -398,14 +409,9 @@ func TestNumericEdgeCases(t *testing.T) {
 			"double underscore parsed as single token with junk error",
 		},
 
-		// Mixed numeric formats
-		{
-			"hex invalid digit",
-			"0x123g456",
-			[]TokenType{ICONST, IDENT},
-			[]string{"0x123", "g456"},
-			"invalid hex digit breaks token",
-		},
+		// Mixed-radix invalid-digit cases that split into two tokens (digit
+		// suffix that isn't valid in the radix). Letter/underscore suffixes
+		// trigger the junk error and are covered in TestNumericJunkPatterns.
 		{
 			"octal invalid digit",
 			"0o1238",

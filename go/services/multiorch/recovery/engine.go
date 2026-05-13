@@ -453,8 +453,8 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 		}
 		data = append(data, StreamHealthData{
 			PoolerID:          topoclient.MultiPoolerIDString(state.MultiPooler.Id),
-			DBNamespace:       state.MultiPooler.Database,
-			Shard:             state.MultiPooler.Shard,
+			DBNamespace:       state.MultiPooler.GetShardKey().GetDatabase(),
+			Shard:             state.MultiPooler.GetShardKey().GetShard(),
 			Connected:         state.StreamConnected,
 			SnapshotsReceived: state.StreamSnapshotsReceived,
 		})

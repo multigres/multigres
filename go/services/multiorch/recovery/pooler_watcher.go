@@ -423,9 +423,9 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 		cw.onNewPooler(pooler.Id)
 		cw.logger.Info("new pooler discovered via watcher",
 			"pooler_id", poolerID,
-			"database", pooler.Database,
-			"tablegroup", pooler.TableGroup,
-			"shard", pooler.Shard,
+			"database", pooler.GetShardKey().GetDatabase(),
+			"tablegroup", pooler.GetShardKey().GetTableGroup(),
+			"shard", pooler.GetShardKey().GetShard(),
 			"type", pooler.Type.String(),
 		)
 	}
@@ -435,7 +435,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 // configured WatchTargets.
 func (cw *cellPoolerWatcher) matchesAnyTarget(pooler *clustermetadatapb.MultiPooler) bool {
 	for _, target := range cw.targets() {
-		if target.MatchesShard(pooler.Database, pooler.TableGroup, pooler.Shard) {
+		if target.MatchesShard(pooler.GetShardKey().GetDatabase(), pooler.GetShardKey().GetTableGroup(), pooler.GetShardKey().GetShard()) {
 			return true
 		}
 	}

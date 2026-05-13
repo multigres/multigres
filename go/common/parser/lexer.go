@@ -263,9 +263,12 @@ func (l *Lexer) isValidUescapeChar(escape byte) bool {
 	return true
 }
 
-// decodeUnicodeString decodes Unicode escape sequences in a string
-// Implements the same logic as PostgreSQL's str_udeescape function
-// Equivalent to postgres/src/backend/parser/parser.c:371-527 (str_udeescape)
+// decodeUnicodeString decodes Unicode escape sequences in a string.
+// Mirrors PostgreSQL's str_udeescape (postgres/src/backend/parser/parser.c:371-527)
+// including surrogate-pair pairing, code-point range validation, and rejection
+// of lone or out-of-order surrogates. Errors emitted here surface as
+// `invalid Unicode surrogate pair` / `invalid Unicode escape value` /
+// `invalid Unicode escape sequence` matching upstream wording.
 func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, error) {
 	if len(input) == 0 {
 		return input, nil
@@ -273,38 +276,80 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 
 	result := make([]byte, 0, len(input))
 	i := 0
+	var pairFirst rune // non-zero while awaiting low surrogate; 0 otherwise
+
+	emit := func(cp rune) error {
+		if cp > 0x10FFFF {
+			return errors.New("invalid Unicode escape value")
+		}
+		result = append(result, []byte(string(cp))...)
+		return nil
+	}
 
 	for i < len(input) {
-		if input[i] == escapeChar {
-			if i+1 < len(input) && input[i+1] == escapeChar {
-				// Escaped escape character
-				result = append(result, escapeChar)
-				i += 2
-			} else if i+4 < len(input) && l.isHexSequence(input[i+1:i+5]) {
-				// 4-digit hex escape: \XXXX
-				codepoint, err := l.parseHexCodepoint(input[i+1 : i+5])
-				if err != nil {
-					return "", err
-				}
-				utf8Bytes := l.codepointToUTF8(codepoint)
-				result = append(result, utf8Bytes...)
-				i += 5
-			} else if i+7 < len(input) && input[i+1] == '+' && l.isHexSequence(input[i+2:i+8]) {
-				// 6-digit hex escape: \+XXXXXX
-				codepoint, err := l.parseHexCodepoint(input[i+2 : i+8])
-				if err != nil {
-					return "", err
-				}
-				utf8Bytes := l.codepointToUTF8(codepoint)
-				result = append(result, utf8Bytes...)
-				i += 8
-			} else {
-				return "", errors.New("invalid Unicode escape sequence")
+		if input[i] != escapeChar {
+			if pairFirst != 0 {
+				// High surrogate not followed by another \ escape sequence.
+				return "", errors.New("invalid Unicode surrogate pair")
 			}
-		} else {
 			result = append(result, input[i])
 			i++
+			continue
 		}
+
+		// Escape sequence. First handle doubled escape char: literal char.
+		if i+1 < len(input) && input[i+1] == escapeChar {
+			if pairFirst != 0 {
+				return "", errors.New("invalid Unicode surrogate pair")
+			}
+			result = append(result, escapeChar)
+			i += 2
+			continue
+		}
+
+		var codepoint rune
+		var consumed int
+		switch {
+		case i+4 < len(input) && l.isHexSequence(input[i+1:i+5]):
+			cp, err := l.parseHexCodepoint(input[i+1 : i+5])
+			if err != nil {
+				return "", err
+			}
+			codepoint, consumed = cp, 5
+		case i+7 < len(input) && input[i+1] == '+' && l.isHexSequence(input[i+2:i+8]):
+			cp, err := l.parseHexCodepoint(input[i+2 : i+8])
+			if err != nil {
+				return "", err
+			}
+			codepoint, consumed = cp, 8
+		default:
+			return "", errors.New("invalid Unicode escape sequence")
+		}
+
+		switch {
+		case pairFirst != 0:
+			combined, ok := validateSurrogatePair(pairFirst, codepoint)
+			if !ok {
+				return "", errors.New("invalid Unicode surrogate pair")
+			}
+			if err := emit(combined); err != nil {
+				return "", err
+			}
+			pairFirst = 0
+		case isUTF16SurrogateFirst(codepoint):
+			pairFirst = codepoint
+		case isUTF16SurrogateSecond(codepoint):
+			return "", errors.New("invalid Unicode surrogate pair")
+		default:
+			if err := emit(codepoint); err != nil {
+				return "", err
+			}
+		}
+		i += consumed
+	}
+
+	if pairFirst != 0 {
+		return "", errors.New("invalid Unicode surrogate pair")
 	}
 
 	return string(result), nil
@@ -337,19 +382,6 @@ func (l *Lexer) parseHexCodepoint(hex string) (rune, error) {
 		}
 	}
 	return codepoint, nil
-}
-
-// codepointToUTF8 converts a Unicode codepoint to UTF-8 bytes
-func (l *Lexer) codepointToUTF8(codepoint rune) []byte {
-	if codepoint < 0 || codepoint > 0x10FFFF {
-		// Invalid codepoint, return replacement character
-		return []byte{0xEF, 0xBF, 0xBD} // UTF-8 for U+FFFD
-	}
-
-	result := make([]byte, 4)
-	n := len(string(codepoint))
-	copy(result[:n], []byte(string(codepoint)))
-	return result[:n]
 }
 
 // truncateIdentifier truncates an identifier to PostgreSQL's maximum length
@@ -1667,8 +1699,9 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 
 	for ptr < len(s) {
 		c := s[ptr]
-		switch c {
-		case '0', '1':
+		// Use if/else (not switch) so the trailing `break` exits the loop;
+		// `break` inside a switch only exits the switch and would spin here.
+		if c == '0' || c == '1' { //nolint:staticcheck // QF1003: switch would defeat the point
 			// Check for overflow before shifting
 			if val > 0xFFFFFFFF/2 {
 				return 0, true
@@ -1676,13 +1709,13 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 			val = val*2 + uint32(c-'0')
 			hasDigits = true
 			ptr++
-		case '_':
+		} else if c == '_' {
 			// Underscore must be followed by more binary digits
 			ptr++
 			if ptr >= len(s) || (s[ptr] != '0' && s[ptr] != '1') {
 				return 0, false // Invalid syntax
 			}
-		default:
+		} else {
 			break
 		}
 	}
@@ -1787,6 +1820,14 @@ func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func
 		text := l.context.GetCurrentText(startScanPos)
 		_ = l.context.AddErrorWithType(errorType, errorMsg)
 		return NewStringToken(ICONST, text, startPos, text), nil
+	}
+
+	// Reject identifier-continuation chars immediately after the radix body.
+	// Upstream emits this via the {hexinteger}{identifier} junk pattern at
+	// scan.l:1066, so e.g. `0x0o` errors instead of tokenizing as `0x0` AS `o`.
+	if err := l.checkTrailingJunk(); err != nil {
+		text := l.context.GetCurrentText(startScanPos)
+		return NewStringToken(ICONST, text, startPos, text), nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
 	text := l.context.GetCurrentText(startScanPos)

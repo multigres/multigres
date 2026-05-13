@@ -324,7 +324,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	// Get cohort members from the current rule (best-effort).
 	if pos, err := pm.rules.observePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
-	} else if pos != nil && pos.Rule != nil {
+	} else if pos.Rule != nil {
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
 	}
 

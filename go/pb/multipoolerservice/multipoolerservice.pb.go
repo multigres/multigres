@@ -936,9 +936,14 @@ type GetAuthCredentialsResponse struct {
 	// scram_hash is the stored SCRAM-SHA-256 password hash from pg_authid.
 	// Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
 	// Empty if user exists but has no password set.
-	ScramHash     string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ScramHash string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
+	// is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+	// this attribute (or rolsuper) for any connection started with the
+	// replication=true / replication=database startup parameter. The gateway
+	// enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+	IsReplicationRole bool `protobuf:"varint,2,opt,name=is_replication_role,json=isReplicationRole,proto3" json:"is_replication_role,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetAuthCredentialsResponse) Reset() {
@@ -976,6 +981,13 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 		return x.ScramHash
 	}
 	return ""
+}
+
+func (x *GetAuthCredentialsResponse) GetIsReplicationRole() bool {
+	if x != nil {
+		return x.IsReplicationRole
+	}
+	return false
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -1889,10 +1901,11 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\vdescription\x18\x01 \x01(\v2\x1b.query.StatementDescriptionR\vdescription\"S\n" +
 	"\x19GetAuthCredentialsRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\";\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"k\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
-	"scram_hash\x18\x01 \x01(\tR\tscramHash\"\xb6\x03\n" +
+	"scram_hash\x18\x01 \x01(\tR\tscramHash\x12.\n" +
+	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\"\xb6\x03\n" +
 	"\x16CopyBidiExecuteRequest\x12F\n" +
 	"\x05phase\x18\x01 \x01(\x0e20.multipoolerservice.CopyBidiExecuteRequest.PhaseR\x05phase\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12%\n" +

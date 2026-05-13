@@ -225,6 +225,27 @@ func (s *Server) CreateBucket(name string) error {
 	return s.storage.CreateBucket(name)
 }
 
+// ListKeys returns the object keys in bucket whose names start with prefix.
+// Intended for test assertions; the result is sorted lexicographically.
+func (s *Server) ListKeys(bucket, prefix string) []string {
+	objs := s.storage.ListObjects(bucket, prefix, "")
+	keys := make([]string, 0, len(objs))
+	for _, o := range objs {
+		keys = append(keys, o.Key)
+	}
+	return keys
+}
+
+// GetObjectBytes returns the contents of bucket/key, intended for test
+// assertions. Returns an error if the object does not exist.
+func (s *Server) GetObjectBytes(bucket, key string) ([]byte, error) {
+	obj, err := s.storage.GetObject(bucket, key)
+	if err != nil {
+		return nil, err
+	}
+	return obj.ReadData()
+}
+
 // Stop gracefully stops the server and cleans up storage
 func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)

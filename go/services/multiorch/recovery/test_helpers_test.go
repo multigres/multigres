@@ -72,7 +72,7 @@ func newTestEngine(ctx context.Context, t *testing.T, opts ...TestEngineOption) 
 		Cell:      "cell1",
 		Name:      "test-coordinator",
 	}
-	coord := consensus.NewCoordinator(coordID, ts, options.fakeClient, logger)
+	coord := consensus.NewCoordinator(coordID, ts, options.fakeClient, logger, false)
 	return NewEngine(ts, logger, cfg, options.watchTargets, options.fakeClient, coord)
 }
 
@@ -84,5 +84,5 @@ func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClie
 		Cell:      cell,
 		Name:      "test-coordinator",
 	}
-	return consensus.NewCoordinator(coordID, ts, rpcClient, logger)
+	return consensus.NewCoordinator(coordID, ts, rpcClient, logger, false)
 }

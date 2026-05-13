@@ -128,13 +128,20 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs
 		serviceName = envServiceName
 	}
 
-	// Create resource with service name and any additional attributes
-	// Note: We don't merge with resource.Default() to avoid schema version conflicts
+	// Create resource with service name, environment-provided attributes, and any
+	// additional Multigres service identity attributes. We don't merge with
+	// resource.Default() to avoid schema version conflicts.
 	resourceAttrs := []attribute.KeyValue{
 		semconv.ServiceName(serviceName),
 	}
 	resourceAttrs = append(resourceAttrs, attrs...)
-	res := resource.NewWithAttributes(semconv.SchemaURL, resourceAttrs...)
+	res, err := resource.Merge(
+		resource.EnvironmentWithContext(ctx),
+		resource.NewWithAttributes(semconv.SchemaURL, resourceAttrs...),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create telemetry resource: %w", err)
+	}
 
 	if err := t.initTracing(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize tracing: %w", err)

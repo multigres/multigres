@@ -55,19 +55,28 @@ type PoolManager interface {
 
 	// --- Regular Pool Operations ---
 
-	// GetRegularConn acquires a regular connection for the specified user.
-	GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
+	// GetRegularConn acquires a regular connection for the specified user,
+	// optionally carrying SCRAM passthrough keys from the caller's session.
+	// Keys may be nil for admin/internal callers that dial via the
+	// local-trust line in pg_hba.conf. When non-nil, keys are consumed only
+	// when this call triggers first-time user-pool creation; subsequent
+	// calls reuse the existing pool regardless of the keys they pass.
+	GetRegularConn(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
 
-	// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
-	// Settings are provided as a map and internally converted via the shared SettingsCache.
-	GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error)
+	// GetRegularConnWithSettings is GetRegularConn that additionally applies
+	// per-session settings. Settings are provided as a map and internally
+	// converted via the shared SettingsCache.
+	GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
 
 	// --- Reserved Pool Operations ---
 
-	// NewReservedConn creates a new reserved connection for the specified user.
-	// Settings are provided as a map and internally converted via the shared SettingsCache.
-	// Optional ReservedConnOption values configure validate-with-retry behavior.
-	NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
+	// NewReservedConn creates a new reserved connection for the specified
+	// user, optionally carrying SCRAM passthrough keys. Settings are
+	// provided as a map and internally converted via the shared
+	// SettingsCache. Optional ReservedConnOption values configure
+	// validate-with-retry behavior. Key-consumption semantics match
+	// GetRegularConn.
+	NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)

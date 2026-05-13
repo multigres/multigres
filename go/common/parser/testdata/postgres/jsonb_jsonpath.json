@@ -3147,7 +3147,7 @@
   {
     "comment": "jsonb_jsonpath - Statement 630",
     "query": "set time zone default",
-    "expected": "SET TIME ZONE default"
+    "expected": "SET TIME ZONE DEFAULT"
   },
   {
     "comment": "jsonb_jsonpath - Statement 631",

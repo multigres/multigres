@@ -228,7 +228,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs)
-	if err := rs.createRuleTables(ctx); err != nil {
+	if err := rs.createRuleTables(ctx, testBootstrapPolicy()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create rule tables: %w", err)
 	}
@@ -266,7 +266,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs)
-	require.NoError(t, rs.createRuleTables(ctx))
+	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy()))
 }
 
 // skipIfNoPG lazily starts the shared postgres fixture on first call and skips
@@ -304,6 +304,37 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 	require.NotNil(t, pos, "fresh state should still return a position with the current LSN")
 	assert.Equal(t, int64(0), pos.GetRule().GetRuleNumber().GetCoordinatorTerm(), "fresh sentinel row has coordinator_term=0")
 	assert.NotEmpty(t, pos.GetLsn(), "fresh state should include the current WAL LSN")
+
+	// The sentinel row written by createRuleTables must carry the bootstrap durability policy.
+	dp := pos.GetRule().GetDurabilityPolicy()
+	require.NotNil(t, dp, "sentinel row must carry the bootstrap durability policy")
+	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
+	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
+	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
+}
+
+func TestRuleStorePG_ObservePosition_SentinelPolicyCarriedThroughUpdate(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+
+	// Write a rule without specifying a durability policy — the sentinel row's policy must carry forward.
+	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
+	require.NoError(t, err)
+
+	pos, err := rs.observePosition(ctx)
+	require.NoError(t, err)
+
+	dp := pos.GetRule().GetDurabilityPolicy()
+	require.NotNil(t, dp, "sentinel policy must carry forward through updateRule without withDurabilityPolicy")
+	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
+	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
+	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
 }
 
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
@@ -738,8 +769,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
 	require.Len(t, records, 1)
 
 	rec := records[0]
-	require.NotNil(t, rec.DurabilityPolicyName, "rule_history must store durability_policy_name")
-	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", *rec.DurabilityPolicyName)
+	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", rec.DurabilityPolicyName, "rule_history must store durability_policy_name")
 }
 
 func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing.T) {

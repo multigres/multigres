@@ -90,6 +90,14 @@ func TestStandardStrings(t *testing.T) {
 			tokenType:   SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
 			shouldError: false,  // Returns SCONST token, doesn't error
 		},
+		{
+			// Invalid UTF-8 (lone continuation byte) must advance one byte and
+			// be preserved verbatim rather than re-encoded as U+FFFD.
+			name:      "String with invalid UTF-8 byte preserved verbatim",
+			input:     "'a\x80b'",
+			expected:  "a\x80b",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {
@@ -247,6 +255,30 @@ func TestDollarQuotedStrings(t *testing.T) {
 			expected:  "content $aa$ more content",
 			tokenType: SCONST,
 		},
+		{
+			// Multi-byte UTF-8 characters (common in function bodies) must
+			// advance by their full rune length, not 1 byte.
+			name:      "Dollar-quoted string with multi-byte UTF-8 char",
+			input:     "$$\xe4\xb8\x96\xe7\x95\x8c$$",
+			expected:  "\xe4\xb8\x96\xe7\x95\x8c",
+			tokenType: SCONST,
+		},
+		{
+			// Invalid UTF-8 must be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Dollar-quoted string with invalid UTF-8 byte",
+			input:     "$$a\x80b$$",
+			expected:  "a\x80b",
+			tokenType: SCONST,
+		},
+		{
+			// Multi-byte tag chars (e.g. À = U+00C0 = 0xC3 0x80) must be
+			// preserved byte-wise so that the closing delimiter compares equal
+			// to the opening one.
+			name:      "Dollar-quoted string with multi-byte tag",
+			input:     "$\xc3\x80$body$\xc3\x80$",
+			expected:  "body",
+			tokenType: SCONST,
+		},
 	}
 
 	for _, tt := range tests {
@@ -282,9 +314,29 @@ func TestBitStrings(t *testing.T) {
 			tokenType: BCONST,
 		},
 		{
-			name:      "Bit string with whitespace",
+			// xbinside accepts any non-quote char verbatim; the backend
+			// `bit_in` routine validates digits and reports
+			// `" " is not a valid binary digit` at type-conversion time.
+			name:      "Bit string with whitespace preserved verbatim",
 			input:     "B'1010 1010'",
-			expected:  "b10101010", // Whitespace should be skipped
+			expected:  "b1010 1010",
+			tokenType: BCONST,
+		},
+		{
+			// Multi-byte UTF-8 chars must advance by their full rune length;
+			// stripping only one byte would leave continuation bytes to be
+			// re-read as garbled replacement characters.
+			name:      "Bit string with multi-byte UTF-8 char preserved",
+			input:     "B'10\xe4\xb8\xad01'",
+			expected:  "b10\xe4\xb8\xad01",
+			tokenType: BCONST,
+		},
+		{
+			// Invalid UTF-8 (lone continuation byte) must advance by exactly
+			// one byte and be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Bit string with invalid UTF-8 byte preserved verbatim",
+			input:     "B'10\x8001'",
+			expected:  "b10\x8001",
 			tokenType: BCONST,
 		},
 		{
@@ -328,9 +380,27 @@ func TestHexStrings(t *testing.T) {
 			tokenType: XCONST,
 		},
 		{
-			name:      "Hex string with whitespace",
+			// xhinside accepts any non-quote char verbatim; the backend
+			// `varbit_in` routine validates digits and reports
+			// `" " is not a valid hexadecimal digit` at type-conversion time.
+			name:      "Hex string with whitespace preserved verbatim",
 			input:     "X'dead beef'",
-			expected:  "xdeadbeef", // Whitespace should be skipped
+			expected:  "xdead beef",
+			tokenType: XCONST,
+		},
+		{
+			// Multi-byte UTF-8 chars must advance by their full rune length.
+			name:      "Hex string with multi-byte UTF-8 char preserved",
+			input:     "X'de\xe4\xb8\xadad'",
+			expected:  "xde\xe4\xb8\xadad",
+			tokenType: XCONST,
+		},
+		{
+			// Invalid UTF-8 (lone continuation byte) must advance by one byte
+			// and be preserved verbatim, not re-encoded as U+FFFD.
+			name:      "Hex string with invalid UTF-8 byte preserved verbatim",
+			input:     "X'de\x80ad'",
+			expected:  "xde\x80ad",
 			tokenType: XCONST,
 		},
 		{
@@ -357,6 +427,66 @@ func TestHexStrings(t *testing.T) {
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
 	}
+}
+
+// TestUnicodeStringEscapeValidation covers the U&'...' escape paths that
+// PostgreSQL rejects: surrogate pairing rules and codepoint range. Mirrors
+// the validation in postgres/src/backend/parser/parser.c:str_udeescape.
+func TestUnicodeStringEscapeValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		errMsg  string
+		wantErr bool
+	}{
+		// Valid surrogate pair encodes 😀 (U+1F600). No error.
+		{"valid surrogate pair", `U&'\D83D\DE00'`, "", false},
+		// Lone high surrogate with no following escape.
+		{"lone high surrogate", `U&'\D800'`, "invalid Unicode surrogate pair", true},
+		// High surrogate followed by non-low-surrogate escape.
+		{"high then non-surrogate", `U&'wrong: \+00DB99\+000061'`, "invalid Unicode surrogate pair", true},
+		// Lone low surrogate.
+		{"lone low surrogate", `U&'\DC00'`, "invalid Unicode surrogate pair", true},
+		// High surrogate followed by literal char (non-escape).
+		{"high then literal", `U&'\D800x'`, "invalid Unicode surrogate pair", true},
+		// Codepoint above U+10FFFF.
+		{"codepoint over max", `U&'\+110000'`, "invalid Unicode escape value", true},
+		// Codepoint at the boundary remains valid.
+		{"codepoint at max", `U&'\+10FFFF'`, "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lexer := NewLexer(tc.input)
+			tok := lexer.NextToken()
+			require.NotNil(t, tok)
+
+			errs := lexer.GetContext().GetErrors()
+			if tc.wantErr {
+				require.NotEmpty(t, errs)
+				assert.Contains(t, errs[0].Message, tc.errMsg)
+			} else {
+				assert.Empty(t, errs)
+			}
+		})
+	}
+}
+
+// TestUnicodeStringUnsafeWithoutSCS verifies that U&'...' is rejected when
+// standard_conforming_strings is off, matching scan.l:578-583.
+func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
+	opts := DefaultParseOptions()
+	opts.StandardConformingStrings = false
+
+	ctx := NewParseContext(`U&'\0061'`, opts)
+	lexer := &Lexer{context: ctx}
+
+	tok := lexer.NextToken()
+	require.NotNil(t, tok)
+
+	errs := ctx.GetErrors()
+	require.NotEmpty(t, errs)
+	assert.Equal(t, "unsafe use of string constant with Unicode escapes", errs[0].Message)
 }
 
 // TestStringConcatenation tests string concatenation across whitespace
@@ -408,6 +538,38 @@ func TestStringConcatenation(t *testing.T) {
 			name:      "Mixed string types with newline",
 			input:     "'hello'\nE'\\nworld'",
 			expected:  "hello\nworld",
+			tokenType: SCONST,
+		},
+		{
+			// Continuation path also needs DecodeRune-aware advancement so that
+			// multi-byte UTF-8 in the second part isn't truncated.
+			name:      "Continuation string with multi-byte UTF-8",
+			input:     "'hello'\n'\xe4\xb8\x96\xe7\x95\x8c'",
+			expected:  "hello\xe4\xb8\x96\xe7\x95\x8c",
+			tokenType: SCONST,
+		},
+		{
+			name:      "Continuation string with invalid UTF-8 byte",
+			input:     "'hello'\n'a\x80b'",
+			expected:  "helloa\x80b",
+			tokenType: SCONST,
+		},
+		{
+			// PostgreSQL only treats `[ \t\n\r\f]` as whitespace between
+			// continuation parts (scan.l), so a non-ASCII space like NBSP
+			// breaks the lookahead before the newline is even seen and the
+			// scanner returns just the first part.
+			name:      "Continuation does not honor NBSP as whitespace",
+			input:     "'a'\xc2\xa0\n'b'",
+			expected:  "a",
+			tokenType: SCONST,
+		},
+		{
+			// PG's newline pattern is `\n|\r|\r\n`, so a bare CR also
+			// satisfies the "saw a newline" requirement.
+			name:      "Continuation across bare CR",
+			input:     "'a'\r'b'",
+			expected:  "ab",
 			tokenType: SCONST,
 		},
 	}

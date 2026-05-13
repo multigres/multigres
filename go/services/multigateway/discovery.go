@@ -169,8 +169,8 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 				"id", poolerID,
 				"hostname", pooler.Hostname,
 				"addr", pooler.Addr(),
-				"database", pooler.Database,
-				"shard", pooler.Shard,
+				"database", pooler.GetShardKey().GetDatabase(),
+				"shard", pooler.GetShardKey().GetShard(),
 				"type", pooler.Type.String())
 		}
 	}
@@ -248,7 +248,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 	// This handles the failover case where a new PRIMARY comes up but the old
 	// crashed PRIMARY's record is still present.
 	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
-		pd.evictConflictingPrimary(poolerID, pooler.TableGroup, pooler.Shard)
+		pd.evictConflictingPrimary(poolerID, pooler.GetShardKey().GetTableGroup(), pooler.GetShardKey().GetShard())
 	}
 
 	// Check if this is a new pooler
@@ -261,18 +261,18 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 			"id", poolerID,
 			"hostname", pooler.Hostname,
 			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
+			"tableGroup", pooler.GetShardKey().GetTableGroup(),
+			"database", pooler.GetShardKey().GetDatabase(),
+			"shard", pooler.GetShardKey().GetShard(),
 			"type", pooler.Type.String())
 	} else {
 		pd.logger.Info("Pooler updated",
 			"id", poolerID,
 			"hostname", pooler.Hostname,
 			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
+			"tableGroup", pooler.GetShardKey().GetTableGroup(),
+			"database", pooler.GetShardKey().GetDatabase(),
+			"shard", pooler.GetShardKey().GetShard(),
 			"type", pooler.Type.String())
 	}
 
@@ -365,8 +365,8 @@ func (pd *CellPoolerDiscovery) evictConflictingPrimary(newPoolerID, tableGroup, 
 		}
 		// Check if this is a PRIMARY for the same TableGroup/Shard
 		if pooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
-			pooler.TableGroup == tableGroup &&
-			pooler.Shard == shard {
+			pooler.GetShardKey().GetTableGroup() == tableGroup &&
+			pooler.GetShardKey().GetShard() == shard {
 			delete(pd.poolers, poolerID)
 			pd.logger.Info("Evicted stale PRIMARY pooler",
 				"evicted_id", poolerID,

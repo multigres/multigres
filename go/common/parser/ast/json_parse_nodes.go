@@ -341,7 +341,16 @@ func (n *JsonFormat) String() string {
 func (n *JsonFormat) SqlString() string {
 	switch n.FormatType {
 	case JS_FORMAT_JSON:
-		return "JSON"
+		switch n.Encoding {
+		case JS_ENC_UTF8:
+			return "JSON ENCODING UTF8"
+		case JS_ENC_UTF16:
+			return "JSON ENCODING UTF16"
+		case JS_ENC_UTF32:
+			return "JSON ENCODING UTF32"
+		default:
+			return "JSON"
+		}
 	case JS_FORMAT_JSONB:
 		return "JSONB"
 	default:
@@ -470,6 +479,44 @@ func (n *JsonFuncExpr) String() string {
 func (n *JsonFuncExpr) IsExpr() bool           { return true }
 func (n *JsonFuncExpr) ExpressionType() string { return "JsonFuncExpr" }
 
+// appendJsonReturning writes ` RETURNING <type> [FORMAT JSON [ENCODING X]]`
+// when an output clause is present. The FORMAT clause is carried on
+// Output.Returning.Format and applies to the returning value, distinct from
+// any FORMAT clause on the input expression.
+func appendJsonReturning(b *strings.Builder, output *JsonOutput) {
+	if output == nil || output.TypeName == nil {
+		return
+	}
+	b.WriteString(" RETURNING ")
+	b.WriteString(output.TypeName.SqlString())
+	if output.Returning != nil && output.Returning.Format != nil {
+		if s := output.Returning.Format.SqlString(); s != "" {
+			b.WriteString(" FORMAT ")
+			b.WriteString(s)
+		}
+	}
+}
+
+// appendJsonWrapperAndQuotes writes the [WITH/WITHOUT ARRAY WRAPPER]
+// and [KEEP/OMIT QUOTES] clauses to the builder. Shared by JsonFuncExpr
+// (for JSON_QUERY) and JsonTableColumn (for JTC_REGULAR / JTC_FORMATTED).
+func appendJsonWrapperAndQuotes(b *strings.Builder, wrapper JsonWrapper, quotes JsonQuotes) {
+	switch wrapper {
+	case JSW_NONE:
+		b.WriteString(" WITHOUT ARRAY WRAPPER")
+	case JSW_CONDITIONAL:
+		b.WriteString(" WITH CONDITIONAL ARRAY WRAPPER")
+	case JSW_UNCONDITIONAL:
+		b.WriteString(" WITH UNCONDITIONAL ARRAY WRAPPER")
+	}
+	switch quotes {
+	case JS_QUOTES_KEEP:
+		b.WriteString(" KEEP QUOTES")
+	case JS_QUOTES_OMIT:
+		b.WriteString(" OMIT QUOTES")
+	}
+}
+
 // SqlString returns the SQL representation of JsonFuncExpr
 func (n *JsonFuncExpr) SqlString() string {
 	var result strings.Builder
@@ -494,9 +541,33 @@ func (n *JsonFuncExpr) SqlString() string {
 		result.WriteString(n.Pathspec.SqlString())
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
+	if n.Passing != nil && len(n.Passing.Items) > 0 {
+		result.WriteString(" PASSING ")
+		for i, item := range n.Passing.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString(item.SqlString())
+		}
+	}
+
+	appendJsonReturning(&result, n.Output)
+
+	// WRAPPER and QUOTES are JSON_QUERY-only.
+	if n.Op == JSON_QUERY_OP {
+		appendJsonWrapperAndQuotes(&result, n.Wrapper, n.Quotes)
+	}
+
+	if n.OnEmpty != nil {
+		result.WriteString(" ")
+		result.WriteString(n.OnEmpty.SqlString())
+		result.WriteString(" ON EMPTY")
+	}
+
+	if n.OnError != nil {
+		result.WriteString(" ")
+		result.WriteString(n.OnError.SqlString())
+		result.WriteString(" ON ERROR")
 	}
 
 	result.WriteString(")")
@@ -508,11 +579,20 @@ func (n *JsonTablePathSpec) String() string {
 }
 
 // SqlString returns the SQL representation of the JsonTablePathSpec.
+// The optional `AS <name>` suffix is required for PG to detect duplicate
+// column/path-name conflicts inside JSON_TABLE.
 func (n *JsonTablePathSpec) SqlString() string {
+	var path string
 	if n.StringExpr != nil {
-		return n.StringExpr.SqlString()
+		path = n.StringExpr.SqlString()
 	}
-	return ""
+	if n.Name != "" {
+		if path == "" {
+			return "AS " + QuoteIdentifier(n.Name)
+		}
+		return path + " AS " + QuoteIdentifier(n.Name)
+	}
+	return path
 }
 
 func (n *JsonTable) String() string {
@@ -609,6 +689,7 @@ func (n *JsonTableColumn) SqlString() string {
 			result.WriteString(" PATH ")
 			result.WriteString(n.Pathspec.SqlString())
 		}
+		appendJsonWrapperAndQuotes(&result, n.Wrapper, n.Quotes)
 
 	case JTC_EXISTS:
 		if n.TypeName != nil {
@@ -637,11 +718,20 @@ func (n *JsonTableColumn) SqlString() string {
 			result.WriteString(" PATH ")
 			result.WriteString(n.Pathspec.SqlString())
 		}
+		appendJsonWrapperAndQuotes(&result, n.Wrapper, n.Quotes)
 
 	case JTC_NESTED:
 		result.WriteString("NESTED PATH ")
 		if n.Pathspec != nil {
 			result.WriteString(n.Pathspec.SqlString())
+		}
+		// The `AS <name>` for a NESTED path is stored on the column's Name
+		// field (the path's own JsonTablePathSpec.Name is left empty by the
+		// grammar for NESTED paths). Emit it here so PG can validate
+		// column/path-name uniqueness.
+		if n.Name != "" {
+			result.WriteString(" AS ")
+			result.WriteString(QuoteIdentifier(n.Name))
 		}
 		if n.Columns != nil && len(n.Columns.Items) > 0 {
 			result.WriteString(" COLUMNS (")
@@ -709,9 +799,10 @@ func (n *JsonParseExpr) SqlString() string {
 		result.WriteString(n.Expr.SqlString())
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
+	appendJsonReturning(&result, n.Output)
+
+	if n.UniqueKeys {
+		result.WriteString(" WITH UNIQUE KEYS")
 	}
 
 	result.WriteString(")")
@@ -734,10 +825,7 @@ func (n *JsonScalarExpr) SqlString() string {
 		result.WriteString(n.Expr.SqlString())
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
-	}
+	appendJsonReturning(&result, n.Output)
 
 	result.WriteString(")")
 	return result.String()
@@ -759,10 +847,7 @@ func (n *JsonSerializeExpr) SqlString() string {
 		result.WriteString(n.Expr.SqlString())
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
-	}
+	appendJsonReturning(&result, n.Output)
 
 	result.WriteString(")")
 	return result.String()
@@ -791,10 +876,16 @@ func (n *JsonObjectConstructor) SqlString() string {
 		}
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
+	// JSON_OBJECT defaults to NULL ON NULL; emit only the non-default.
+	if n.AbsentOnNull {
+		result.WriteString(" ABSENT ON NULL")
 	}
+
+	if n.Unique {
+		result.WriteString(" WITH UNIQUE KEYS")
+	}
+
+	appendJsonReturning(&result, n.Output)
 
 	result.WriteString(")")
 	return result.String()
@@ -825,10 +916,12 @@ func (n *JsonArrayConstructor) SqlString() string {
 		}
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
+	// JSON_ARRAY defaults to ABSENT ON NULL; emit only the non-default.
+	if !n.AbsentOnNull {
+		result.WriteString(" NULL ON NULL")
 	}
+
+	appendJsonReturning(&result, n.Output)
 
 	result.WriteString(")")
 	return result.String()
@@ -855,10 +948,7 @@ func (n *JsonArrayQueryConstructor) SqlString() string {
 		result.WriteString(n.Format.SqlString())
 	}
 
-	if n.Output != nil && n.Output.TypeName != nil {
-		result.WriteString(" RETURNING ")
-		result.WriteString(n.Output.TypeName.SqlString())
-	}
+	appendJsonReturning(&result, n.Output)
 
 	result.WriteString(")")
 	return result.String()
@@ -906,15 +996,18 @@ func (n *JsonObjectAgg) SqlString() string {
 		result.WriteString(n.Arg.SqlString())
 	}
 
+	// JSON_OBJECTAGG defaults to NULL ON NULL; emit only the non-default.
+	if n.AbsentOnNull {
+		result.WriteString(" ABSENT ON NULL")
+	}
+
+	if n.Unique {
+		result.WriteString(" WITH UNIQUE KEYS")
+	}
+
 	// Add RETURNING clause if present
-	if n.Constructor != nil && n.Constructor.Output != nil {
-		if n.Constructor.Output.TypeName != nil {
-			result.WriteString(" RETURNING ")
-			result.WriteString(n.Constructor.Output.TypeName.SqlString())
-		} else if n.Constructor.Output.Returning != nil {
-			result.WriteString(" RETURNING ")
-			result.WriteString(n.Constructor.Output.Returning.SqlString())
-		}
+	if n.Constructor != nil {
+		appendJsonReturning(&result, n.Constructor.Output)
 	}
 
 	result.WriteString(")")
@@ -943,15 +1036,26 @@ func (n *JsonArrayAgg) SqlString() string {
 		result.WriteString(n.Arg.SqlString())
 	}
 
-	// Add RETURNING clause if present
-	if n.Constructor != nil && n.Constructor.Output != nil {
-		if n.Constructor.Output.TypeName != nil {
-			result.WriteString(" RETURNING ")
-			result.WriteString(n.Constructor.Output.TypeName.SqlString())
-		} else if n.Constructor.Output.Returning != nil {
-			result.WriteString(" RETURNING ")
-			result.WriteString(n.Constructor.Output.Returning.SqlString())
+	// ORDER BY (lives on Constructor.AggOrder, between the arg and the
+	// ABSENT/RETURNING clauses per the json_aggregate_func grammar).
+	if n.Constructor != nil && n.Constructor.AggOrder != nil && len(n.Constructor.AggOrder.Items) > 0 {
+		result.WriteString(" ORDER BY ")
+		for i, item := range n.Constructor.AggOrder.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString(item.SqlString())
 		}
+	}
+
+	// JSON_ARRAYAGG defaults to ABSENT ON NULL; emit only the non-default.
+	if !n.AbsentOnNull {
+		result.WriteString(" NULL ON NULL")
+	}
+
+	// Add RETURNING clause if present
+	if n.Constructor != nil {
+		appendJsonReturning(&result, n.Constructor.Output)
 	}
 
 	result.WriteString(")")

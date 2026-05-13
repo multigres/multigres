@@ -105,11 +105,13 @@ func createTestPooler(name, cell, hostname, database, shard string, poolerType c
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   hostname,
-		Database:   database,
-		Shard:      shard,
-		Type:       poolerType,
-		TableGroup: constants.DefaultTableGroup,
+		Hostname: hostname,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      shard,
+		},
+		Type: poolerType,
 		PortMap: map[string]int32{
 			"grpc": 5432,
 		},
@@ -263,15 +265,15 @@ func TestPoolerDiscovery_VerifyPoolerDetails(t *testing.T) {
 	// Verify pooler1
 	require.Contains(t, poolerMap, "pooler1")
 	assert.Equal(t, "primary.example.com", poolerMap["pooler1"].Hostname)
-	assert.Equal(t, "mydb", poolerMap["pooler1"].Database)
-	assert.Equal(t, "shard-01", poolerMap["pooler1"].Shard)
+	assert.Equal(t, "mydb", poolerMap["pooler1"].GetShardKey().GetDatabase())
+	assert.Equal(t, "shard-01", poolerMap["pooler1"].GetShardKey().GetShard())
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, poolerMap["pooler1"].Type)
 
 	// Verify pooler2
 	require.Contains(t, poolerMap, "pooler2")
 	assert.Equal(t, "replica.example.com", poolerMap["pooler2"].Hostname)
-	assert.Equal(t, "mydb", poolerMap["pooler2"].Database)
-	assert.Equal(t, "shard-02", poolerMap["pooler2"].Shard)
+	assert.Equal(t, "mydb", poolerMap["pooler2"].GetShardKey().GetDatabase())
+	assert.Equal(t, "shard-02", poolerMap["pooler2"].GetShardKey().GetShard())
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, poolerMap["pooler2"].Type)
 }
 

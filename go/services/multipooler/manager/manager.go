@@ -28,6 +28,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -207,10 +208,10 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multiPooler is required")
 	}
-	if multiPooler.TableGroup == "" {
+	if multiPooler.GetShardKey().GetTableGroup() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
-	if multiPooler.Shard == "" {
+	if multiPooler.GetShardKey().GetShard() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
 	}
 	if multiPooler.Id == nil {
@@ -222,7 +223,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.TableGroup, multiPooler.Shard); err != nil {
+	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()); err != nil {
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
@@ -266,7 +267,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
-		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
+		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -289,7 +290,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
 	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
@@ -511,7 +512,40 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 		connConfig := &connpoolmanager.ConnectionConfig{
 			SocketFile: pm.config.SocketFilePath,
 			Port:       pgPort,
-			Database:   pm.multipooler.Database,
+			Database:   pm.multipooler.GetShardKey().GetDatabase(),
+		}
+		// When no Unix socket is configured, fall back to a TCP dial against
+		// the multipooler's own hostname. Postgres is colocated with pgctld on
+		// the same host, so the multipooler's hostname always points at it.
+		if connConfig.SocketFile == "" {
+			connConfig.Host = pm.multipooler.GetHostname()
+		}
+		// Apply libpq-style TLS settings on the multipooler → postgres leg.
+		// TLS is honored only on TCP dials; Unix-socket connections always run
+		// plaintext, matching libpq behavior.
+		//
+		// Both ParseSSLMode and BuildTLSConfig already ran successfully during
+		// startup validation (multipooler.Init → ConnPoolConfig.ValidatePGSSL),
+		// so any error here would indicate the cert files were tampered with
+		// after startup. Treat that as fatal-by-strict: keep the requested
+		// sslMode but leave TLSConfig nil, which makes every dial fail
+		// explicitly at negotiateSSL with "TLS config is nil but sslmode
+		// requested SSL" rather than silently downgrading to plaintext.
+		if connConfig.SocketFile == "" {
+			sslMode, err := pm.config.ConnPoolConfig.PgSSLMode()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-sslmode at pool open; dials will fail", "error", err)
+				connConfig.SSLMode = client.SSLModeVerifyFull // strict sentinel; any TCP dial errors out
+				connConfig.TLSConfig = nil
+			} else {
+				tlsCfg, err := client.BuildTLSConfig(sslMode, pm.config.ConnPoolConfig.PgSSLRootCert(), connConfig.Host)
+				if err != nil {
+					pm.logger.ErrorContext(pm.ctx, "failed to build PG client TLS config at pool open; dials will fail in TLS-required modes", "error", err, "sslmode", sslMode)
+					tlsCfg = nil
+				}
+				connConfig.SSLMode = sslMode
+				connConfig.TLSConfig = tlsCfg
+			}
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
@@ -612,11 +646,7 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
-	return &clustermetadatapb.ShardKey{
-		Database:   pm.multipooler.Database,
-		TableGroup: pm.multipooler.TableGroup,
-		Shard:      pm.multipooler.Shard,
-	}
+	return pm.multipooler.ShardKey
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -785,7 +815,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 		// Successfully loaded multipooler record
 		// Now load the backup location from the database topology
-		database := pm.multipooler.Database
+		database := pm.multipooler.GetShardKey().GetDatabase()
 		if database == "" {
 			pm.setStateError(errors.New("database name not set in multipooler"))
 			return
@@ -807,7 +837,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 
 		// Verify we can compute the full backup path
-		_, err = backupConfig.FullPath(database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		_, err = backupConfig.FullPath(database, pm.multipooler.GetShardKey().GetTableGroup(), pm.multipooler.GetShardKey().GetShard())
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
 			return
