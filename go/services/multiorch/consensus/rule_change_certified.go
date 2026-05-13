@@ -48,13 +48,28 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return err
 	}
 
-	if err := c.checkNoShardPoolerAheadOfOutgoingRule(ctx, shardKey, cert.GetOutgoingRuleNumber()); err != nil {
+	// Refresh ConsensusStatus from every pooler registered for the shard
+	// (not just the proposed cohort). The same snapshot drives both the
+	// shard-wide safety check below and the pre-vote check in
+	// coordinatorLedRuleChange.Run; without primed statuses the
+	// externally-certified pre-vote sees an empty set and fails before
+	// recruitment can prove the cert is acceptable.
+	statusesByPoolerID, err := c.refreshShardConsensusStatuses(ctx, shardKey)
+	if err != nil {
+		return err
+	}
+	if err := checkNoShardPoolerAheadOfOutgoingRule(statusesByPoolerID, cert.GetOutgoingRuleNumber()); err != nil {
 		return err
 	}
 
 	poolerByID, cohort, err := c.resolveCohort(ctx, proposedRule.GetCohortMembers())
 	if err != nil {
 		return err
+	}
+	for _, p := range cohort {
+		if cs, ok := statusesByPoolerID[topoclient.ClusterIDString(p.MultiPooler.Id)]; ok {
+			p.ConsensusStatus = cs
+		}
 	}
 
 	// Defense in depth: validateCertifiedRuleChange already verified the
@@ -108,24 +123,23 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	return err
 }
 
-// checkNoShardPoolerAheadOfOutgoingRule probes every pooler registered for
-// the shard (not just the proposed cohort) and rejects the rule change if
-// any reachable pooler has a recorded rule with a coordinator_term greater
-// than the cert's outgoing_rule_number.coordinator_term. This catches
-// operator certs that claim a stale outgoing rule when a non-cohort node
-// actually progressed further.
+// refreshShardConsensusStatuses calls ConsensusStatus on every pooler
+// registered for the shard (not just the proposed cohort) in parallel and
+// returns the responses keyed by ClusterIDString.
 //
-// Unreachable poolers are skipped: by submitting the cert, the operator
-// has already attested that absent nodes will not commit further writes.
-// We can only verify what we can observe.
-func (c *Coordinator) checkNoShardPoolerAheadOfOutgoingRule(
+// Unreachable poolers are absent from the map: by submitting the cert, the
+// operator has already attested that absent nodes will not commit further
+// writes, and we can only verify what we can observe.
+//
+// Topology enumeration errors are fatal — silently skipping a cell we could
+// not list might miss a pooler that is ahead of the cert.
+func (c *Coordinator) refreshShardConsensusStatuses(
 	ctx context.Context,
 	shardKey *clustermetadatapb.ShardKey,
-	outgoingRule *clustermetadatapb.RuleNumber,
-) error {
+) (map[string]*clustermetadatapb.ConsensusStatus, error) {
 	cellNames, err := c.topoStore.GetCellNames(ctx)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to list cells for shard pre-flight check")
+		return nil, mterrors.Wrap(err, "failed to list cells for shard status refresh")
 	}
 	var poolers []*clustermetadatapb.MultiPooler
 	for _, cell := range cellNames {
@@ -137,10 +151,7 @@ func (c *Coordinator) checkNoShardPoolerAheadOfOutgoingRule(
 			},
 		})
 		if err != nil {
-			// Fail closed: if we can't enumerate poolers in a cell we
-			// cannot verify that none is ahead of the cert. Silently
-			// skipping could allow a stale cert through.
-			return mterrors.Wrapf(err, "failed to list poolers in cell %s during pre-flight check", cell)
+			return nil, mterrors.Wrapf(err, "failed to list poolers in cell %s during shard status refresh", cell)
 		}
 		for _, info := range infos {
 			if info.MultiPooler != nil {
@@ -148,15 +159,14 @@ func (c *Coordinator) checkNoShardPoolerAheadOfOutgoingRule(
 			}
 		}
 	}
+	statuses := make(map[string]*clustermetadatapb.ConsensusStatus)
 	if len(poolers) == 0 {
-		return nil
+		return statuses, nil
 	}
 
 	var (
-		wg           sync.WaitGroup
-		mu           sync.Mutex
-		violator     *clustermetadatapb.MultiPooler
-		violatorTerm int64
+		mu sync.Mutex
+		wg sync.WaitGroup
 	)
 	for _, p := range poolers {
 		wg.Go(func() {
@@ -164,32 +174,39 @@ func (c *Coordinator) checkNoShardPoolerAheadOfOutgoingRule(
 			defer cancel()
 			resp, err := c.rpcClient.ConsensusStatus(rpcCtx, p, &consensusdatapb.StatusRequest{})
 			if err != nil {
-				c.logger.WarnContext(ctx, "shard pre-flight ConsensusStatus probe failed",
+				c.logger.WarnContext(ctx, "shard ConsensusStatus probe failed",
 					"pooler", p.GetId().GetName(), "error", err)
 				return
 			}
-			observed := resp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
-			if observed == nil {
-				return
-			}
-			if commonconsensus.CompareRuleNumbers(observed, outgoingRule) > 0 {
-				mu.Lock()
-				if violator == nil || observed.GetCoordinatorTerm() > violatorTerm {
-					violator = p
-					violatorTerm = observed.GetCoordinatorTerm()
-				}
-				mu.Unlock()
-			}
+			mu.Lock()
+			statuses[topoclient.ClusterIDString(p.GetId())] = resp.GetConsensusStatus()
+			mu.Unlock()
 		})
 	}
 	wg.Wait()
+	return statuses, nil
+}
 
-	if violator != nil {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"pooler %s has rule term %d which is ahead of cert.outgoing_rule_number.coordinator_term %d; cert is stale",
-			topoclient.ClusterIDString(violator.GetId()),
-			violatorTerm,
-			outgoingRule.GetCoordinatorTerm())
+// checkNoShardPoolerAheadOfOutgoingRule rejects the rule change if any
+// reachable pooler has a recorded rule with a coordinator_term greater than
+// the cert's outgoing_rule_number.coordinator_term. This catches operator
+// certs that claim a stale outgoing rule when a non-cohort node has actually
+// progressed further. Operates on the snapshot returned by
+// refreshShardConsensusStatuses.
+func checkNoShardPoolerAheadOfOutgoingRule(
+	statuses map[string]*clustermetadatapb.ConsensusStatus,
+	outgoingRule *clustermetadatapb.RuleNumber,
+) error {
+	for poolerKey, cs := range statuses {
+		observed := cs.GetCurrentPosition().GetRule().GetRuleNumber()
+		if observed == nil {
+			continue
+		}
+		if commonconsensus.CompareRuleNumbers(observed, outgoingRule) > 0 {
+			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"pooler %s has rule term %d which is ahead of cert.outgoing_rule_number.coordinator_term %d; cert is stale",
+				poolerKey, observed.GetCoordinatorTerm(), outgoingRule.GetCoordinatorTerm())
+		}
 	}
 	return nil
 }

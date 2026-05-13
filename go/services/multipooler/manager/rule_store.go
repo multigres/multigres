@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -273,6 +275,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	result, err := rs.queryService.QueryArgs(queryCtx, `
 		SELECT coordinator_term, leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
+		       created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
@@ -292,6 +295,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 	var cohortNames []string
 	var durabilityPolicyName, durabilityQuorumType string
 	var durabilityRequiredCount int64
+	var createdAt time.Time
 	var lsn string
 	if err := executor.ScanRow(result.Rows[0],
 		&coordinatorTerm,
@@ -302,6 +306,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
+		&createdAt,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan current position")
@@ -315,6 +320,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrVal, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
+		createdAt,
 		lsn,
 	)
 	if err != nil {
@@ -353,6 +359,22 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 			"coordinator_term", update.termNumber,
 			"event_type", update.eventType)
 		return nil, nil
+	}
+
+	// Identity and timing must be supplied by the caller. The store never
+	// invents them: any consumer reading current_rule or rule_history relies
+	// on these values being the coordinator's intent, not a local time.Now().
+	// Pre-validating here (rather than letting a SQL NOT NULL violation fire)
+	// avoids partial work in the caller — most updateRule callers also touch
+	// postgres GUCs around the write, and we'd rather fail fast than have to
+	// roll those back.
+	if update.coordinatorID == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"updateRule requires a non-nil coordinator_id")
+	}
+	if update.createdAt.IsZero() {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"updateRule requires a non-zero created_at")
 	}
 
 	// Convert optional leader ID; empty string causes NULLIF→COALESCE to keep existing.
@@ -508,12 +530,13 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
 		       updated.durability_policy_name, updated.durability_quorum_type,
 		       updated.durability_required_count,
+		       params.created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
 		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
 		         ELSE pg_current_wal_lsn()
 		       END::text AS current_lsn
-		FROM updated, inserted`,
+		FROM updated, inserted, params`,
 		[]byte("0"),
 		update.termNumber,
 		update.eventType,
@@ -554,6 +577,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	var cohortNames []string
 	var durabilityPolicyName, durabilityQuorumType string
 	var durabilityRequiredCount int64
+	var createdAt time.Time
 	var lsn string
 	if err := executor.ScanSingleRow(result,
 		&coordinatorTerm,
@@ -564,6 +588,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		&durabilityPolicyName,
 		&durabilityQuorumType,
 		&durabilityRequiredCount,
+		&createdAt,
 		&lsn,
 	); err != nil {
 		return nil, mterrors.Wrap(err, "failed to scan written rule position")
@@ -573,6 +598,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		coordinatorTerm, leaderSubterm,
 		leaderIDStr, coordinatorIDStrResult, cohortNames,
 		durabilityPolicyName, durabilityQuorumType, durabilityRequiredCount,
+		createdAt,
 		lsn,
 	)
 	if err != nil {
@@ -640,6 +666,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 // buildPoolerPosition constructs a *clustermetadatapb.PoolerPosition from raw DB column values.
 // leaderIDStr and coordinatorIDStr are app-name formatted strings (e.g. "zone1_pooler-name").
 // Durability fields are NOT NULL in the DB and are always populated in the returned position.
+// createdAt is the coordinator-supplied CreationTime persisted with the rule.
 func buildPoolerPosition(
 	coordinatorTerm, leaderSubterm int64,
 	leaderIDStr *string,
@@ -647,6 +674,7 @@ func buildPoolerPosition(
 	cohortNames []string,
 	durabilityPolicyName, durabilityQuorumType string,
 	durabilityRequiredCount int64,
+	createdAt time.Time,
 	lsn string,
 ) (*clustermetadatapb.PoolerPosition, error) {
 	rule := &clustermetadatapb.ShardRule{
@@ -686,6 +714,9 @@ func buildPoolerPosition(
 		PolicyName:    durabilityPolicyName,
 		QuorumType:    clustermetadatapb.QuorumType(v),
 		RequiredCount: int32(durabilityRequiredCount),
+	}
+	if !createdAt.IsZero() {
+		rule.CreationTime = timestamppb.New(createdAt)
 	}
 
 	return &clustermetadatapb.PoolerPosition{

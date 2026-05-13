@@ -21,6 +21,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -322,6 +324,11 @@ func buildFailoverProposal(
 			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
 			DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
 			LeaderId:         leader.GetId(),
+			// The coordinator that ran the recruit round (carried in the
+			// revocation's accepted_coordinator_id) is also the
+			// coordinator-of-record for the rule it produces.
+			CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
+			CreationTime:  timestamppb.Now(),
 		},
 	}, nil
 }
