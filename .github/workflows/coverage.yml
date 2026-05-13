@@ -167,7 +167,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [coverage-direct, coverage-subprocess]
     if: always()
-    environment: ci
+    environment:
+      name: ci
+      deployment: false
     permissions:
       contents: read
     steps:
