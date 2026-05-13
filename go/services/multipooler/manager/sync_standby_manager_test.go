@@ -26,6 +26,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 )
 
@@ -184,4 +185,48 @@ func TestSetPolicy_RequiresActionLock(t *testing.T) {
 	ctx := withPriorRuleWritesDrained(t.Context())
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	assert.EqualError(t, err, "SetPolicy: context does not hold an action lock")
+}
+
+func TestSetPolicy_RequiresPriorRuleWritesDrained(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	err := ssm.SetPolicy(withTestActionLock(t), ssmTestPolicyWithCohort())
+	assert.EqualError(t, err, "SetPolicy: SetPolicy requires prior rule writes to be drained (call readCurrentRuleLocked first)")
+}
+
+func TestNeedsApply_TrueWhenCacheCold(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	needs, err := ssm.NeedsApply(ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.True(t, needs)
+}
+
+func TestNeedsApply_FalseWhenCacheWarm(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	ssm.lastSyncCommit = "on"
+	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	needs, err := ssm.NeedsApply(ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.False(t, needs)
+}
+
+func TestSyncCommitString(t *testing.T) {
+	tests := []struct {
+		level multipoolermanagerdatapb.SynchronousCommitLevel
+		want  string
+	}{
+		{multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF, "off"},
+		{multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, "local"},
+		{multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, "remote_write"},
+		{multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, "on"},
+		{multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY, "remote_apply"},
+	}
+	for _, tt := range tests {
+		got, err := syncCommitString(tt.level)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, got)
+	}
+
+	_, err := syncCommitString(multipoolermanagerdatapb.SynchronousCommitLevel(999))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown synchronous_commit level")
 }
