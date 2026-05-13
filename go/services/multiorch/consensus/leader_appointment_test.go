@@ -1448,6 +1448,38 @@ func TestPropagate(t *testing.T) {
 		require.ElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
 		require.ElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
+
+	t.Run("fails when cohort is too small for the policy's sync replication requirement", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
+		standbys := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil),
+		}
+
+		// AT_LEAST_N(4) needs 3 sync acks from a cohort that, including the
+		// candidate, only has 2 members. AtLeastNPolicy.BuildSyncReplicationConfig
+		// rejects this, and EstablishLeadership must surface it under its
+		// "failed to build synchronous replication config" wrap.
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 4,
+			Description:   "Test quorum (too large for cohort)",
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, mustPolicy(t, quorumRule), "test_election", cohort, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to build synchronous replication config")
+		require.Contains(t, err.Error(), "insufficient cohort members")
+	})
 }
 
 func TestAppointLeader(t *testing.T) {
