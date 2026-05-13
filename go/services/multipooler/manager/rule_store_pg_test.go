@@ -313,6 +313,24 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
 }
 
+func TestRuleStorePG_ObservePosition_InitialRowMissing(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	// Wipe the initial row that resetRuleStoreTables just inserted. observePosition
+	// must surface a specific error rather than returning a nil position.
+	_, err := conn.Query(ctx, "DELETE FROM multigres.current_rule")
+	require.NoError(t, err)
+
+	_, err = rs.observePosition(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "current_rule initial row missing for shard 0")
+}
+
 func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := t.Context()

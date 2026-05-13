@@ -547,6 +547,9 @@ func filterCohortStatuses(cohort []*clustermetadatapb.ID, statuses []*clustermet
 	for _, cs := range statuses {
 		id := cs.GetId()
 		if id == nil {
+			// Defensive: deduplicateStatuses drops nil-ID entries before any
+			// caller passes statuses here, so this branch is unreachable in
+			// practice. Guards against future callers that don't dedupe first.
 			continue
 		}
 		if _, inCohort := cohortKeys[topoclient.ClusterIDString(id)]; inCohort {

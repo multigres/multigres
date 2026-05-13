@@ -948,6 +948,18 @@ func TestBuildProposalCore(t *testing.T) {
 				wantErr: "proposal validation: proposed rule term 6 is below the recruitment revocation term 7",
 			}
 		}(),
+		// Defensive guard: public callers all check for empty input first, but
+		// buildProposalCore independently guards against the same condition so
+		// any new internal caller surfaces a clear error rather than fall
+		// through to the misleading "invalid or missing WAL position" branch.
+		{
+			name:              "empty recruited statuses",
+			mode:              requireTransitionQuorum,
+			revocation:        revocation(5),
+			recruitedStatuses: nil,
+			buildProposal:     proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), poolerIDs.zone1.all[:3]...)),
+			wantErr:           "empty list of statuses",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1652,6 +1664,21 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		require.EqualError(t, err, "node zone1_a is at rule term 3 but certified outgoing rule is term 2")
 	})
 
+	t.Run("nil rule on candidate node → error", func(t *testing.T) {
+		// Same contract as BuildExternallyCertifiedProposal: every recruited
+		// (or recruit-eligible) node should carry at least the initial row.
+		// A nil rule surfaces as a specific consensus-state error.
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation:     coordRevocation(5),
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "0/0",
+		}
+		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
+			makeUnrecruitedStatus(a, nil),
+		}, bootstrapProposal)
+		require.EqualError(t, err, "node zone1_a has no recorded rule; consensus state may be uninitialized")
+	})
+
 	t.Run("frozen_lsn: invalid LSN string", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation:     coordRevocation(5),
@@ -1784,6 +1811,24 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		}
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
 		require.EqualError(t, err, "node zone1_pooler-a is at rule term 4 but certified outgoing rule is term 3")
+	})
+
+	t.Run("nil rule on recruited node → error", func(t *testing.T) {
+		// Recruited nodes always carry at least the initial row written during
+		// initdb. A nil rule here means consensus state is broken (e.g. the
+		// sidecar schema never ran), and the discoverer factory must surface
+		// that as a specific error rather than letting the node silently slip
+		// through to a generic "no eligible leaders".
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+			TermRevocation:     revocation(5),
+			OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0},
+			FrozenLsn:          "0/0",
+		}
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			makeStatus(zone1.a, nil, revocation(5)),
+		}
+		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
+		require.EqualError(t, err, "node zone1_pooler-a has no recorded rule; consensus state may be uninitialized")
 	})
 
 	t.Run("frozen_lsn: invalid LSN string → error", func(t *testing.T) {
