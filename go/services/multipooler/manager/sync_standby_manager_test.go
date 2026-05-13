@@ -74,7 +74,7 @@ func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
 	ssm.lastSyncCommit = "on"
 	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
 
-	ctx := withPriorRuleWritesDrained(t.Context())
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	// No queries should have been issued — cache already held the correct values.
@@ -86,7 +86,7 @@ func TestSetPolicy_AppliesWhenCacheMisses(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	addSetPolicyExpectations(mockQS)
 
-	ctx := withPriorRuleWritesDrained(t.Context())
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
 	require.NoError(t, ssm.SetPolicy(ctx, ssmTestPolicyWithCohort()))
 	require.NoError(t, mockQS.ExpectationsWereMet())
 
@@ -100,7 +100,7 @@ func TestSetPolicy_SecondCallHitsCache(t *testing.T) {
 
 	// First call writes; second call hits cache and issues no queries.
 	addSetPolicyExpectations(mockQS)
-	ctx := withPriorRuleWritesDrained(t.Context())
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
 	require.NoError(t, ssm.SetPolicy(ctx, ssmTestPolicyWithCohort()))
 	require.NoError(t, mockQS.ExpectationsWereMet())
 
@@ -114,7 +114,7 @@ func TestSetPolicy_ErrorLeavesCache(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_commit", errors.New("postgres is down"))
 
-	ctx := withPriorRuleWritesDrained(t.Context())
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "postgres is down")
@@ -177,4 +177,11 @@ func TestClear_ReloadFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reload failed")
 	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestSetPolicy_RequiresActionLock(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	ctx := withPriorRuleWritesDrained(t.Context())
+	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
+	assert.EqualError(t, err, "SetPolicy: context does not hold an action lock")
 }

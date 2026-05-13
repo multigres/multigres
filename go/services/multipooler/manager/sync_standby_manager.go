@@ -175,6 +175,10 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(pc commonconsensus.PolicyWithC
 // desired values haven't changed. This is safe because postgresqlSyncStandbyManager is the sole
 // writer of synchronous_commit and synchronous_standby_names.
 func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonconsensus.PolicyWithCohort) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return fmt.Errorf("SetPolicy: %w", err)
+	}
+
 	if err := assertPriorRuleWritesDrained(ctx); err != nil {
 		return fmt.Errorf("SetPolicy: %w", err)
 	}
