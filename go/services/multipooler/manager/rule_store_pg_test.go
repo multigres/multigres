@@ -966,6 +966,60 @@ func TestRuleStorePG_GUCReconciliation(t *testing.T) {
 	assert.False(t, rs.hasInconsistentGUC(ctx), "hasInconsistentGUC should be false after reconcileGUC")
 }
 
+// TestRuleStorePG_GUCDriftDetectedAndHealed verifies the full detect-and-fix cycle
+// when the GUC is changed outside the manager (e.g. manual ALTER SYSTEM + reload):
+//
+//  1. Establish a known-good GUC state via reconcileGUC.
+//  2. Corrupt the live GUC via a separate connection.
+//  3. hasInconsistentGUC detects the drift by querying postgres.
+//  4. reconcileGUC restores the correct values.
+//  5. hasInconsistentGUC returns false.
+func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+	t.Cleanup(func() { resetGUCSettings(t) })
+
+	policy := &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	localID := testPoolerID(t, "zone1", "primary-1")
+	cohort := []*clustermetadatapb.ID{
+		localID,
+		testPoolerID(t, "zone1", "standby-1"),
+	}
+
+	bootstrapRS, bootstrapConn := newTestRuleStore(ctx, t)
+	defer bootstrapConn.Close()
+	bootstrapRuleState(ctx, t, bootstrapRS, policy, cohort)
+
+	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
+	_, err := rs.observePosition(ctx)
+	require.NoError(t, err)
+	require.NoError(t, rs.reconcileGUC(ctx, false))
+	require.False(t, rs.hasInconsistentGUC(ctx), "precondition: GUC should be consistent after initial reconcile")
+
+	// Corrupt the live GUC behind the manager's back.
+	corruptConn, err := pgTestFixture.newClientConn(t.Context())
+	require.NoError(t, err)
+	defer corruptConn.Close()
+	corruptQS := &connQueryService{conn: corruptConn}
+	_, err = corruptQS.Query(t.Context(), "ALTER SYSTEM SET synchronous_standby_names = 'WRONG'")
+	require.NoError(t, err)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NoError(t, reloadPostgresConfig(t.Context(), logger, corruptQS))
+
+	// hasInconsistentGUC queries postgres and detects the drift.
+	assert.True(t, rs.hasInconsistentGUC(ctx), "drift should be detected after external GUC change")
+
+	// reconcileGUC restores the correct value.
+	require.NoError(t, rs.reconcileGUC(ctx, false))
+
+	assert.False(t, rs.hasInconsistentGUC(ctx), "GUC should be consistent after reconcileGUC heals the drift")
+}
+
 // TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked verifies that reconcileGUC
 // fails immediately (FOR UPDATE NOWAIT) when another transaction holds the
 // current_rule row lock, leaving the SSM cache unchanged.

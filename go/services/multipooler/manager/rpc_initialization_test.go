@@ -386,6 +386,8 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	assert.False(t, state.backupsAvailable)
 }
 
+// TODO: move TestDetermineRemedialAction and TestTakeRemedialAction_* to a dedicated postgres_monitor_test.go
+
 // TestDetermineRemedialAction tests the decision logic that maps discovered state to remedial actions.
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
@@ -789,6 +791,30 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
 	}
+}
+
+func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
+	ctx := t.Context()
+
+	frs := &fakeRuleStore{}
+	pm := &MultiPoolerManager{
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		rules:      frs,
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		},
+	}
+	pm.consensusState = NewConsensusState("", nil)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{isPrimary: true})
+
+	assert.True(t, frs.reconcileGUCCalled, "reconcileGUC should have been called")
+	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 }
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
