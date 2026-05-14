@@ -177,8 +177,15 @@ func (c *Conn) handleSSLRequest() error {
 		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
+	// Wrap the TLS config so dynamic-cert deployments (GetCertificate /
+	// GetConfigForClient, typical for SNI multi-tenant edges) capture the
+	// actually-selected leaf cert into c.tlsServerCert during the handshake.
+	// Static Certificates[0] deployments are handled by the post-handshake
+	// fallback below and skip the wrapper.
+	handshakeCfg := wrapTLSConfigForCertCapture(c.tlsConfig, c.captureTLSServerCert)
+
 	// Perform TLS handshake.
-	tlsConn := tls.Server(c.conn, c.tlsConfig)
+	tlsConn := tls.Server(c.conn, handshakeCfg)
 	if err := tlsConn.Handshake(); err != nil {
 		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
@@ -192,20 +199,11 @@ func (c *Conn) handleSSLRequest() error {
 	c.bufferedReader.Reset(tlsConn)
 	c.tlsHandshakeComplete = true
 
-	// Capture the leaf certificate offered to the client for SCRAM-SHA-256-PLUS
-	// channel binding. Prefer the pre-parsed Leaf (set when callers populate it),
-	// fall back to parsing Certificate[0] for the common case where Leaf was
-	// left nil. A failure here is non-fatal: we just won't advertise PLUS and
-	// auth will fall back to SCRAM-SHA-256.
-	//
-	// LIMITATION: tlsConfig.Certificates[0] is the canonical cert in this
-	// config slot. If a deployment uses tlsConfig.GetCertificate or
-	// GetConfigForClient (dynamic SNI), the cert actually negotiated for
-	// this handshake may differ — PLUS will then fall back to base SCRAM
-	// because Go's tls.Conn.ConnectionState() does not expose the server-
-	// presented cert. A wrapper-based fix that captures the actually-
-	// selected cert per-Conn before this point is tracked separately.
-	if len(c.tlsConfig.Certificates) > 0 {
+	// Static-cert fallback: when the deployment only populates Certificates,
+	// the dynamic wrapper above is a no-op and the cert was not captured.
+	// Recover it from Certificates[0] here. A parse failure is non-fatal —
+	// auth simply falls back to SCRAM-SHA-256 without channel binding.
+	if c.tlsServerCert == nil && len(c.tlsConfig.Certificates) > 0 {
 		cert := &c.tlsConfig.Certificates[0]
 		switch {
 		case cert.Leaf != nil:
