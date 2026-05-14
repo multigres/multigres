@@ -25,7 +25,6 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -480,29 +479,9 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	return nil
 }
 
-// applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
-// GUCs without the primary guardrail or rule-history write. Safe to call on a standby
-// (e.g., before pg_promote) so the promoted primary inherits the correct config.
-// The caller must hold the action lock.
-func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
-	ctx context.Context,
-	cfg *commonconsensus.SyncReplicationConfig,
-) error {
-	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
-	if err != nil {
-		return err
-	}
-	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
-		return err
-	}
-	return pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
-	// TODO: Somehow make sure the GUC change has actually propagated
-}
-
-// UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
-// removing, or replacing members. It is idempotent and only valid when synchronous
-// replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
+// UpdateCohortMembers updates the consensus cohort by adding or removing members.
+// It is idempotent.
+func (pm *MultiPoolerManager) UpdateCohortMembers(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -540,28 +519,22 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// === Parse Current Configuration ===
 
-	// Get current synchronous replication configuration
-	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	// Read current cohort from the rule store (authoritative source of truth).
+	pos, err := pm.rules.observePosition(ctx)
 	if err != nil {
 		return err
 	}
+	currentCohort := pos.GetRule().GetCohortMembers()
 
 	// Check if synchronous replication is configured
-	if len(syncConfig.StandbyIds) == 0 {
-		pm.logger.ErrorContext(ctx, "UpdateSynchronousStandbyList requires synchronous replication to be configured")
+	if len(currentCohort) == 0 {
+		pm.logger.ErrorContext(ctx, "UpdateCohortMembers requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
 	}
 
-	// Convert current config IDs to application names for set operations.
-	// These IDs were previously validated and written by us, so this cannot fail in practice.
-	currentApplicationNames, err := toPoolerIDs(syncConfig.StandbyIds)
-	if err != nil {
-		return err
-	}
-
-	// Build the current value string for comparison
-	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, currentApplicationNames)
+	// Convert current cohort IDs to pooler IDs for set operations.
+	currentApplicationNames, err := toPoolerIDs(currentCohort)
 	if err != nil {
 		return err
 	}
@@ -587,16 +560,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 			"resulting standby list cannot be empty after operation")
 	}
 
-	// === Build and Apply New Configuration ===
-
-	// Build new synchronous_standby_names value using shared helper
-	newValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, updatedStandbys)
-	if err != nil {
-		return err
-	}
-
-	// Check if there are any changes (idempotent)
-	if currentValue == newValue {
+	// Check if there are any changes (idempotent).
+	if poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
 		return nil
 	}
 
@@ -631,22 +596,10 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
-	// Apply the setting
-	if err = pm.applySynchronousStandbyNames(ctx, newValue); err != nil {
-		return err
-	}
-
-	// Reload configuration if requested
-	if reloadConfig {
-		if err := pm.reloadPostgresConfig(ctx); err != nil {
-			return err
-		}
-	}
-
-	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
+	pm.logger.InfoContext(ctx, "UpdateCohortMembers completed successfully",
 		"operation", operation,
-		"old_value", currentValue,
-		"new_value", newValue,
+		"old_cohort", currentCohort,
+		"new_cohort", updatedStandbyIDs,
 		"reload_config", reloadConfig,
 		"consensus_term", consensusTerm,
 		"force", force)

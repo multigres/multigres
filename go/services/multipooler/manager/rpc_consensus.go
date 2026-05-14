@@ -17,7 +17,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -600,11 +599,11 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	// Step 1: Validate the term revocation.
 	// ValidateRevocation ensures the WAL position is safe and the coordinator is consistent.
 	// Fails open on I/O error (nil status passes safely).
-	currentStatus, err := pm.getConsensusStatus(ctx)
+	beforeStatus, err := pm.getConsensusStatus(ctx)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
-	if err := commonconsensus.ValidateRevocation(currentStatus, revocation); err != nil {
+	if err := commonconsensus.ValidateRevocation(beforeStatus, revocation); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
@@ -616,7 +615,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	// requiring the two-phase protocol. ValidateRevocation already ensures
 	// storedTerm <= revokedBelowTerm, so a mismatch here always means Recruit
 	// was never called for this term.
-	storedTerm := currentStatus.GetTermRevocation().GetRevokedBelowTerm()
+	storedTerm := beforeStatus.GetTermRevocation().GetRevokedBelowTerm()
 	if storedTerm != revokedBelowTerm {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"must Recruit before Propose: stored term %d != proposal term %d", storedTerm, revokedBelowTerm)
@@ -652,43 +651,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		if err != nil {
 			return nil, err
 		}
-		// Pre-configure synchronous_standby_names before pg_promote() so the primary
-		// enforces sync replication from the moment it starts accepting connections.
-		// Both failures are fatal: a misconfigured or partially applied GUC would let
-		// the primary accept writes without the required sync acknowledgment, risking
-		// data loss.
-		// TODO: Eventually updateRule() should own this GUC update so that the ordering
-		// of WAL writes and GUC changes is managed in one place, ensuring the durability
-		// configuration is always consistent with what is recorded in the rule history.
-		if proposedRule.GetDurabilityPolicy() != nil {
-			syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
-			if err != nil {
-				return nil, mterrors.Wrap(err, "cannot derive sync config from proposed rule")
-			}
-			if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
-				return nil, mterrors.Wrap(err, "failed to pre-configure sync replication before promote")
-			}
-		}
-		// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
-		// postgres becomes a writable primary after pg_promote(), but this pooler's
-		// type remains REPLICA until updateTopologyAfterPromotion() below. While type
-		// is REPLICA, the query server returns MTF01 for any PRIMARY (write) request,
-		// causing the gateway to buffer — so no client write transactions can be served.
-		//
-		// DO NOT call updateTopologyAfterPromotion() before updateRule() succeeds.
-		// The rule commit is the durability gate: it waits for sync-standby
-		// acknowledgment, proving the new primary position is replicated. Only after
-		// that gate closes is it safe to advertise PRIMARY + SERVING to the gateway.
-		if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
-			return nil, err
-		}
-		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
-			return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
-		}
-		finalLSN, err := pm.getPrimaryLSN(ctx)
-		if err != nil {
-			return nil, err
-		}
+
 		// TODO: If this proposal already exists, we're being asked to propagate
 		// rather than make a new entry. We can make the rule store understand
 		// propagation for that case.
@@ -706,17 +669,22 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 			withCohort(proposedRule.GetCohortMembers()).
 			withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
 			withAcceptedMembers(req.GetAcceptedNodeIds()).
-			withWALPosition(finalLSN)); err != nil {
+			withWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
+			withPromotionHook(func(hookCtx context.Context) error {
+				if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+					return mterrors.Wrap(err, "failed to clear resigned primary term")
+				}
+				return pm.promoteStandbyToPrimary(hookCtx, state)
+			})); err != nil {
 			return nil, mterrors.Wrap(err, "propose failed: could not write rule")
 		}
-		// ---- END CRITICAL ORDERING SECTION ------------------------------------------
-		// Rule committed and replicated. Safe to open write traffic.
-		// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
-		// ends the write-buffering window and lets the gateway route writes here.
 		pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
 			LeaderID:   pm.serviceID,
 			LeaderTerm: revokedBelowTerm,
 		})
+		// IMPORTANT: updateTopologyAfterPromotion must only be called after updateRule
+		// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
+		// updateRule is the durability gate: it waits for sync-standby acknowledgment.
 		if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
 		}
@@ -762,20 +730,6 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.Wrap(err, "failed to build consensus status")
 	}
 	return &consensusdatapb.ProposeResponse{ConsensusStatus: cs}, nil
-}
-
-// syncConfigFromProposedRule derives the synchronous replication config from a proposed rule
-// by delegating to the durability policy.
-func syncConfigFromProposedRule(
-	logger *slog.Logger,
-	rule *clustermetadatapb.ShardRule,
-	leaderID *clustermetadatapb.ID,
-) (*commonconsensus.SyncReplicationConfig, error) {
-	policy, err := commonconsensus.NewPolicyFromProto(rule.GetDurabilityPolicy())
-	if err != nil {
-		return nil, fmt.Errorf("cannot derive sync config: %w", err)
-	}
-	return policy.BuildSyncReplicationConfig(logger, rule.GetCohortMembers(), leaderID)
 }
 
 // ConsensusStatus returns the current status of this node for consensus

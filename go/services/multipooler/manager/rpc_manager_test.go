@@ -345,7 +345,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UpdateSynchronousStandbyList times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true, nil)
+				return manager.UpdateCohortMembers(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true, nil)
 			},
 		},
 	}
@@ -1896,7 +1896,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	// Call UpdateSynchronousStandbyList to add a new standby
 	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-3"}
 
-	err = manager.UpdateSynchronousStandbyList(
+	err = manager.UpdateCohortMembers(
 		ctx,
 		multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
 		[]*clustermetadatapb.ID{newStandby},
@@ -1912,7 +1912,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 
 	// CRITICAL: Verify that NO ALTER SYSTEM queries were executed
 	assert.NoError(t, mockQueryService.ExpectationsWereMet(),
-		"If this fails, it means applySynchronousStandbyNames was called despite history insert failure")
+		"If this fails, it means SetPolicy was called despite history insert failure")
 }
 
 // TestRewindToSource_ManagerReopenedOnError is a regression test for a bug where

@@ -219,6 +219,11 @@ func (b *ruleUpdateBuilder) withWALPosition(pos string) *ruleUpdateBuilder {
 	return b
 }
 
+func (b *ruleUpdateBuilder) withPromotionHook(fn promotionFn) *ruleUpdateBuilder {
+	b.promotionHook = fn
+	return b
+}
+
 func (b *ruleUpdateBuilder) withOperation(op string) *ruleUpdateBuilder {
 	b.operation = op
 	return b

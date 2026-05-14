@@ -195,7 +195,12 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc common
 		return false, nil
 	}
 
-	// Postgres has the wrong values.
+	s.logger.InfoContext(ctx, "NeedsApply: GUC drift detected",
+		"synchronous_commit_actual", pgCommit,
+		"synchronous_commit_want", g.wantCommit,
+		"synchronous_standby_names_actual", pgStandby,
+		"synchronous_standby_names_want", g.wantStandby,
+	)
 	return true, nil
 }
 

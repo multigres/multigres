@@ -772,7 +772,7 @@ func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 			// reload is necessary but not sufficient for every backend to have seen
 			// the new config.
 			select {
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(10 * time.Millisecond):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -1198,6 +1198,24 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 		}
 	}
 	return updatedStandbys
+}
+
+// poolerIDSetEqual returns true if a and b contain the same set of pooler IDs
+// (order-independent comparison using appName as the key).
+func poolerIDSetEqual(a, b []poolerID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]struct{}, len(a))
+	for _, p := range a {
+		m[p.appName] = struct{}{}
+	}
+	for _, p := range b {
+		if _, ok := m[p.appName]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ----------------------------------------------------------------------------

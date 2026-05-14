@@ -639,28 +639,53 @@ func TestUpdateConsensusRule(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
-	// resetStandbys atomically replaces the standby list with the given IDs using ADD + REMOVE.
-	// It requires the list to be non-empty on entry (each subtest starts from the shared cluster
-	// state, which always has at least one real standby configured).
+	// realStandbyID is the actual standby pooler in this cluster. It is always kept in
+	// the cohort so that synchronous writes can succeed (ANY 1 is satisfiable).
+	realStandbyID := makeMultipoolerID(setup.StandbyMultipooler.Cell, setup.StandbyMultipooler.Name)
+	// leaderID is the primary pooler. The rule store cohort always includes the leader, so
+	// resetStandbys must never try to remove it.
+	leaderID := makeMultipoolerID(setup.PrimaryMultipooler.Cell, setup.PrimaryMultipooler.Name)
+
+	// getConsensusTerm reads the current consensus term from the primary via Status.
+	getConsensusTerm := func(t *testing.T) int64 {
+		t.Helper()
+		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		require.NoError(t, err, "Status should succeed to read current consensus term")
+		return resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	}
+
+	// resetStandbys atomically replaces the standby list with [realStandby, ids...] using
+	// ADD + REMOVE. The real standby is always included so writes can succeed (ANY 1 satisfiable).
+	// Current cohort is read from the rule store (authoritative) to avoid GUC/rule-store skew
+	// introduced when setupPoolerTest cleanup restores GUC to baseline.
 	resetStandbys := func(t *testing.T, ids ...*clustermetadatapb.ID) {
 		t.Helper()
+
+		// Always include the real standby first so the cohort is never entirely fake.
+		desired := append([]*clustermetadatapb.ID{realStandbyID}, ids...)
 
 		// ADD all desired standbys first (keeps list non-empty throughout).
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-				StandbyIds:   ids,
-				ReloadConfig: true,
-				Force:        true,
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+				StandbyIds:    desired,
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "ADD setup should succeed")
 
-		// REMOVE any standbys that are currently in the list but not in the desired set.
-		status := getPrimaryStatusFromClient(t, primaryManagerClient)
+		// Read current cohort from rule store (not GUC) to find stale members to remove.
+		// GUC may differ from rule store if setupPoolerTest cleanup restored it to baseline.
+		statusResp, err := primaryManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Status should succeed to read current cohort")
 		var toRemove []*clustermetadatapb.ID
-		for _, existing := range status.SyncReplicationConfig.GetStandbyIds() {
+		for _, existing := range statusResp.Status.GetCohortMembers() {
+			// The rule store cohort includes the leader; never try to remove it.
+			if existing.Cell == leaderID.Cell && existing.Name == leaderID.Name {
+				continue
+			}
 			wanted := false
-			for _, id := range ids {
+			for _, id := range desired {
 				if existing.Cell == id.Cell && existing.Name == id.Name {
 					wanted = true
 					break
@@ -673,17 +698,17 @@ func TestUpdateConsensusRule(t *testing.T) {
 		if len(toRemove) > 0 {
 			_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 				&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-					Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
-					StandbyIds:   toRemove,
-					ReloadConfig: true,
-					Force:        true,
+					Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+					StandbyIds:    toRemove,
+					ReloadConfig:  true,
+					ConsensusTerm: getConsensusTerm(t),
 				})
 			require.NoError(t, err, "REMOVE cleanup should succeed")
 		}
 
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
-				return config != nil && len(config.StandbyIds) == len(ids)
+				return config != nil && len(config.StandbyIds) == len(desired)
 			}, "resetStandbys should converge")
 	}
 
@@ -695,27 +720,28 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-				ReloadConfig: true,
-				Force:        true,
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+				StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "ADD should succeed")
 
+		// 3 entries: realStandby (pooler-2) + standby1 + standby2
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
-				return config != nil && len(config.StandbyIds) == 2 &&
+				return config != nil && len(config.StandbyIds) == 3 &&
 					containsStandbyIDInConfig(config, "test-cell", "standby2")
 			}, "ADD should converge")
 
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
-		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 2)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_standby1", "test-cell_standby2")`, guc, "GUC should reflect standby list after ADD")
+		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby2")`, guc, "GUC should reflect standby list after ADD")
 		t.Log("ADD operation verified successfully")
 	})
 
@@ -729,10 +755,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 		// ADD a standby that already exists
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-				ReloadConfig: true,
-				Force:        true,
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+				StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "ADD should be idempotent")
 
@@ -755,28 +781,29 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
-				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-				ReloadConfig: true,
-				Force:        true,
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+				StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "REMOVE should succeed")
 
+		// 3 entries: realStandby (pooler-2) + standby1 + standby3
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
-				return config != nil && len(config.StandbyIds) == 2 &&
+				return config != nil && len(config.StandbyIds) == 3 &&
 					!containsStandbyIDInConfig(config, "test-cell", "standby2")
 			}, "REMOVE should converge")
 
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
-		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 2)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect standby list after REMOVE")
+		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect standby list after REMOVE")
 		t.Log("REMOVE operation verified successfully")
 	})
 
@@ -792,13 +819,14 @@ func TestUpdateConsensusRule(t *testing.T) {
 				StandbyIds: []*clustermetadatapb.ID{
 					makeMultipoolerID("test-cell", "does-not-exist"),
 				},
-				ReloadConfig: true,
-				Force:        true,
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "REMOVE of non-existent standby should succeed")
 
+		// 3 entries: realStandby (pooler-2) + standby1 + standby2
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
-		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 2, "List should be unchanged")
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3, "List should be unchanged")
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		t.Log("REMOVE idempotency verified")
@@ -810,7 +838,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 
-		// ADD two more
+		// ADD two more (total: realStandby + standby1 + standby2 + standby3 + standby4 = 5)
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 				Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
@@ -818,17 +846,17 @@ func TestUpdateConsensusRule(t *testing.T) {
 					makeMultipoolerID("test-cell", "standby3"),
 					makeMultipoolerID("test-cell", "standby4"),
 				},
-				ReloadConfig: true,
-				Force:        true,
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "ADD should succeed")
 
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
-				return config != nil && len(config.StandbyIds) == 4
-			}, "ADD should converge to 4 standbys")
+				return config != nil && len(config.StandbyIds) == 5
+			}, "ADD should converge to 5 standbys")
 
-		// REMOVE two
+		// REMOVE two (total: realStandby + standby1 + standby3 = 3)
 		_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 				Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
@@ -836,20 +864,21 @@ func TestUpdateConsensusRule(t *testing.T) {
 					makeMultipoolerID("test-cell", "standby2"),
 					makeMultipoolerID("test-cell", "standby4"),
 				},
-				ReloadConfig: true,
-				Force:        true,
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.NoError(t, err, "REMOVE should succeed")
 
+		// 3 entries: realStandby (pooler-2) + standby1 + standby3
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
 			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
-				return config != nil && len(config.StandbyIds) == 2 &&
+				return config != nil && len(config.StandbyIds) == 3 &&
 					containsStandbyIDInConfig(config, "test-cell", "standby1") &&
 					containsStandbyIDInConfig(config, "test-cell", "standby3")
 			}, "REMOVE should converge")
 
 		status := getPrimaryStatusFromClient(t, primaryManagerClient)
-		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 2)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 3)
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
@@ -857,8 +886,26 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		assert.Equal(t, `ANY 1 ("test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect final standby list after ADD+REMOVE sequence")
+		assert.Equal(t, `ANY 1 ("test-cell_pooler-2", "test-cell_standby1", "test-cell_standby3")`, guc, "GUC should reflect final standby list after ADD+REMOVE sequence")
 		t.Log("ADD then REMOVE sequence verified successfully")
+	})
+
+	t.Run("REMOVE_All_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+		t.Log("Testing that removing all standbys fails with a clear error...")
+
+		resetStandbys(t) // Set cohort to just realStandbyID (pooler-2)
+
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithShortDeadline(t),
+			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+				StandbyIds:    []*clustermetadatapb.ID{realStandbyID},
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
+			})
+		require.Error(t, err, "Removing all standbys should fail")
+		assert.Contains(t, err.Error(), "durability not achievable", "Error should indicate cohort cannot satisfy durability policy")
+		t.Log("Confirmed: removing all standbys correctly rejected")
 	})
 
 	t.Run("Standby_Fails", func(t *testing.T) {
@@ -867,10 +914,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 
 		_, err := standbyConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 1*time.Second),
 			&multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-				Operation:    multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-				StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-				ReloadConfig: true,
-				Force:        true,
+				Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+				StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+				ReloadConfig:  true,
+				ConsensusTerm: getConsensusTerm(t),
 			})
 		require.Error(t, err, "UpdateConsensusRule should fail on standby")
 		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
