@@ -155,12 +155,21 @@ After deploying the new values, watch these queries for a week:
 # Should stay flat at zero for healthy operation.
 rate(multigateway_buffer_requests_evicted_total{reason="window_exceeded"}[5m])
 rate(multigateway_buffer_requests_evicted_total{reason="buffer_full"}[5m])
-rate(multigateway_buffer_requests_evicted_total{reason="max_duration"}[5m])
 ```
 
 Any non-zero rate means at least one query failed because of buffer
-limits — either size, per-request window, or shard-level max
-duration. Each maps to a specific flag to raise.
+limits — per-request window timeout or buffer at capacity.
+
+Exceeding `--buffer-max-failover-duration` does not produce an
+eviction. The timer drains buffered entries early, and those entries
+then fail on retry against the still-unavailable primary. Detect
+this by watching `failover.duration` p99 approach the configured
+cap:
+
+```promql
+histogram_quantile(0.99,
+  sum(rate(multigateway_buffer_failover_duration_bucket[1h])) by (le))
+```
 
 ## Worked Example
 
@@ -196,8 +205,9 @@ during a failover:
 # Buffer ran out of capacity.
 rate(multigateway_buffer_requests_evicted_total{reason="buffer_full"}[5m]) > 0
 
-# Failover took longer than --buffer-window or --buffer-max-failover-duration.
-rate(multigateway_buffer_requests_evicted_total{reason=~"window_exceeded|max_duration"}[5m]) > 0
+# Per-request window timeout; usually means failover duration is creeping
+# up toward --buffer-window.
+rate(multigateway_buffer_requests_evicted_total{reason="window_exceeded"}[5m]) > 0
 
 # Pooler drain exceeded grace period and force-closed connections.
 rate(mg_pooler_drain_outcome_total{outcome="force_close"}[1h]) > 0
