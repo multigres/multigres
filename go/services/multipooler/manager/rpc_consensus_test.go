@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"testing"
@@ -2006,7 +2007,6 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, av.LeadershipStatus.Signal)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
-		assert.Nil(t, av.LifecycleStatus)
 	})
 
 	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
@@ -2027,25 +2027,51 @@ func TestAvailabilityStatus(t *testing.T) {
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
+}
 
-	t.Run("lifecycle STOPPED alone makes buildAvailabilityStatus return non-nil", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
-		pm.lifecycleSignal = clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED
-		av := pm.buildAvailabilityStatus()
-		require.NotNil(t, av)
-		require.NotNil(t, av.LifecycleStatus)
-		assert.Equal(t, clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED, av.LifecycleStatus.Signal)
-	})
+// TestSetResignedLeaderAtTerm_BroadcastsOnChange verifies that setting the
+// resignation term broadcasts to subscribers on change so the coordinator
+// sees the signal without waiting for the next periodic snapshot, and does
+// NOT broadcast when the value is unchanged (idempotent calls are cheap).
+func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
+	streamer := newHealthStreamer(logger, id, "tg", "0")
+	pm := &MultiPoolerManager{
+		logger:         logger,
+		serviceID:      id,
+		healthStreamer: streamer,
+		actionLock:     NewActionLock(),
+	}
 
-	t.Run("lifecycle and resignedLeaderAtTerm both set returns both", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
-		pm.resignedLeaderAtTerm = 5
-		pm.lifecycleSignal = clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED
-		av := pm.buildAvailabilityStatus()
-		require.NotNil(t, av)
-		require.NotNil(t, av.LeadershipStatus)
-		assert.Equal(t, int64(5), av.LeadershipStatus.LeaderTerm)
-		require.NotNil(t, av.LifecycleStatus)
-		assert.Equal(t, clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_STOPPED, av.LifecycleStatus.Signal)
-	})
+	// Subscribe so we can observe broadcasts.
+	_, ch := streamer.subscribe()
+	drain := func() int {
+		n := 0
+		for {
+			select {
+			case <-ch:
+				n++
+			default:
+				return n
+			}
+		}
+	}
+	drain() // discard the initial state delivered by subscribe.
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	assert.Equal(t, 1, drain(), "first call should broadcast on change from 0 to 5")
+
+	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	assert.Equal(t, 0, drain(), "repeating the same value should NOT broadcast")
+
+	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 7))
+	assert.Equal(t, 1, drain(), "changing to a new term should broadcast")
+
+	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 0))
+	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
 }

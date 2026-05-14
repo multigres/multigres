@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -28,15 +29,11 @@ import (
 )
 
 // terminateMultipoolerGracefully sends SIGTERM to the multipooler binary (NOT
-// pgctld) and waits for it to exit. This drives the GracefulShutdown
-// servenv hook end-to-end:
-//
-//   - it transitions the pooler to NOT_SERVING (rejecting new gateway queries
-//     and draining in-flight ones, bounded by --connpool-drain-grace-period),
-//   - it closes the connection pool to release idle backends,
-//   - it calls pgctld.Stop(fast) (escalating to immediate if fast fails),
-//   - it announces LIFECYCLE_SIGNAL_STOPPED, closes the health stream, and
-//     exits.
+// pgctld) and waits for it to exit. This drives the OnTermSync GracefulShutdown
+// hook end-to-end: pgctld.Stop (smart → fast → immediate escalation), and, for
+// the current leader, a LEADERSHIP_SIGNAL_REQUESTING_DEMOTION announcement on
+// the health stream. The OnClose chain that follows updates the topology entry
+// to PoolerType_DRAINED.
 func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.MultipoolerInstance, timeout time.Duration) {
 	t.Helper()
 	require.NotNil(t, instance.Multipooler)
@@ -61,19 +58,12 @@ func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.Multipool
 }
 
 // TestPrimaryGracefulShutdownTriggersFailover verifies the end-to-end
-// graceful-shutdown contract on the primary side:
-//
-//  1. SIGTERM is sent to the primary's multipooler binary.
-//  2. The pooler runs its shutdown sequence: NOT_SERVING transition (drains
-//     in-flight queries) → pool Close → pgctld.Stop(fast) → STOPPED terminal
-//     broadcast → process exit.
-//  3. multiorch observes LIFECYCLE_SIGNAL_STOPPED on the cached
-//     PoolerHealthState and synthesizes REQUESTING_DEMOTION on the primary's
-//     LeadershipStatus.
-//  4. LeaderNeedsReplacement returns true → LeaderIsDeadAnalyzer triggers
-//     failover → AppointLeaderAction promotes a surviving standby.
-//
-// The test asserts that within a generous bound, a *new* primary appears.
+// graceful-shutdown contract on the primary side: SIGTERM on the primary
+// produces an explicit REQUESTING_DEMOTION signal on the health stream, the
+// LeaderResignedAnalyzer fires, multiorch promotes a surviving standby, and
+// the terminated pooler's topology entry ends up as PoolerType_DRAINED. The
+// failover must happen quickly because resignation is an unambiguous signal —
+// no follower-disconnect grace period.
 func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -92,9 +82,9 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 
-	// Wait for multiorch to have established health streams to all poolers
-	// and seen a clean cluster state. Without this, the STOPPED snapshot we
-	// produce below can race a stream that's still being established, and
+	// Wait for multiorch to establish health streams to all poolers and see a
+	// clean cluster state. Without this, the REQUESTING_DEMOTION announcement
+	// we make below can race a stream that's still being established and
 	// multiorch never receives the signal.
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 
@@ -105,24 +95,32 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	// SIGTERM the primary's multipooler. The graceful-shutdown sequence runs
 	// inside this call; on return, the process has exited.
+	start := time.Now()
 	terminateMultipoolerGracefully(t, oldPrimary, 90*time.Second)
 
-	// multiorch should now elect a new primary from the surviving standbys.
-	// The bound is generous (60s): one snapshot tick + analyzer tick +
-	// AppointLeaderAction (BeginTerm + Promote) on a 3-node cohort. Most
-	// runs complete in well under 30s.
+	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
+	// fires as soon as it sees REQUESTING_DEMOTION (no grace period), then
+	// AppointLeaderAction (BeginTerm + Promote) runs on the surviving cohort.
+	// Most runs complete in well under 15s.
 	t.Logf("Waiting for multiorch to elect a new primary...")
-	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 60*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	elapsed := time.Since(start)
 	require.NotEmpty(t, newPrimaryName, "expected multiorch to elect a new primary")
 	require.NotEqual(t, oldPrimaryName, newPrimaryName,
 		"new primary must be different from the terminated old primary")
-	t.Logf("New primary elected: %s (was: %s)", newPrimaryName, oldPrimaryName)
+	t.Logf("New primary elected: %s (was: %s) in %s", newPrimaryName, oldPrimaryName, elapsed)
 
-	// The terminated pooler must be marked DRAINED in topology. Either the
-	// pooler-side unregister hook or the orchestrator-side markPoolerDrained
-	// path can write this; both converge on the same end state. This locks in
-	// that DRAINED is reflected for `multigres getpoolers` after a graceful
-	// shutdown that ends in failover.
+	// Lock in a tight upper bound on end-to-end failover. If a regression
+	// reintroduces grace-period waiting or stream-EOF-only triggering, this
+	// would blow past 30s and the assertion would catch it.
+	require.Less(t, elapsed, 5*time.Second,
+		"graceful primary replacement took %s (expected well under 5s); "+
+			"likely a regression in REQUESTING_DEMOTION delivery or LeaderResignedAnalyzer firing", elapsed)
+
+	// The terminated pooler must be marked DRAINED in topology. The pooler-side
+	// unregister hook (OnClose → tr.Unregister) writes this when the process
+	// exits cleanly. Locks in that DRAINED is reflected for `multigres getpoolers`
+	// after a graceful shutdown.
 	oldPrimaryID := setup.GetMultipoolerID(oldPrimaryName)
 	require.NotNil(t, oldPrimaryID, "expected to resolve old primary ID")
 	require.Eventually(t, func() bool {
@@ -141,10 +139,10 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 // stays primary, and the surviving standbys keep replicating from it.
 //
 // This is the role-symmetry property: the same shutdown sequence runs on
-// the standby (announce, stop postgres, drain, exit), but because
-// LeaderNeedsReplacement is keyed on the *topology primary*, the
-// orchestrator's reaction is limited to "stop trying to reconnect to the
-// terminated standby" — no leader appointment.
+// the standby (pgctld.Stop + exit), but because REQUESTING_DEMOTION is only
+// emitted by the current leader, the orchestrator's reaction is limited to
+// "stop trying to reconnect to the terminated standby" — no leader
+// appointment.
 func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -183,14 +181,14 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 
 	terminateMultipoolerGracefully(t, standby, 90*time.Second)
 
-	// Give multiorch time to observe the terminated standby (a few snapshot
-	// ticks worth) so any spurious failover would have triggered by now.
-	time.Sleep(10 * time.Second)
-
-	// Verify the primary is unchanged.
-	current := setup.RefreshPrimary(t)
-	require.NotNil(t, current)
-	require.Equal(t, primaryName, current.Name,
+	// A spurious failover would change the primary name. Watch for that
+	// throughout a window long enough for several multiorch snapshot ticks;
+	// the assertion fails the instant the primary changes, not just at the
+	// end.
+	assert.Never(t, func() bool {
+		current := setup.RefreshPrimary(t)
+		return current != nil && current.Name != primaryName
+	}, 10*time.Second, 500*time.Millisecond,
 		"primary must remain unchanged after standby graceful shutdown")
 	t.Logf("Primary %s unchanged after standby %s graceful shutdown", primaryName, standbyName)
 
@@ -270,12 +268,13 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	t.Logf("Terminating standby %s; expecting %s to keep replicating", terminatedStandby, survivingStandbyName)
 	terminateMultipoolerGracefully(t, setup.Multipoolers[terminatedStandby], 90*time.Second)
 
-	// Give multiorch a few snapshot ticks to react.
-	time.Sleep(10 * time.Second)
-
-	// Primary unchanged.
-	current := setup.RefreshPrimary(t)
-	require.Equal(t, primaryName, current.Name, "primary must remain unchanged")
+	// Primary must stay the same throughout the window — fails immediately
+	// if a spurious failover occurs.
+	assert.Never(t, func() bool {
+		current := setup.RefreshPrimary(t)
+		return current != nil && current.Name != primaryName
+	}, 10*time.Second, 500*time.Millisecond,
+		"primary must remain unchanged after standby graceful shutdown")
 
 	// Surviving standby is actively streaming, not just configured.
 	survivingClient, err := shardsetup.NewMultipoolerClient(setup.Multipoolers[survivingStandbyName].Multipooler.GrpcPort)
@@ -323,8 +322,8 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 //     cohort to exclude the terminated standby (verified via RequireRecovery
 //     converging on a healthy steady state without that node).
 //  2. SIGTERM the primary → primary's graceful-shutdown sequence runs to
-//     completion (announce, smart→fast→immediate pgctld.Stop escalation,
-//     drain, STOPPED snapshot, exit).
+//     completion (announce REQUESTING_DEMOTION, smart→fast→immediate
+//     pgctld.Stop escalation, exit).
 //
 // Note on scope: this test deliberately does NOT assert that a new primary is
 // elected after step 2. The default durability policy (AT_LEAST_2) requires
@@ -373,9 +372,11 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	t.Logf("Step 1: terminating standby %s", firstStandby)
 	terminateMultipoolerGracefully(t, setup.Multipoolers[firstStandby], 90*time.Second)
 
-	time.Sleep(5 * time.Second)
-	current := setup.RefreshPrimary(t)
-	require.Equal(t, primaryName, current.Name,
+	// Primary must not flip after the standby is terminated.
+	assert.Never(t, func() bool {
+		current := setup.RefreshPrimary(t)
+		return current != nil && current.Name != primaryName
+	}, 5*time.Second, 500*time.Millisecond,
 		"primary must be unchanged after standby %s shutdown", firstStandby)
 	t.Logf("Step 1 verified: primary %s unchanged", primaryName)
 
@@ -385,58 +386,4 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	t.Logf("Step 2: terminating primary %s", primaryName)
 	terminateMultipoolerGracefully(t, setup.Multipoolers[primaryName], 90*time.Second)
 	t.Logf("Step 2 verified: primary %s exited gracefully after sequential SIGTERMs", primaryName)
-}
-
-// TestPrimaryGracefulShutdownNoSmartEscalation locks in the property that
-// the new shutdown design does not need pgctld smart shutdown: the pooler
-// drains in-flight queries and closes its connection pool itself, so by the
-// time pgctld.Stop runs, postgres has no clients to wait for. Fast shutdown
-// completes near-instantly.
-//
-// The test measures wall-clock time from SIGTERM to multipooler exit. Under
-// the working design that should be a few seconds at most. If a regression
-// reintroduces smart-style "wait for clients" behavior (or otherwise causes
-// fast to escalate to immediate), wall-clock would balloon to fast-timeout
-// + immediate-timeout (~10s+) — comfortably outside this test's bound.
-//
-// Tighter bound than TestPrimaryGracefulShutdownTriggersFailover so a
-// regression is caught here rather than masked by that test's generous
-// failover window.
-func TestPrimaryGracefulShutdownNoSmartEscalation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("skipping integration test (no postgres binaries)")
-	}
-
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
-		shardsetup.WithDatabase("postgres"),
-		shardsetup.WithCellName("test-cell"),
-	)
-	defer cleanup()
-
-	setup.StartMultiOrchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
-
-	primary := setup.GetPrimary(t)
-	require.NotNil(t, primary, "primary instance should exist")
-	primaryName := setup.PrimaryName
-
-	// SIGTERM the primary and measure how long the graceful-shutdown sequence
-	// takes end-to-end. The bound is 8 seconds: fast (5s budget) typically
-	// returns in under 1s when the pool is already closed; the rest is for
-	// drain (≤3s) + final snapshot. If smart-style waiting comes back, we'd
-	// see at least 5s for fast hanging on pool clients before escalating.
-	const bound = 8 * time.Second
-	start := time.Now()
-	terminateMultipoolerGracefully(t, primary, bound+5*time.Second)
-	elapsed := time.Since(start)
-
-	require.Less(t, elapsed, bound,
-		"primary %s graceful shutdown took %s, bound %s — likely escalated to fast/immediate due to a regression in pool drain ordering",
-		primaryName, elapsed, bound)
-	t.Logf("primary %s graceful shutdown completed in %s (bound %s)", primaryName, elapsed, bound)
 }

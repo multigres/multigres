@@ -387,20 +387,12 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusState.GetReplicationPrimary()), nil
 }
 
-// Leaders that have resigned publish a LeadershipStatus; any pooler in graceful
-// shutdown publishes a LifecycleStatus. Every pooler publishes its cohort
-// eligibility. Returns non-nil because cohort eligibility is always populated.
+// buildAvailabilityStatus returns the current AvailabilityStatus for this node.
+// Leaders that have resigned publish a LeadershipStatus. Every pooler publishes
+// its cohort eligibility, so the result is non-nil.
 func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
-	var ls *clustermetadatapb.LeadershipStatus
-	var lc *clustermetadatapb.LifecycleStatus
-	pm.withLock(func() {
-		ls = pm.buildLeadershipStatusLocked()
-		lc = pm.buildLifecycleStatusLocked()
-	})
-
 	return &clustermetadatapb.AvailabilityStatus{
-		LeadershipStatus:        ls,
-		LifecycleStatus:         lc,
+		LeadershipStatus:        pm.buildLeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
 	}
 }
@@ -439,12 +431,14 @@ func (pm *MultiPoolerManager) setCohortEligibility(signal clustermetadatapb.Coho
 	}
 }
 
-// buildLeadershipStatusLocked returns the LeadershipStatus for this node.
-// Non-nil only when resignedLeaderAtTerm is set (i.e. after a BeginTerm REVOKE).
-// Nil means this node has not recently held or resigned from primary leadership.
-// Caller must hold pm.mu.
-func (pm *MultiPoolerManager) buildLeadershipStatusLocked() *clustermetadatapb.LeadershipStatus {
+// buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
+// when resignedLeaderAtTerm is set (i.e. after a BeginTerm REVOKE or graceful
+// shutdown of a leader). Nil means this node has not recently held or resigned
+// from primary leadership.
+func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
+	pm.mu.Lock()
 	resignedTerm := pm.resignedLeaderAtTerm
+	pm.mu.Unlock()
 
 	if resignedTerm == 0 {
 		return nil
@@ -456,23 +450,23 @@ func (pm *MultiPoolerManager) buildLeadershipStatusLocked() *clustermetadatapb.L
 	}
 }
 
-// buildLifecycleStatusLocked returns the LifecycleStatus for this node.
-// Nil when lifecycleSignal is UNKNOWN (the implicit default).
-// Caller must hold pm.mu.
-func (pm *MultiPoolerManager) buildLifecycleStatusLocked() *clustermetadatapb.LifecycleStatus {
-	if pm.lifecycleSignal == clustermetadatapb.LifecycleSignal_LIFECYCLE_SIGNAL_UNKNOWN {
-		return nil
-	}
-	return &clustermetadatapb.LifecycleStatus{Signal: pm.lifecycleSignal}
-}
-
+// setResignedLeaderAtTerm records that this node is requesting demotion as primary
+// for the given term. The signal is included in subsequent StatusResponses so the
+// coordinator can trigger an immediate election. Broadcasts to health stream
+// subscribers when the value actually changes, so the coordinator sees the new
+// signal without waiting for the next periodic snapshot.
+// Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term int64) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	pm.mu.Lock()
+	changed := pm.resignedLeaderAtTerm != term
 	pm.resignedLeaderAtTerm = term
 	pm.mu.Unlock()
+	if changed {
+		pm.broadcastHealth()
+	}
 	return nil
 }
 

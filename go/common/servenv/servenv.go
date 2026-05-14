@@ -148,7 +148,7 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			Dynamic:  false,
 		}),
 		onTermTimeout: viperutil.Configure(reg, "onterm-timeout", viperutil.Options[time.Duration]{
-			Default:  10 * time.Second,
+			Default:  20 * time.Second,
 			FlagName: "onterm-timeout",
 			Dynamic:  false,
 		}),
