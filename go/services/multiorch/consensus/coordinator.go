@@ -28,6 +28,7 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
@@ -117,13 +118,31 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 }
 
 // runFailover wires the new-flow failover callbacks for a coordinatorLedRuleChange
-// and runs it. The proposal builder picks an eligible non-resigned leader from the
-// outgoing cohort; the tryBuildProposal and checkProposalPossible callbacks delegate to
-// BuildSafeProposal and CheckProposalPossible respectively.
+// and runs it. Poolers that have signaled REQUESTING_DEMOTION are excluded from
+// the cohort entirely: a writing leader's local LSN is always at least as
+// advanced as any replica's (async replication), so including a resigned
+// leader would let it dominate discovery and dead-end the proposal when health
+// check rejects it. The full cohort identity is preserved via OutgoingRule's
+// CohortMembers (replicas carry the same rule), so the consensus layer's
+// outgoing-quorum check still runs against the original cohort size.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	poolerByID, healthByID := buildCohortMaps(cohort)
+	liveCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))
+	for _, p := range cohort {
+		if types.LeaderNeedsReplacement(p) {
+			c.logger.InfoContext(ctx, "Excluding resigned pooler from failover cohort",
+				"pooler", p.GetMultiPooler().GetId().GetName())
+			continue
+		}
+		liveCohort = append(liveCohort, p)
+	}
+	if len(liveCohort) == 0 {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no non-resigned poolers in cohort; cannot fail over")
+	}
+
+	poolerByID, _ := buildCohortMaps(liveCohort)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		return buildFailoverProposal(ctx, c.logger, r, poolerByID, healthByID)
+		return buildFailoverProposal(r, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		return commonconsensus.BuildSafeProposal(rev, statuses, buildProposal)
@@ -131,7 +150,7 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort)
+	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, liveCohort)
 }
 
 // appointLeaderWithTerm is the shared core of AppointLeader and AppointInitialLeader.
@@ -220,6 +239,58 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardID string, 
 	policy, err := c.GetBootstrapPolicy(ctx, database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
+	}
+
+	if c.useNewFlow {
+		// Bootstrap has no outgoing cohort to recruit consent from, so we use
+		// the externally-certified path. The "external" certification is the
+		// most-advanced timeline observed across the cohort's cached statuses:
+		// its rule number caps how far the outgoing cohort could have
+		// progressed, and its LSN is the frozen point any new leader must
+		// match. This handles partial bootstraps too — if any cohort member
+		// already carries a rule, we surface its rule number rather than
+		// falsely claiming term 0.
+		var cohortStatuses []*clustermetadatapb.ConsensusStatus
+		for _, p := range cohort {
+			if cs := p.GetConsensusStatus(); cs != nil {
+				cohortStatuses = append(cohortStatuses, cs)
+			}
+		}
+
+		// This is the discovery phase of coordinator-led rule changes. For externally-certified
+		// rule changes, the client (this method) is responsible for discovery.
+		mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
+		if mostAdvanced == nil {
+			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cannot bootstrap shard %s: no cohort member has a known WAL position", shardID)
+		}
+		outgoingRule := mostAdvanced.GetRule().GetRuleNumber()
+		if outgoingRule == nil {
+			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cannot bootstrap shard %s: db initialization didn't set up consensus rules", shardID)
+		}
+
+		poolerByID, _ := buildCohortMaps(cohort)
+		cohortIDs := poolerIDs(cohort)
+		buildProposalFn := func(result commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			return buildBootstrapProposal(result, cohortIDs, policy, poolerByID)
+		}
+		certFor := func(rev *clustermetadatapb.TermRevocation) *clustermetadatapb.ExternallyCertifiedRevocation {
+			return &clustermetadatapb.ExternallyCertifiedRevocation{
+				TermRevocation:     rev,
+				OutgoingRuleNumber: outgoingRule,
+				FrozenLsn:          mostAdvanced.GetLsn(),
+			}
+		}
+		return c.newRuleChange(
+			"ShardInit",
+			func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+				return commonconsensus.BuildExternallyCertifiedProposal(certFor(rev), statuses, buildProposalFn)
+			},
+			func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
+				return commonconsensus.CheckExternallyCertifiedProposalPossible(certFor(rev), statuses, buildProposalFn)
+			},
+		).Run(ctx, cohort)
 	}
 
 	// Freshly bootstrapped shards start at term 0; skip discoverMaxTerm (which
