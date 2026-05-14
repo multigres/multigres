@@ -179,6 +179,23 @@ func TestPlanPrepareStmt(t *testing.T) {
 	assert.Equal(t, "SELECT 1", psi.Query)
 }
 
+func TestPlanPrepareStmtDuplicateName(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "PREPARE myplan AS SELECT 2")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSDuplicatePreparedStmt),
+		"expected duplicate_prepared_statement (42P05), got %v", err)
+
+	// The first prepared statement must remain intact.
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
+	assert.Equal(t, "SELECT 1", psi.Query)
+}
+
 func TestPlanPrepareStmtWithParams(t *testing.T) {
 	s := newTestSetup(t)
 

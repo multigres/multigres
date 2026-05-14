@@ -37,7 +37,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	rpcClient := &rpcclient.FakeClient{}
 	poolerStore := store.NewPoolerStore(rpcClient, slog.Default())
 	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "test-coord"}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default(), false)
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 	analyzer := &CohortMismatchAnalyzer{factory: factory}
 

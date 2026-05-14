@@ -1448,7 +1448,81 @@ func TestPropagate(t *testing.T) {
 		require.ElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
 		require.ElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
+
+	t.Run("fails when cohort is too small for the policy's sync replication requirement", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
+		standbys := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil),
+		}
+
+		// AT_LEAST_N(4) needs 3 sync acks from a cohort that, including the
+		// candidate, only has 2 members. AtLeastNPolicy.BuildSyncReplicationConfig
+		// rejects this, and EstablishLeadership must surface it under its
+		// "failed to build synchronous replication config" wrap.
+		quorumRule := &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 4,
+			Description:   "Test quorum (too large for cohort)",
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, mustPolicy(t, quorumRule), "test_election", cohort, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to build synchronous replication config")
+		require.Contains(t, err.Error(), "insufficient cohort members")
+	})
+
+	t.Run("fails when policy returns nil config without error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
+		standbys := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, nil),
+		}
+		cohort := append([]*multiorchdatapb.PoolerHealthState{candidate}, standbys...)
+		recruited := append([]*multiorchdatapb.PoolerHealthState{candidate}, standbys...)
+
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, nilConfigPolicy{}, "test_election", cohort, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "BuildSyncReplicationConfig returned nil config without error")
+		// Promote must not have been dispatched when the contract is violated.
+		_, sent := fakeClient.PromoteRequests["multipooler-zone1-mp1"]
+		require.False(t, sent, "promotion must not be attempted when policy contract is violated")
+	})
 }
+
+// nilConfigPolicy implements DurabilityPolicy but violates its contract by
+// returning (nil, nil) from BuildSyncReplicationConfig. Used to exercise
+// EstablishLeadership's defensive check that refuses to promote when a buggy
+// policy fails to return a config or an error.
+type nilConfigPolicy struct{}
+
+func (nilConfigPolicy) CheckAchievable([]*clustermetadatapb.ID) error { return nil }
+
+func (nilConfigPolicy) CheckSufficientRecruitment(_, _ []*clustermetadatapb.ID) error {
+	return nil
+}
+
+func (nilConfigPolicy) BuildSyncReplicationConfig(
+	*slog.Logger, []*clustermetadatapb.ID, *clustermetadatapb.ID,
+) (*commonconsensus.SyncReplicationConfig, error) {
+	return nil, nil
+}
+
+func (nilConfigPolicy) Description() string { return "nil-config stub (test only)" }
 
 func TestAppointLeader(t *testing.T) {
 	ctx := context.Background()
@@ -1474,7 +1548,7 @@ func TestAppointLeader(t *testing.T) {
 			},
 		}))
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
 		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, nil)
@@ -1544,6 +1618,88 @@ func TestAppointLeader(t *testing.T) {
 	})
 }
 
+func TestAppointLeader_NewFlow(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger, true /* useNewFlow */)
+
+	// Build the committed rule shared by all nodes. Coordinator term 5 means
+	// the new revocation will be at term 6.
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+	}
+	// AT_LEAST_3 forces tryBuildProposal to wait for all three recruits before
+	// forming quorum, making leader selection deterministic regardless of
+	// recruit-RPC completion order.
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(3),
+	}
+
+	// mp1 has the highest LSN, so the new flow should pick it as leader.
+	walPositions := []string{"0/3000000", "0/2000000", "0/1000000"}
+	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
+	for i, id := range cohortIDs {
+		mp := createMockNode(fakeClient, id.Name, 5, walPositions[i], true, outgoingRule)
+		// Pre-vote runs over cached cohort statuses (not Recruit responses), so
+		// we need an Id and a populated CurrentPosition with the committed rule
+		// here too. createMockNode leaves these fields zero on the cached status.
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:  walPositions[i],
+			Rule: outgoingRule,
+		}
+		key := topoclient.MultiPoolerIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:  walPositions[i],
+					Rule: outgoingRule,
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		cohort = append(cohort, mp)
+	}
+
+	require.NoError(t, c.AppointLeader(ctx, "shard0", cohort, "testdb", "test_new_flow"))
+
+	// Every node should have received a Propose carrying the same proposal.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		propReq, ok := fakeClient.ProposeRequests[key]
+		require.True(t, ok, "Propose should be sent to %s", id.Name)
+		require.NotNil(t, propReq.GetProposal())
+		require.Equal(t, "test_new_flow", propReq.GetReason())
+		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+			"new flow should pick mp1 (highest LSN) as leader")
+		require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+			"revocation term should be max prior term (5) + 1")
+	}
+
+	// Legacy promotion path must not have been invoked.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		_, called := fakeClient.PromoteRequests[key]
+		require.False(t, called, "Promote should not be called in new flow for %s", id.Name)
+	}
+}
+
 func TestAppointInitialLeader(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -1572,7 +1728,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			RequiredCount: 2,
 		})
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		// Fresh standbys at term 0 (brand new nodes, just restored from backup)
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
@@ -1609,7 +1765,7 @@ func TestAppointInitialLeader(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		err := c.AppointInitialLeader(ctx, "shard0", nil, "testdb")
 		require.Error(t, err)
@@ -1626,7 +1782,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			Name: "testdb",
 		}))
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
@@ -1648,7 +1804,7 @@ func TestAppointInitialLeader(t *testing.T) {
 			RequiredCount: 3,
 		})
 
-		c := NewCoordinator(coordID, ts, fakeClient, logger)
+		c := NewCoordinator(coordID, ts, fakeClient, logger, false)
 
 		mp1 := createMockNode(fakeClient, "mp1", 0, "0/2000000", true, nil)
 		cohort := []*multiorchdatapb.PoolerHealthState{mp1}
@@ -1657,4 +1813,100 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "pre-vote failed")
 	})
+}
+
+func TestAppointInitialLeader_NewFlow(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	require.NoError(t, ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+		Name:                      "testdb",
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(3),
+	}))
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger, true /* useNewFlow */)
+
+	// AT_LEAST_3 forces tryBuild to wait for all three recruits before
+	// quorum forms, making leader selection deterministic regardless of
+	// recruit-RPC completion order.
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+	}
+	// mp1 has the highest LSN; bootstrap should pick it as leader. Each node
+	// carries the zero-state sentinel rule that createSidecarSchema writes
+	// during db init: term/subterm 0, empty cohort, but a real durability
+	// policy. AppointInitialLeader requires a rule to derive the cert from.
+	sentinelRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{},
+		DurabilityPolicy: topoclient.AtLeastN(3),
+	}
+	walPositions := []string{"0/2000000", "0/1500000", "0/1000000"}
+	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
+	for i, id := range cohortIDs {
+		mp := createMockNode(fakeClient, id.Name, 0, walPositions[i], true, sentinelRule)
+		mp.Status.IsInitialized = true
+		mp.Status.PostgresReady = true
+		mp.Status.PostgresRunning = true
+		// Cached cohort statuses populate Id and CurrentPosition (with sentinel
+		// rule) so MostAdvancedPosition can derive the cert and pre-vote can
+		// run on real positions. Fresh nodes carry no prior term revocation.
+		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Lsn:  walPositions[i],
+				Rule: sentinelRule,
+			},
+		}
+		key := topoclient.MultiPoolerIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:  walPositions[i],
+					Rule: sentinelRule,
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		cohort = append(cohort, mp)
+	}
+
+	require.NoError(t, c.AppointInitialLeader(ctx, "shard0", cohort, "testdb"))
+
+	// Every node should receive an identical Propose carrying the bootstrap proposal.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		propReq, ok := fakeClient.ProposeRequests[key]
+		require.True(t, ok, "Propose should be sent to %s", id.Name)
+		require.NotNil(t, propReq.GetProposal())
+		require.Equal(t, "ShardInit", propReq.GetReason())
+		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+			"bootstrap should pick mp1 (highest LSN) as leader")
+		// Fresh cluster: max prior term is 0, so the new revocation is term 1.
+		require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+			"bootstrap revocation term should be 1")
+		// Proposed rule carries the bootstrap policy and the full cohort.
+		propRule := propReq.GetProposal().GetProposedRule()
+		require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
+		require.Len(t, propRule.GetCohortMembers(), 3)
+	}
+
+	// Legacy promotion path must not have been invoked.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		_, called := fakeClient.PromoteRequests[key]
+		require.False(t, called, "Promote should not be called in new flow for %s", id.Name)
+	}
 }

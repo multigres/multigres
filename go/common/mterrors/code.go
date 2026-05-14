@@ -34,6 +34,8 @@ const (
 	PgSSAuthFailed              = "28P01" // invalid_password
 	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
+	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled
@@ -235,6 +237,13 @@ func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
 func NewInvalidPortalError(name string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSInvalidCursorName,
 		fmt.Sprintf("portal \"%s\" does not exist", name), "")
+}
+
+// NewDuplicatePreparedStatementError creates a PgDiagnostic for a PREPARE
+// that reuses an existing statement name. SQLSTATE 42P05.
+func NewDuplicatePreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSDuplicatePreparedStmt,
+		fmt.Sprintf("prepared statement \"%s\" already exists", name), "")
 }
 
 // IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic

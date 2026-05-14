@@ -298,18 +298,22 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	// Populate the store with two poolers with different stream states.
 	engine.poolerStore.Set("zone1/pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			Database: "testdb",
-			Shard:    "shard1",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database: "testdb",
+				Shard:    "shard1",
+			},
 		},
 		StreamConnected:         true,
 		StreamSnapshotsReceived: 42,
 	})
 	engine.poolerStore.Set("zone1/pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-			Database: "testdb",
-			Shard:    "shard1",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database: "testdb",
+				Shard:    "shard1",
+			},
 		},
 		StreamConnected:         false,
 		StreamSnapshotsReceived: 7,

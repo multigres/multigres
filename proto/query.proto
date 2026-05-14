@@ -264,6 +264,14 @@ message ReservedState {
   // reservation_reasons is a bitmask of ReservationReason values indicating why the connection
   // is still reserved. Zero means the connection was released.
   uint32 reservation_reasons = 3;
+
+  // backend_process_id is the real PostgreSQL backend process ID for this
+  // reserved connection — the PID visible in pg_stat_activity / pg_locks.
+  // Used to bridge the gap between multigateway's virtual PIDs and
+  // PostgreSQL's real PIDs so lock-detection functions like
+  // pg_isolation_test_session_is_blocked() can map vpid → real pid through
+  // the proxy.
+  uint32 backend_process_id = 4;
 }
 
 // ExecuteOptions contains execution options for query execution.
@@ -309,6 +317,13 @@ message ExecuteOptions {
   // instead of relying on trust on the local connection. Unset for
   // sessions that did not authenticate via SCRAM.
   UserAuth user_auth = 7;
+
+  // client_connection_id is the multigateway's virtual PID for this client
+  // connection. The multipooler stamps it onto the underlying PostgreSQL
+  // backend's application_name as `multigres_vpid:<id>` so lock-detection
+  // functions can map virtual PIDs (visible to clients) back to real
+  // backend PIDs via pg_stat_activity.
+  uint32 client_connection_id = 8;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

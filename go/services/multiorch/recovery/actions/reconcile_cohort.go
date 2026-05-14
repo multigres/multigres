@@ -117,6 +117,13 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 			"primary %s has no recorded rule; cannot reconcile cohort", primary.MultiPooler.Id.Name)
 	}
 
+	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
+	// call. The proto already accepts repeated standby_ids; the analyzer emits
+	// one Problem per pooler and the recovery engine dispatches one action per
+	// problem, so each cycle currently fires N separate UpdateConsensusRule
+	// RPCs (each triggering its own rule_history write and reload) even though
+	// the underlying RPC could apply them in one shot. Coalescing same-shard,
+	// same-operation problems would cut RPC fanout and history churn.
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{target.MultiPooler.Id},

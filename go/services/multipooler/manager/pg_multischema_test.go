@@ -69,8 +69,10 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
 	multiPooler := &clustermetadatapb.MultiPooler{
-		TableGroup: tableGroup,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
 	}
 
 	svcID := &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"}
@@ -194,7 +196,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.createSidecarSchema(ctx)
+			err := pm.createSidecarSchema(ctx, testBootstrapPolicy())
 
 			if tt.expectError {
 				assert.Error(t, err)

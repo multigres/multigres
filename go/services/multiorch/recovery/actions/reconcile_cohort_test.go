@@ -62,13 +62,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps := store.NewPoolerStore(fakeClient, slog.Default())
 		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "testdb",
-				TableGroup: "default",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary.example.com",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id:       primaryID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary.example.com",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -81,11 +79,9 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		})
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "testdb",
-				TableGroup: "default",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
+				Id:       replicaID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -170,20 +166,19 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		// the first health snapshot populates the consensus rule.
 		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "testdb",
-				TableGroup: "default",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary.example.com",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id:       primaryID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary.example.com",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{},
 		})
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id: replicaID, Database: "testdb", TableGroup: "default", Shard: "0",
-				Type: clustermetadatapb.PoolerType_REPLICA,
+				Id:       replicaID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 		})
 
@@ -228,11 +223,9 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		// produces an empty FindPoolersInShard result.
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "testdb",
-				TableGroup: "default",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
+				Id:       replicaID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 		})
 

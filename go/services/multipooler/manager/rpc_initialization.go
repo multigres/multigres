@@ -196,12 +196,12 @@ func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler.Shard != "" {
-		return pm.multipooler.Shard
+	if pm.multipooler.GetShardKey().GetShard() != "" {
+		return pm.multipooler.GetShardKey().GetShard()
 	}
 
 	// Fall back to MultiPooler - always available and authoritative
-	return pm.multipooler.Shard
+	return pm.multipooler.GetShardKey().GetShard()
 }
 
 // removeDataDirectory removes the PostgreSQL data directory

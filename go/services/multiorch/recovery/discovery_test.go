@@ -77,12 +77,20 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 
 	// Initial state: 2 poolers in different tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "mydb", TableGroup: "tg2", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	// First watch event - should discover both
@@ -96,8 +104,12 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 
 	// Add new tablegroup with pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "mydb", TableGroup: "tg3", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg3",
+			Shard:      "0",
+		},
 	}))
 
 	// Second watch event - should discover new tablegroup's pooler
@@ -109,8 +121,12 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 
 	// Add new shard in existing tablegroup
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
-		Database: "mydb", TableGroup: "tg1", Shard: "1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "1",
+		},
 	}))
 
 	// Third watch event - should discover new shard's pooler
@@ -156,12 +172,20 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 
 	// Initial state: poolers in tg1 and tg2
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "mydb", TableGroup: "tg2", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	// First watch event - should only discover tg1
@@ -176,8 +200,12 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 
 	// Add new shard in tg1
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "mydb", TableGroup: "tg1", Shard: "1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "1",
+		},
 	}))
 
 	// Second watch event - should discover new shard in tg1
@@ -189,8 +217,12 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 
 	// Add new tablegroup tg3 with pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
-		Database: "mydb", TableGroup: "tg3", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg3",
+			Shard:      "0",
+		},
 	}))
 
 	// Third watch event - should NOT discover new tablegroup
@@ -227,16 +259,28 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 
 	// Initial state: poolers in different shards and tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "mydb", TableGroup: "tg1", Shard: "1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "1",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "mydb", TableGroup: "tg2", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	// First watch event - should only discover tg1/shard0
@@ -253,8 +297,12 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 
 	// Add another pooler to the watched shard
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	// Second watch event - should discover new pooler in same shard
@@ -266,8 +314,12 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 
 	// Add new shard in same tablegroup
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler5"},
-		Database: "mydb", TableGroup: "tg1", Shard: "2",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler5"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "2",
+		},
 	}))
 
 	// Third watch event - should NOT discover new shard
@@ -279,8 +331,12 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 
 	// Add new tablegroup
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler6"},
-		Database: "mydb", TableGroup: "tg3", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler6"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg3",
+			Shard:      "0",
+		},
 	}))
 
 	// Fourth watch event - should NOT discover new tablegroup
@@ -316,8 +372,12 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 
 	// Add initial pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 		Hostname: "host1",
 	}))
 
@@ -394,28 +454,52 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 
 	// Add poolers for different watch targets
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "db1", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "db1", TableGroup: "tg2", Shard: "1", // Should be discovered (db1 watch)
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db1",
+			TableGroup: "tg2",
+			Shard:      "1",
+		}, // Should be discovered (db1 watch)
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "db2", TableGroup: "tg1", Shard: "0", // Should be discovered (db2/tg1 watch)
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db2",
+			TableGroup: "tg1",
+			Shard:      "0",
+		}, // Should be discovered (db2/tg1 watch)
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
-		Database: "db2", TableGroup: "tg2", Shard: "0", // Should NOT be discovered
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler4"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db2",
+			TableGroup: "tg2",
+			Shard:      "0",
+		}, // Should NOT be discovered
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler5"},
-		Database: "db3", TableGroup: "tg1", Shard: "0", // Should be discovered (db3/tg1/0 watch)
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler5"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db3",
+			TableGroup: "tg1",
+			Shard:      "0",
+		}, // Should be discovered (db3/tg1/0 watch)
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler6"},
-		Database: "db3", TableGroup: "tg1", Shard: "1", // Should NOT be discovered
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler6"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "db3",
+			TableGroup: "tg1",
+			Shard:      "1",
+		}, // Should NOT be discovered
 	}))
 
 	// Wait for expected 4 poolers: pooler1, pooler2, pooler3, pooler5
@@ -465,8 +549,12 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 
 	// Add a pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(1)), "expected 1 pooler after adding to topology")
@@ -500,12 +588,20 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 
 	// Add a matching pooler and a non-matching pooler simultaneously
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "mydb", TableGroup: "tg2", Shard: "0", // filtered out
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		}, // filtered out
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "expected at least 1 pooler in store")
@@ -519,8 +615,12 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 
 	// Verify a new pooler discovered via watcher triggers the onNewPooler callback.
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "mydb", TableGroup: "tg1", Shard: "1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "1",
+		},
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "expected pooler3 to be discovered")

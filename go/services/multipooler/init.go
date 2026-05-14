@@ -56,6 +56,10 @@ type MultiPooler struct {
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
 	pgBackRestPort     viperutil.Value[int]
+	// vpidStampEnabled controls stamping of multigres_vpid:<id> on PostgreSQL
+	// backends so lock-detection can map a multigateway virtual PID to the
+	// real backend PID via pg_stat_activity.application_name.
+	vpidStampEnabled viperutil.Value[bool]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -152,6 +156,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
+		vpidStampEnabled: viperutil.Configure(reg, "vpid-stamp-enabled", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "vpid-stamp-enabled",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -187,6 +196,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
+	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Stamp multigres_vpid:<id> on PostgreSQL backend application_name for vpid-to-PID mapping used by lock detection. Reserves application_name from client-set values when enabled.")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -203,6 +213,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
+		mp.vpidStampEnabled,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -294,9 +305,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
 	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
-	multipooler.Database = mp.database.Get()
-	multipooler.TableGroup = mp.tableGroup.Get()
-	multipooler.Shard = mp.shard.Get()
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   mp.database.Get(),
+		TableGroup: mp.tableGroup.Get(),
+		Shard:      mp.shard.Get(),
+	}
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
@@ -315,6 +328,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+		VpidStampEnabled:   mp.vpidStampEnabled.Get(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

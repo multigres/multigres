@@ -130,10 +130,12 @@ func setupStreamingTestWithCallback(
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		Hostname:   "127.0.0.1",
-		TableGroup: "default",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "127.0.0.1",
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
 		PortMap: map[string]int32{
 			"grpc": int32(port),
 		},

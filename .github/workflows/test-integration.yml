@@ -26,6 +26,9 @@ jobs:
   test-integration:
     name: Run full integration test suite
     runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,6 +67,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --packages="./go/test/endtoend/..." \
             --jsonfile=integration-test-results.jsonl \
+            --junitfile=integration-test-results.xml \
             -- \
             -skip TestPostgreSQLRegression -timeout=30m
 
@@ -75,7 +79,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: integration-test-logs
-          path: integration-test-results.jsonl
+          path: |
+            integration-test-results.jsonl
+            integration-test-results.xml
           retention-days: 14
 
       - name: Test Report
@@ -85,3 +91,18 @@ jobs:
           name: Integration Tests
           path: integration-test-results.jsonl
           reporter: golang-json
+
+      # Only upload test results from main-branch pushes. On PRs, Codecov's
+      # test-results comment template replaces the coverage comment when any
+      # test fails, displacing the coverage diff that PR authors actually want
+      # to see. Flake tracking only needs main-branch history anyway.
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./integration-test-results.xml
+          report_type: test_results
+          flags: integration
+          fail_ci_if_error: false

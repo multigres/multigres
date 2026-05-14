@@ -28,6 +28,7 @@ import (
 // PostgreSQL connection. *reserved.Conn satisfies this interface.
 type reservedConnAPI interface {
 	ConnID() int64
+	ProcessID() uint32
 	RemainingReasons() uint32
 	IsInTransaction() bool
 	BeginWithQuery(ctx context.Context, beginQuery string) error

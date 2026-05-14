@@ -64,40 +64,49 @@ func TestPgInitdbArgsEnvVar(t *testing.T) {
 	})
 }
 
-func TestInitDbSQLFilesFlag(t *testing.T) {
+func TestPgInitdbSQLFilesFlag(t *testing.T) {
 	t.Run("defaults to empty slice", func(t *testing.T) {
 		_, pc := GetRootCommand()
-		assert.Empty(t, pc.initDbSQLFiles.Get())
+		assert.Empty(t, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("accepts repeated flag", func(t *testing.T) {
 		root, pc := GetRootCommand()
 		require.NoError(t, root.ParseFlags([]string{
-			"--init-db-sql-file", "/tmp/a.sql",
-			"--init-db-sql-file", "/tmp/b.sql",
+			"--pg-initdb-sql-files", "/tmp/a.sql",
+			"--pg-initdb-sql-files", "/tmp/b.sql",
 		}))
-		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("accepts comma-separated values", func(t *testing.T) {
 		root, pc := GetRootCommand()
 		require.NoError(t, root.ParseFlags([]string{
-			"--init-db-sql-file", "/tmp/a.sql,/tmp/b.sql",
+			"--pg-initdb-sql-files", "/tmp/a.sql,/tmp/b.sql",
 		}))
-		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("POSTGRES_INITDB_SQL_FILES env var is used when flag not set", func(t *testing.T) {
-		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/a.sql")
+		t.Setenv(constants.PgInitdbSQLFilesEnvVar, "/tmp/a.sql")
 		_, pc := GetRootCommand()
-		assert.Equal(t, []string{"/tmp/a.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("flag overrides POSTGRES_INITDB_SQL_FILES env var", func(t *testing.T) {
-		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/env.sql")
+		t.Setenv(constants.PgInitdbSQLFilesEnvVar, "/tmp/env.sql")
 		root, pc := GetRootCommand()
-		require.NoError(t, root.ParseFlags([]string{"--init-db-sql-file", "/tmp/flag.sql"}))
-		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.initDbSQLFiles.Get())
+		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-files", "/tmp/flag.sql"}))
+		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.pgInitdbSQLFiles.Get())
+	})
+
+	t.Run("legacy --init-db-sql-file flag aliases to --pg-initdb-sql-files", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--init-db-sql-file", "/tmp/legacy-a.sql",
+			"--init-db-sql-file", "/tmp/legacy-b.sql",
+		}))
+		assert.Equal(t, []string{"/tmp/legacy-a.sql", "/tmp/legacy-b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 }
 
