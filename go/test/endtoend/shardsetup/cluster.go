@@ -80,6 +80,13 @@ type ShardSetup struct {
 	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
 	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
+	// Multiadmin instance (optional, enabled via WithMultiadmin).
+	// The HTTP port is what the Next.js web UI in web/multiadmin/ talks to;
+	// point it via MULTIADMIN_API_URL=http://localhost:<MultiadminHttpPort>.
+	Multiadmin         *ProcessInstance
+	MultiadminHttpPort int
+	MultiadminGrpcPort int
+
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
 
@@ -415,6 +422,31 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 	return inst
 }
 
+// CreateMultiadminInstance creates a multiadmin process instance.
+// Returns the created ProcessInstance. Does not start the process.
+func (s *ShardSetup) CreateMultiadminInstance(t *testing.T, name string, httpPort, grpcPort int) *ProcessInstance {
+	t.Helper()
+
+	inst := &ProcessInstance{
+		Name:        name,
+		Binary:      "multiadmin",
+		Cell:        s.CellName,
+		ServiceID:   fmt.Sprintf("%s-%s", name, s.CellName),
+		HttpPort:    httpPort,
+		GrpcPort:    grpcPort,
+		EtcdAddr:    s.EtcdClientAddr,
+		GlobalRoot:  "/multigres/global",
+		LogFile:     filepath.Join(s.TempDir, name+".log"),
+		Environment: os.Environ(),
+	}
+
+	s.Multiadmin = inst
+	s.MultiadminHttpPort = httpPort
+	s.MultiadminGrpcPort = grpcPort
+
+	return inst
+}
+
 // WaitForMultigatewayQueryServing waits for multigateway to be able to execute queries.
 // This verifies that multigateway has discovered poolers from topology and can route queries.
 // Should be called AFTER bootstrap completes.
@@ -498,6 +530,9 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	}
 	if s.Multigateway != nil {
 		s.Multigateway.TerminateGracefully(logf, 5*time.Second)
+	}
+	if s.Multiadmin != nil {
+		s.Multiadmin.TerminateGracefully(logf, 5*time.Second)
 	}
 	for _, mo := range s.MultiOrchInstances {
 		mo.TerminateGracefully(logf, 5*time.Second)
@@ -593,6 +628,11 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 	// Check multigateway
 	if s.Multigateway != nil && !s.Multigateway.IsRunning() {
 		dead = append(dead, "multigateway")
+	}
+
+	// Check multiadmin
+	if s.Multiadmin != nil && !s.Multiadmin.IsRunning() {
+		dead = append(dead, "multiadmin")
 	}
 
 	// Check multipooler instances
