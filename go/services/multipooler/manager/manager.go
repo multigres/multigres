@@ -1774,7 +1774,9 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 			}
 		}
 		// Pooler type already matches; check for a stale GUC that needs re-applying.
-		if pm.rules.hasInconsistentGUC(ctx) {
+		// Only reconcile the GUC when actually running as primary: synchronous_standby_names
+		// has no effect on a standby, and setting it there leaks state.
+		if currentState.isPrimary && pm.rules.hasInconsistentGUC(ctx) {
 			return remedialActionReconcileGUC
 		}
 		return remedialActionNone
