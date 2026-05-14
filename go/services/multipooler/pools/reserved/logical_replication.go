@@ -22,7 +22,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
 )
 
@@ -42,18 +41,18 @@ func logicalReplicationClientConfig(base client.Config) client.Config {
 // in its startup parameters and tags it with ReasonLogicalReplication so the
 // reservation bitmask treats it as a session-pinned connection.
 //
-// The connection bypasses the regular pool entirely. A `replication=database`
-// walsender is a real backend that accepts SQL as well as replication-protocol
-// commands, so it *could* technically be returned to a pool — but it carries
-// long-lived session state (an in-flight replication stream, an owned slot)
-// that must stay pinned to this specific backend for the session's
-// lifetime. Handing it to another caller mid-flight would lose that affinity.
-// Per-session direct dial sidesteps the question. The returned *Conn is
-// registered in p.active so Get(connID) still works.
+// The connection consumes one slot in the underlying regular pool, sharing the
+// per-user cap (and block-on-full, waiter metrics, and demand tracking) with
+// transactional reserved conns. Because `replication=database` is a startup-
+// time parameter that cannot be flipped on an existing backend, we acquire a
+// slot, discard the regular socket it gave us, and swap in a fresh replication-
+// mode socket into the same Pooled wrapper. The session-pinned semantics still
+// hold: the wrapper is tainted at release time so Recycle closes the socket
+// instead of returning it to the idle list.
 //
-// The caller must call Release when the session ends. Because the Pooled
-// wrapper holds pool == nil, every Release reason closes the underlying
-// socket — there is no recycle path for a replication-mode conn.
+// The caller must call Release when the session ends. Every Release reason
+// taints the wrapper (see Pool.release) before Recycle so the underlying
+// socket is closed and the cap slot freed.
 //
 // Asymmetry with NewConn: this factory does not take a *connstate.Settings.
 // The intended callers (replication-protocol streaming, slot management) issue
@@ -72,17 +71,33 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	}
 	p.mu.Unlock()
 
+	// Acquire a slot in the underlying connpool. This is the same path
+	// transactional reserved conns take, so we share the per-user cap,
+	// block-and-wait behavior, and demand/wait metrics.
+	pooled, err := p.conns.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire reserved slot for replication conn: %w", err)
+	}
+
+	// Discard the pooled socket. Replication mode is set in the startup
+	// packet and cannot be turned on for an existing backend, so we swap a
+	// fresh replication-mode socket into the same Pooled wrapper to keep
+	// the slot accounted for.
+	pooled.Conn.Close()
+
 	cfg := logicalReplicationClientConfig(*p.config.RegularPoolConfig.ClientConfig)
 	clientConn, err := client.Connect(ctx, p.ctx, &cfg)
 	if err != nil {
+		pooled.Taint()
+		pooled.Recycle()
 		return nil, fmt.Errorf("dial replication connection: %w", err)
 	}
-	rc := regular.NewConn(clientConn, p.config.RegularPoolConfig.AdminPool)
+	pooled.Conn = regular.NewConn(clientConn, p.config.RegularPoolConfig.AdminPool)
 
-	// pool == nil makes Recycle close the conn directly (see
-	// connpool/pooled.go), which is what we want for a session-pinned conn
-	// that cannot re-enter a pool.
-	pooled := &connpool.Pooled[*regular.Conn]{Conn: rc}
+	// IMPORTANT: do NOT call pooled.Taint() here. Taint immediately frees
+	// the slot via p.pool.put(nil) — see connpool/pooled.go. The slot must
+	// stay held for the session's lifetime, so we leave pool intact and
+	// let reserved.Pool.release() Taint right before Recycle.
 
 	connID := p.lastID.Add(1)
 	c := newConn(pooled, connID, p)
@@ -99,7 +114,8 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 		// Pool closed between our earlier check and registration. Tear down
 		// the freshly opened socket rather than orphaning it in a closed pool.
 		p.mu.Unlock()
-		_ = clientConn.Close()
+		pooled.Taint()
+		pooled.Recycle()
 		return nil, errors.New("reserved pool is closed")
 	}
 	p.active[connID] = c

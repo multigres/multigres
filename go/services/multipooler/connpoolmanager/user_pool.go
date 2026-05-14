@@ -250,14 +250,6 @@ func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Sett
 // reserved pool and authenticates as this user — required because the
 // replication=database startup parameter is rejected for roles without the
 // REPLICATION attribute.
-//
-// TODO: logical-replication connections should not consume the user's
-// regular pool capacity. They are long-lived (hours-to-days), session-pinned,
-// and qualitatively different from transactional reserved connections. A
-// future change should give them their own per-user pool/quota (or a
-// dedicated capacity reservation inside UserPool) so a tenant running N
-// active replication sessions doesn't see their regular-query throughput
-// shrink by N.
 func (p *UserPool) NewLogicalReplicationConn(ctx context.Context) (*reserved.Conn, error) {
 	p.touchActivity()
 	return p.reservedPool.NewLogicalReplicationConn(ctx)

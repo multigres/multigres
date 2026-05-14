@@ -471,10 +471,6 @@ func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]strin
 // replication mode (replication=database) and tagged with
 // ReasonLogicalReplication, on the specified user's reserved pool. SCRAM
 // passthrough key semantics match NewReservedConn.
-//
-// TODO: see UserPool.NewLogicalReplicationConn — replication connections
-// should eventually live in their own per-user capacity bucket so they
-// don't compete with regular query traffic.
 func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
 	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewLogicalReplicationConn(ctx)

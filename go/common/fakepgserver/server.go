@@ -97,6 +97,27 @@ type Server struct {
 	// of the most recently established connection. Recorded via the
 	// ConnectionEstablishedHandler hook.
 	lastReplicationMode server.ReplicationMode
+
+	// rejectNextReplStartup, when armed, causes the next replication-mode
+	// startup (replication=true / replication=database) to be rejected with
+	// FATAL 42501 as if the role lacked the REPLICATION attribute. One-shot:
+	// consumed via CompareAndSwap so it auto-resets after the first matching
+	// startup. Non-replication startups are unaffected. Used by tests to
+	// assert dial-failure cleanup paths.
+	//
+	// We piggyback on verifyReplicationRole's GetCredentials path (see the
+	// GetCredentials method below) rather than introducing a new
+	// startup-rejection hook so the fake's failure modes stay aligned with
+	// production rolreplication-rejection plumbing — tests exercise the same
+	// post-auth gate real postgres uses, not a parallel error path.
+	//
+	// Listener-config qualifier: this scoping works because GetCredentials is
+	// reached only from verifyReplicationRole under fakepgserver's hardcoded
+	// trust auth. If fakepgserver ever grows SCRAM (which calls
+	// GetCredentials for every login, not just replication startups), this
+	// toggle would broaden to non-replication startups and the logic in
+	// GetCredentials would need to gate on replication mode explicitly.
+	rejectNextReplStartup atomic.Bool
 }
 
 type exprResult struct {
@@ -128,7 +149,33 @@ func (s *Server) GetCredentials(ctx context.Context, user, database string) (*se
 	if provider == nil {
 		return nil, fmt.Errorf("fakepgserver: no credential provider configured for %q", user)
 	}
-	return provider.GetCredentials(ctx, user, database)
+	creds, err := provider.GetCredentials(ctx, user, database)
+	if err != nil {
+		return nil, err
+	}
+	// One-shot rejection toggle: clear IsReplicationRole so the post-auth
+	// gate in verifyReplicationRole rejects this connection with a FATAL
+	// 42501, matching production rolreplication-rejection plumbing rather
+	// than a parallel error path. Trust-auth replication startups are the
+	// only path that reaches here under fakepgserver's current listener
+	// config, so non-replication sessions are unaffected. See the
+	// rejectNextReplStartup field comment for the SCRAM caveat.
+	if s.rejectNextReplStartup.CompareAndSwap(true, false) {
+		out := *creds
+		out.IsReplicationRole = false
+		return &out, nil
+	}
+	return creds, nil
+}
+
+// SetRejectNextReplicationStartup arms a one-shot toggle that causes the
+// next replication-mode startup (replication=true / replication=database)
+// to be rejected at the rolreplication gate. The toggle auto-resets after
+// firing, so subsequent replication startups succeed again. Pass false to
+// disarm explicitly. Tests use this to exercise dial-failure cleanup
+// without dropping the listener.
+func (s *Server) SetRejectNextReplicationStartup(reject bool) {
+	s.rejectNextReplStartup.Store(reject)
 }
 
 // SetCredentialProvider installs a server.CredentialProvider that the
