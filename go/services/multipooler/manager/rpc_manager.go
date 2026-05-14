@@ -481,7 +481,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 
 // applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
 // GUCs without the primary guardrail or rule-history write. Safe to call on a standby
-// (e.g., before pg_promote) so the promoted primary inherits the correct config.
+// (e.g., before pg_promote) so the promoted primary takes effect with the new config.
 // The caller must hold the action lock.
 func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	ctx context.Context,
@@ -494,8 +494,10 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
 		return err
 	}
-	return pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
-	// TODO: Somehow make sure the GUC change has actually propagated
+	if err := pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames); err != nil {
+		return err
+	}
+	return pm.reloadPostgresConfig(ctx)
 }
 
 // UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
