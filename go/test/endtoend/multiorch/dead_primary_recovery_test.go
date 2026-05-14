@@ -30,6 +30,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -225,6 +226,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 				Cell:      setup.CellName,
 				Name:      "test-coordinator",
 			},
+			CoordinatorInitiatedAt: timestamppb.Now(),
 		},
 	}
 	recruitResp, err := primaryClient.Consensus.Recruit(utils.WithTimeout(t, 10*time.Second), recruitReq)

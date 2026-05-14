@@ -26,6 +26,7 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -396,6 +397,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 					Cell:      setup.CellName,
 					Name:      "test-coordinator",
 				},
+				CoordinatorInitiatedAt: timestamppb.Now(),
 			},
 		})
 	primaryClient.Close()
