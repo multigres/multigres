@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -99,6 +100,16 @@ type MultiGatewayHandler struct {
 	// targetReplica is set to true for the replica-port listener. When true,
 	// new connection states target replicas so the planner routes queries there.
 	targetReplica bool
+
+	// normalQueryLogSampleRate controls 1/N sampling for normal-path query
+	// logs. 0 disables sampling (handler level alone governs emission); 1
+	// emits every normal query; N>1 emits every Nth. Normal queries always
+	// log at DEBUG, so the default INFO-level handler drops them entirely.
+	normalQueryLogSampleRate uint64
+	// normalQueryLogSamplingCursor is the 1/N modulo cursor. It is only
+	// touched when sampleRate > 1; emission counts are exposed via the
+	// queryLogEmits OTel counter on h.metrics.
+	normalQueryLogSamplingCursor atomic.Uint64
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -116,6 +127,14 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		slowThreshold:    constants.DefaultSlowQueryThreshold,
 		notifMgr:         DefaultNotificationManager(),
 	}
+}
+
+// SetNormalQueryLogSampleRate sets the 1/N sampling rate for normal-path
+// query logs. 0 disables sampling (handler level alone governs); 1 emits
+// every query; N>1 emits every Nth. Normal queries always log at DEBUG.
+// Must be called before connections are accepted.
+func (h *MultiGatewayHandler) SetNormalQueryLogSampleRate(rate uint64) {
+	h.normalQueryLogSampleRate = rate
 }
 
 // SetTargetReplica configures whether connections accepted by this handler
@@ -543,6 +562,16 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 	h.psc.RemoveConnection(conn.ConnectionID())
 }
 
+// classifyErrorSource calls mterrors.ClassifyErrorSource only when err is
+// non-nil. The success path is overwhelmingly common, so short-circuiting
+// here avoids a per-query function call + interface check.
+func classifyErrorSource(err error) string {
+	if err == nil {
+		return ""
+	}
+	return mterrors.ClassifyErrorSource(err)
+}
+
 // recordQueryCompletion records all three metrics and emits a structured
 // query log entry. Centralises the instrumentation logic shared by
 // HandleQuery and HandleExecute.
@@ -585,10 +614,12 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 	status := QueryStatusOK
 	errorType := ""
+	errorSource := ""
 	if err != nil {
 		status = QueryStatusError
 		errorType = mterrors.ExtractSQLSTATE(err)
-		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName, fingerprintLabel)
+		errorSource = classifyErrorSource(err)
+		h.metrics.queryErrors.Add(ctx, errorType, errorSource, dbNamespace, operationName, fingerprintLabel)
 	}
 
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status, fingerprintLabel)
@@ -621,8 +652,8 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		TablesUsed:    tablesUsed,
 		Error:         err,
 		SQLSTATE:      errorType,
-		ErrorSource:   mterrors.ClassifyErrorSource(err),
-	}, h.slowThreshold)
+		ErrorSource:   errorSource,
+	}, h.slowThreshold, h.normalQueryLogSampleRate, &h.normalQueryLogSamplingCursor, h.metrics.queryLogEmits)
 }
 
 // Ensure MultiGatewayHandler implements server.Handler interface.

@@ -109,6 +109,8 @@ type MultiGateway struct {
 	// queryMetricsSQLMaxBytes is the maximum bytes of representative normalized
 	// SQL stored per tracked fingerprint.
 	queryMetricsSQLMaxBytes viperutil.Value[int]
+	// queryLogSampleRate is the 1/N sampling rate for normal-path query logs.
+	queryLogSampleRate viperutil.Value[uint64]
 	// queryRegistry tracks per-fingerprint query statistics; shared across
 	// primary and replica handlers so metrics aggregate to the same bucket.
 	queryRegistry *queryregistry.Registry
@@ -183,6 +185,12 @@ func NewMultiGateway() *MultiGateway {
 			FlagName: "query-metrics-sql-max-bytes",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_METRICS_SQL_MAX_BYTES"},
+		}),
+		queryLogSampleRate: viperutil.Configure(reg, "query-log-sample-rate", viperutil.Options[uint64]{
+			Default:  0,
+			FlagName: "query-log-sample-rate",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_QUERY_LOG_SAMPLE_RATE"},
 		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
@@ -264,6 +272,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
+	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
@@ -280,6 +289,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.planCacheMemory,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
+		mg.queryLogSampleRate,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
@@ -456,9 +466,12 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		logger.WarnContext(ctx, "failed to register query info metric", "error", err)
 	}
 
+	queryLogSampleRate := mg.queryLogSampleRate.Get()
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
+	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
@@ -504,6 +517,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
+		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:               replicaAddr,

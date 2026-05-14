@@ -32,4 +32,7 @@ type Config struct {
 	PgBackRestCertFile string // TLS client certificate file path
 	PgBackRestKeyFile  string // TLS client key file path
 	PgBackRestCAFile   string // TLS CA certificate file path
+	// VpidStampEnabled toggles stamping of multigres_vpid:<id> on PostgreSQL
+	// backends (and the matching application_name filter on pool settings).
+	VpidStampEnabled bool
 }

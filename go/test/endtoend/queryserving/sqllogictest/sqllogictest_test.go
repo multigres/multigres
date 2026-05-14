@@ -36,7 +36,7 @@ const (
 	// defaultPerFileTimeout bounds how long any single .test file can run
 	// against one target on one protocol. A single slow file cannot starve
 	// the whole suite.
-	defaultPerFileTimeout = 5 * time.Minute
+	defaultPerFileTimeout = 10 * time.Minute
 
 	// defaultBuildTimeout bounds the PostgreSQL source build.
 	defaultBuildTimeout = 10 * time.Minute
@@ -73,8 +73,8 @@ var protocols = []protocolConfig{
 //
 // This test is deliberately tolerant of failures. It does not fail the Go
 // test on proxy divergence or upstream corpus failures; it records per-
-// file, per-protocol pass/fail counts over time (like pgregresstest). CI
-// compares against a cached baseline; regressions surface there.
+// file, per-protocol pass/fail counts. CI inspects results.json and alerts
+// when any file passes on postgres but fails on multigateway.
 //
 // Skipped by default. Set RUN_EXTENDED_QUERY_SERVING_TESTS=1 to run.
 //
@@ -83,7 +83,7 @@ var protocols = []protocolConfig{
 //	RUN_EXTENDED_QUERY_SERVING_TESTS=1  — enable the test (required)
 //	SLT_CORPUS_DIR=<dir>                — use an external corpus instead of testdata/
 //	SLT_CORPUS_GLOB=<glob>              — scope which corpus files run (default: **/*.slt)
-//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 5m)
+//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 10m)
 func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 

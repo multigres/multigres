@@ -99,9 +99,6 @@ func nopCheckProposalPossible(_ *clustermetadatapb.TermRevocation, _ []*clusterm
 // ---- TestBuildFailoverProposal ----
 
 func TestBuildFailoverProposal(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-
 	makeID := func(name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -118,31 +115,6 @@ func TestBuildFailoverProposal(t *testing.T) {
 	}
 	makeCS := func(name string) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{Id: makeID(name)}
-	}
-	makeHealth := func(name string) *multiorchdatapb.PoolerHealthState {
-		return &multiorchdatapb.PoolerHealthState{MultiPooler: makeMP(name)}
-	}
-	makeResignedHealth := func(name string, primaryTerm int64) *multiorchdatapb.PoolerHealthState {
-		return &multiorchdatapb.PoolerHealthState{
-			MultiPooler: makeMP(name),
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: makeID(name),
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						LeaderId: makeID(name),
-						RuleNumber: &clustermetadatapb.RuleNumber{
-							CoordinatorTerm: primaryTerm,
-						},
-					},
-				},
-			},
-			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-					LeaderTerm: primaryTerm,
-				},
-			},
-		}
 	}
 
 	outgoingRule := &clustermetadatapb.ShardRule{
@@ -166,49 +138,13 @@ func TestBuildFailoverProposal(t *testing.T) {
 			OutgoingRule:    outgoingRule,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeHealth("mp1"),
-			"zone1_mp2": makeHealth("mp2"),
-		}
 
-		proposal, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
+		proposal, err := buildFailoverProposal(result, poolerByID)
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
 		assert.Len(t, proposal.GetProposedRule().GetCohortMembers(), 3)
 		assert.Equal(t, "mp1", proposal.GetProposedRule().GetLeaderId().GetName())
-	})
-
-	t.Run("skips resigned primary, picks next eligible leader", func(t *testing.T) {
-		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
-		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeResignedHealth("mp1", 4),
-			"zone1_mp2": makeHealth("mp2"),
-		}
-
-		proposal, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
-		require.NoError(t, err)
-		assert.Equal(t, "mp2", proposal.GetProposalLeader().GetId().GetName())
-	})
-
-	t.Run("all eligible leaders resigned returns error", func(t *testing.T) {
-		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
-		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeResignedHealth("mp1", 4),
-			"zone1_mp2": makeResignedHealth("mp2", 4),
-		}
-
-		_, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "all eligible leaders have resigned")
 	})
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
@@ -217,13 +153,22 @@ func TestBuildFailoverProposal(t *testing.T) {
 			OutgoingRule:    nil,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
 		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeHealth("mp1"),
-		}
 
-		_, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
+		_, err := buildFailoverProposal(result, poolerByID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no committed rule found")
+	})
+
+	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
+		result := commonconsensus.RecruitmentResult{
+			TermRevocation:  rev,
+			OutgoingRule:    outgoingRule,
+			EligibleLeaders: nil,
+		}
+
+		_, err := buildFailoverProposal(result, poolerByID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no eligible leaders")
 	})
 }
 
