@@ -178,10 +178,11 @@ func (sc *ScatterConn) StreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:          userAuthFrom(conn),
-		User:              conn.User(),
-		SessionSettings:   state.GetSessionSettings(),
-		PreparedStatement: preparedStatement,
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
+		PreparedStatement:  preparedStatement,
 	}
 
 	ss := state.GetMatchingShardState(target)
@@ -330,10 +331,11 @@ func (sc *ScatterConn) PortalStreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		MaxRows:         uint64(maxRows),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		MaxRows:            uint64(maxRows),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
@@ -377,9 +379,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 			"reasons", protoutil.ReasonsString(reasons))
 
 		noopEo := &querypb.ExecuteOptions{
-			UserAuth:        userAuthFrom(conn),
-			User:            conn.User(),
-			SessionSettings: state.GetSessionSettings(),
+			UserAuth:           userAuthFrom(conn),
+			User:               conn.User(),
+			ClientConnectionId: conn.ConnectionID(),
+			SessionSettings:    state.GetSessionSettings(),
 		}
 		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
 		if state.PendingBeginQuery != "" {
@@ -453,9 +456,10 @@ func (sc *ScatterConn) Describe(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
@@ -561,6 +565,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
@@ -666,6 +671,7 @@ func (sc *ScatterConn) DiscardTempTables(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
@@ -763,9 +769,10 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create execute options
 	execOptions := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 
 	// If there's already a reserved connection for this target (e.g., in a transaction),
@@ -838,6 +845,7 @@ func (sc *ScatterConn) CopySendData(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
@@ -894,6 +902,7 @@ func (sc *ScatterConn) CopyFinalize(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
@@ -958,6 +967,7 @@ func (sc *ScatterConn) CopyAbort(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
@@ -994,6 +1004,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}

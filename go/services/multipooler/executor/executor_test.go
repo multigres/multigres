@@ -19,14 +19,21 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
+	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
+	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 )
 
 // mockReservedConn is a hand-rolled stub satisfying reservedConnAPI for unit tests.
@@ -48,6 +55,7 @@ type mockReservedConn struct {
 }
 
 func (m *mockReservedConn) ConnID() int64                         { return m.connID }
+func (m *mockReservedConn) ProcessID() uint32                     { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32              { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool                 { return m.inTxn }
 func (m *mockReservedConn) TxnStatus() protocol.TransactionStatus { return m.txnStatus }
@@ -324,4 +332,181 @@ func TestScramKeysFromOptions(t *testing.T) {
 			require.Equal(t, tt.wantSK, gotSK)
 		})
 	}
+}
+
+// --- sessionSettingsForPool tests ---
+
+func TestSessionSettingsForPool_DisabledPassthrough(t *testing.T) {
+	e := &Executor{vpidStampEnabled: false}
+
+	t.Run("nil settings", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(nil))
+	})
+
+	t.Run("application_name preserved", func(t *testing.T) {
+		in := map[string]string{"application_name": "client-app", "search_path": "public"}
+		got := e.sessionSettingsForPool(in)
+		require.Equal(t, in, got)
+	})
+}
+
+func TestSessionSettingsForPool_EnabledFiltersAppName(t *testing.T) {
+	e := &Executor{vpidStampEnabled: true}
+
+	t.Run("nil settings stays nil", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(nil))
+	})
+
+	t.Run("only application_name collapses to nil", func(t *testing.T) {
+		require.Nil(t, e.sessionSettingsForPool(map[string]string{"application_name": "x"}))
+	})
+
+	t.Run("mixed settings drops application_name only", func(t *testing.T) {
+		got := e.sessionSettingsForPool(map[string]string{
+			"application_name":  "client-app",
+			"search_path":       "public",
+			"statement_timeout": "1000",
+		})
+		require.Equal(t, map[string]string{
+			"search_path":       "public",
+			"statement_timeout": "1000",
+		}, got)
+	})
+
+	t.Run("case-insensitive match on application_name", func(t *testing.T) {
+		got := e.sessionSettingsForPool(map[string]string{
+			"Application_Name": "client-app",
+			"APPLICATION_NAME": "other",
+			"search_path":      "public",
+		})
+		require.Equal(t, map[string]string{"search_path": "public"}, got)
+	})
+
+	t.Run("no application_name returns equivalent map", func(t *testing.T) {
+		in := map[string]string{"search_path": "public"}
+		got := e.sessionSettingsForPool(in)
+		require.Equal(t, in, got)
+	})
+}
+
+// --- stampVpid* early-return tests ---
+//
+// The happy-path SET application_name issue is covered by integration tests
+// (it requires a real pool connection). Here we lock in the guard semantics:
+// the helpers must be safe no-ops when stamping is disabled, options is nil,
+// or ClientConnectionId is zero. A nil conn is intentionally passed to prove
+// the helpers return before touching it.
+
+func TestStampVpidOnReserved_NoOpGuards(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
+	}{
+		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"enabled with nil options", true, nil},
+		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Executor{vpidStampEnabled: tc.enabled}
+			// nil conn would panic on SetApplicationName — guard must short-circuit first.
+			e.stampVpidOnReserved(ctx, nil, tc.options)
+		})
+	}
+}
+
+func TestStampVpidOnRegular_NoOpGuards(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
+	}{
+		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"enabled with nil options", true, nil},
+		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Executor{vpidStampEnabled: tc.enabled}
+			e.stampVpidOnRegular(ctx, nil, tc.options)
+		})
+	}
+}
+
+// --- stampVpid* happy-path tests ---
+//
+// These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
+// verify that the helper issues the expected SET application_name when
+// stamping is enabled and ClientConnectionId is non-zero. This is the only
+// behaviour the early-return tests above don't cover.
+
+func TestStampVpidOnRegular_HappyPath(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := &Executor{vpidStampEnabled: true}
+	server.ResetQueryLog()
+	e.stampVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+
+	assert.Equal(t, "set application_name = 'multigres_vpid:99'", server.QueryLog())
+}
+
+func TestStampVpidOnReserved_HappyPath(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	defer rconn.Release(reserved.ReleaseCommit)
+
+	e := &Executor{vpidStampEnabled: true}
+	server.ResetQueryLog()
+	e.stampVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
+
+	assert.Equal(t, "set application_name = 'multigres_vpid:123'", server.QueryLog())
+}
+
+// --- NewExecutor smoke test ---
+
+func TestNewExecutor(t *testing.T) {
+	logger := slog.Default()
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+
+	t.Run("stamp enabled", func(t *testing.T) {
+		e := NewExecutor(logger, nil, poolerID, true)
+		require.NotNil(t, e)
+		assert.True(t, e.vpidStampEnabled)
+		assert.Equal(t, poolerID, e.poolerID)
+		assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
+	})
+
+	t.Run("stamp disabled", func(t *testing.T) {
+		e := NewExecutor(logger, nil, poolerID, false)
+		require.NotNil(t, e)
+		assert.False(t, e.vpidStampEnabled)
+	})
 }
