@@ -357,8 +357,7 @@ func (e *Executor) reserveAndStreamExecute(
 // streamExecuteOnReservedConn executes a query on an existing reserved
 // connection. It optionally promotes the reservation by adding new reasons
 // (e.g., starting a transaction on a temp-table-reserved connection) before
-// running the query, and reconciles the in-memory transaction tracking against
-// PG's actual transaction status afterwards.
+// running the query.
 //
 // Defined over reservedConnAPI rather than *reserved.Conn so that unit tests
 // can substitute a mock and exercise this path without a live PG connection.
