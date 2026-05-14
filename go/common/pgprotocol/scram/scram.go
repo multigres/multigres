@@ -27,6 +27,11 @@ const (
 	// ScramSHA256Mechanism is the SASL mechanism name for SCRAM-SHA-256.
 	ScramSHA256Mechanism = "SCRAM-SHA-256"
 
+	// ScramSHA256PlusMechanism is the SASL mechanism name for SCRAM-SHA-256
+	// with channel binding (RFC 5802 §6 + PostgreSQL convention). Advertised
+	// only over TLS, alongside ScramSHA256Mechanism.
+	ScramSHA256PlusMechanism = "SCRAM-SHA-256-PLUS"
+
 	// serverNonceLength is the number of random bytes to add to the client nonce.
 	serverNonceLength = 18
 )
@@ -36,11 +41,20 @@ const (
 // Where gs2-header = gs2-cbind-flag "," [authzid] ","
 // And client-first-message-bare = username "," nonce ["," extensions]
 type clientFirstMessage struct {
-	// gs2CbindFlag is the channel binding flag ('n', 'y', or 'p').
-	// 'n' = client doesn't support channel binding
-	// 'y' = client supports but server doesn't advertise
-	// 'p' = client requires channel binding
+	// gs2CbindFlag is the raw channel binding flag from the wire:
+	//   "n"      — client doesn't support channel binding
+	//   "y"      — client supports but believes server doesn't advertise it
+	//   "p=<t>"  — client requires channel binding of type <t>
 	gs2CbindFlag string
+
+	// channelBindingType is the parsed binding type when gs2CbindFlag has
+	// the "p=" form (e.g. "tls-server-end-point"). Empty for "n"/"y".
+	channelBindingType string
+
+	// gs2Header is the literal "gs2-cbind-flag,[authzid]," prefix as it
+	// appeared on the wire. Required to verify the cbind data the client
+	// sends back in client-final-message.
+	gs2Header string
 
 	// authzid is the optional authorization identity.
 	authzid string
@@ -89,16 +103,20 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 		return nil, errors.New("invalid client-first-message: expected at least 3 comma-separated parts")
 	}
 
-	// Parse GS2 header.
+	// Parse GS2 header. Note the channel binding decision (use/reject/downgrade)
+	// is the authenticator's job — here we only parse the wire form.
 	gs2CbindFlag := parts[0]
+	var channelBindingType string
 	switch {
 	case gs2CbindFlag == "n":
 		// Client doesn't support channel binding.
 	case gs2CbindFlag == "y":
 		// Client supports channel binding but thinks server doesn't.
 	case strings.HasPrefix(gs2CbindFlag, "p="):
-		// Client requires channel binding.
-		return nil, fmt.Errorf("channel binding not supported (client requested %q)", gs2CbindFlag)
+		channelBindingType = gs2CbindFlag[2:]
+		if channelBindingType == "" {
+			return nil, errors.New("invalid GS2 channel binding flag: missing type after 'p='")
+		}
 	default:
 		return nil, fmt.Errorf("invalid GS2 channel binding flag: %q", gs2CbindFlag)
 	}
@@ -111,6 +129,9 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 	} else if authzidPart != "" {
 		return nil, fmt.Errorf("invalid authzid part: %q", authzidPart)
 	}
+
+	// Preserve the literal gs2-header prefix for later cbind verification.
+	gs2Header := gs2CbindFlag + "," + authzidPart + ","
 
 	// The rest is the client-first-message-bare.
 	clientFirstMessageBare := parts[2]
@@ -132,6 +153,8 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 
 	return &clientFirstMessage{
 		gs2CbindFlag:           gs2CbindFlag,
+		channelBindingType:     channelBindingType,
+		gs2Header:              gs2Header,
 		authzid:                authzid,
 		username:               username,
 		clientNonce:            clientNonce,
@@ -147,15 +170,30 @@ func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 		return nil, errors.New("empty client-final-message")
 	}
 
-	// Parse attributes.
+	// Parse attributes. The RFC permits each attribute at most once; an
+	// attacker repeating "c=" with a different value could otherwise slip
+	// a tampered binding past a last-write-wins parse. Reject duplicates.
 	var channelBinding, nonce, proofB64 string
+	var sawC, sawR, sawP bool
 	for attr := range strings.SplitSeq(msg, ",") {
 		switch {
 		case strings.HasPrefix(attr, "c="):
+			if sawC {
+				return nil, errors.New("duplicate channel binding attribute in client-final-message")
+			}
+			sawC = true
 			channelBinding = attr[2:]
 		case strings.HasPrefix(attr, "r="):
+			if sawR {
+				return nil, errors.New("duplicate nonce attribute in client-final-message")
+			}
+			sawR = true
 			nonce = attr[2:]
 		case strings.HasPrefix(attr, "p="):
+			if sawP {
+				return nil, errors.New("duplicate proof attribute in client-final-message")
+			}
+			sawP = true
 			proofB64 = attr[2:]
 		}
 	}

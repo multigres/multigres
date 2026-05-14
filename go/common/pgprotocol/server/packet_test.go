@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
 func TestMessageReaderReadByte(t *testing.T) {
@@ -245,8 +246,10 @@ func TestReadSASLInitialResponseReleasesBuffer(t *testing.T) {
 		bufferedReader: bufio.NewReader(&w),
 	}
 
-	got, err := conn.readSASLInitialResponse()
+	advertised := map[string]struct{}{scram.ScramSHA256Mechanism: {}}
+	gotMech, got, err := conn.readSASLInitialResponse(advertised)
 	require.NoError(t, err)
+	assert.Equal(t, scram.ScramSHA256Mechanism, gotMech)
 	assert.Equal(t, string(saslData), got)
 	assert.Nil(t, conn.inboundPoolBuf,
 		"readSASLInitialResponse must release its read buffer via defer")

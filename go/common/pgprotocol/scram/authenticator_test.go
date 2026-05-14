@@ -91,7 +91,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce := extractClientNonce(clientFirstMessage)
 
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Server-first-message should contain: r=<combined-nonce>, s=<salt-b64>, i=<iterations>
@@ -105,7 +105,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth := NewScramAuthenticator(hash, "testdb")
 		auth.StartAuthentication()
 
-		_, err := auth.HandleClientFirst("", "")
+		_, err := auth.HandleClientFirst(ScramSHA256Mechanism, "", "")
 		require.Error(t, err)
 	})
 
@@ -115,7 +115,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth.StartAuthentication()
 
 		// Note: empty username is now allowed (uses fallback), but missing nonce is still an error
-		_, err := auth.HandleClientFirst("n,,n=user", "user")
+		_, err := auth.HandleClientFirst(ScramSHA256Mechanism, "n,,n=user", "user")
 		require.Error(t, err)
 	})
 
@@ -128,7 +128,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 
 		// Client sends empty username in SCRAM, startup message has "startupuser"
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "startupuser")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "startupuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage, "r=clientnonce12345") // Combined nonce starts with client nonce
 	})
@@ -140,7 +140,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 
 		// Client sends empty username with no startup message username - should fail
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
-		_, err := auth.HandleClientFirst(clientFirstMessage, "")
+		_, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "startup message")
 	})
@@ -155,7 +155,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		// Client sends "wronguser" in client-first-message but "actualuser" in startup message.
 		// PostgreSQL behavior: ALWAYS use startup message username.
 		clientFirstMessage := "n,,n=wronguser,r=clientnonce12345"
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "actualuser")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "actualuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage, "r=clientnonce12345")
 
@@ -172,7 +172,7 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		// Client requests channel binding (p=tls-server-end-point)
 		clientFirstMessage := "p=tls-server-end-point,,n=testuser,r=clientnonce"
 
-		_, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
+		_, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "channel binding")
 	})
@@ -194,7 +194,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		// Step 1: Client first message.
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Step 2: Client final message with correct password.
@@ -229,7 +229,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		// Step 1: Client first message.
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "testuser")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Step 2: Client final message with WRONG password.
@@ -253,7 +253,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		_, err = auth.HandleClientFirst(clientFirstMessage, "testuser")
+		_, err = auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		_, err = auth.HandleClientFinal("")
@@ -268,7 +268,7 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
-		_, err = auth.HandleClientFirst(clientFirstMessage, "testuser")
+		_, err = auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		require.NoError(t, err)
 
 		// Send a client-final-message with a different nonce (attacker trying to replay).
@@ -310,7 +310,7 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce := extractClientNonce(clientFirstMessage)
 
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, "user")
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "user")
 		require.NoError(t, err)
 
 		// 3. Verify server-first-message format.
@@ -355,7 +355,7 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		clientFirstMessage, err := client.ClientFirstMessage()
 		require.NoError(t, err)
 
-		serverFirstMessage, err := auth.HandleClientFirst(clientFirstMessage, username)
+		serverFirstMessage, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, username)
 		require.NoError(t, err)
 
 		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
@@ -385,7 +385,7 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		auth.StartAuthentication()
 		client := NewSCRAMClientWithPassword("testuser", testPassword)
 		clientFirstMessage, _ := client.ClientFirstMessage()
-		serverFirstMessage, _ := auth.HandleClientFirst(clientFirstMessage, "testuser")
+		serverFirstMessage, _ := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage, "testuser")
 		clientFinalMessage, _ := client.ProcessServerFirst(serverFirstMessage)
 		_, _ = auth.HandleClientFinal(clientFinalMessage)
 
@@ -405,7 +405,7 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		require.NoError(t, err)
 		clientNonce2 := extractClientNonce(clientFirstMessage2)
 
-		serverFirstMessage2, err := auth.HandleClientFirst(clientFirstMessage2, "testuser")
+		serverFirstMessage2, err := auth.HandleClientFirst(ScramSHA256Mechanism, clientFirstMessage2, "testuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage2, "r="+clientNonce2)
 	})
@@ -417,7 +417,7 @@ func TestScramAuthenticatorState(t *testing.T) {
 		auth := NewScramAuthenticator(hash, "testdb")
 
 		// Cannot call HandleClientFirst before StartAuthentication.
-		_, err := auth.HandleClientFirst("n,,n=user,r=nonce", "user")
+		_, err := auth.HandleClientFirst(ScramSHA256Mechanism, "n,,n=user,r=nonce", "user")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "state")
 
@@ -430,11 +430,11 @@ func TestScramAuthenticatorState(t *testing.T) {
 		assert.Contains(t, err.Error(), "state")
 
 		// Now proceed normally.
-		_, err = auth.HandleClientFirst("n,,n=user,r=clientnonce", "user")
+		_, err = auth.HandleClientFirst(ScramSHA256Mechanism, "n,,n=user,r=clientnonce", "user")
 		require.NoError(t, err)
 
 		// Cannot call HandleClientFirst again.
-		_, err = auth.HandleClientFirst("n,,n=user,r=anothernonce", "user")
+		_, err = auth.HandleClientFirst(ScramSHA256Mechanism, "n,,n=user,r=anothernonce", "user")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "state")
 	})

@@ -59,23 +59,32 @@
 //
 //   - ScramAuthenticator: Stateful server-side authenticator handling the protocol exchange
 //   - SCRAMClient: Client-side authenticator supporting password and passthrough modes
+//   - ScramHash: PostgreSQL pg_authid SCRAM-SHA-256 hash (salt, iterations, StoredKey, ServerKey)
 //   - Cryptographic functions: RFC 5802 compliant key derivation and verification
 //   - Protocol parsers/generators: Message construction and parsing (unexported)
 //
 // # Usage Example
 //
-//	// Server-side authentication: the caller looks up the hash before
-//	// constructing the authenticator so one credential fetch can also
-//	// satisfy any post-auth role-attribute checks.
-//	hash, err := lookupScramHash(ctx, "myuser", "mydb")
+//	// Server-side authentication. The caller looks up the user's
+//	// SCRAM hash up front (e.g. via a credential provider) and passes
+//	// it to NewScramAuthenticator.
+//	hash := fetchScramHashForUser(user, db)
 //	auth := scram.NewScramAuthenticator(hash, "mydb")
+//
+//	// Optional: enable SCRAM-SHA-256-PLUS (channel binding) over TLS.
+//	auth.SetOverTLS(true)
+//	auth.SetChannelBinding(&scram.ChannelBinding{
+//	    TLSServerEndPointHash: certHash, // see ComputeTLSServerEndPointHash
+//	})
 //
 //	// Start SASL negotiation
 //	mechanisms := auth.StartAuthentication()
 //	// Send AuthenticationSASL with mechanisms...
 //
-//	// Handle client-first-message
-//	serverFirst, err := auth.HandleClientFirst(clientFirstMsg, startupMessageUsername)
+//	// Handle client-first-message. `mechanism` is the SASL mechanism the
+//	// client picked in SASLInitialResponse; `startupUser` is the username
+//	// from the StartupMessage (used when the SCRAM message itself has none).
+//	serverFirst, err := auth.HandleClientFirst(mechanism, clientFirstMsg, startupUser)
 //	// Send AuthenticationSASLContinue with serverFirst...
 //
 //	// Handle client-final-message
@@ -110,13 +119,13 @@
 //
 //	SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>
 //
-// Callers are responsible for fetching the hash from storage (pg_authid, a
-// cache, a remote credential service) before constructing a
-// ScramAuthenticator. Coupling the fetch to the SCRAM state machine forced
-// callers that also needed other per-role attributes to make a second
-// lookup; pushing the fetch out keeps SCRAM purely a state machine and
-// lets one credential lookup serve both the password hash and any
-// follow-up role-attribute checks.
+// The caller looks up the user's SCRAM hash (typically via a credential
+// provider that wraps the storage backend) and passes the parsed *ScramHash
+// to NewScramAuthenticator. Storage backends can:
+//   - Query PostgreSQL's pg_authid directly
+//   - Use a credential cache with TTL and invalidation
+//   - Fetch from a centralized credential service
+//   - Combine multiple sources with fallback logic
 //
 // # Future Directions
 //
@@ -180,13 +189,18 @@
 //
 // This implementation is compatible with:
 //   - PostgreSQL 10+ SCRAM-SHA-256 authentication
+//   - PostgreSQL 11+ SCRAM-SHA-256-PLUS channel binding (tls-server-end-point,
+//     RFC 5929). Advertised alongside SCRAM-SHA-256 on TLS connections.
 //   - Standard PostgreSQL client libraries (psql, libpq, pgx, etc.)
 //   - PostgreSQL's pg_authid password hash format
 //   - PostgreSQL's SASLprep implementation (RFC 4013)
 //
 // Not currently supported:
 //   - SCRAM-SHA-1 (deprecated, not used by PostgreSQL)
-//   - Channel binding (SCRAM-SHA-256-PLUS)
+//   - tls-unique channel binding (deprecated; TLS 1.3 removed it)
+//   - Channel binding with TLS configs that use GetCertificate/SNI dynamic
+//     certs without populating tlsConfig.Certificates[0]; PLUS falls back to
+//     SCRAM-SHA-256 in that case
 //   - Custom iteration counts (uses hash's iteration count)
 //
 // # References
