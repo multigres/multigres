@@ -49,101 +49,6 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	require.NoError(t, err)
 }
 
-func TestConsensusService_BeginTerm(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-	t.Cleanup(cleanupPgctld)
-
-	// Create database in topology
-	addDatabaseToTopo(t, ts, "testdb")
-
-	// Create the multipooler in topology so manager can reach ready state
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadata.ShardKey{
-			Database:   "testdb",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	multipooler.PoolerDir = tmpDir
-
-	config := &manager.Config{
-		TopoClient:       ts,
-		PgctldAddr:       pgctldAddr,
-		ConsensusEnabled: true,
-		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
-	}
-	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
-	pgDataDir := tmpDir + "/pg_data"
-	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
-	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-	require.NoError(t, os.MkdirAll(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
-	defer pm.Shutdown()
-
-	// Start the async loader
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
-
-	t.Run("BeginTerm with REVOKE action without database connection accepts term but revoke fails", func(t *testing.T) {
-		req := &consensusdata.BeginTermRequest{
-			Term: 5,
-			CandidateId: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "candidate-1",
-			},
-			ShardId: "shard-1",
-			Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-		}
-
-		resp, err := svc.BeginTerm(ctx, req)
-
-		// With PrimaryTerm tracking: voting term is accepted even when postgres is unhealthy,
-		// but the revoke action fails. This allows distinguishing voting term from primary term.
-		// The node accepts the new voting term but keeps its old primary term, making it
-		// unambiguous which node is the true primary.
-		assert.Error(t, err, "Revoke action should fail when postgres is unhealthy")
-		assert.Contains(t, err.Error(), "term accepted but revoke action failed")
-		assert.NotNil(t, resp)
-		assert.True(t, resp.Accepted, "Voting term should be accepted even when revoke fails")
-		assert.Equal(t, int64(5), resp.Term, "Response should contain the accepted term")
-	})
-}
-
 func TestConsensusService_Status(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -302,25 +207,6 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		method        func() error
 		shouldSucceed bool
 	}{
-		{
-			name: "BeginTerm",
-			method: func() error {
-				req := &consensusdata.BeginTermRequest{
-					Term: 5,
-					CandidateId: &clustermetadata.ID{
-						Component: clustermetadata.ID_MULTIPOOLER,
-						Cell:      "zone1",
-						Name:      "candidate-1",
-					},
-					ShardId: "shard-1",
-					Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-				}
-				_, err := svc.BeginTerm(ctx, req)
-				return err
-			},
-			// No database connection: term is accepted but revoke action fails, so error is returned
-			shouldSucceed: false,
-		},
 		{
 			name: "Status",
 			method: func() error {

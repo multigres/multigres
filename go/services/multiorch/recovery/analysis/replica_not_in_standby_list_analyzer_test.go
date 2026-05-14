@@ -40,7 +40,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "test-coord",
 	}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default(), false)
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &ReplicaNotInStandbyListAnalyzer{factory: factory}

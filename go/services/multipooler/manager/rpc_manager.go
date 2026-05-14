@@ -27,7 +27,6 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -817,60 +816,6 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	return pm.changeTypeLocked(ctx, newType)
 }
 
-// EmergencyDemote demotes the current primary server
-// This can be called for any of the following use cases:
-// - By orchestrator when fixing a broken shard.
-// - When performing a Planned demotion.
-// - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "Demote")
-	if err != nil {
-		return nil, err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Validate the term but DON'T update yet. We only update the term AFTER
-	// successful demotion to avoid a race where a failed demote (e.g., postgres
-	// not ready) updates the term, causing subsequent detection to see equal
-	// terms and skip demotion.
-	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
-		return nil, err
-	}
-
-	nodeName := pm.serviceID.GetName()
-	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"})
-	defer func() {
-		if retErr == nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"})
-		} else {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"}, "error", retErr)
-		}
-	}()
-
-	// Perform the actual demotion
-	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	// Only update term AFTER successful demotion
-	// This ensures the stale primary keeps its lower term until it's actually demoted,
-	// allowing subsequent detection to continue flagging it as stale.
-	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		// Log but don't fail - demotion succeeded, term update is secondary
-		pm.logger.WarnContext(ctx, "Failed to update term after demotion",
-			"error", err,
-			"consensus_term", consensusTerm)
-	}
-
-	return resp, nil
-}
-
 // emergencyDemoteLocked performs the core demotion logic.
 // REQUIRES: action lock must already be held by the caller.
 // This is used for emergency demote operations.
@@ -880,44 +825,40 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 // MultiOrch will try to contact all nodes in the cohort.
 // In the case that the dead primary received the RPC, it should just
 // shut down itself.
-func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) error {
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
 	// === Validation & State Check ===
 
 	// Guard rail: Demote can only be called on a PRIMARY
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Check current demotion state
 	state, err := pm.checkDemotionState(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// If everything is already complete, return early (fully idempotent)
 	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
-		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
-			WasAlreadyDemoted:     true,
-			LsnPosition:           state.finalLSN,
-			ConnectionsTerminated: 0,
-		}, nil
+		return nil
 	}
 
 	// Transition to NOT_SERVING — rejects all queries and stops heartbeat.
 	// This ensures no new writes arrive while we drain existing connections.
 	if err := pm.setNotServing(ctx, state); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Drain write connections
 
 	if err := pm.drainWriteActivity(ctx, drainTimeout); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Terminate Remaining Write Connections
@@ -932,7 +873,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to capture final LSN", "error", err)
-		return nil, err
+		return err
 	}
 
 	// Signal voluntary resignation so the coordinator can trigger an immediate
@@ -941,7 +882,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// correlate the signal with the term at which this node was elected.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
 		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
-			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
+			return mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 		// Broadcast immediately so multiorch sees leadership_status.REQUESTING_DEMOTION
 		// before the next periodic health stream interval fires, allowing PrimaryIsDead
@@ -953,7 +894,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// the node in the cluster as a replication target, avoiding timeline divergence
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
 	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return nil, err
+		return err
 	}
 
 	pm.healthStreamer.UpdateLeaderObservation(nil)
@@ -967,11 +908,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		"consensus_term", consensusTerm,
 		"connections_terminated", connectionsTerminated)
 
-	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
-		WasAlreadyDemoted:     false,
-		LsnPosition:           finalLSN,
-		ConnectionsTerminated: connectionsTerminated,
-	}, nil
+	return nil
 }
 
 // UndoDemote undoes a demotion
@@ -1127,153 +1064,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		Success:         true,
 		RewindPerformed: rewindPerformed,
 		LsnPosition:     finalLSN,
-	}, nil
-}
-
-// Promote promotes a standby to primary
-// This is called during the Propagate stage of generalized consensus to safely
-// transition a standby to primary and reconfigure replication.
-// This operation is fully idempotent - it checks what steps are already complete
-// and only executes the missing steps.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, coordinatorID *clustermetadatapb.ID, cohortMemberIDs, acceptedMemberIDs []*clustermetadatapb.ID) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "Promote")
-	if err != nil {
-		return nil, err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Validation & Readiness
-
-	// Validate term - strict equality, no automatic updates
-	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
-		return nil, err
-	}
-
-	// Check current promotion state to determine what needs to be done
-	state, err := pm.checkPromotionState(ctx, syncReplicationConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	// Guard rail: Check topology type and validate state consistency
-	// If topology is PRIMARY, verify everything is in expected state (idempotency check)
-	// If topology is REPLICA, proceed with promotion
-	if state.isPrimaryInTopology {
-		// Topology shows PRIMARY - validate that everything is consistent
-		pm.logger.InfoContext(ctx, "Promote called but topology already shows PRIMARY - validating state consistency")
-
-		// Check if everything is in expected state
-		if state.isPrimaryInPostgres && state.syncReplicationMatches {
-			// Everything is consistent and complete - idempotent success
-			pm.logger.InfoContext(ctx, "Promotion already complete and consistent (idempotent)",
-				"lsn", state.currentLSN)
-			return &multipoolermanagerdatapb.PromoteResponse{
-				LsnPosition:       state.currentLSN,
-				WasAlreadyPrimary: true,
-			}, nil
-		}
-
-		// Inconsistent state detected
-		pm.logger.ErrorContext(ctx, "Inconsistent state detected - topology is PRIMARY but state is incomplete",
-			"is_primary_in_postgres", state.isPrimaryInPostgres,
-			"sync_replication_matches", state.syncReplicationMatches,
-			"force", force)
-
-		if !force {
-			// Without force flag, require manual intervention
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("inconsistent state: topology is PRIMARY but PostgreSQL state doesn't match (pg_primary=%v, sync_matches=%v). Manual intervention required or use force=true.",
-					state.isPrimaryInPostgres, state.syncReplicationMatches))
-		}
-	}
-
-	// If PostgreSQL is not promoted yet, validate expected LSN before promotion
-	if !state.isPrimaryInPostgres {
-		if err := pm.validateExpectedLSN(ctx, expectedLSN); err != nil {
-			return nil, err
-		}
-	}
-
-	// Execute missing steps
-
-	// Promote PostgreSQL if needed
-	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
-		return nil, err
-	}
-
-	// Configure sync replication if needed
-	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
-		return nil, err
-	}
-
-	// Get final LSN position
-	finalLSN, err := pm.getPrimaryLSN(ctx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
-		return nil, err
-	}
-
-	// Clear any outstanding resignation signal now that the coordinator has
-	// explicitly re-promoted us at a new term. A higher primary_term implicitly
-	// invalidates the old signal, but clearing eagerly avoids a window where
-	// a stale REQUESTING_DEMOTION is still published in StatusResponse.
-	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
-	}
-
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   pm.serviceID,
-		LeaderTerm: consensusTerm,
-	})
-
-	// Write rule history record - this validates that sync replication is working.
-	// If this fails (typically due to timeout waiting for standby acknowledgment), we fail
-	// the promotion. It's better to have no primary than one that can't satisfy durability.
-	if reason == "" {
-		reason = "unknown"
-	}
-	promoteCoordID := coordinatorID
-	if promoteCoordID == nil {
-		promoteCoordID = pm.serviceID
-	}
-	promoteUpdate := newRuleUpdate(
-		consensusTerm,
-		promoteCoordID,
-		"promotion",
-		reason,
-		time.Now()).
-		withLeader(pm.serviceID).
-		withCohort(cohortMemberIDs).
-		withAcceptedMembers(acceptedMemberIDs).
-		withWALPosition(finalLSN)
-	if force {
-		promoteUpdate.withForce()
-	}
-	if _, err = pm.rules.updateRule(ctx, promoteUpdate); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to write rule history - promotion failed",
-			"term", consensusTerm,
-			"error", err)
-		return nil, mterrors.Wrap(err, "promotion failed: could not write rule history (sync replication may not be functioning)")
-	}
-
-	// Update topology and notify all components (best-effort, don't fail promotion)
-	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update topology after promotion", "error", err)
-	}
-
-	pm.logger.InfoContext(ctx, "Promote completed successfully",
-		"final_lsn", finalLSN,
-		"consensus_term", consensusTerm,
-		"was_already_primary", state.isPrimaryInPostgres)
-
-	return &multipoolermanagerdatapb.PromoteResponse{
-		LsnPosition:       finalLSN,
-		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
 	}, nil
 }
 

@@ -353,7 +353,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// The term file lives outside PGDATA and is not included in the backup, so
 	// its on-disk value may be ahead of what the restored PGDATA participated in.
 	// Deleting it resets the node to term 0; multiorch will advance the term to
-	// the current cluster value on first contact via BeginTerm.
+	// the current cluster value on first contact via Recruit.
 	//
 	// TODO: Revisit this when we restore backups for other reasons than to
 	// bootstrap a new node, e.g. point-in-time recovery for an existing node.

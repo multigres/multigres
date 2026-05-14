@@ -41,7 +41,7 @@ import (
 // The test:
 //  1. Creates an isolated 3-node cluster with multiorch and multigateway (buffering enabled).
 //  2. Starts continuous writes through multigateway.
-//  3. Triggers a planned failover via BeginTerm (emergency demotion).
+//  3. Triggers a planned failover via Recruit (emergency demotion).
 //  4. Waits for a new primary to be elected.
 //  5. Asserts zero failed writes — the buffer should have held all in-flight
 //     requests until the new primary appeared.
@@ -367,7 +367,7 @@ func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 	return db
 }
 
-// triggerFailover demotes the current primary via BeginTerm and waits for
+// triggerFailover demotes the current primary via Recruit and waits for
 // a new primary to be elected.
 func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
@@ -384,24 +384,25 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.NoError(t, err)
 	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 
-	t.Logf("Triggering failover: BeginTerm on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
+	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
 
-	beginTermResp, err := primaryClient.Consensus.BeginTerm(
+	recruitResp, err := primaryClient.Consensus.Recruit(
 		utils.WithTimeout(t, 10*time.Second),
-		&consensusdatapb.BeginTermRequest{
-			Term: oldTerm + 1,
-			CandidateId: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIORCH,
-				Cell:      setup.CellName,
-				Name:      "test-coordinator",
+		&consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: oldTerm + 1,
+				AcceptedCoordinatorId: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIORCH,
+					Cell:      setup.CellName,
+					Name:      "test-coordinator",
+				},
 			},
-			Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 		})
 	primaryClient.Close()
 
-	require.NoError(t, err, "BeginTerm should succeed")
-	require.True(t, beginTermResp.Accepted, "primary should accept BeginTerm")
-	t.Logf("BeginTerm accepted, emergency demotion triggered")
+	require.NoError(t, err, "Recruit should succeed")
+	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
+	t.Logf("Recruit accepted, emergency demotion triggered")
 
 	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
 	setup.RequireRecovery(t, "multiorch", 90*time.Second)

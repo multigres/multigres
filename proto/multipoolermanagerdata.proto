@@ -275,7 +275,7 @@ message StatusResponse {
   // Availability status for nodes that are or have been primary. Wraps
   // LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
   // which the signal applies. Used by multiorch to detect voluntary demotions
-  // (BeginTerm REVOKE) without a separate ConsensusStatus RPC call.
+  // (Recruit) without a separate ConsensusStatus RPC call.
   // Staleness check: availability_status.leadership_status.primary_term must
   // equal the coordinator term of the committed rule (via ConsensusStatus)
   // to ensure signals from previous election cycles are ignored.
@@ -377,32 +377,6 @@ message ManagerHealthSnapshot {
   SnapshotTrigger trigger = 3;
 }
 
-// EmergencyDemote demotes the current leader server
-// This is called during the Revocation stage of generalized consensus to safely
-// transition a primary to read-only mode and prevent it from making further progress.
-message EmergencyDemoteRequest {
-  // Consensus term for this demotion operation
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
-
-  // Drain timeout - how long to wait for in-flight queries (default: 5s)
-  google.protobuf.Duration drain_timeout = 2;
-
-  // Force the operation even if term validation fails
-  bool force = 3;
-}
-
-message EmergencyDemoteResponse {
-  // Whether the pooler was already demoted (idempotent check)
-  bool was_already_demoted = 1;
-
-  // LSN position at the time of demotion (final position as primary)
-  string lsn_position = 3;
-
-  // Number of connections that were terminated
-  int32 connections_terminated = 4;
-}
-
 // DemoteStalePrimary demotes a stale primary that came back online after failover.
 // This is a complete operation that:
 // 1. Stops postgres if running
@@ -430,51 +404,6 @@ message DemoteStalePrimaryResponse {
 
   // LSN position after becoming standby
   string lsn_position = 3;
-}
-
-// Promote promotes a replica to leader (Multigres-level operation)
-// This is called during the Propagate stage of generalized consensus
-// to safely transition a standby to primary and reconfigure replication.
-message PromoteRequest {
-  // Consensus term for this promotion operation
-  // Used to ensure this promotion corresponds to the correct term
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
-
-  // Expected LSN position before promotion (optional, for validation)
-  // By the Propagate stage, replication should already be stopped and the LSN frozen.
-  // This is an assertion to verify the pooler has the expected durable state.
-  // If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
-  // If empty, skip LSN validation.
-  string expected_lsn = 2;
-
-  // Synchronous replication configuration to apply after promotion
-  // This rewires the cohort for the new topology
-  ConfigureSynchronousReplicationRequest sync_replication_config = 3;
-
-  // Force the operation even if term validation fails
-  // Should only be used in recovery scenarios
-  bool force = 4;
-
-  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
-  string reason = 5;
-
-  // Coordinator ID that ran this election
-  clustermetadata.ID coordinator_id = 6;
-
-  // List of poolers that were in the cohort
-  repeated clustermetadata.ID cohort_members = 7;
-
-  // List of poolers that accepted the term during BeginTerm
-  repeated clustermetadata.ID accepted_members = 8;
-}
-
-message PromoteResponse {
-  // LSN position after promotion
-  string lsn_position = 1;
-
-  // Whether the pooler was already promoted (idempotent check)
-  bool was_already_primary = 2;
 }
 
 // Replication pause mode - defines what aspect of replication to pause

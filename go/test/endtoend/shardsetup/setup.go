@@ -1343,7 +1343,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 		}
 
 		// Note: We intentionally don't validate term here.
-		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// Term can increase across tests (e.g., when Recruit is called) and
 		// there's no safe way to reset it without an RPC. Tests should work with
 		// whatever term they start with and use relative term values.
 	}
@@ -1381,19 +1381,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		}
 
 		isPrimary := name == s.PrimaryName
-
-		// Check if primary was demoted and restore if needed
-		if isPrimary {
-			inRecovery, err := QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
-			if err != nil {
-				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
-			} else if inRecovery == "t" {
-				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
-					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
-				}
-			}
-		}
 
 		// Restore GUCs to baseline values
 		if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
@@ -1674,19 +1661,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			}
 
 			isPrimary := name == s.PrimaryName
-
-			// Check if primary was demoted and restore if needed
-			if isPrimary {
-				inRecovery, err := QueryStringValue(cleanupCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-				if err != nil {
-					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
-				} else if inRecovery == "t" {
-					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
-						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
-					}
-				}
-			}
 
 			// Restore GUCs to baseline values
 			if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {

@@ -43,7 +43,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "test-coord",
 	}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default(), false)
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	cfg := config.NewTestConfig()
 	factory := NewRecoveryActionFactory(cfg, poolerStore, rpcClient, ts, coord, slog.Default())
 
@@ -273,7 +273,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("triggers failover when leader has resigned even though replicas are still connected", func(t *testing.T) {
-		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
+		// After emergency demotion, postgres restarts as standby. Replicas reconnect to
 		// it as a replication source, so ReplicasConnectedToLeader becomes true.
 		// Without the LeaderHasResigned bypass, this would suppress failover indefinitely.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {

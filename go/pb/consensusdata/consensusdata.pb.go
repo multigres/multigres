@@ -37,61 +37,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Action type for BeginTerm operations
-// Indicates what action to execute in addition to term acceptance
-type BeginTermAction int32
-
-const (
-	// Default/unknown action
-	BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED BeginTermAction = 0
-	// No additional action - only accept the term
-	BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION BeginTermAction = 1
-	// Revoke the current term by demoting primary or pausing standby replication
-	// This is used during failover to ensure the old primary stops accepting writes
-	BeginTermAction_BEGIN_TERM_ACTION_REVOKE BeginTermAction = 2
-)
-
-// Enum value maps for BeginTermAction.
-var (
-	BeginTermAction_name = map[int32]string{
-		0: "BEGIN_TERM_ACTION_UNSPECIFIED",
-		1: "BEGIN_TERM_ACTION_NO_ACTION",
-		2: "BEGIN_TERM_ACTION_REVOKE",
-	}
-	BeginTermAction_value = map[string]int32{
-		"BEGIN_TERM_ACTION_UNSPECIFIED": 0,
-		"BEGIN_TERM_ACTION_NO_ACTION":   1,
-		"BEGIN_TERM_ACTION_REVOKE":      2,
-	}
-)
-
-func (x BeginTermAction) Enum() *BeginTermAction {
-	p := new(BeginTermAction)
-	*p = x
-	return p
-}
-
-func (x BeginTermAction) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (BeginTermAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_consensusdata_proto_enumTypes[0].Descriptor()
-}
-
-func (BeginTermAction) Type() protoreflect.EnumType {
-	return &file_consensusdata_proto_enumTypes[0]
-}
-
-func (x BeginTermAction) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use BeginTermAction.Descriptor instead.
-func (BeginTermAction) EnumDescriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{0}
-}
-
 // WAL position for tracking replication state
 type WALPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -205,172 +150,6 @@ func (x *WALPosition) GetCohortMembers() []string {
 	return nil
 }
 
-// BeginTerm is sent by coordinators during leader appointments
-type BeginTermRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Term of the candidate
-	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
-	// ID of the candidate for appointment
-	CandidateId *clustermetadata.ID `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`
-	// Shard ID for this appointment
-	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
-	// Version of the durability policy
-	PolicyVersion int64 `protobuf:"varint,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
-	// Action type for this BeginTerm operation
-	// Indicates what scenario triggered this term change
-	Action        BeginTermAction `protobuf:"varint,5,opt,name=action,proto3,enum=consensusdata.BeginTermAction" json:"action,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BeginTermRequest) Reset() {
-	*x = BeginTermRequest{}
-	mi := &file_consensusdata_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BeginTermRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BeginTermRequest) ProtoMessage() {}
-
-func (x *BeginTermRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BeginTermRequest.ProtoReflect.Descriptor instead.
-func (*BeginTermRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *BeginTermRequest) GetTerm() int64 {
-	if x != nil {
-		return x.Term
-	}
-	return 0
-}
-
-func (x *BeginTermRequest) GetCandidateId() *clustermetadata.ID {
-	if x != nil {
-		return x.CandidateId
-	}
-	return nil
-}
-
-func (x *BeginTermRequest) GetShardId() string {
-	if x != nil {
-		return x.ShardId
-	}
-	return ""
-}
-
-func (x *BeginTermRequest) GetPolicyVersion() int64 {
-	if x != nil {
-		return x.PolicyVersion
-	}
-	return 0
-}
-
-func (x *BeginTermRequest) GetAction() BeginTermAction {
-	if x != nil {
-		return x.Action
-	}
-	return BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED
-}
-
-type BeginTermResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current term, for candidate to update itself
-	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
-	// True if the term was accepted
-	Accepted bool `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	// ID of the responding pooler
-	PoolerId string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// WAL position for candidate selection
-	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
-	// The pooler's consensus status at the time of the response.
-	// For REVOKE actions, captured after WAL positions are frozen (post-revoke snapshot).
-	// May be nil if postgres is unreachable.
-	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,5,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *BeginTermResponse) Reset() {
-	*x = BeginTermResponse{}
-	mi := &file_consensusdata_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BeginTermResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BeginTermResponse) ProtoMessage() {}
-
-func (x *BeginTermResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BeginTermResponse.ProtoReflect.Descriptor instead.
-func (*BeginTermResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *BeginTermResponse) GetTerm() int64 {
-	if x != nil {
-		return x.Term
-	}
-	return 0
-}
-
-func (x *BeginTermResponse) GetAccepted() bool {
-	if x != nil {
-		return x.Accepted
-	}
-	return false
-}
-
-func (x *BeginTermResponse) GetPoolerId() string {
-	if x != nil {
-		return x.PoolerId
-	}
-	return ""
-}
-
-func (x *BeginTermResponse) GetWalPosition() *WALPosition {
-	if x != nil {
-		return x.WalPosition
-	}
-	return nil
-}
-
-func (x *BeginTermResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
-	if x != nil {
-		return x.ConsensusStatus
-	}
-	return nil
-}
-
 // Status returns the current status of a node
 type StatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -384,7 +163,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_consensusdata_proto_msgTypes[3]
+	mi := &file_consensusdata_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -396,7 +175,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[3]
+	mi := &file_consensusdata_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -409,7 +188,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{3}
+	return file_consensusdata_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *StatusRequest) GetTerm() int64 {
@@ -445,7 +224,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_consensusdata_proto_msgTypes[4]
+	mi := &file_consensusdata_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -457,7 +236,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[4]
+	mi := &file_consensusdata_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -470,7 +249,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{4}
+	return file_consensusdata_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StatusResponse) GetId() *clustermetadata.ID {
@@ -510,7 +289,7 @@ type ProposalLeader struct {
 
 func (x *ProposalLeader) Reset() {
 	*x = ProposalLeader{}
-	mi := &file_consensusdata_proto_msgTypes[5]
+	mi := &file_consensusdata_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +301,7 @@ func (x *ProposalLeader) String() string {
 func (*ProposalLeader) ProtoMessage() {}
 
 func (x *ProposalLeader) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[5]
+	mi := &file_consensusdata_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +314,7 @@ func (x *ProposalLeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposalLeader.ProtoReflect.Descriptor instead.
 func (*ProposalLeader) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{5}
+	return file_consensusdata_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProposalLeader) GetId() *clustermetadata.ID {
@@ -579,7 +358,7 @@ type CoordinatorProposal struct {
 
 func (x *CoordinatorProposal) Reset() {
 	*x = CoordinatorProposal{}
-	mi := &file_consensusdata_proto_msgTypes[6]
+	mi := &file_consensusdata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +370,7 @@ func (x *CoordinatorProposal) String() string {
 func (*CoordinatorProposal) ProtoMessage() {}
 
 func (x *CoordinatorProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[6]
+	mi := &file_consensusdata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +383,7 @@ func (x *CoordinatorProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoordinatorProposal.ProtoReflect.Descriptor instead.
 func (*CoordinatorProposal) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{6}
+	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CoordinatorProposal) GetTermRevocation() *clustermetadata.TermRevocation {
@@ -642,7 +421,7 @@ type RecruitRequest struct {
 
 func (x *RecruitRequest) Reset() {
 	*x = RecruitRequest{}
-	mi := &file_consensusdata_proto_msgTypes[7]
+	mi := &file_consensusdata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +433,7 @@ func (x *RecruitRequest) String() string {
 func (*RecruitRequest) ProtoMessage() {}
 
 func (x *RecruitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[7]
+	mi := &file_consensusdata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +446,7 @@ func (x *RecruitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecruitRequest.ProtoReflect.Descriptor instead.
 func (*RecruitRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{7}
+	return file_consensusdata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RecruitRequest) GetTermRevocation() *clustermetadata.TermRevocation {
@@ -689,7 +468,7 @@ type RecruitResponse struct {
 
 func (x *RecruitResponse) Reset() {
 	*x = RecruitResponse{}
-	mi := &file_consensusdata_proto_msgTypes[8]
+	mi := &file_consensusdata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -701,7 +480,7 @@ func (x *RecruitResponse) String() string {
 func (*RecruitResponse) ProtoMessage() {}
 
 func (x *RecruitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[8]
+	mi := &file_consensusdata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -714,7 +493,7 @@ func (x *RecruitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecruitResponse.ProtoReflect.Descriptor instead.
 func (*RecruitResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{8}
+	return file_consensusdata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RecruitResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
@@ -741,7 +520,7 @@ type ProposeRequest struct {
 
 func (x *ProposeRequest) Reset() {
 	*x = ProposeRequest{}
-	mi := &file_consensusdata_proto_msgTypes[9]
+	mi := &file_consensusdata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +532,7 @@ func (x *ProposeRequest) String() string {
 func (*ProposeRequest) ProtoMessage() {}
 
 func (x *ProposeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[9]
+	mi := &file_consensusdata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +545,7 @@ func (x *ProposeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeRequest.ProtoReflect.Descriptor instead.
 func (*ProposeRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{9}
+	return file_consensusdata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ProposeRequest) GetProposal() *CoordinatorProposal {
@@ -800,7 +579,7 @@ type ProposeResponse struct {
 
 func (x *ProposeResponse) Reset() {
 	*x = ProposeResponse{}
-	mi := &file_consensusdata_proto_msgTypes[10]
+	mi := &file_consensusdata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +591,7 @@ func (x *ProposeResponse) String() string {
 func (*ProposeResponse) ProtoMessage() {}
 
 func (x *ProposeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[10]
+	mi := &file_consensusdata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +604,7 @@ func (x *ProposeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeResponse.ProtoReflect.Descriptor instead.
 func (*ProposeResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{10}
+	return file_consensusdata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ProposeResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
@@ -849,7 +628,7 @@ type InformRequest struct {
 
 func (x *InformRequest) Reset() {
 	*x = InformRequest{}
-	mi := &file_consensusdata_proto_msgTypes[11]
+	mi := &file_consensusdata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +640,7 @@ func (x *InformRequest) String() string {
 func (*InformRequest) ProtoMessage() {}
 
 func (x *InformRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[11]
+	mi := &file_consensusdata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +653,7 @@ func (x *InformRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformRequest.ProtoReflect.Descriptor instead.
 func (*InformRequest) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{11}
+	return file_consensusdata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *InformRequest) GetCommittedRule() *clustermetadata.ShardRule {
@@ -894,7 +673,7 @@ type InformResponse struct {
 
 func (x *InformResponse) Reset() {
 	*x = InformResponse{}
-	mi := &file_consensusdata_proto_msgTypes[12]
+	mi := &file_consensusdata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -906,7 +685,7 @@ func (x *InformResponse) String() string {
 func (*InformResponse) ProtoMessage() {}
 
 func (x *InformResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_consensusdata_proto_msgTypes[12]
+	mi := &file_consensusdata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -919,7 +698,7 @@ func (x *InformResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformResponse.ProtoReflect.Descriptor instead.
 func (*InformResponse) Descriptor() ([]byte, []int) {
-	return file_consensusdata_proto_rawDescGZIP(), []int{12}
+	return file_consensusdata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *InformResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
@@ -943,19 +722,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\vtimeline_id\x18\x05 \x01(\x03R\n" +
 	"timelineId\x12'\n" +
 	"\x0fleadership_term\x18\x06 \x01(\x03R\x0eleadershipTerm\x12%\n" +
-	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\"\xd8\x01\n" +
-	"\x10BeginTermRequest\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
-	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
-	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
-	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\x126\n" +
-	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\xec\x01\n" +
-	"\x11BeginTermResponse\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
-	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
-	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\x12=\n" +
-	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\x12K\n" +
-	"\x10consensus_status\x18\x05 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\">\n" +
+	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
 	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xd8\x01\n" +
@@ -984,11 +751,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\rInformRequest\x12A\n" +
 	"\x0ecommitted_rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\rcommittedRule\"]\n" +
 	"\x0eInformResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus*s\n" +
-	"\x0fBeginTermAction\x12!\n" +
-	"\x1dBEGIN_TERM_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
-	"\x1bBEGIN_TERM_ACTION_NO_ACTION\x10\x01\x12\x1c\n" +
-	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatusB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
 	file_consensusdata_proto_rawDescOnce sync.Once
@@ -1002,55 +765,47 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 	return file_consensusdata_proto_rawDescData
 }
 
-var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_consensusdata_proto_goTypes = []any{
-	(BeginTermAction)(0),                       // 0: consensusdata.BeginTermAction
-	(*WALPosition)(nil),                        // 1: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),                   // 2: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),                  // 3: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),                      // 4: consensusdata.StatusRequest
-	(*StatusResponse)(nil),                     // 5: consensusdata.StatusResponse
-	(*ProposalLeader)(nil),                     // 6: consensusdata.ProposalLeader
-	(*CoordinatorProposal)(nil),                // 7: consensusdata.CoordinatorProposal
-	(*RecruitRequest)(nil),                     // 8: consensusdata.RecruitRequest
-	(*RecruitResponse)(nil),                    // 9: consensusdata.RecruitResponse
-	(*ProposeRequest)(nil),                     // 10: consensusdata.ProposeRequest
-	(*ProposeResponse)(nil),                    // 11: consensusdata.ProposeResponse
-	(*InformRequest)(nil),                      // 12: consensusdata.InformRequest
-	(*InformResponse)(nil),                     // 13: consensusdata.InformResponse
-	(*timestamppb.Timestamp)(nil),              // 14: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),                 // 15: clustermetadata.ID
-	(*clustermetadata.ConsensusStatus)(nil),    // 16: clustermetadata.ConsensusStatus
-	(*clustermetadata.AvailabilityStatus)(nil), // 17: clustermetadata.AvailabilityStatus
-	(*clustermetadata.TermRevocation)(nil),     // 18: clustermetadata.TermRevocation
-	(*clustermetadata.ShardRule)(nil),          // 19: clustermetadata.ShardRule
+	(*WALPosition)(nil),                        // 0: consensusdata.WALPosition
+	(*StatusRequest)(nil),                      // 1: consensusdata.StatusRequest
+	(*StatusResponse)(nil),                     // 2: consensusdata.StatusResponse
+	(*ProposalLeader)(nil),                     // 3: consensusdata.ProposalLeader
+	(*CoordinatorProposal)(nil),                // 4: consensusdata.CoordinatorProposal
+	(*RecruitRequest)(nil),                     // 5: consensusdata.RecruitRequest
+	(*RecruitResponse)(nil),                    // 6: consensusdata.RecruitResponse
+	(*ProposeRequest)(nil),                     // 7: consensusdata.ProposeRequest
+	(*ProposeResponse)(nil),                    // 8: consensusdata.ProposeResponse
+	(*InformRequest)(nil),                      // 9: consensusdata.InformRequest
+	(*InformResponse)(nil),                     // 10: consensusdata.InformResponse
+	(*timestamppb.Timestamp)(nil),              // 11: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                 // 12: clustermetadata.ID
+	(*clustermetadata.ConsensusStatus)(nil),    // 13: clustermetadata.ConsensusStatus
+	(*clustermetadata.AvailabilityStatus)(nil), // 14: clustermetadata.AvailabilityStatus
+	(*clustermetadata.TermRevocation)(nil),     // 15: clustermetadata.TermRevocation
+	(*clustermetadata.ShardRule)(nil),          // 16: clustermetadata.ShardRule
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	14, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	15, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
-	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
-	1,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
-	16, // 4: consensusdata.BeginTermResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	15, // 5: consensusdata.StatusResponse.id:type_name -> clustermetadata.ID
-	16, // 6: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	17, // 7: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	15, // 8: consensusdata.ProposalLeader.id:type_name -> clustermetadata.ID
-	18, // 9: consensusdata.CoordinatorProposal.term_revocation:type_name -> clustermetadata.TermRevocation
-	6,  // 10: consensusdata.CoordinatorProposal.proposal_leader:type_name -> consensusdata.ProposalLeader
-	19, // 11: consensusdata.CoordinatorProposal.proposed_rule:type_name -> clustermetadata.ShardRule
-	18, // 12: consensusdata.RecruitRequest.term_revocation:type_name -> clustermetadata.TermRevocation
-	16, // 13: consensusdata.RecruitResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	7,  // 14: consensusdata.ProposeRequest.proposal:type_name -> consensusdata.CoordinatorProposal
-	15, // 15: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
-	16, // 16: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	19, // 17: consensusdata.InformRequest.committed_rule:type_name -> clustermetadata.ShardRule
-	16, // 18: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	12, // 1: consensusdata.StatusResponse.id:type_name -> clustermetadata.ID
+	13, // 2: consensusdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	14, // 3: consensusdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	12, // 4: consensusdata.ProposalLeader.id:type_name -> clustermetadata.ID
+	15, // 5: consensusdata.CoordinatorProposal.term_revocation:type_name -> clustermetadata.TermRevocation
+	3,  // 6: consensusdata.CoordinatorProposal.proposal_leader:type_name -> consensusdata.ProposalLeader
+	16, // 7: consensusdata.CoordinatorProposal.proposed_rule:type_name -> clustermetadata.ShardRule
+	15, // 8: consensusdata.RecruitRequest.term_revocation:type_name -> clustermetadata.TermRevocation
+	13, // 9: consensusdata.RecruitResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	4,  // 10: consensusdata.ProposeRequest.proposal:type_name -> consensusdata.CoordinatorProposal
+	12, // 11: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
+	13, // 12: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	16, // 13: consensusdata.InformRequest.committed_rule:type_name -> clustermetadata.ShardRule
+	13, // 14: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -1063,14 +818,13 @@ func file_consensusdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   13,
+			NumEnums:      0,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_consensusdata_proto_goTypes,
 		DependencyIndexes: file_consensusdata_proto_depIdxs,
-		EnumInfos:         file_consensusdata_proto_enumTypes,
 		MessageInfos:      file_consensusdata_proto_msgTypes,
 	}.Build()
 	File_consensusdata_proto = out.File

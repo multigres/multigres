@@ -100,7 +100,7 @@ func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 }
 
 // Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct leader's term.
-// This is safer than BeginTerm because:
+// This is safer than Recruit because:
 // 1. We use the correct leader's term (not a new term), avoiding term inconsistency
 // 2. The stale leader accepts term >= its current term and demotes
 // 3. Both leaders end up with the same term (no term inconsistency)

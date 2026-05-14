@@ -93,7 +93,7 @@ type ShardAnalysis struct {
 	LeaderLastPostgresReadyTime time.Time
 
 	// LeaderHasResigned is true when the topology leader has voluntarily requested
-	// replacement via the REQUESTING_DEMOTION signal (set during EmergencyDemote).
+	// replacement via the REQUESTING_DEMOTION signal (set during emergency demotion).
 	// When true, the LeaderIsDead failover suppression logic (which normally waits
 	// for followers to disconnect before declaring the leader dead) is bypassed
 	// because the resignation is an explicit and intentional signal, not an ambiguous

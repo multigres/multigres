@@ -444,7 +444,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			// After EmergencyDemote + process restart, resignedLeaderAtTerm is lost.
+			// After emergency demotion + process restart, resignedLeaderAtTerm is lost.
 			// The monitor should re-publish it by triggering the replica adjustment action.
 			name: "postgres_ready_replica_missing_resignation_signal",
 			state: postgresState{

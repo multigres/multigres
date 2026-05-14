@@ -205,7 +205,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// a fresh RPC at the time the problem was detected.
 	//
 	// We take max(primaryTerm, replicaTerm) because after a failover the
-	// replica may have accepted a higher term (from BeginTerm) than the
+	// replica may have accepted a higher term (from Recruit) than the
 	// newly-elected primary has seen yet. validateAndUpdateTerm rejects
 	// requests whose CurrentTerm is below the local term, so using the
 	// maximum satisfies both nodes. A higher term is safe: the primary

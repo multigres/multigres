@@ -15,19 +15,12 @@
 package multipooler
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/s3mock"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // filesystemSetupManager manages the shared test setup for filesystem backend tests.
@@ -129,70 +122,4 @@ func getSetupForBackend(t *testing.T, backendName string) *MultipoolerTestSetup 
 	}
 
 	return newMultipoolerTestSetup(setup)
-}
-
-// restoreAfterEmergencyDemotion restores a pooler to a working state after emergency demotion.
-// Emergency demotion restarts postgres as standby but doesn't update topology.
-// This helper:
-// 1. Restarts postgres as standby (idempotent — emergency demotion already did this, but ensures consistent state)
-// 2. Updates topology to REPLICA
-// 3. Restarts the multipooler to pick up topology changes
-// 4. Resets synchronous replication configuration (clears synchronous_standby_names)
-func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pgctld *ProcessInstance, multipooler *ProcessInstance, multipoolerName string) {
-	t.Helper()
-
-	// Step 1: Restart postgres as standby (ensures consistent state regardless of demotion outcome)
-	pgctldClient, err := shardsetup.NewPgctldClient(pgctld.GrpcPort)
-	require.NoError(t, err)
-	defer pgctldClient.Close()
-
-	t.Logf("Restarting postgres as standby for pooler %s...", multipoolerName)
-	restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer restartCancel()
-	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		Mode:      "fast",
-		AsStandby: true,
-	})
-	require.NoError(t, err, "Restart as standby should succeed on pooler: %s", multipoolerName)
-
-	// Wait for postgres to be running
-	require.Eventually(t, func() bool {
-		statusResp, err := pgctldClient.Status(context.Background(), &pgctldpb.StatusRequest{})
-		return err == nil && statusResp.Status == pgctldpb.ServerStatus_RUNNING
-	}, 10*time.Second, 1*time.Second, "Postgres should be running after restart on pooler: %s", multipoolerName)
-
-	// Step 2: Update topology to REPLICA (emergency demotion doesn't update topology)
-	t.Logf("Updating topology to REPLICA for pooler %s...", multipoolerName)
-	multipoolerRecord, err := setup.TopoServer.GetMultiPooler(context.Background(), &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      setup.CellName,
-		Name:      multipoolerName,
-	})
-	require.NoError(t, err)
-	multipoolerRecord.Type = clustermetadatapb.PoolerType_REPLICA
-	err = setup.TopoServer.UpdateMultiPooler(context.Background(), multipoolerRecord)
-	require.NoError(t, err, "Should update topology to REPLICA for pooler: %s", multipoolerName)
-
-	// Step 3: Restart multipooler so it picks up the topology change
-	t.Logf("Restarting multipooler %s to pick up topology change...", multipoolerName)
-	multipooler.TerminateGracefully(t.Logf, 5*time.Second)
-	err = multipooler.Start(setup.Context(), t)
-	require.NoError(t, err, "Multipooler should restart successfully: %s", multipoolerName)
-
-	// Wait for manager to be ready
-	waitForManagerReady(t, setup, multipooler)
-
-	// Step 4: Reset synchronous replication configuration
-	// Clear synchronous_standby_names that may have been set when this was primary
-	t.Logf("Resetting synchronous replication config for pooler %s...", multipoolerName)
-	poolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))
-	require.NoError(t, err)
-	defer poolerClient.Close()
-
-	_, err = poolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM RESET synchronous_standby_names", 1)
-	require.NoError(t, err, "Should clear synchronous_standby_names on pooler: %s", multipoolerName)
-
-	shardsetup.ReloadConfig(context.Background(), t, poolerClient, multipoolerName)
-
-	t.Logf("Pooler %s restored after emergency demotion", multipoolerName)
 }

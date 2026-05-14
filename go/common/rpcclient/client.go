@@ -46,9 +46,8 @@
 //	defer client.Close()
 //
 //	// Call consensus methods
-//	resp, err := client.BeginTerm(ctx, tablet, &consensusdatapb.BeginTermRequest{
-//	    Term: 5,
-//	    CandidateId: coordinatorID,
+//	resp, err := client.Recruit(ctx, tablet, &consensusdatapb.RecruitRequest{
+//	    TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
 //	})
 //
 //	// Call manager methods
@@ -141,10 +140,6 @@ type MultiPoolerClient interface {
 	// Consensus Service Methods (consensuspb.MultiPoolerConsensusClient)
 	//
 
-	// BeginTerm sends a BeginTerm request for leader appointment.
-	// This is part of the consensus protocol for establishing a new term.
-	BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error)
-
 	// Recruit asks a pooler to stop replication participation and record a TermRevocation.
 	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
 	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
@@ -157,14 +152,8 @@ type MultiPoolerClient interface {
 	// This may be called frequently for monitoring, so implementations cache connections.
 	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)
 
-	// EmergencyDemote demotes the current leader server.
-	EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error)
-
 	// DemoteStalePrimary demotes a stale primary that came back after failover.
 	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
-
-	// Promote promotes the multipooler to primary.
-	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error)
 
 	// UpdateConsensusRule updates the synchronous standby list (quorum membership).
 	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error)

@@ -136,7 +136,7 @@ type MultiPoolerManager struct {
 	initialized bool
 
 	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
-	// (via EmergencyDemote). The value is the consensus term at which the primary
+	// (via emergency demotion). The value is the consensus term at which the primary
 	// resigned. A non-zero value signals the coordinator to trigger an immediate
 	// election. Protected by mu. Cleared when this node is elected primary again.
 	resignedLeaderAtTerm int64
@@ -943,7 +943,7 @@ func (pm *MultiPoolerManager) validateTerm(ctx context.Context, requestTerm int6
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
+			"consensus term not initialized, must be set via Recruit (use force=true to bypass)")
 	}
 
 	// Reject stale requests
@@ -978,42 +978,6 @@ func (pm *MultiPoolerManager) updateTermIfNewer(ctx context.Context, requestTerm
 
 	if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
 		return mterrors.Wrap(err, "failed to update consensus term")
-	}
-
-	return nil
-}
-
-// validateTermExactMatch validates that the request term exactly matches the current term.
-// Unlike validateAndUpdateTerm, this does NOT update the term automatically.
-// This is used for Promote to ensure the node was properly recruited before promotion.
-func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, requestTerm int64, force bool) error {
-	if force {
-		return nil // Skip validation if force is set
-	}
-
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// Check if consensus term has been initialized
-	if currentTerm == 0 {
-		pm.logger.ErrorContext(ctx, "Consensus term not initialized - node not recruited",
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized - node must be recruited via BeginTerm first")
-	}
-
-	// Require exact match - do not update term automatically
-	if requestTerm != currentTerm {
-		pm.logger.ErrorContext(ctx, "Promote term mismatch - node not recruited for this term",
-			"request_term", requestTerm,
-			"current_term", currentTerm,
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("term mismatch: node not recruited for term %d (current term is %d). "+
-				"Coordinator must call BeginTerm first to recruit this node",
-				requestTerm, currentTerm))
 	}
 
 	return nil
@@ -1432,36 +1396,6 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	return nil
 }
 
-// configureReplicationAfterPromotion applies synchronous replication configuration
-func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) error {
-	if syncReplicationConfig == nil {
-		return nil // No configuration requested
-	}
-
-	// Return early if already configured
-	if state.syncReplicationMatches {
-		pm.logger.InfoContext(ctx, "Sync replication already configured, skipping")
-		return nil
-	}
-
-	pm.logger.InfoContext(ctx, "Sync replication configuration needed")
-	pm.logger.InfoContext(ctx, "Configuring synchronous replication for new cohort")
-	// Use the locked version since we're already holding the action lock from Promote
-	err := pm.configureSynchronousReplicationLocked(ctx,
-		syncReplicationConfig.SynchronousCommit,
-		syncReplicationConfig.SynchronousMethod,
-		syncReplicationConfig.NumSync,
-		syncReplicationConfig.StandbyIds,
-		syncReplicationConfig.ReloadConfig,
-		syncReplicationConfig.Force)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to configure synchronous replication", "error", err)
-		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
-	}
-
-	return nil
-}
-
 // ReplicationLag returns the current replication lag from the heartbeat reader
 func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration, error) {
 	if err := pm.checkReady(); err != nil {
@@ -1632,7 +1566,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 	defer pm.actionLock.Release(lockCtx)
 
-	// Re-check rewindPending after acquiring the lock: EmergencyDemote sets this flag
+	// Re-check rewindPending after acquiring the lock: Recruit sets this flag
 	// while holding the lock, so we may have been waiting while it demoted the node.
 	if pm.rewindPending.Load() {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
@@ -1763,7 +1697,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		}
 		// Postgres is standby and type is already REPLICA, but check if the resignation
 		// signal needs to be (re-)published. This handles the case where the signal was
-		// lost after a process restart following EmergencyDemote.
+		// lost after a process restart following emergency demotion.
 		if !currentState.isPrimary {
 			pm.mu.Lock()
 			resigned := pm.resignedLeaderAtTerm

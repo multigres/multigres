@@ -23,16 +23,6 @@ option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
 // MultiPoolerConsensus provides consensus APIs for leader election and HA operations
 service MultiPoolerConsensus {
-  // Leader Appointment Protocol
-
-  // BeginTerm initiates a new leadership term by requesting the current leader
-  // to step down. The current leader will revoke its leadership and trigger a
-  // new election, allowing the coordinator to select a new leader based on the
-  // latest replication state of the followers. This is used by MultiOrch during
-  // failover to ensure that the old leader steps down gracefully and does not
-  // continue to accept writes, which could lead to data divergence.
-  rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
-
   // Status and Health
 
   // Status provides the current status of the consensus service, including the
@@ -42,14 +32,6 @@ service MultiPoolerConsensus {
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
 
   // HA Operations
-
-  // EmergencyDemote demotes the current leader server
-  rpc EmergencyDemote(multipoolermanagerdata.EmergencyDemoteRequest)
-    returns (multipoolermanagerdata.EmergencyDemoteResponse);
-
-  // Promote promotes a replica to leader (Multigres-level operation)
-  rpc Promote(multipoolermanagerdata.PromoteRequest)
-    returns (multipoolermanagerdata.PromoteResponse);
 
   // UpdateConsensusRule updates the synchronous standby list (quorum membership)
   rpc UpdateConsensusRule(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
@@ -75,9 +57,7 @@ service MultiPoolerConsensus {
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
     returns (multipoolermanagerdata.RewindToSourceResponse);
 
-  // New Recruit → Propose → Inform appointment protocol.
-  // These RPCs replace BeginTerm + Promote + SetPrimaryConnInfo and will be
-  // wired up to handlers in subsequent PRs.
+  // Recruit → Propose → Inform appointment protocol.
 
   // Recruit asks a pooler to revoke all terms below the one specified and
   // record the coordinator's exclusive claim on that term.
