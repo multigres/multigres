@@ -1002,11 +1002,16 @@ func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	require.False(t, rs.hasInconsistentGUC(ctx), "precondition: GUC should be consistent after initial reconcile")
 
 	// Corrupt the live GUC behind the manager's back.
+	// Also reset synchronous_commit to 'local' so the reconcileGUC healing step can
+	// commit without blocking — in production actual standbys are present, but in
+	// tests we have none.
 	corruptConn, err := pgTestFixture.newClientConn(t.Context())
 	require.NoError(t, err)
 	defer corruptConn.Close()
 	corruptQS := &connQueryService{conn: corruptConn}
 	_, err = corruptQS.Query(t.Context(), "ALTER SYSTEM SET synchronous_standby_names = 'WRONG'")
+	require.NoError(t, err)
+	_, err = corruptQS.Query(t.Context(), "ALTER SYSTEM SET synchronous_commit = 'local'")
 	require.NoError(t, err)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NoError(t, reloadPostgresConfig(t.Context(), logger, corruptQS))

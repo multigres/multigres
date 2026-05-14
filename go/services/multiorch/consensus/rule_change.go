@@ -335,6 +335,7 @@ func buildBootstrapProposal(
 			DurabilityPolicy: policy,
 			LeaderId:         leader.GetId(),
 		},
+		SkipOutgoingQuorum: true,
 	}, nil
 }
 

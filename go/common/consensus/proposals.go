@@ -419,6 +419,12 @@ func validateProposal(
 		return errors.New("proposal term revocation does not match the recruitment revocation")
 	}
 
+	// skip_outgoing_quorum may only be set by the externally-certified path:
+	// regular safe proposals always have a known outgoing cohort to drain.
+	if proposal.GetSkipOutgoingQuorum() && mode != onlyRequireIncomingQuorum {
+		return errors.New("skip_outgoing_quorum is only valid for externally-certified proposals")
+	}
+
 	leaderID := proposal.GetProposalLeader().GetId()
 	if leaderID == nil {
 		return errors.New("proposal has no leader ID")

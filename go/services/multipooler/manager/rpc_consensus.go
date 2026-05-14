@@ -659,7 +659,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		if reason == "" {
 			reason = "propose"
 		}
-		if _, err = pm.rules.updateRule(ctx, newRuleUpdate(
+		ruleUpdate := newRuleUpdate(
 			revokedBelowTerm,
 			coordinatorID,
 			"promotion",
@@ -675,7 +675,11 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 					return mterrors.Wrap(err, "failed to clear resigned primary term")
 				}
 				return pm.promoteStandbyToPrimary(hookCtx, state)
-			})); err != nil {
+			})
+		if req.GetProposal().GetSkipOutgoingQuorum() {
+			ruleUpdate.withSkipOutgoingQuorum()
+		}
+		if _, err = pm.rules.updateRule(ctx, ruleUpdate); err != nil {
 			return nil, mterrors.Wrap(err, "propose failed: could not write rule")
 		}
 		pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{

@@ -572,9 +572,13 @@ type CoordinatorProposal struct {
 	ProposalLeader *ProposalLeader `protobuf:"bytes,2,opt,name=proposal_leader,json=proposalLeader,proto3" json:"proposal_leader,omitempty"`
 	// The full proposed rule. This can either be an entirely new rule or an
 	// existing rule that hasn't yet finished propagating to durability.
-	ProposedRule  *clustermetadata.ShardRule `protobuf:"bytes,3,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ProposedRule *clustermetadata.ShardRule `protobuf:"bytes,3,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
+	// When true, the leader must apply the incoming cohort GUC directly without
+	// first satisfying the outgoing cohort quorum. Only valid for externally-
+	// certified proposals (bootstrap, etc.).
+	SkipOutgoingQuorum bool `protobuf:"varint,4,opt,name=skip_outgoing_quorum,json=skipOutgoingQuorum,proto3" json:"skip_outgoing_quorum,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CoordinatorProposal) Reset() {
@@ -626,6 +630,13 @@ func (x *CoordinatorProposal) GetProposedRule() *clustermetadata.ShardRule {
 		return x.ProposedRule
 	}
 	return nil
+}
+
+func (x *CoordinatorProposal) GetSkipOutgoingQuorum() bool {
+	if x != nil {
+		return x.SkipOutgoingQuorum
+	}
+	return false
 }
 
 // RecruitRequest asks a pooler to revoke all terms below the one in the
@@ -966,11 +977,12 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x0eProposalLeader\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
-	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\xe8\x01\n" +
+	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x9a\x02\n" +
 	"\x13CoordinatorProposal\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12F\n" +
 	"\x0fproposal_leader\x18\x02 \x01(\v2\x1d.consensusdata.ProposalLeaderR\x0eproposalLeader\x12?\n" +
-	"\rproposed_rule\x18\x03 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\"Z\n" +
+	"\rproposed_rule\x18\x03 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\x120\n" +
+	"\x14skip_outgoing_quorum\x18\x04 \x01(\bR\x12skipOutgoingQuorum\"Z\n" +
 	"\x0eRecruitRequest\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"^\n" +
 	"\x0fRecruitResponse\x12K\n" +
