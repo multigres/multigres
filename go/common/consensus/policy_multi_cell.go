@@ -78,26 +78,25 @@ func (p MultiCellPolicy) CheckSufficientRecruitment(cohort, recruited []*cluster
 	return nil
 }
 
-// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
-// new primary must apply to satisfy MULTI_CELL_AT_LEAST_N. Standbys in the
-// primary's own cell are excluded so synchronous acknowledgement always
-// crosses a cell boundary.
+// BuildSyncReplicationConfig returns the Postgres-level config the primary
+// must apply to satisfy MULTI_CELL_AT_LEAST_N. Standbys in the primary's own
+// cell are excluded so synchronous acknowledgement always crosses a cell boundary.
 //
 // Errors when no eligible different-cell standbys exist or when the eligible
 // set is too small to satisfy num_sync.
-func (p MultiCellPolicy) BuildLeaderDurabilityPostgresConfig(
+func (p MultiCellPolicy) BuildSyncReplicationConfig(
 	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
-	leader *clustermetadatapb.ID,
-) (*LeaderDurabilityPostgresConfig, error) {
+	primary *clustermetadatapb.ID,
+) (*SyncReplicationConfig, error) {
 	// N==1 means the primary alone satisfies durability — return an explicit
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Configuring leader for local-only durability",
+		logger.Info("Configuring primary for local-only durability",
 			"policy", "MULTI_CELL_AT_LEAST_N",
 			"required_count", p.N)
-		return &LeaderDurabilityPostgresConfig{
+		return &SyncReplicationConfig{
 			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
 			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			NumSync:        1,
@@ -108,24 +107,24 @@ func (p MultiCellPolicy) BuildLeaderDurabilityPostgresConfig(
 	// Drop cohort members in the primary's own cell so synchronous
 	// acknowledgement always crosses a cell boundary. The primary itself is
 	// naturally excluded (it's in its own cell).
-	leaderCell := leader.GetCell()
+	primaryCell := primary.GetCell()
 	eligible := make([]*clustermetadatapb.ID, 0, len(cohort))
 	for _, s := range cohort {
-		if s.GetCell() != leaderCell {
+		if s.GetCell() != primaryCell {
 			eligible = append(eligible, s)
 		}
 	}
 
 	logger.Info("Filtered standbys for MULTI_CELL_AT_LEAST_N",
-		"leader_cell", leaderCell,
+		"primary_cell", primaryCell,
 		"cohort_size", len(cohort),
 		"eligible_standbys", len(eligible),
 		"excluded_same_cell", len(cohort)-len(eligible))
 
 	if len(eligible) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (leader_cell=%s)",
-				leaderCell))
+			fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (primary_cell=%s)",
+				primaryCell))
 	}
 
 	// num_sync = required_count - 1: primary itself counts as 1 ack.
@@ -142,7 +141,7 @@ func (p MultiCellPolicy) BuildLeaderDurabilityPostgresConfig(
 		"num_sync", requiredNumSync,
 		"eligible_standbys", len(eligible))
 
-	return &LeaderDurabilityPostgresConfig{
+	return &SyncReplicationConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 		NumSync:        requiredNumSync,

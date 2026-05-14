@@ -42,6 +42,7 @@ type HandlerMetrics struct {
 	queryErrors   *QueryErrors
 	rowsReturned  *RowsReturned
 	tableQueries  *TableQueries
+	queryLogEmits QueryLogEmits
 }
 
 // The per-instrument caches below memoise the OTel MeasurementOption built
@@ -190,6 +191,20 @@ func (m *RowsReturned) optionFor(key rowsReturnedKey) metric.MeasurementOption {
 	return actual.(metric.MeasurementOption)
 }
 
+// QueryLogEmits wraps an Int64Counter for counting per-query log records
+// emitted by emitQueryLog. The `level` attribute distinguishes WARN (errored
+// or slow) emissions from normal-path DEBUG emissions, so operators can size
+// log volume and verify that --query-log-sample-rate is having the expected
+// effect on the normal path.
+type QueryLogEmits struct {
+	metric.Int64Counter
+}
+
+// Add increments the per-query-log emission counter with a `level` attribute.
+func (m QueryLogEmits) Add(ctx context.Context, level string) {
+	m.Int64Counter.Add(ctx, 1, metric.WithAttributes(attribute.String("level", level)))
+}
+
 // TableQueries wraps an Int64Counter for counting queries per table.
 type TableQueries struct {
 	metric.Int64Counter
@@ -283,6 +298,18 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		m.tableQueries.Int64Counter = noop.Int64Counter{}
 	} else {
 		m.tableQueries.Int64Counter = tq
+	}
+
+	qle, err := meter.Int64Counter(
+		"mg.gateway.query.log.emits",
+		metric.WithDescription("Per-query log records emitted, labeled by slog level"),
+		metric.WithUnit("{record}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.log.emits counter: %w", err))
+		m.queryLogEmits = QueryLogEmits{noop.Int64Counter{}}
+	} else {
+		m.queryLogEmits = QueryLogEmits{qle}
 	}
 
 	if len(errs) > 0 {

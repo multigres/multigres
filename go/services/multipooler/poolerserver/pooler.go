@@ -73,6 +73,9 @@ type QueryPoolerServer struct {
 	// AwaitStateChange blocks on this channel to be notified when the
 	// pooler's type and serving status are updated.
 	stateChanged chan struct{}
+
+	// drainStats holds drain-observability metrics. Never nil.
+	drainStats *drainStats
 }
 
 // NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager
@@ -97,6 +100,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		healthProvider: healthProvider,
 		gracePeriod:    gracePeriod,
 		stateChanged:   make(chan struct{}),
+		drainStats:     newDrainStats(),
 	}
 }
 
@@ -137,6 +141,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	// If gracePeriod > 0, the wait is bounded and reserved connections are force-closed on timeout.
 	// If gracePeriod == 0, the wait is unbounded (drain must complete before transition finishes).
 	if s.poolManager != nil {
+		drainStart := time.Now()
 		drainCtx := ctx
 		if s.gracePeriod > 0 {
 			var cancel context.CancelFunc
@@ -144,18 +149,22 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 			defer cancel()
 		}
 
+		outcome := drainOutcomeGraceful
 		if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
+			outcome = drainOutcomeForceClose
 			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period, force-closing reserved connections",
 				"grace_period", s.gracePeriod, "error", err)
 			// Force-close all reserved connections to prevent them from being used
 			// in a non-serving state. This kills backend processes and returns
 			// connections to the pool.
 			killed := s.poolManager.CloseReservedConnections(ctx)
+			s.drainStats.recordForceClosed(ctx, killed)
 			if killed > 0 {
 				s.logger.WarnContext(ctx, "Force-closed reserved connections after drain timeout",
 					"killed", killed)
 			}
 		}
+		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
 	}
 
 	// Complete the transition. The poolerType is set here (after drain) so that

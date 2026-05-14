@@ -189,9 +189,9 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	}
 	defer conn.Recycle()
 
-	// Get the role password hash using the admin connection.
-	// This queries pg_authid, which requires superuser access.
-	scramHash, err := conn.Conn.GetRolPassword(ctx, req.Username)
+	// Get the role auth info (password hash + rolreplication) using the admin
+	// connection. This queries pg_authid, which requires superuser access.
+	authInfo, err := conn.Conn.GetRolAuthInfo(ctx, req.Username)
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
@@ -223,7 +223,8 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash: scramHash,
+		ScramHash:         authInfo.ScramHash,
+		IsReplicationRole: authInfo.IsReplicationRole,
 	}, nil
 }
 

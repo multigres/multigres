@@ -43,7 +43,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "test-coord",
 	}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default(), false)
 	cfg := config.NewTestConfig()
 	factory := NewRecoveryActionFactory(cfg, poolerStore, rpcClient, ts, coord, slog.Default())
 

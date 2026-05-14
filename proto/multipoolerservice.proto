@@ -237,6 +237,12 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.

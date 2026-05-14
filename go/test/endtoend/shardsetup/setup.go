@@ -165,6 +165,18 @@ func WithMultigatewayTLS() SetupOption {
 	}
 }
 
+// WithMultigatewayRequireSSL enables TLS for the multigateway PostgreSQL
+// listener AND sets --pg-require-ssl=true, so plaintext StartupMessage is
+// rejected. Implies WithMultigatewayTLS(). Exercises the hostssl-equivalent
+// posture end-to-end.
+func WithMultigatewayRequireSSL() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayTLS = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, "--pg-require-ssl=true")
+	}
+}
+
 // WithMultipoolerPGTLS provisions postgres with TLS via pgctld's
 // --pg-initdb-extra-conf hook and configures every multipooler in the setup to
 // dial postgres over TCP with sslmode=verify-full and the matching CA bundle.

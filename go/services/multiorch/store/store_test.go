@@ -40,10 +40,12 @@ func TestProtoStore_BasicOperations(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "multipooler-1",
 			},
-			Database:   "postgres",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      "-",
-			Type:       clustermetadata.PoolerType_PRIMARY,
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "postgres",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
+			Type: clustermetadata.PoolerType_PRIMARY,
 		},
 		LastSeen:         timestamppb.Now(),
 		IsUpToDate:       true,
@@ -56,7 +58,7 @@ func TestProtoStore_BasicOperations(t *testing.T) {
 	retrieved, ok := store.Get(poolerID)
 	require.True(t, ok)
 	require.Equal(t, info.MultiPooler.Id.Name, retrieved.MultiPooler.Id.Name)
-	require.Equal(t, info.MultiPooler.Database, retrieved.MultiPooler.Database)
+	require.Equal(t, info.MultiPooler.GetShardKey().GetDatabase(), retrieved.MultiPooler.GetShardKey().GetDatabase())
 
 	// Get non-existent key
 	_, ok = store.Get("nonexistent")
@@ -138,7 +140,9 @@ func TestProtoStore_Range(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "pooler1",
 			},
-			Database: "db1",
+			ShardKey: &clustermetadata.ShardKey{
+				Database: "db1",
+			},
 		},
 	})
 	store.Set("key2", &multiorchdatapb.PoolerHealthState{
@@ -148,7 +152,9 @@ func TestProtoStore_Range(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "pooler2",
 			},
-			Database: "db2",
+			ShardKey: &clustermetadata.ShardKey{
+				Database: "db2",
+			},
 		},
 	})
 	store.Set("key3", &multiorchdatapb.PoolerHealthState{
@@ -158,7 +164,9 @@ func TestProtoStore_Range(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "pooler3",
 			},
-			Database: "db3",
+			ShardKey: &clustermetadata.ShardKey{
+				Database: "db3",
+			},
 		},
 	})
 
@@ -249,30 +257,32 @@ func TestProtoStore_CloningBehavior(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "pooler1",
 			},
-			Database: "original_db",
+			ShardKey: &clustermetadata.ShardKey{
+				Database: "original_db",
+			},
 		},
 		IsUpToDate: true,
 	}
 	store.Set("key1", original)
 
 	// Modify original after storing - should not affect stored value
-	original.MultiPooler.Database = "modified_db"
+	original.MultiPooler.ShardKey.Database = "modified_db"
 	original.IsUpToDate = false
 
 	// Get should return clone of original stored value, not the modified one
 	retrieved, ok := store.Get("key1")
 	require.True(t, ok)
-	require.Equal(t, "original_db", retrieved.MultiPooler.Database)
+	require.Equal(t, "original_db", retrieved.MultiPooler.GetShardKey().GetDatabase())
 	require.True(t, retrieved.IsUpToDate)
 
 	// Modify retrieved value - should not affect stored value
-	retrieved.MultiPooler.Database = "retrieved_modified"
+	retrieved.MultiPooler.ShardKey.Database = "retrieved_modified"
 	retrieved.IsUpToDate = false
 
 	// Get again - should still return original stored value
 	retrieved2, ok := store.Get("key1")
 	require.True(t, ok)
-	require.Equal(t, "original_db", retrieved2.MultiPooler.Database)
+	require.Equal(t, "original_db", retrieved2.MultiPooler.GetShardKey().GetDatabase())
 	require.True(t, retrieved2.IsUpToDate)
 }
 
@@ -287,14 +297,16 @@ func TestProtoStore_RangeCloningBehavior(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "pooler1",
 			},
-			Database: "original_db",
+			ShardKey: &clustermetadata.ShardKey{
+				Database: "original_db",
+			},
 		},
 		IsUpToDate: true,
 	})
 
 	// Modify value during Range iteration
 	store.Range(func(key string, value *multiorchdatapb.PoolerHealthState) bool {
-		value.MultiPooler.Database = "modified_in_range"
+		value.MultiPooler.ShardKey.Database = "modified_in_range"
 		value.IsUpToDate = false
 		return true
 	})
@@ -302,7 +314,7 @@ func TestProtoStore_RangeCloningBehavior(t *testing.T) {
 	// Get should still return original value (Range returns clones)
 	retrieved, ok := store.Get("key1")
 	require.True(t, ok)
-	require.Equal(t, "original_db", retrieved.MultiPooler.Database)
+	require.Equal(t, "original_db", retrieved.MultiPooler.GetShardKey().GetDatabase())
 	require.True(t, retrieved.IsUpToDate)
 }
 

@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -184,9 +186,7 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.
 		}
 
 		// Only consider poolers in the same shard
-		if pooler.MultiPooler.Database != shardKey.Database ||
-			pooler.MultiPooler.TableGroup != shardKey.TableGroup ||
-			pooler.MultiPooler.Shard != shardKey.Shard {
+		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			return true // continue
 		}
 

@@ -32,7 +32,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
-	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -108,8 +107,17 @@ type Conn struct {
 	// handler processes queries for this connection.
 	handler Handler
 
-	// hashProvider provides password hashes for SCRAM authentication.
-	hashProvider scram.PasswordHashProvider
+	// credentialProvider supplies the SCRAM hash and rolreplication flag
+	// for the authenticating role. A single lookup feeds both SCRAM and
+	// the post-auth replication-role gate; the result is cached on
+	// credentials below so the gate doesn't have to round-trip again.
+	credentialProvider CredentialProvider
+
+	// credentials is the result of a successful credentialProvider lookup,
+	// populated before SCRAM starts. The replication-role gate reads
+	// IsReplicationRole from here so neither path has to round-trip a
+	// second time.
+	credentials *Credentials
 
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
@@ -119,6 +127,10 @@ type Conn struct {
 	// When set, the server accepts SSLRequest and upgrades to TLS.
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
+
+	// requireTLS rejects a plaintext StartupMessage. Copied from the
+	// listener at accept time. Cancel requests bypass this check.
+	requireTLS bool
 
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
@@ -152,6 +164,12 @@ type Conn struct {
 	user     string
 	database string
 	params   map[string]string
+
+	// replicationMode reflects the parsed `replication` startup parameter.
+	// Default ReplicationOff means a normal SQL session. ReplicationPhysical
+	// or ReplicationLogical require pg_authid.rolreplication=true on the
+	// authenticated role; the post-auth verifier enforces that.
+	replicationMode ReplicationMode
 
 	// SCRAM-SHA-256 keys extracted during the client handshake, used for
 	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
@@ -555,6 +573,15 @@ func (c *Conn) serve() error {
 	if err := c.handleStartup(); err != nil {
 		if errors.Is(err, io.EOF) {
 			c.logger.Debug("client disconnected before startup")
+			return nil
+		}
+		// errAuthRejected: a FATAL was already sent during the auth flow;
+		// no AuthenticationOk was emitted and the connection was not
+		// registered. Skip the command loop entirely so a misbehaving
+		// client cannot send messages on a half-completed session, and
+		// don't write a second error frame.
+		if errors.Is(err, errAuthRejected) {
+			c.logger.Debug("client rejected during startup; FATAL already sent")
 			return nil
 		}
 		// Map a deadline-exceeded I/O error during startup to a clean

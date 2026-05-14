@@ -819,13 +819,12 @@ type MultiPooler struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the unique identifier of the multipooler in the cluster.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Database name.
-	Database string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
-	// TableGroup name.
-	TableGroup string `protobuf:"bytes,3,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
-	// Shard name. If range based sharding is used, it should match
-	// key_range.
-	Shard string `protobuf:"bytes,4,opt,name=shard,proto3" json:"shard,omitempty"`
+	// shard_key identifies which shard this pooler belongs to. It is used for
+	// routing requests to the correct pooler and for displaying metadata about
+	// the shard in dashboards. It is not expected to change for the lifetime of
+	// the pooler, but it is not immutable either — if the pooler moves to a
+	// different shard, this field should be updated to reflect the new shard.
+	ShardKey *ShardKey `protobuf:"bytes,2,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"` //
 	// If range based sharding is used, range for the pooler's shard.
 	KeyRange *KeyRange `protobuf:"bytes,5,opt,name=key_range,json=keyRange,proto3" json:"key_range,omitempty"`
 	// PoolerType is the kind of pooler: PRIMARY or REPLICA
@@ -882,25 +881,11 @@ func (x *MultiPooler) GetId() *ID {
 	return nil
 }
 
-func (x *MultiPooler) GetDatabase() string {
+func (x *MultiPooler) GetShardKey() *ShardKey {
 	if x != nil {
-		return x.Database
+		return x.ShardKey
 	}
-	return ""
-}
-
-func (x *MultiPooler) GetTableGroup() string {
-	if x != nil {
-		return x.TableGroup
-	}
-	return ""
-}
-
-func (x *MultiPooler) GetShard() string {
-	if x != nil {
-		return x.Shard
-	}
-	return ""
+	return nil
 }
 
 func (x *MultiPooler) GetKeyRange() *KeyRange {
@@ -2054,13 +2039,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
-	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\x98\x04\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\xfd\x03\n" +
 	"\vMultiPooler\x12#\n" +
-	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
-	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
-	"\vtable_group\x18\x03 \x01(\tR\n" +
-	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x04 \x01(\tR\x05shard\x126\n" +
+	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
+	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
 	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x12/\n" +
 	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\x04type\x12K\n" +
 	"\x0eserving_status\x18\a \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12\x1a\n" +
@@ -2229,39 +2211,40 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	10, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
 	11, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
 	16, // 6: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	17, // 7: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	0,  // 8: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	1,  // 9: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	28, // 10: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	16, // 11: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	29, // 12: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	16, // 13: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	30, // 14: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	4,  // 15: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	2,  // 16: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
-	19, // 17: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
-	16, // 18: clustermetadata.ShardRule.leader_id:type_name -> clustermetadata.ID
-	16, // 19: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
-	18, // 20: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
-	16, // 21: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
-	31, // 22: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
-	20, // 23: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
-	20, // 24: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
-	16, // 25: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
-	31, // 26: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
-	19, // 27: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
-	23, // 28: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
-	23, // 29: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	21, // 30: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	22, // 31: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	16, // 32: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	3,  // 33: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	26, // 34: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	14, // 7: clustermetadata.MultiPooler.shard_key:type_name -> clustermetadata.ShardKey
+	17, // 8: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	0,  // 9: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	1,  // 10: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	28, // 11: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	16, // 12: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	29, // 13: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	16, // 14: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	30, // 15: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 16: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	2,  // 17: clustermetadata.DurabilityPolicy.quorum_type:type_name -> clustermetadata.QuorumType
+	19, // 18: clustermetadata.ShardRule.rule_number:type_name -> clustermetadata.RuleNumber
+	16, // 19: clustermetadata.ShardRule.leader_id:type_name -> clustermetadata.ID
+	16, // 20: clustermetadata.ShardRule.cohort_members:type_name -> clustermetadata.ID
+	18, // 21: clustermetadata.ShardRule.durability_policy:type_name -> clustermetadata.DurabilityPolicy
+	16, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
+	31, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
+	20, // 24: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
+	20, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
+	16, // 26: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
+	31, // 27: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	19, // 28: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
+	23, // 29: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
+	23, // 30: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	21, // 31: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	22, // 32: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
+	16, // 33: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 34: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	26, // 35: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }

@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -38,18 +39,25 @@ type Coordinator struct {
 	rpcClient     rpcclient.MultiPoolerClient
 	logger        *slog.Logger
 
+	// useNewFlow enables the Recruit/Propose consensus path. Temporary; will be
+	// removed once the old BeginTerm/EstablishLeadership path is deleted.
+	useNewFlow bool
+
 	// TODO: policyCache will go away when we start reading the policy from nodes instead of etcd.
 	// This cache is a temporary way to avoid making failover depend on etcd.
 	policyCache sync.Map // database name → *clustermetadatapb.DurabilityPolicy
 }
 
-// NewCoordinator creates a new coordinator instance.
-func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
+// NewCoordinator creates a new coordinator instance. useNewFlow enables the
+// Recruit/Propose consensus path; pass false to use the legacy
+// BeginTerm/EstablishLeadership path.
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger, useNewFlow bool) *Coordinator {
 	return &Coordinator{
 		coordinatorID: coordinatorID,
 		topoStore:     topoStore,
 		rpcClient:     rpcClient,
 		logger:        logger,
+		useNewFlow:    useNewFlow,
 	}
 }
 
@@ -77,6 +85,10 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
 
+	if c.useNewFlow {
+		return c.runFailover(ctx, cohort, reason)
+	}
+
 	// TODO: Apply the policy from the nodes themselves instead of assuming the bootstrap policy is
 	// still the durable shard policy. To do this, add durability_policy to PoolerHealthState so
 	// the health check loop populates it, then read from the cohort here for preVote and from the
@@ -102,6 +114,24 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	proposedTerm := maxTerm + 1
 
 	return c.appointLeaderWithTerm(ctx, shardID, cohort, policy, proposedTerm, reason)
+}
+
+// runFailover wires the new-flow failover callbacks for a coordinatorLedRuleChange
+// and runs it. The proposal builder picks an eligible non-resigned leader from the
+// outgoing cohort; the tryBuildProposal and checkProposalPossible callbacks delegate to
+// BuildSafeProposal and CheckProposalPossible respectively.
+func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
+	poolerByID, healthByID := buildCohortMaps(cohort)
+	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return buildFailoverProposal(ctx, c.logger, r, poolerByID, healthByID)
+	}
+	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+		return commonconsensus.BuildSafeProposal(rev, statuses, buildProposal)
+	}
+	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
+		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
+	}
+	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort)
 }
 
 // appointLeaderWithTerm is the shared core of AppointLeader and AppointInitialLeader.

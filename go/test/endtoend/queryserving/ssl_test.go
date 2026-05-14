@@ -333,6 +333,55 @@ func TestMultiGateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "wronghost.test")
 }
 
+// TestMultiGateway_SSL_RequireSSL_RejectsPlaintext exercises the
+// `--pg-require-ssl=true` posture: a client that connects with
+// sslmode=disable must be rejected before authentication. This mirrors
+// PostgreSQL's hostssl behavior in pg_hba.conf.
+func TestMultiGateway_SSL_RequireSSL_RejectsPlaintext(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSL test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SSL tests")
+	}
+
+	setup := getRequireSSLSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	defer db.Close()
+
+	err = db.Ping()
+	require.Error(t, err, "plaintext connection must be rejected when --pg-require-ssl=true")
+}
+
+// TestMultiGateway_SSL_RequireSSL_AcceptsTLS verifies that with
+// --pg-require-ssl=true, a client that negotiates TLS (sslmode=require) is
+// admitted and can run queries.
+func TestMultiGateway_SSL_RequireSSL_AcceptsTLS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSL test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SSL tests")
+	}
+
+	setup := getRequireSSLSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=require", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	defer db.Close()
+
+	var result int
+	err = db.QueryRow("SELECT 1").Scan(&result)
+	require.NoError(t, err, "sslmode=require must succeed when --pg-require-ssl=true")
+	assert.Equal(t, 1, result)
+}
+
 // TestMultiGateway_SSL_AllowMode tests sslmode=allow against a TLS-enabled multigateway.
 // Per the PG protocol, "allow" means try plaintext first; if rejected, retry with SSL.
 // Since multigateway accepts both, the client connects in plaintext on the first attempt.

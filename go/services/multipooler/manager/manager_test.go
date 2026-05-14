@@ -51,7 +51,7 @@ func TestManagerState_InitialState(t *testing.T) {
 	}
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -86,7 +86,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -129,7 +129,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -182,13 +182,15 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -198,7 +200,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multiPoolerObj := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPoolerObj.Shard = constants.DefaultShard
+	multiPoolerObj.ShardKey.Shard = constants.DefaultShard
 	multiPoolerObj.PoolerDir = poolerDir
 
 	config := &Config{
@@ -231,10 +233,12 @@ func TestManagerState_NilServiceID(t *testing.T) {
 
 	// Create MultiPooler with nil Id to test validation
 	multiPooler := &clustermetadatapb.MultiPooler{
-		Id:         nil, // Nil ID for testing
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-		PoolerDir:  "/tmp/test",
+		Id: nil, // Nil ID for testing
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		PoolerDir: "/tmp/test",
 	}
 
 	config := &Config{
@@ -339,14 +343,16 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
-				Database:      database,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				TableGroup:    constants.DefaultTableGroup,
-				Shard:         constants.DefaultShard,
-				PoolerDir:     poolerDir,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   database,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				PoolerDir: poolerDir,
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -413,11 +419,13 @@ func TestGetBackupLocation(t *testing.T) {
 		Name:      "test-service",
 	}
 	multiPooler := &clustermetadatapb.MultiPooler{
-		Id:         serviceID,
-		Database:   database,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+		Id: serviceID,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		PoolerDir: filepath.Join(tmpDir, "pooler"),
 	}
 	config := &Config{
 		TopoClient: ts,
@@ -462,11 +470,13 @@ func TestGetBackupLocation_S3(t *testing.T) {
 		Name:      "test-service",
 	}
 	multiPooler := &clustermetadatapb.MultiPooler{
-		Id:         serviceID,
-		Database:   database,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+		Id: serviceID,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		PoolerDir: filepath.Join(tmpDir, "pooler"),
 	}
 	config := &Config{
 		TopoClient: ts,
@@ -514,7 +524,7 @@ func TestWaitUntilReady_Success(t *testing.T) {
 		Name: "test-service",
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -548,7 +558,7 @@ func TestWaitUntilReady_Error(t *testing.T) {
 		Name: "test-service",
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -583,7 +593,7 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 		Name: "test-service",
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -614,7 +624,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 		Name: "test-service",
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Shard = constants.DefaultShard
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -710,13 +720,15 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			multiPooler := &clustermetadatapb.MultiPooler{
-				Id:         serviceID,
-				Database:   "testdb",
-				Hostname:   "localhost",
-				PortMap:    map[string]int32{"grpc": 8080},
-				TableGroup: tt.tableGroup,
-				Shard:      tt.shard,
-				PoolerDir:  "/tmp/test",
+				Id:        serviceID,
+				Hostname:  "localhost",
+				PortMap:   map[string]int32{"grpc": 8080},
+				PoolerDir: "/tmp/test",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "testdb",
+					TableGroup: tt.tableGroup,
+					Shard:      tt.shard,
+				},
 			}
 
 			config := &Config{

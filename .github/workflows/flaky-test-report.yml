@@ -43,7 +43,9 @@ jobs:
   report:
     name: Aggregate flaky tests and post to Slack
     runs-on: ubuntu-24.04
-    environment: ci
+    environment:
+      name: ci
+      deployment: false
     permissions:
       actions: read
     steps:

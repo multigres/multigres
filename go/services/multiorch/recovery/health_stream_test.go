@@ -78,13 +78,15 @@ func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, po
 	key := topoclient.MultiPoolerIDString(poolerID)
 	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id:         poolerID,
-			Database:   "mydb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       poolerType,
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"grpc": 5432},
+			Id: poolerID,
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "mydb",
+				TableGroup: "tg1",
+				Shard:      "0",
+			},
+			Type:     poolerType,
+			Hostname: "host1",
+			PortMap:  map[string]int32{"grpc": 5432},
 		},
 	})
 	return key
@@ -284,7 +286,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	key := topoclient.MultiPoolerIDString(poolerID)
 	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id: poolerID, Database: "mydb", TableGroup: "tg1", Shard: "0",
+			Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 			Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host1",
 			PortMap: map[string]int32{"grpc": 5432},
 		},
@@ -467,7 +469,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
 		poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadata.MultiPooler{
-				Id: poolerID, Database: "mydb", TableGroup: "tg1", Shard: "0",
+				Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 				Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host2",
 				PortMap: map[string]int32{"grpc": 5432},
 			},
