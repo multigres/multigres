@@ -157,7 +157,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			Dynamic:  false,
 		}),
 		vpidStampEnabled: viperutil.Configure(reg, "vpid-stamp-enabled", viperutil.Options[bool]{
-			Default:  true,
+			Default:  false,
 			FlagName: "vpid-stamp-enabled",
 			Dynamic:  false,
 		}),

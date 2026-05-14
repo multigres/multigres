@@ -215,8 +215,7 @@ func (c *Conn) State() *connstate.ConnectionState {
 // pg_stat_activity. Must be re-applied on every client hand-off for pooled
 // connections since the backend is shared across clients.
 func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	escaped := strings.ReplaceAll(name, "'", "''")
-	_, err := c.conn.Query(ctx, fmt.Sprintf("SET application_name = '%s'", escaped))
+	_, err := c.conn.Query(ctx, "SET application_name = "+ast.QuoteStringLiteral(name))
 	return err
 }
 

@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -314,16 +313,10 @@ func (c *Conn) SecretKey() uint32 {
 
 // SetApplicationName sets the application_name on the underlying PostgreSQL
 // connection. Used to tag the backend with the client's virtual PID for
-// lock-detection mapping via pg_stat_activity.
+// lock-detection mapping via pg_stat_activity. Delegates to the underlying
+// regular.Conn so quoting/escaping lives in one place.
 func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	_, err := c.pooled.Conn.Query(ctx, "SET application_name = "+quoteStringLiteral(name))
-	return err
-}
-
-// quoteStringLiteral quotes a string as a PostgreSQL string literal: single
-// quotes around the value, embedded single quotes doubled.
-func quoteStringLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	return c.pooled.Conn.SetApplicationName(ctx, name)
 }
 
 // Query executes a simple query and returns all results.
