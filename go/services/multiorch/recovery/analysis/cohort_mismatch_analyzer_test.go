@@ -224,13 +224,3 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		require.NotNil(t, analyzer.RecoveryAction())
 	})
 }
-
-func TestCohortMismatchAnalyzer_idKey(t *testing.T) {
-	t.Run("nil id returns empty string", func(t *testing.T) {
-		assert.Equal(t, "", idKey(nil))
-	})
-	t.Run("non-nil id returns cell/name", func(t *testing.T) {
-		id := &clustermetadatapb.ID{Cell: "zone1", Name: "pooler-a"}
-		assert.Equal(t, "zone1/pooler-a", idKey(id))
-	})
-}

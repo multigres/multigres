@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -76,13 +77,13 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	// Build a set of current cohort member ID strings for O(1) lookup.
 	cohortIDs := make(map[string]struct{}, len(sa.LeaderStandbyIDs))
 	for _, id := range sa.LeaderStandbyIDs {
-		cohortIDs[idKey(id)] = struct{}{}
+		cohortIDs[topoclient.MultiPoolerIDString(id)] = struct{}{}
 	}
 
 	var problems []types.Problem
 	for _, pa := range sa.Analyses {
 		// Removal candidates: current cohort members signaling INELIGIBLE.
-		if _, inCohort := cohortIDs[idKey(pa.PoolerID)]; inCohort {
+		if _, inCohort := cohortIDs[topoclient.MultiPoolerIDString(pa.PoolerID)]; inCohort {
 			if types.PoolerIsCohortIneligible(pa.AvailabilityStatus) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
@@ -122,6 +123,18 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // isAdditionCandidate reports whether a non-cohort pooler is healthy enough to
 // be added: it must be a non-leader REPLICA, initialized, replicating, and not
 // signaling INELIGIBLE.
+//
+// TODO: long-term, most of these checks should fold into the pooler's
+// self-reported cohort eligibility signal. The pooler is in the best position
+// to know whether it can durably serve as a cohort member — it knows whether
+// it has a working backup, whether it's in a drained state, whether
+// replication is healthy, and so on. The analyzer should largely just trust
+// the CohortEligibilityStatus signal rather than reconstruct that judgment
+// from individual health fields.
+//
+// The IsLeader gate is also conceptually unnecessary — there's no correctness
+// problem an acting primary adding itself to the cohort. This may be useful
+// in some propagation scenarios.
 func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *PoolerAnalysis) bool {
 	if pa.IsLeader {
 		return false
@@ -144,14 +157,4 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *Pool
 		return false
 	}
 	return true
-}
-
-// idKey returns a comparable key for an ID. We use cell+name (not Component)
-// because cohort membership is shard-scoped and pooler IDs already share the
-// MULTIPOOLER component.
-func idKey(id *clustermetadatapb.ID) string {
-	if id == nil {
-		return ""
-	}
-	return id.Cell + "/" + id.Name
 }
