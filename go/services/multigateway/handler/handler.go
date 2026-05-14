@@ -562,6 +562,16 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 	h.psc.RemoveConnection(conn.ConnectionID())
 }
 
+// classifyErrorSource calls mterrors.ClassifyErrorSource only when err is
+// non-nil. The success path is overwhelmingly common, so short-circuiting
+// here avoids a per-query function call + interface check.
+func classifyErrorSource(err error) string {
+	if err == nil {
+		return ""
+	}
+	return mterrors.ClassifyErrorSource(err)
+}
+
 // recordQueryCompletion records all three metrics and emits a structured
 // query log entry. Centralises the instrumentation logic shared by
 // HandleQuery and HandleExecute.
@@ -604,10 +614,12 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 	status := QueryStatusOK
 	errorType := ""
+	errorSource := ""
 	if err != nil {
 		status = QueryStatusError
 		errorType = mterrors.ExtractSQLSTATE(err)
-		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName, fingerprintLabel)
+		errorSource = classifyErrorSource(err)
+		h.metrics.queryErrors.Add(ctx, errorType, errorSource, dbNamespace, operationName, fingerprintLabel)
 	}
 
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status, fingerprintLabel)
@@ -640,7 +652,7 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		TablesUsed:    tablesUsed,
 		Error:         err,
 		SQLSTATE:      errorType,
-		ErrorSource:   mterrors.ClassifyErrorSource(err),
+		ErrorSource:   errorSource,
 	}, h.slowThreshold, h.normalQueryLogSampleRate, &h.normalQueryLogSamplingCursor, h.metrics.queryLogEmits)
 }
 
