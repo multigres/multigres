@@ -98,14 +98,22 @@ func (f *fakeRuleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
 	return f.pos
 }
 
-func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+func (f *fakeRuleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.updates = append(f.updates, update)
-	if f.updateErr != nil {
-		return nil, f.updateErr
+	updateErr := f.updateErr
+	pos := f.pos
+	f.mu.Unlock()
+
+	if updateErr != nil {
+		return nil, updateErr
 	}
-	return f.pos, nil
+	if update.promotionHook != nil {
+		if err := update.promotionHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return pos, nil
 }
 
 func (f *fakeRuleStore) hasInconsistentGUC(_ context.Context) bool {

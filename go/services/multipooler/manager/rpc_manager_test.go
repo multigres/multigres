@@ -1871,8 +1871,21 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
+	// observePosition must succeed so UpdateCohortMembers reaches updateRule.
+	// updateErr simulates the history write timing out (the failure we're testing).
+	manager.rules = &fakeRuleStore{
+		pos: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				CohortMembers: []*clustermetadatapb.ID{
+					{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-1"},
+					{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-2"},
+				},
+				DurabilityPolicy: testBootstrapPolicy(),
+			},
+		},
+		updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"),
+	}
 
 	err = manager.setInitialized()
 	require.NoError(t, err)

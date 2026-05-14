@@ -1529,8 +1529,9 @@ func expectStandbyReadyMocks(m *mock.QueryService) {
 
 // expectLeaderProposeMocks sets up the postgres query expectations for the leader
 // Propose path: check recovery state, pg_promote, wait for promotion, reset conninfo,
-// reload config, then get the primary WAL position.
-func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
+// reload config. The WAL position is read from the rule store's cached LSN
+// (via beforeStatus.GetCurrentPosition().GetLsn()), not from a separate pg_current_wal_lsn query.
+func expectLeaderProposeMocks(m *mock.QueryService) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
@@ -1543,9 +1544,6 @@ func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
-	// getPrimaryLSN
-	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
 }
 
 // expectReplicaProposeMocks sets up the postgres query expectations for the replica
@@ -1754,7 +1752,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
-				expectLeaderProposeMocks(m, "0/5000000")
+				expectLeaderProposeMocks(m)
 			},
 			// Verify the promotion was recorded with the right coordinator term and WAL
 			// position, and that the health streamer was updated for write traffic.
@@ -1770,7 +1768,9 @@ func TestPropose(t *testing.T) {
 				assert.True(t, proto.Equal(coordinatorA, update.coordinatorID))
 				assert.True(t, proto.Equal(selfID, update.leaderID))
 				assert.Len(t, update.cohortMembers, 2)
-				assert.Equal(t, "0/5000000", update.walPosition)
+				// walPosition comes from beforeStatus.GetCurrentPosition().GetLsn(),
+				// which is the rule store's cached LSN at the time of the Propose call.
+				assert.Equal(t, makeRulePosition(0).Lsn, update.walPosition)
 				assert.Nil(t, update.durabilityPolicy)
 				assert.Empty(t, update.acceptedMembers)
 
@@ -1785,41 +1785,23 @@ func TestPropose(t *testing.T) {
 			},
 		},
 		{
-			// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
-			// A misconfigured GUC would allow the primary to accept writes without the
-			// required sync acknowledgment, so the failure is fatal.
+			// GUC application (syncStandby.SetPolicy inside updateRule) fails before
+			// pg_promote is called. Propose must return an error without promoting, since
+			// a misconfigured GUC would allow the primary to accept writes without the
+			// required sync acknowledgment. GUC application now lives inside updateRule,
+			// so we simulate the failure via fakeRuleStore.updateErr.
 			name:        "LeaderGUCFailure",
 			initialTerm: recruitedTerm,
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req: &consensusdatapb.ProposeRequest{
-				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: recruitedTerm,
-					ProposalLeader: &consensusdatapb.ProposalLeader{
-						Id:           selfID,
-						Host:         "pg-primary.internal",
-						PostgresPort: 5432,
-					},
-					// Include a durability policy so syncConfigFromProposedRule
-					// succeeds and applyGUCsForSyncReplication is actually invoked.
-					ProposedRule: &clustermetadatapb.ShardRule{
-						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
-						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
-							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-							RequiredCount: 2,
-						},
-					},
-				},
-			},
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0), updateErr: errors.New("pre-promote GUC: GUC write failed")},
+			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectStandbyReadyMocks(m)
-				// checkPromotionState: standby.
+				// checkPromotionState: standby. updateRule then fails (no pg_promote called).
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
-				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_commit", errors.New("GUC write failed"))
 			},
 			expectError:       true,
-			expectErrContains: "failed to pre-configure sync replication",
+			expectErrContains: "propose failed: could not write rule",
 		},
 		{
 			// postgres is already primary (not in recovery): the standby-state
