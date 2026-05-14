@@ -35,9 +35,11 @@ func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadata
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   host,
-		TableGroup: tableGroup,
-		PortMap:    make(map[string]int32),
+		Hostname: host,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+		},
+		PortMap: make(map[string]int32),
 	}
 }
 
@@ -198,16 +200,17 @@ func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt
 			return nil, err
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
+			sk := multipooler.GetShardKey()
 			// Database must match
-			if opt.DatabaseShard.Database != multipooler.Database {
+			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue
 			}
 			// If TableGroup is specified, it must match
-			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != multipooler.TableGroup {
+			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != sk.GetTableGroup() {
 				continue
 			}
 			// If Shard is specified, it must match
-			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != multipooler.Shard {
+			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != sk.GetShard() {
 				continue
 			}
 		}

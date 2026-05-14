@@ -132,7 +132,7 @@ func TestLoadDurabilityPolicy(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		topoClient:  store,
-		multipooler: &clustermetadatapb.MultiPooler{Database: dbName},
+		multipooler: &clustermetadatapb.MultiPooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}},
 	}
 
 	got, err := pm.loadDurabilityPolicy(ctx)
@@ -159,7 +159,7 @@ func TestLoadDurabilityPolicy_NoPolicyConfigured(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		topoClient:  store,
-		multipooler: &clustermetadatapb.MultiPooler{Database: dbName},
+		multipooler: &clustermetadatapb.MultiPooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}},
 	}
 
 	_, err = pm.loadDurabilityPolicy(ctx)
@@ -194,10 +194,12 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		actionLock:   NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   dbName,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-			PoolerDir:  poolerDir,
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		},
 		config: &Config{},
 	}
@@ -235,10 +237,12 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		actionLock:   NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   "testdb",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-			PoolerDir:  poolerDir,
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		},
 		config: &Config{},
 	}
@@ -282,10 +286,12 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		actionLock:   NewActionLock(),
 		pgctldClient: &stubPgctldClient{}, // InitDataDir returns UNAVAILABLE
 		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   dbName,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-			PoolerDir:  poolerDir,
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		},
 		config: &Config{},
 	}
@@ -328,10 +334,12 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 		actionLock:   NewActionLock(),
 		pgctldClient: pgctld,
 		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   dbName,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-			PoolerDir:  poolerDir,
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		},
 		config: &Config{},
 		// pgBackRestConfigPath deliberately empty → configureArchiveMode will fail,
@@ -388,10 +396,12 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		actionLock:   NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		multipooler: &clustermetadatapb.MultiPooler{
-			Database:   dbName,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-			PoolerDir:  poolerDir,
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
 		},
 		config: &Config{},
 	}

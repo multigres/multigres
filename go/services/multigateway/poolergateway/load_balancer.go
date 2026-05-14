@@ -140,7 +140,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 		// Invalidate seed if type changed away from PRIMARY
 		if oldType == clustermetadatapb.PoolerType_PRIMARY && newType != clustermetadatapb.PoolerType_PRIMARY {
-			key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+			key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
 			if cached, ok := lb.cachedPrimaries[key]; ok && cached.conn == conn && cached.term == 0 {
 				delete(lb.cachedPrimaries, key)
 				lb.logger.Debug("invalidated seeded primary cache on type change",
@@ -150,7 +150,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 		// Seed if type changed to PRIMARY
 		if oldType != clustermetadatapb.PoolerType_PRIMARY && newType == clustermetadatapb.PoolerType_PRIMARY {
-			key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+			key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
 			if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
 				lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
 				lb.logger.Debug("seeded primary cache on type change",
@@ -171,7 +171,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	// Seed primary cache from discovery type (term 0 = unconfirmed).
 	// Health stream callbacks will overwrite with real term data.
 	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
-		key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+		key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
 		if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
 			lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
 			lb.logger.Debug("seeded primary cache from discovery",
@@ -471,12 +471,12 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 	poolerInfo := conn.PoolerInfo()
 
 	// Check tablegroup match
-	if target.TableGroup != poolerInfo.GetTableGroup() {
+	if target.TableGroup != poolerInfo.GetShardKey().GetTableGroup() {
 		return false
 	}
 
 	// Check shard match (empty target shard matches any)
-	if target.Shard != "" && target.Shard != poolerInfo.GetShard() {
+	if target.Shard != "" && target.Shard != poolerInfo.GetShardKey().GetShard() {
 		return false
 	}
 

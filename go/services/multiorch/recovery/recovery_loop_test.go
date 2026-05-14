@@ -724,7 +724,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
-				Database: "db1", TableGroup: "tg1", Shard: "0",
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
@@ -746,7 +746,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       replicaID,
-				Database: "db1", TableGroup: "tg1", Shard: "0",
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
@@ -794,7 +794,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
-				Database: "db1", TableGroup: "tg1", Shard: "0",
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
@@ -807,7 +807,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       replicaID,
-				Database: "db1", TableGroup: "tg1", Shard: "0",
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
@@ -900,7 +900,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replicaID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
@@ -1051,7 +1051,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       primaryID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
@@ -1074,7 +1074,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica1ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
@@ -1088,7 +1088,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica2ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
@@ -1241,7 +1241,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       primaryID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
@@ -1254,7 +1254,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica1ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
@@ -1273,7 +1273,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica2ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
@@ -1445,7 +1445,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replicaID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
@@ -1565,7 +1565,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replicaID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
@@ -1693,7 +1693,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       primaryID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
@@ -1706,7 +1706,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replicaID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
@@ -1824,7 +1824,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replicaID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
@@ -2000,7 +2000,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       primaryID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
@@ -2013,7 +2013,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica1ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
@@ -2026,7 +2026,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       replica2ID,
-			Database: "db1", TableGroup: "tg1", Shard: "0",
+			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},

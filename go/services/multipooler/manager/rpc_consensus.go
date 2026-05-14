@@ -770,12 +770,12 @@ func syncConfigFromProposedRule(
 	logger *slog.Logger,
 	rule *clustermetadatapb.ShardRule,
 	leaderID *clustermetadatapb.ID,
-) (*commonconsensus.LeaderDurabilityPostgresConfig, error) {
+) (*commonconsensus.SyncReplicationConfig, error) {
 	policy, err := commonconsensus.NewPolicyFromProto(rule.GetDurabilityPolicy())
 	if err != nil {
 		return nil, fmt.Errorf("cannot derive sync config: %w", err)
 	}
-	return policy.BuildLeaderDurabilityPostgresConfig(logger, rule.GetCohortMembers(), leaderID)
+	return policy.BuildSyncReplicationConfig(logger, rule.GetCohortMembers(), leaderID)
 }
 
 // ConsensusStatus returns the current status of this node for consensus

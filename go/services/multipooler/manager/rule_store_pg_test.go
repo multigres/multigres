@@ -253,7 +253,7 @@ func newTestRuleStore(ctx context.Context, t *testing.T) (*ruleStore, *client.Co
 }
 
 // resetRuleStoreTables truncates and re-initialises the rule tables so each test
-// starts from the zero-state sentinel row.
+// starts from the initial row.
 func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	t.Helper()
 	conn, err := pgTestFixture.newClientConn(ctx)
@@ -302,18 +302,36 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 	pos, err := rs.observePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos, "fresh state should still return a position with the current LSN")
-	assert.Equal(t, int64(0), pos.GetRule().GetRuleNumber().GetCoordinatorTerm(), "fresh sentinel row has coordinator_term=0")
+	assert.Equal(t, int64(0), pos.GetRule().GetRuleNumber().GetCoordinatorTerm(), "fresh initial row has coordinator_term=0")
 	assert.NotEmpty(t, pos.GetLsn(), "fresh state should include the current WAL LSN")
 
-	// The sentinel row written by createRuleTables must carry the bootstrap durability policy.
+	// The initial row written by createRuleTables must carry the bootstrap durability policy.
 	dp := pos.GetRule().GetDurabilityPolicy()
-	require.NotNil(t, dp, "sentinel row must carry the bootstrap durability policy")
+	require.NotNil(t, dp, "initial row must carry the bootstrap durability policy")
 	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
 	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
 	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
 }
 
-func TestRuleStorePG_ObservePosition_SentinelPolicyCarriedThroughUpdate(t *testing.T) {
+func TestRuleStorePG_ObservePosition_InitialRowMissing(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	// Wipe the initial row that resetRuleStoreTables just inserted. observePosition
+	// must surface a specific error rather than returning a nil position.
+	_, err := conn.Query(ctx, "DELETE FROM multigres.current_rule")
+	require.NoError(t, err)
+
+	_, err = rs.observePosition(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "current_rule initial row missing for shard 0")
+}
+
+func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := t.Context()
 	resetRuleStoreTables(ctx, t)
@@ -323,7 +341,7 @@ func TestRuleStorePG_ObservePosition_SentinelPolicyCarriedThroughUpdate(t *testi
 
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
 
-	// Write a rule without specifying a durability policy — the sentinel row's policy must carry forward.
+	// Write a rule without specifying a durability policy — the initial row's policy must carry forward.
 	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
 	require.NoError(t, err)
 
@@ -331,7 +349,7 @@ func TestRuleStorePG_ObservePosition_SentinelPolicyCarriedThroughUpdate(t *testi
 	require.NoError(t, err)
 
 	dp := pos.GetRule().GetDurabilityPolicy()
-	require.NotNil(t, dp, "sentinel policy must carry forward through updateRule without withDurabilityPolicy")
+	require.NotNil(t, dp, "initial policy must carry forward through updateRule without withDurabilityPolicy")
 	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
 	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
 	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
@@ -567,14 +585,14 @@ func TestRuleStorePG_UpdateRule_CASConflict(t *testing.T) {
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
 	now := time.Now()
 
-	// Write once to advance past the sentinel.
+	// Write once to advance past the initial row's coordinates.
 	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
 
 	// CAS with stale coordinates should fail with errRuleConflict.
 	_, err = rs.updateRule(ctx,
 		newRuleUpdate(1, coordinatorID, "config_change", "stale cas", now).
-			withPreviousRule(0, 0), // sentinel coordinates no longer current
+			withPreviousRule(0, 0), // initial-row coordinates no longer current
 	)
 	require.ErrorIs(t, err, errRuleConflict, "CAS with wrong term/subterm must return errRuleConflict")
 }

@@ -124,8 +124,8 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 		return "", err
 	}
 
-	tableGroup := pm.multipooler.TableGroup
-	shard := pm.multipooler.Shard
+	tableGroup := pm.multipooler.GetShardKey().GetTableGroup()
+	shard := pm.multipooler.GetShardKey().GetShard()
 	multipoolerID := topoclient.MultiPoolerIDString(pm.multipooler.Id)
 	multipoolerName := pm.multipooler.Id.Name
 
@@ -536,7 +536,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	}
 
 	// Get current pooler's table_group and shard for filtering
-	currentTableGroup := pm.multipooler.TableGroup
+	currentTableGroup := pm.multipooler.GetShardKey().GetTableGroup()
 	currentShard := pm.getShardID()
 
 	// Extract backups from the first stanza (should be the only one)

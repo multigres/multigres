@@ -374,9 +374,9 @@ func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, exp
 
 	// Check that at least one multipooler has the correct database, tablegroup, and shard
 	for _, info := range multipoolerInfos {
-		if info.Database == expectedDatabase &&
-			info.TableGroup == expectedTableGroup &&
-			info.Shard == expectedShard {
+		if info.GetShardKey().GetDatabase() == expectedDatabase &&
+			info.GetShardKey().GetTableGroup() == expectedTableGroup &&
+			info.GetShardKey().GetShard() == expectedShard {
 			// Found a multipooler with the expected registration
 			return nil
 		}
@@ -386,7 +386,7 @@ func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, exp
 	var found []string
 	for _, info := range multipoolerInfos {
 		found = append(found, fmt.Sprintf("{database: '%s', tablegroup: '%s', shard: '%s'}",
-			info.Database, info.TableGroup, info.Shard))
+			info.GetShardKey().GetDatabase(), info.GetShardKey().GetTableGroup(), info.GetShardKey().GetShard()))
 	}
 
 	return fmt.Errorf("expected to find multipooler with database='%s', tablegroup='%s', shard='%s' but found: [%s]",

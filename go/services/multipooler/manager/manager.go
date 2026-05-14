@@ -208,10 +208,10 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multiPooler is required")
 	}
-	if multiPooler.TableGroup == "" {
+	if multiPooler.GetShardKey().GetTableGroup() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
-	if multiPooler.Shard == "" {
+	if multiPooler.GetShardKey().GetShard() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
 	}
 	if multiPooler.Id == nil {
@@ -223,7 +223,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.TableGroup, multiPooler.Shard); err != nil {
+	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()); err != nil {
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
@@ -267,7 +267,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
-		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
+		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -290,7 +290,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard, pm, drainGracePeriod)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
 	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
 
 	// The health streamer must wait for the query server to update its type before
@@ -512,7 +512,7 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 		connConfig := &connpoolmanager.ConnectionConfig{
 			SocketFile: pm.config.SocketFilePath,
 			Port:       pgPort,
-			Database:   pm.multipooler.Database,
+			Database:   pm.multipooler.GetShardKey().GetDatabase(),
 		}
 		// When no Unix socket is configured, fall back to a TCP dial against
 		// the multipooler's own hostname. Postgres is colocated with pgctld on
@@ -646,11 +646,7 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
-	return &clustermetadatapb.ShardKey{
-		Database:   pm.multipooler.Database,
-		TableGroup: pm.multipooler.TableGroup,
-		Shard:      pm.multipooler.Shard,
-	}
+	return pm.multipooler.ShardKey
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -819,7 +815,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 		// Successfully loaded multipooler record
 		// Now load the backup location from the database topology
-		database := pm.multipooler.Database
+		database := pm.multipooler.GetShardKey().GetDatabase()
 		if database == "" {
 			pm.setStateError(errors.New("database name not set in multipooler"))
 			return
@@ -841,7 +837,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 
 		// Verify we can compute the full backup path
-		_, err = backupConfig.FullPath(database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		_, err = backupConfig.FullPath(database, pm.multipooler.GetShardKey().GetTableGroup(), pm.multipooler.GetShardKey().GetShard())
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
 			return
