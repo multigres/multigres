@@ -418,6 +418,17 @@ func TestWrapTLSConfigForCertCapture_GetConfigForClientNilInner(t *testing.T) {
 	assert.Nil(t, inner)
 }
 
+// TestWrapInnerCfgForCertCapture_NoGetterNoCertsBypasses asserts the
+// short-circuit: an inner config with neither GetCertificate nor any
+// Certificates is returned unchanged (no clone). crypto/tls falls back
+// to the outer config in this case, which is already wrapped by
+// wrapTLSConfigForCertCapture.
+func TestWrapInnerCfgForCertCapture_NoGetterNoCertsBypasses(t *testing.T) {
+	inner := &tls.Config{MinVersion: tls.VersionTLS12}
+	got := wrapInnerCfgForCertCapture(inner, func(*tls.Certificate) {})
+	assert.Same(t, inner, got, "empty inner config must not be cloned")
+}
+
 // TestWrapInnerCfgForCertCapture_InnerHasGetCertificate covers the inner
 // dynamic-getter branch: when GetConfigForClient returns a config that
 // itself has GetCertificate, that getter is the one crypto/tls uses, so

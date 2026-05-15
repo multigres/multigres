@@ -63,6 +63,14 @@ func (c *Conn) captureTLSServerCert(tlsCert *tls.Certificate) {
 // (RFC 5929 tls-server-end-point). Capturing during selection is the
 // only stable way to retrieve it.
 //
+// TODO(go-stdlib): the wrapper-of-getters pattern below — and this
+// whole file — exists only because crypto/tls has no asymmetric
+// counterpart to ConnectionState.PeerCertificates for the local
+// (server) side. The open proposal is golang/go#24673
+// ("crypto/tls: provide a way to access local certificate used to
+// set up a connection"). Delete this file when that lands and read
+// the leaf directly from (*tls.Conn).ConnectionState().
+//
 // The static Certificates[0] path is intentionally NOT routed through
 // capture here — the caller continues to handle it after the handshake
 // to keep behavior unchanged for the common single-cert deployment.
@@ -118,6 +126,14 @@ func wrapTLSConfigForCertCapture(base *tls.Config, capture func(*tls.Certificate
 // wrapTLSConfigForCertCapture does not see the eventual cert — we must
 // wrap the inner config as well.
 func wrapInnerCfgForCertCapture(inner *tls.Config, capture func(*tls.Certificate)) *tls.Config {
+	// Skip cloning when neither cert-selection path is populated — the
+	// clone would be returned unmodified and crypto/tls would still fall
+	// back to the outer (already-wrapped) config. Parallels the static
+	// short-circuit in wrapTLSConfigForCertCapture.
+	if inner.GetCertificate == nil && len(inner.Certificates) == 0 {
+		return inner
+	}
+
 	out := inner.Clone()
 
 	if out.GetCertificate != nil {
@@ -135,16 +151,15 @@ func wrapInnerCfgForCertCapture(inner *tls.Config, capture func(*tls.Certificate
 	// Inner config has no dynamic getter — crypto/tls will select from
 	// inner.Certificates. Synthesize a GetCertificate that captures the
 	// chosen cert. We replicate crypto/tls's selection rules at a minimum:
-	// honor NameToCertificate if populated, otherwise the first cert that
-	// SupportsCertificate matches, otherwise Certificates[0].
-	if len(out.Certificates) > 0 {
-		out.GetCertificate = func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			cert := selectCertificate(out, chi)
-			if cert != nil {
-				capture(cert)
-			}
-			return cert, nil
+	// the first cert that SupportsCertificate matches, otherwise
+	// Certificates[0]. NameToCertificate is intentionally skipped (see
+	// selectCertificate doc-comment).
+	out.GetCertificate = func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert := selectCertificate(out, chi)
+		if cert != nil {
+			capture(cert)
 		}
+		return cert, nil
 	}
 
 	return out
@@ -156,6 +171,13 @@ func wrapInnerCfgForCertCapture(inner *tls.Config, capture func(*tls.Certificate
 // back to Certificates[0] when no match is found, matching crypto/tls
 // behavior. NameToCertificate is intentionally skipped (deprecated in
 // crypto/tls; SupportsCertificate covers the same SNI matching).
+//
+// This is the most fragile piece of the file: it re-implements stdlib
+// selection rules, so drift in crypto/tls (new TLS version, new
+// SupportsCertificate constraint) would silently break SCRAM-PLUS
+// for the GetConfigForClient-with-static-inner deployment shape.
+// See the TODO on wrapTLSConfigForCertCapture — when golang/go#24673
+// lands, this helper goes away with the rest of the file.
 func selectCertificate(cfg *tls.Config, chi *tls.ClientHelloInfo) *tls.Certificate {
 	if len(cfg.Certificates) == 0 {
 		return nil
