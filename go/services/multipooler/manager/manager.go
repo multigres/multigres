@@ -1580,6 +1580,13 @@ const (
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
 	remedialActionCreateFirstBackup
+	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
+	// topology says REPLICA, but primary_conninfo doesn't match the primary
+	// recorded in ConsensusState.ReplicationPrimary (the most recent
+	// Inform/Propose). Reconciles the GUC so this replica points at the right
+	// primary regardless of how it got out of sync (failed Inform apply,
+	// hand edit, snapshot restore, etc.).
+	remedialActionFixPrimaryConnInfo
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1751,6 +1758,54 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
+// primaryConnInfoDiffersFromRecorded returns true when this pooler has been
+// informed about a primary (via Inform or Propose) and the live primary_conninfo
+// in postgres doesn't match the recorded primary's contact info. Returns false
+// when there's nothing to compare against, when we couldn't read the GUC, or
+// when the recorded primary names this pooler itself.
+//
+// Used by the postgres monitor to decide whether to trigger
+// remedialActionFixPrimaryConnInfo on each tick.
+func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState) bool {
+	rp := pm.consensusState.GetReplicationPrimary()
+	if rp == nil {
+		return false
+	}
+	target := rp.GetPrimary()
+	if target == nil {
+		return false
+	}
+	// Skip if the recorded rule names this pooler as the leader — that's the
+	// primary-side case, out of scope for replica-conninfo reconciliation.
+	if leader := rp.GetRule().GetLeaderId(); leader != nil &&
+		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return false
+	}
+	targetHost := target.GetHostname()
+	targetPort, ok := target.GetPortMap()["postgres"]
+	if !ok || targetHost == "" {
+		return false
+	}
+
+	// Use a short deadline so a slow query never blocks the monitor tick.
+	ctx, cancel := context.WithTimeout(pm.ctx, 500*time.Millisecond)
+	defer cancel()
+	connInfoStr, err := pm.readPrimaryConnInfo(ctx)
+	if err != nil {
+		// Conservative: don't trigger reconciliation we can't verify.
+		return false
+	}
+	if connInfoStr == "" {
+		return true
+	}
+	parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
+	if err != nil || parsed == nil {
+		// Unparseable conninfo is itself drift worth fixing.
+		return true
+	}
+	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
+}
+
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
 func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
@@ -1776,6 +1831,12 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			pm.mu.Unlock()
 			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
+			}
+			// Drift check: replica is otherwise healthy but its primary_conninfo
+			// may not match what we've been told via Inform/Propose. Reconcile
+			// to the recorded ReplicationPrimary if there's a mismatch.
+			if pm.primaryConnInfoDiffersFromRecorded(currentState) {
+				return remedialActionFixPrimaryConnInfo
 			}
 		}
 		return remedialActionNone // Pooler type already matches
@@ -1846,6 +1907,25 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
+		}
+
+	case remedialActionFixPrimaryConnInfo:
+		rp := pm.consensusState.GetReplicationPrimary()
+		target := rp.GetPrimary()
+		targetHost := target.GetHostname()
+		targetPort := target.GetPortMap()["postgres"]
+		pm.logger.InfoContext(ctx, "MonitorPostgres: primary_conninfo drift detected; rewriting to recorded primary",
+			"target_primary", target.GetId().GetName(),
+			"target_host", targetHost,
+			"target_port", targetPort)
+		pm.mu.Lock()
+		pm.primaryPoolerID = target.GetId()
+		pm.primaryHost = targetHost
+		pm.primaryPort = targetPort
+		pm.mu.Unlock()
+		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort,
+			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile primary_conninfo", "error", err)
 		}
 
 	case remedialActionStartPostgres:
