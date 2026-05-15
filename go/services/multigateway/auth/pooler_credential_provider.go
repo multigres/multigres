@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
@@ -36,34 +37,40 @@ type PoolerSystemClient interface {
 	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
 }
 
-// PoolerHashProvider implements scram.PasswordHashProvider by fetching
-// credentials from multipooler via gRPC.
-type PoolerHashProvider struct {
+// PoolerCredentialProvider implements server.CredentialProvider by fetching
+// per-role authentication data from multipooler via gRPC. A single
+// GetAuthCredentials RPC returns both the SCRAM hash (for the SASL handshake)
+// and the rolreplication flag (for the post-auth replication-role gate), so
+// the gateway does not need a second round-trip to admit a replication
+// connection.
+type PoolerCredentialProvider struct {
 	client PoolerSystemClient
 }
 
-// NewPoolerHashProvider creates a new PoolerHashProvider.
+// NewPoolerCredentialProvider creates a new PoolerCredentialProvider.
 // The client is typically a PoolerGateway, which handles pooler selection
 // and failover buffering internally.
-func NewPoolerHashProvider(client PoolerSystemClient) *PoolerHashProvider {
-	return &PoolerHashProvider{
+func NewPoolerCredentialProvider(client PoolerSystemClient) *PoolerCredentialProvider {
+	return &PoolerCredentialProvider{
 		client: client,
 	}
 }
 
-// GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user from multipooler.
-// Returns scram.ErrUserNotFound if the user does not exist or has no password,
-// scram.ErrLoginDisabled for NOLOGIN roles, or scram.ErrPasswordExpired for
-// roles whose rolvaliduntil has elapsed. Callers (ScramAuthenticator and the
-// gateway startup flow) use these sentinels to emit the matching native-PG
-// error with the correct SQLSTATE.
+// GetCredentials retrieves the SCRAM-SHA-256 hash and rolreplication flag
+// for a user from multipooler.
+//
+// Returns scram.ErrUserNotFound if the user does not exist or has no
+// password, scram.ErrLoginDisabled for NOLOGIN roles, or
+// scram.ErrPasswordExpired for roles whose rolvaliduntil has elapsed. The
+// gateway uses these sentinels to emit the matching native-PG error with
+// the correct SQLSTATE.
 //
 // Login-disabled and password-expired rejections are carried from the pooler
 // as a PgDiagnostic attached to the gRPC status; we match on SQLSTATE rather
 // than gRPC code because codes.PermissionDenied / codes.Unauthenticated are
 // also used by gRPC auth interceptors for mTLS / authz failures, so keying
 // on code alone would misclassify those transport errors as user auth errors.
-func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
+func (p *PoolerCredentialProvider) GetCredentials(ctx context.Context, username, database string) (*server.Credentials, error) {
 	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
@@ -103,8 +110,13 @@ func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, data
 		return nil, fmt.Errorf("failed to parse SCRAM hash: %w", err)
 	}
 
-	return hash, nil
+	return &server.Credentials{
+		Hash:              hash,
+		IsReplicationRole: resp.IsReplicationRole,
+	}, nil
 }
 
-// Ensure PoolerHashProvider implements scram.PasswordHashProvider.
-var _ scram.PasswordHashProvider = (*PoolerHashProvider)(nil)
+// Ensure PoolerCredentialProvider implements server.CredentialProvider so
+// the init.go ListenerConfig assignment fails at compile time if the
+// interface drifts.
+var _ server.CredentialProvider = (*PoolerCredentialProvider)(nil)

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -44,15 +45,87 @@ type Executor struct {
 	poolManager        connpoolmanager.PoolManager
 	poolerConsolidator *preparedstatement.PoolerConsolidator
 	poolerID           *clustermetadatapb.ID
+
+	// vpidStampEnabled toggles the multigres_vpid:<id> stamping on PostgreSQL
+	// backends and the matching application_name filter in
+	// sessionSettingsForPool. Both must move together: stamping without
+	// filtering lets ApplySettings wipe the stamp via RESET application_name;
+	// filtering without stamping silently swallows client-set application_name.
+	vpidStampEnabled bool
+}
+
+// sessionSettingsForPool returns a copy of settings safe to apply to a pooled
+// (regular or reserved) PostgreSQL connection.
+//
+// When vpid stamping is enabled, it excludes application_name. The pool's
+// connstate cache must never track a client-supplied application_name: when
+// SetApplicationName is later called out-of-band on the same connection (to
+// stamp `multigres_vpid:<id>` for lock-detection mapping), connstate is
+// unaware of the new value, and a subsequent ApplySettings diff between
+// connstate.current (still holding the client's app_name) and the desired
+// settings on the next query emits a RESET application_name that wipes the
+// stamp before the query runs. Filtering here prevents that ABA on every code
+// path that pushes SessionSettings into the pool.
+//
+// When stamping is disabled, settings pass through unchanged so client-set
+// application_name reaches the backend normally.
+func (e *Executor) sessionSettingsForPool(settings map[string]string) map[string]string {
+	if !e.vpidStampEnabled {
+		return settings
+	}
+	if settings == nil {
+		return nil
+	}
+	out := make(map[string]string, len(settings))
+	for k, v := range settings {
+		if strings.EqualFold(k, "application_name") {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// stampVpidOnReserved tags a reserved connection's PostgreSQL backend with
+// `multigres_vpid:<client_connection_id>` in application_name so
+// lock-detection functions (e.g. an override of
+// pg_isolation_test_session_is_blocked) can map a multigateway virtual PID
+// back to the real backend PID via pg_stat_activity. Best-effort: a SET
+// failure does not block the actual query — only lock detection through the
+// proxy depends on the tag. No-op when vpid stamping is disabled.
+func (e *Executor) stampVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
+	if !e.vpidStampEnabled || options == nil || options.ClientConnectionId == 0 {
+		return
+	}
+	_ = conn.SetApplicationName(ctx, fmt.Sprintf("multigres_vpid:%d", options.ClientConnectionId))
+}
+
+// stampVpidOnRegular tags a pooled regular connection with the same
+// `multigres_vpid:<id>` marker. Pooled connections are shared across clients,
+// so the next checkout will overwrite this stamp; for the duration of the
+// current query the backend is correctly attributed to its client vpid.
+// No-op when vpid stamping is disabled.
+func (e *Executor) stampVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
+	if !e.vpidStampEnabled || options == nil || options.ClientConnectionId == 0 {
+		return
+	}
+	_ = conn.SetApplicationName(ctx, fmt.Sprintf("multigres_vpid:%d", options.ClientConnectionId))
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
+// vpidStampEnabled controls whether multigres_vpid:<id> is stamped on
+// PostgreSQL backends and whether application_name is filtered from pool
+// SessionSettings.
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, vpidStampEnabled bool) *Executor {
 	return &Executor{
 		logger:             logger,
 		poolManager:        poolManager,
 		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
 		poolerID:           poolerID,
+		vpidStampEnabled:   vpidStampEnabled,
 	}
 }
 
@@ -69,6 +142,7 @@ func (e *Executor) buildReservedStateFromAPI(rc reservedConnAPI) *query.Reserved
 		ReservedConnectionId: uint64(rc.ConnID()),
 		PoolerId:             e.poolerID,
 		ReservationReasons:   rc.RemainingReasons(),
+		BackendProcessId:     rc.ProcessID(),
 	}
 }
 
@@ -101,10 +175,18 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		// Reserved connections bypass the pool's normal ApplySettings mechanism,
 		// so we must explicitly apply settings changes here.
 		if options.SessionSettings != nil {
-			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), e.sessionSettingsForPool(options.SessionSettings)); err != nil {
 				return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
+
+		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn. When the
+		// filtered desired settings collapse to nil (e.g. the only client
+		// setting was application_name), ApplySettings issues RESET ALL on
+		// the reserved conn — which would wipe a stamp set earlier in this
+		// function. Restamping after the reset ensures the tag is in place
+		// for the actual query.
+		e.stampVpidOnReserved(ctx, reservedConn, options)
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
@@ -121,7 +203,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// Get session settings from options
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	// Get a connection from the pool for this user
@@ -131,6 +213,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
+
+	// Stamp multigres_vpid on this pooled regular conn too — the next
+	// client to draw from the pool will overwrite it, but for the duration
+	// of the current query the backend is correctly tagged.
+	e.stampVpidOnRegular(ctx, conn.Conn, options)
 
 	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated.
@@ -200,10 +287,15 @@ func (e *Executor) StreamExecute(
 		// so we must explicitly apply settings changes here. This step depends
 		// on the underlying *regular.Conn so it stays out of the helper.
 		if options.SessionSettings != nil {
-			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), e.sessionSettingsForPool(options.SessionSettings)); err != nil {
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
+
+		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn so a RESET
+		// ALL emitted by the empty-desired-settings path doesn't wipe it
+		// (see the matching ordering in ExecuteQuery).
+		e.stampVpidOnReserved(ctx, reservedConn, options)
 
 		// If the query references a gateway-managed prepared statement
 		// (wrapped EXECUTE forms), ensure it is parsed on this backend
@@ -228,7 +320,7 @@ func (e *Executor) StreamExecute(
 	// Case 3: Use regular pooled connection
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	// Get a connection from the pool for this user
@@ -238,6 +330,9 @@ func (e *Executor) StreamExecute(
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
+
+	// Stamp multigres_vpid on this pooled regular conn for lock-detection.
+	e.stampVpidOnRegular(ctx, conn.Conn, options)
 
 	// When a PreparedStatement is provided we cannot use the retry-on-connection-error
 	// variant of QueryStreaming: reconnect wipes per-connection prepared-statement state
@@ -275,7 +370,7 @@ func (e *Executor) reserveAndStreamExecute(
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	// Get the reasons bitmask and determine if we need to execute BEGIN
@@ -311,6 +406,11 @@ func (e *Executor) reserveAndStreamExecute(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
+
+	// Stamp multigres_vpid on the freshly reserved backend so subsequent
+	// lock-detection probes can map vpid → real pid. Done before BEGIN so
+	// the value is in place for the entire transaction lifecycle.
+	e.stampVpidOnReserved(ctx, reservedConn, options)
 
 	// Apply all reservation reasons to the reserved connection.
 	// BeginWithQuery below adds ReasonTransaction internally, but non-transaction
@@ -433,7 +533,7 @@ func (e *Executor) PortalStreamExecute(
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	maxRows := int32(0)
@@ -464,7 +564,7 @@ func (e *Executor) PortalStreamExecute(
 
 	// Use regular connection for non-suspended execution with no existing reservation
 	clientKey, serverKey := scramKeysFromOptions(options)
-	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, includeDescribe, clientKey, serverKey, paramFormats, resultFormats, callback)
+	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, includeDescribe, clientKey, serverKey, paramFormats, resultFormats, options, callback)
 }
 
 // portalExecuteWithReserved executes a portal using a reserved connection.
@@ -506,6 +606,12 @@ func (e *Executor) portalExecuteWithReserved(
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
 	}
+
+	// Stamp multigres_vpid:<id> on the (possibly fresh, possibly resumed)
+	// reserved conn. Done unconditionally — both branches above can return
+	// a backend without the tag (a freshly created reservation, or an
+	// existing one whose tag was wiped by a prior ApplySettings RESET ALL).
+	e.stampVpidOnReserved(ctx, reservedConn, options)
 
 	// Ensure the statement is prepared on this connection (with consolidation).
 	// For the new-conn branch this is a no-op because the validate hook above
@@ -560,6 +666,7 @@ func (e *Executor) portalExecuteWithRegular(
 	includeDescribe bool,
 	clientKey, serverKey []byte,
 	paramFormats, resultFormats []int16,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
@@ -567,6 +674,9 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
+
+	// Stamp multigres_vpid on this pooled regular conn for lock-detection.
+	e.stampVpidOnRegular(ctx, conn.Conn, options)
 
 	// Ensure the statement is prepared on this connection (with consolidation)
 	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
@@ -611,7 +721,7 @@ func (e *Executor) Describe(
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	e.logger.DebugContext(ctx, "describe",
@@ -631,7 +741,7 @@ func (e *Executor) Describe(
 		}
 
 		if options.SessionSettings != nil {
-			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), e.sessionSettingsForPool(options.SessionSettings)); err != nil {
 				return nil, fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
@@ -759,7 +869,7 @@ func (e *Executor) CopyReady(
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
 	if options != nil {
-		settings = options.SessionSettings
+		settings = e.sessionSettingsForPool(options.SessionSettings)
 	}
 
 	e.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
@@ -784,6 +894,11 @@ func (e *Executor) CopyReady(
 		// regular pool), so PostgreSQL's idle timeout cannot have closed
 		// the socket between uses. InitiateCopyFromStdin runs directly
 		// here without a stale-socket retry hop.
+		// Stamp the vpid before entering COPY mode: once
+		// InitiateCopyFromStdin succeeds the backend rejects SET until
+		// CopyDone/CopyFail, so this is the only window to tag the
+		// backend for lock-detection during long-running COPYs.
+		e.stampVpidOnReserved(ctx, reservedConn, options)
 		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
 		if err != nil {
 			reservedConn.Release(reserved.ReleaseError)
@@ -807,6 +922,11 @@ func (e *Executor) CopyReady(
 					return fmt.Errorf("failed to begin transaction for COPY: %w", err)
 				}
 			}
+			// Stamp vpid before InitiateCopyFromStdin: SET is rejected
+			// once the backend enters COPY mode, and the *regular.Conn
+			// is the same underlying socket that NewReservedConn will
+			// promote to a *reserved.Conn, so the tag carries through.
+			e.stampVpidOnRegular(ctx, conn, options)
 			var initErr error
 			format, columnFormats, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
 			if initErr != nil {

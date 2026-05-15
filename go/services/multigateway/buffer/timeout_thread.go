@@ -134,8 +134,10 @@ func (tt *timeoutThread) evictHead() {
 	tt.buf.mu.Unlock()
 
 	head.err = mterrors.MTB02.New()
-	close(head.done)
+	// Decrement before close so waiters never see a stale gauge.
 	tt.buf.bufferSizeSema.Release(1)
+	tt.buf.stats.addQueueDepth(tt.buf.ctx, -1)
+	close(head.done)
 	tt.buf.stats.recordEvicted(tt.buf.ctx, string(commontypes.FormatShardKey(head.shardKey)), "window_exceeded")
 	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", commontypes.FormatShardKey(head.shardKey))
 }

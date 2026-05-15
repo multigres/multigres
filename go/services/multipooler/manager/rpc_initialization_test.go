@@ -47,9 +47,11 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		TableGroup: "default",
-		Shard:      "0-inf",
-		PoolerDir:  t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: "default",
+			Shard:      "0-inf",
+		},
+		PoolerDir: t.TempDir(),
 	}
 	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
@@ -162,10 +164,12 @@ func TestHelperMethods(t *testing.T) {
 		}
 
 		multipooler := &clustermetadatapb.MultiPooler{
-			Id:         serviceID,
-			Database:   "testdb",
-			TableGroup: "testgroup",
-			Shard:      "shard-123",
+			Id: serviceID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testgroup",
+				Shard:      "shard-123",
+			},
 		}
 
 		pm := &MultiPoolerManager{

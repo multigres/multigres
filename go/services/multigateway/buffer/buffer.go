@@ -170,6 +170,9 @@ func (b *Buffer) Shutdown() {
 	b.mu.Lock()
 	b.stopped = true
 	// Evict all queued entries.
+	if n := len(b.queue); n > 0 {
+		b.stats.addQueueDepth(b.ctx, int64(-n))
+	}
 	for _, e := range b.queue {
 		e.err = mterrors.MTB03.New()
 		close(e.done)
@@ -248,6 +251,7 @@ func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 		oldest := b.queue[0]
 		b.queue = b.queue[1:]
 		oldest.err = mterrors.MTB01.New()
+		b.stats.addQueueDepth(b.ctx, -1)
 		close(oldest.done)
 		b.stats.recordEvicted(b.ctx, string(commontypes.FormatShardKey(oldest.shardKey)), "buffer_full")
 		// The evicted entry's semaphore slot is conceptually transferred to us,
@@ -265,6 +269,7 @@ func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 		createdAt:    now,
 	}
 	b.queue = append(b.queue, e)
+	b.stats.addQueueDepth(b.ctx, 1)
 	b.stats.recordBuffered(b.ctx, string(commontypes.FormatShardKey(shardKey)))
 
 	// Notify timeout thread only when the queue transitions from empty to
@@ -292,6 +297,7 @@ func (b *Buffer) removeEntry(e *entry) {
 		if qe == e {
 			b.queue = append(b.queue[:i], b.queue[i+1:]...)
 			b.bufferSizeSema.Release(1)
+			b.stats.addQueueDepth(b.ctx, -1)
 			return
 		}
 	}

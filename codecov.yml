@@ -1,6 +1,5 @@
 ignore:
   - "go/pb/**"
-  - "go/common/parser/ast/**"
   - "go/common/parser/goyacc/**"
   - "go/tools/asthelpergen/**"
   - "go/tools/flakyaggregator/**"

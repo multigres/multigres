@@ -66,9 +66,11 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "old-pooler",
 			},
-			Database:   "db1",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      "-",
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "db1",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
 		},
 		LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago
 		LastSeen:           nil,                                              // nil = never seen
@@ -83,7 +85,11 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "recent-pooler",
 			},
-			Database: "db1",
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "db1",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
 		},
 		LastCheckAttempted: timestamppb.New(now.Add(-time.Hour)), // Only 1 hour ago
 		LastSeen:           nil,                                  // nil = never seen
@@ -98,7 +104,11 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "no-attempts",
 			},
-			Database: "db1",
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "db1",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
 		},
 		LastCheckAttempted: nil, // No attempts yet
 		LastSeen:           nil, // Never seen
@@ -139,7 +149,11 @@ func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "old-healthy",
 			},
-			Database: "db1",
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "db1",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
 		},
 		LastSeen:            timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago
 		LastCheckAttempted:  timestamppb.New(now.Add(-threshold - time.Hour)),
@@ -156,7 +170,11 @@ func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "recent-healthy",
 			},
-			Database: "db1",
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "db1",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "-",
+			},
 		},
 		LastSeen:            timestamppb.New(now.Add(-time.Hour)), // Only 1 hour ago
 		LastCheckAttempted:  timestamppb.New(now.Add(-time.Hour)),

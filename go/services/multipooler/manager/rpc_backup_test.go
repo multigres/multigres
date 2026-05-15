@@ -64,12 +64,14 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 	}
 
 	multipoolerProto := &clustermetadatapb.MultiPooler{
-		Id:         multipoolerID,
-		Type:       poolerType,
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Database:   database,
-		PoolerDir:  poolerDir,
+		Id:        multipoolerID,
+		Type:      poolerType,
+		PoolerDir: poolerDir,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+			Database:   database,
+		},
 	}
 
 	// Create a topology store with backup location if provided
@@ -1218,12 +1220,14 @@ exit 0
 				serviceID:  multipoolerID,
 				topoClient: ts,
 				multipooler: &clustermetadatapb.MultiPooler{
-					Id:         multipoolerID,
-					Type:       clustermetadatapb.PoolerType_PRIMARY,
-					TableGroup: tt.tableGroup,
-					Shard:      tt.shard,
-					Database:   "test-database",
-					PoolerDir:  poolerDir,
+					Id:        multipoolerID,
+					Type:      clustermetadatapb.PoolerType_PRIMARY,
+					PoolerDir: poolerDir,
+					ShardKey: &clustermetadatapb.ShardKey{
+						TableGroup: tt.tableGroup,
+						Shard:      tt.shard,
+						Database:   "test-database",
+					},
 				},
 				state:                ManagerStateReady,
 				backupConfig:         backupConfig,

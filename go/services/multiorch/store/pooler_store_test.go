@@ -36,26 +36,32 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	// Add poolers to different shards
 	poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Id: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+			},
 		},
 	})
 	poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         &clustermetadatapb.ID{Cell: "cell1", Name: "pooler2"},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Id: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler2"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+			},
 		},
 	})
 	poolerStore.Set("pooler3", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         &clustermetadatapb.ID{Cell: "cell2", Name: "pooler3"},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "1", // different shard
+			Id: &clustermetadatapb.ID{Cell: "cell2", Name: "pooler3"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "1",
+			}, // different shard
 		},
 	})
 

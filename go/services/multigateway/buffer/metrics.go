@@ -33,6 +33,13 @@ type stats struct {
 	requestsSkipped  metric.Int64Counter
 	failoverCount    metric.Int64Counter
 	waitDuration     metric.Float64Histogram
+	// queueDepth tracks the number of requests currently held in the buffer.
+	// Used to size the buffer-size cap against observed peak depth.
+	queueDepth metric.Int64UpDownCounter
+	// failoverDuration records the time each failover spent in BUFFERING
+	// before the gateway saw a new PRIMARY and began draining. Used to size
+	// buffer-window against real failover lengths.
+	failoverDuration metric.Float64Histogram
 }
 
 func newStats() *stats {
@@ -91,9 +98,29 @@ func newStats() *stats {
 		"multigateway.buffer.wait.duration",
 		metric.WithDescription("Time requests spent waiting in the buffer"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 0.5, 1, 2, 5, 10, 30),
 	)
 	if err != nil {
 		s.waitDuration = noop.Float64Histogram{}
+	}
+
+	s.queueDepth, err = s.meter.Int64UpDownCounter(
+		"multigateway.buffer.queue.depth",
+		metric.WithDescription("Number of requests currently held in the failover buffer"),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		s.queueDepth = noop.Int64UpDownCounter{}
+	}
+
+	s.failoverDuration, err = s.meter.Float64Histogram(
+		"multigateway.buffer.failover.duration",
+		metric.WithDescription("Duration of each failover from BUFFERING start to drain trigger"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 120),
+	)
+	if err != nil {
+		s.failoverDuration = noop.Float64Histogram{}
 	}
 
 	return s
@@ -124,4 +151,12 @@ func (s *stats) recordFailover(ctx context.Context, shardKey string) {
 
 func (s *stats) recordWaitDuration(ctx context.Context, seconds float64) {
 	s.waitDuration.Record(ctx, seconds)
+}
+
+func (s *stats) addQueueDepth(ctx context.Context, delta int64) {
+	s.queueDepth.Add(ctx, delta)
+}
+
+func (s *stats) recordFailoverDuration(ctx context.Context, shardKey string, seconds float64) {
+	s.failoverDuration.Record(ctx, seconds, metric.WithAttributes(attribute.String("shard_key", shardKey)))
 }

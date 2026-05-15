@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -61,8 +62,11 @@ func getMultiPooler(database string, shard string, cell string, uid uint32) *clu
 			Cell:      cell,
 			Name:      strconv.FormatUint(uint64(uid), 10),
 		},
-		Database: database,
-		Shard:    shard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: "default",
+			Shard:      shard,
+		},
 		Hostname: "host1",
 		PortMap: map[string]int32{
 			"grpc": int32(uid),
@@ -75,9 +79,7 @@ func getMultiPooler(database string, shard string, cell string, uid uint32) *clu
 func checkMultiPoolersEqual(t *testing.T, expected, actual *clustermetadatapb.MultiPooler) {
 	t.Helper()
 	require.Equal(t, expected.Id.String(), actual.Id.String())
-	require.Equal(t, expected.Database, actual.Database)
-	require.Equal(t, expected.Shard, actual.Shard)
-	require.Equal(t, expected.Hostname, actual.Hostname)
+	require.True(t, proto.Equal(expected.ShardKey, actual.ShardKey), "ShardKey mismatch: expected %v, got %v", expected.ShardKey, actual.ShardKey)
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.ServingStatus, actual.ServingStatus)
 	require.Equal(t, expected.PortMap, actual.PortMap)
@@ -132,8 +134,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -157,8 +162,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -172,8 +180,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(2),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -187,8 +198,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(3),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -202,8 +216,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(4),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -223,11 +240,13 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "hotel",
 					},
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": int32(1)},
-					Database:      database,
-					TableGroup:    "tg1",
-					Shard:         shard,
+					Hostname: "host1",
+					PortMap:  map[string]int32{"grpc": int32(1)},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "tg1",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -237,11 +256,13 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "india",
 					},
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": int32(2)},
-					Database:      database,
-					TableGroup:    "tg1",
-					Shard:         shard,
+					Hostname: "host1",
+					PortMap:  map[string]int32{"grpc": int32(2)},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "tg1",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -272,8 +293,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -287,8 +311,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(2),
 					},
-					Database:      database,
-					Shard:         shard,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard,
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -302,8 +329,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(3),
 					},
-					Database:      database,
-					Shard:         shard + "2",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard + "2",
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -317,8 +347,11 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(4),
 					},
-					Database:      database,
-					Shard:         shard + "2",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "default",
+						Shard:      shard + "2",
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -345,11 +378,13 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "laperla",
 					},
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": int32(1)},
-					Database:      database,
-					TableGroup:    "tg1",
-					Shard:         "shard1",
+					Hostname: "host1",
+					PortMap:  map[string]int32{"grpc": int32(1)},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "tg1",
+						Shard:      "shard1",
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -359,11 +394,13 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "berghain",
 					},
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": int32(2)},
-					Database:      database,
-					TableGroup:    "tg1",
-					Shard:         "shard2",
+					Hostname: "host1",
+					PortMap:  map[string]int32{"grpc": int32(2)},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "tg1",
+						Shard:      "shard2",
+					},
 					Type:          clustermetadatapb.PoolerType_REPLICA,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -390,11 +427,13 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "papa",
 					},
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": int32(1)},
-					Database:      database,
-					TableGroup:    "tg1",
-					Shard:         "shard1",
+					Hostname: "host1",
+					PortMap:  map[string]int32{"grpc": int32(1)},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   database,
+						TableGroup: "tg1",
+						Shard:      "shard1",
+					},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				},
@@ -470,9 +509,7 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": int32(i + 1)},
-					Database:      expectedMP.Database,
-					TableGroup:    expectedMP.TableGroup,
-					Shard:         expectedMP.Shard,
+					ShardKey:      expectedMP.GetShardKey(),
 					Type:          expectedMP.Type,
 					ServingStatus: expectedMP.ServingStatus,
 				}
@@ -564,8 +601,11 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "november",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080, "http": 8081},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -598,8 +638,11 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "oscar",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -622,8 +665,11 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "papa",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -660,8 +706,11 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "quebec",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -718,8 +767,11 @@ func TestGetMultiPoolerIDsByCell(t *testing.T) {
 							Cell:      cell1,
 							Name:      "bravo",
 						},
-						Database:      "db1",
-						Shard:         "shard1",
+						ShardKey: &clustermetadatapb.ShardKey{
+							Database:   "db1",
+							TableGroup: "default",
+							Shard:      "shard1",
+						},
 						Hostname:      "host1",
 						PortMap:       map[string]int32{"grpc": 8080},
 						Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -731,8 +783,11 @@ func TestGetMultiPoolerIDsByCell(t *testing.T) {
 							Cell:      cell1,
 							Name:      "charlie",
 						},
-						Database:      "db2",
-						Shard:         "shard2",
+						ShardKey: &clustermetadatapb.ShardKey{
+							Database:   "db2",
+							TableGroup: "default",
+							Shard:      "shard2",
+						},
 						Hostname:      "host3",
 						PortMap:       map[string]int32{"grpc": 8083},
 						Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -813,9 +868,12 @@ func TestUpdateMultiPoolerFields(t *testing.T) {
 					Name:      "tango",
 				}
 				multipooler := &clustermetadatapb.MultiPooler{
-					Id:            id,
-					Database:      "testdb",
-					Shard:         "testshard",
+					Id: id,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -847,9 +905,12 @@ func TestUpdateMultiPoolerFields(t *testing.T) {
 					Name:      "uniform",
 				}
 				multipooler := &clustermetadatapb.MultiPooler{
-					Id:            id,
-					Database:      "testdb",
-					Shard:         "testshard",
+					Id: id,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -878,9 +939,12 @@ func TestUpdateMultiPoolerFields(t *testing.T) {
 					Name:      "victor",
 				}
 				multipooler := &clustermetadatapb.MultiPooler{
-					Id:            id,
-					Database:      "testdb",
-					Shard:         "testshard",
+					Id: id,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -907,9 +971,12 @@ func TestUpdateMultiPoolerFields(t *testing.T) {
 					Name:      "whiskey",
 				}
 				multipooler := &clustermetadatapb.MultiPooler{
-					Id:            id,
-					Database:      "testdb",
-					Shard:         "testshard",
+					Id: id,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -965,8 +1032,11 @@ func TestInitMultiPooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "zulu",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -990,8 +1060,11 @@ func TestInitMultiPooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "xray",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1005,8 +1078,11 @@ func TestInitMultiPooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "xray",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "newhost",
 					PortMap:       map[string]int32{"grpc": 8081},
 					Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -1030,8 +1106,11 @@ func TestInitMultiPooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "whiskey",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1045,8 +1124,11 @@ func TestInitMultiPooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "whiskey",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "newhost",
 					PortMap:       map[string]int32{"grpc": 8081},
 					Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -1090,10 +1172,12 @@ func TestNewMultiPooler(t *testing.T) {
 					Cell: "zone1",
 					Name: "100",
 				},
-				Hostname:   "host.example.com",
-				TableGroup: constants.DefaultTableGroup,
-				PortMap:    map[string]int32{},
-				Database:   "", // Default empty database
+				Hostname: "host.example.com",
+				ShardKey: &clustermetadatapb.ShardKey{
+					TableGroup: constants.DefaultTableGroup,
+					Database:   "", // Default empty database
+				},
+				PortMap: map[string]int32{},
 			},
 		},
 	}
@@ -1104,7 +1188,7 @@ func TestNewMultiPooler(t *testing.T) {
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
-			require.Equal(t, tt.expected.TableGroup, result.TableGroup)
+			require.Equal(t, tt.expected.ShardKey.TableGroup, result.ShardKey.TableGroup)
 			require.NotNil(t, result.PortMap)
 		})
 	}
@@ -1141,8 +1225,11 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test1",
 					},
-					Database:      "testdb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1153,7 +1240,7 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 
 				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "testdb", retrieved.Database)
+				require.Equal(t, "testdb", retrieved.ShardKey.Database)
 			},
 		},
 		{
@@ -1165,8 +1252,11 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test2",
 					},
-					Database:      "originaldb",
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "originaldb",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1187,7 +1277,7 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 
 				updated, err := ts.GetMultiPooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "originaldb", updated.Database) // Database preserved
+				require.Equal(t, "originaldb", updated.ShardKey.Database) // Database preserved
 				require.Equal(t, "host2.example.com", updated.Hostname)
 				require.NotEqual(t, oldVersion, updated.Version())
 			},
@@ -1201,8 +1291,11 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test3",
 					},
-					Database:      "", // Empty database
-					Shard:         "testshard",
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "",
+						TableGroup: "default",
+						Shard:      "testshard",
+					},
 					Hostname:      "host1.example.com",
 					PortMap:       map[string]int32{"grpc": 8080},
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1213,7 +1306,7 @@ func TestMultiPoolerDatabaseField(t *testing.T) {
 
 				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "", retrieved.Database)
+				require.Equal(t, "", retrieved.ShardKey.Database)
 			},
 		},
 	}
@@ -1298,36 +1391,48 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 		// Setup: Create 4 multipoolers in zone1 (2 databases × 2 shards)
 		multipoolers := []*clustermetadatapb.MultiPooler{
 			{
-				Id:            &clustermetadatapb.ID{Cell: "zone1", Name: "1"},
-				Database:      "db1",
-				Shard:         "-8",
+				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "1"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "default",
+					Shard:      "-8",
+				},
 				Hostname:      "host1",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			},
 			{
-				Id:            &clustermetadatapb.ID{Cell: "zone1", Name: "2"},
-				Database:      "db1",
-				Shard:         "8-",
+				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "2"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "default",
+					Shard:      "8-",
+				},
 				Hostname:      "host2",
 				PortMap:       map[string]int32{"grpc": 8081},
 				Type:          clustermetadatapb.PoolerType_REPLICA,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			},
 			{
-				Id:            &clustermetadatapb.ID{Cell: "zone1", Name: "3"},
-				Database:      "db2",
-				Shard:         "-8",
+				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "3"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db2",
+					TableGroup: "default",
+					Shard:      "-8",
+				},
 				Hostname:      "host3",
 				PortMap:       map[string]int32{"grpc": 8082},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			},
 			{
-				Id:            &clustermetadatapb.ID{Cell: "zone1", Name: "4"},
-				Database:      "db2",
-				Shard:         "8-",
+				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "4"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db2",
+					TableGroup: "default",
+					Shard:      "8-",
+				},
 				Hostname:      "host4",
 				PortMap:       map[string]int32{"grpc": 8083},
 				Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -1373,8 +1478,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "1",
 				},
-				Database:      "db1",
-				Shard:         "-8",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "default",
+					Shard:      "-8",
+				},
 				Hostname:      "host1",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1386,8 +1494,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "2",
 				},
-				Database:      "db1",
-				Shard:         "8-",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "default",
+					Shard:      "8-",
+				},
 				Hostname:      "host2",
 				PortMap:       map[string]int32{"grpc": 8081},
 				Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -1414,7 +1525,7 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 
 		// Verify only db1 multipoolers are returned
 		for _, info := range multipoolerInfos {
-			require.Equal(t, "db1", info.Database)
+			require.Equal(t, "db1", info.GetShardKey().GetDatabase())
 		}
 
 		// Verify cell boundary: multipoolers are NOT accessible from other cells
@@ -1436,9 +1547,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "1",
 				},
-				Database:      "db2",
-				TableGroup:    "tg1",
-				Shard:         "-8",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db2",
+					TableGroup: "tg1",
+					Shard:      "-8",
+				},
 				Hostname:      "host1",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1450,9 +1563,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "2",
 				},
-				Database:      "db2",
-				TableGroup:    "tg1",
-				Shard:         "8-",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db2",
+					TableGroup: "tg1",
+					Shard:      "8-",
+				},
 				Hostname:      "host2",
 				PortMap:       map[string]int32{"grpc": 8081},
 				Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -1479,9 +1594,9 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 		require.Len(t, multipoolerInfos, 1)
 
 		// Verify correct multipooler is returned
-		require.Equal(t, "db2", multipoolerInfos[0].Database)
-		require.Equal(t, "tg1", multipoolerInfos[0].TableGroup)
-		require.Equal(t, "-8", multipoolerInfos[0].Shard)
+		require.Equal(t, "db2", multipoolerInfos[0].GetShardKey().GetDatabase())
+		require.Equal(t, "tg1", multipoolerInfos[0].GetShardKey().GetTableGroup())
+		require.Equal(t, "-8", multipoolerInfos[0].GetShardKey().GetShard())
 
 		// Verify cell boundary: multipoolers are NOT accessible from other cells
 		otherCellInfos, err := ts.GetMultiPoolersByCell(ctx, "zone2", nil)
@@ -1527,8 +1642,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "1",
 			},
-			Database:      "db1",
-			Shard:         "-8",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "-8",
+			},
 			Hostname:      "host1",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -1540,8 +1658,11 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 				Cell:      "zone2",
 				Name:      "1",
 			},
-			Database:      "db1",
-			Shard:         "-8",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "-8",
+			},
 			Hostname:      "host2",
 			PortMap:       map[string]int32{"grpc": 8081},
 			Type:          clustermetadatapb.PoolerType_REPLICA,

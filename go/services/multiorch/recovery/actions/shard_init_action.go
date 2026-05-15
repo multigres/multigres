@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -167,9 +169,7 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.Shar
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true
 		}
-		if pooler.MultiPooler.Database != shardKey.Database ||
-			pooler.MultiPooler.TableGroup != shardKey.TableGroup ||
-			pooler.MultiPooler.Shard != shardKey.Shard {
+		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			return true
 		}
 		if len(pooler.GetStatus().GetCohortMembers()) > 0 {

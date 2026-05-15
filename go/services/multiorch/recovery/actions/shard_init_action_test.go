@@ -89,9 +89,11 @@ func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool,
 				Cell:      cell,
 				Name:      name,
 			},
-			Database:   db,
-			TableGroup: tableGroup,
-			Shard:      shard,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   db,
+				TableGroup: tableGroup,
+				Shard:      shard,
+			},
 		},
 	}
 }

@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,16 +42,42 @@ type queryLogEntry struct {
 // emitQueryLog writes a structured query log entry using slog.LogAttrs for
 // minimal allocation on the latency-sensitive query path.
 //
-// Log levels:
-//   - WARN  when the query errored or exceeded slowThreshold
-//   - INFO  for normal queries
+// Errored or slow queries always log at WARN. Normal queries log at DEBUG
+// (so the default INFO-level handler drops them) after 1/sampleRate sampling
+// (sampleRate==0 disables sampling and lets the handler level alone govern).
 //
 // The slog-OTel bridge (configured in telemetry.go) automatically injects
 // trace_id and span_id from the context.
-func emitQueryLog(ctx context.Context, logger *slog.Logger, entry queryLogEntry, slowThreshold time.Duration) {
-	level := slog.LevelInfo
-	if entry.Error != nil || entry.TotalDuration >= slowThreshold {
+func emitQueryLog(
+	ctx context.Context,
+	logger *slog.Logger,
+	entry queryLogEntry,
+	slowThreshold time.Duration,
+	sampleRate uint64,
+	samplingCursor *atomic.Uint64,
+	emitsMetric QueryLogEmits,
+) {
+	isWarn := entry.Error != nil || entry.TotalDuration >= slowThreshold
+
+	if !isWarn {
+		// Check sampling before logger.Enabled so the disabled-handler path
+		// also benefits from sampling skipping work.
+		if sampleRate > 1 {
+			n := samplingCursor.Add(1)
+			if n%sampleRate != 0 {
+				return
+			}
+		}
+		if !logger.Enabled(ctx, slog.LevelDebug) {
+			return
+		}
+	}
+
+	level := slog.LevelDebug
+	levelLabel := "debug"
+	if isWarn {
 		level = slog.LevelWarn
+		levelLabel = "warn"
 	}
 
 	attrs := []slog.Attr{
@@ -85,4 +112,5 @@ func emitQueryLog(ctx context.Context, logger *slog.Logger, entry queryLogEntry,
 	}
 
 	logger.LogAttrs(ctx, level, "query completed", attrs...)
+	emitsMetric.Add(ctx, levelLabel)
 }
