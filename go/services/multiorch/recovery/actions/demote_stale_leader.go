@@ -94,6 +94,16 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 }
 
 func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
+	// Under the new consensus flow the demote goes through Inform, which is
+	// position-fenced: a leader that's only momentarily-stale would see its
+	// own rule >= the incoming rule and no-op without touching postgres.
+	// A spurious detection costs an RPC, not a wrongful demote, so the
+	// grace period that guarded the old destructive DemoteStalePrimary RPC
+	// is no longer needed. Skipping it lets recovery converge much faster
+	// across sequential failovers.
+	if a.config.GetUseNewConsensusFlow() {
+		return nil
+	}
 	return &types.GracePeriodConfig{
 		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
 		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),

@@ -933,6 +933,15 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
+		// Ensure topology reflects REPLICA. This matters when postgres has
+		// already been demoted (e.g. by BeginTerm REVOKE or an external
+		// pg_promote-then-restart) but the pooler's topology entry still
+		// reads PRIMARY. Without this, the stale PRIMARY label causes the
+		// stale-leader analyzer to keep firing forever. Propose has the same
+		// step on its replica branch for the same reason.
+		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after Inform", "error", err)
+		}
 	}
 
 	pm.broadcastHealth()
