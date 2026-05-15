@@ -151,6 +151,16 @@ func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoo
 	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
+// Inform updates this pooler's replication settings to point at the supplied
+// primary, gated on a position comparison. See manager.Inform for details.
+func (s *consensusService) Inform(ctx context.Context, req *consensusdata.InformRequest) (*consensusdata.InformResponse, error) {
+	resp, err := s.manager.Inform(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *consensusService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	resp, err := s.manager.RewindToSource(ctx, req.Source)

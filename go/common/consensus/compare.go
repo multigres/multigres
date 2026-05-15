@@ -69,18 +69,18 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 		if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
 			continue
 		}
-		if best == nil || comparePosition(pos, best) > 0 {
+		if best == nil || ComparePosition(pos, best) > 0 {
 			best = pos
 		}
 	}
 	return best
 }
 
-// comparePosition returns negative, zero, or positive based on whether a is
+// ComparePosition returns negative, zero, or positive based on whether a is
 // behind, equal to, or ahead of b. Rule number takes precedence; LSN breaks
 // ties within the same rule. A missing or unparsable LSN is treated as less
 // than any valid LSN.
-func comparePosition(a, b *clustermetadatapb.PoolerPosition) int {
+func ComparePosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp := CompareRuleNumbers(a.GetRule().GetRuleNumber(), b.GetRule().GetRuleNumber()); cmp != 0 {
 		return cmp
 	}

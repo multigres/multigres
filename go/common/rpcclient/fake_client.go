@@ -60,6 +60,7 @@ type FakeClient struct {
 	BeginTermResponses       map[string]*consensusdatapb.BeginTermResponse
 	RecruitResponses         map[string]*consensusdatapb.RecruitResponse
 	ProposeResponses         map[string]*consensusdatapb.ProposeResponse
+	InformResponses          map[string]*consensusdatapb.InformResponse
 	ConsensusStatusResponses map[string]*consensusdatapb.StatusResponse
 	EmergencyDemoteResponses map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse
 	PromoteResponses         map[string]*multipoolermanagerdatapb.PromoteResponse
@@ -87,6 +88,7 @@ type FakeClient struct {
 	// Request tracking for verification in tests
 	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
 	ProposeRequests map[string]*consensusdatapb.ProposeRequest
+	InformRequests  map[string]*consensusdatapb.InformRequest
 
 	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
 	// is created. Tests use this to capture the stream and inject snapshots.
@@ -99,6 +101,7 @@ func NewFakeClient() *FakeClient {
 		BeginTermResponses:                  make(map[string]*consensusdatapb.BeginTermResponse),
 		RecruitResponses:                    make(map[string]*consensusdatapb.RecruitResponse),
 		ProposeResponses:                    make(map[string]*consensusdatapb.ProposeResponse),
+		InformResponses:                     make(map[string]*consensusdatapb.InformResponse),
 		ConsensusStatusResponses:            make(map[string]*consensusdatapb.StatusResponse),
 		EmergencyDemoteResponses:            make(map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse),
 		PromoteResponses:                    make(map[string]*multipoolermanagerdatapb.PromoteResponse),
@@ -118,6 +121,7 @@ func NewFakeClient() *FakeClient {
 		CallLog:                             make([]string, 0),
 		PromoteRequests:                     make(map[string]*multipoolermanagerdatapb.PromoteRequest),
 		ProposeRequests:                     make(map[string]*consensusdatapb.ProposeRequest),
+		InformRequests:                      make(map[string]*consensusdatapb.InformRequest),
 	}
 }
 
@@ -253,6 +257,29 @@ func (f *FakeClient) Propose(ctx context.Context, pooler *clustermetadatapb.Mult
 		return resp, nil
 	}
 	return &consensusdatapb.ProposeResponse{}, nil
+}
+
+func (f *FakeClient) Inform(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.InformRequest) (*consensusdatapb.InformResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("Inform", poolerID)
+
+	f.mu.Lock()
+	if f.InformRequests == nil {
+		f.InformRequests = make(map[string]*consensusdatapb.InformRequest)
+	}
+	f.InformRequests[poolerID] = request
+	f.mu.Unlock()
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.InformResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &consensusdatapb.InformResponse{}, nil
 }
 
 func (f *FakeClient) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {

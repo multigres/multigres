@@ -1051,18 +1051,52 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, err
 	}
 
-	if err := pm.stopPostgresIfRunning(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to stop postgres")
+	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, source, consensusTerm)
+	if err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
+		"rewind_performed", rewindPerformed,
+		"lsn_position", finalLSN)
+
+	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
+		Success:         true,
+		RewindPerformed: rewindPerformed,
+		LsnPosition:     finalLSN,
+	}, nil
+}
+
+// demoteStalePrimaryLocked performs the postgres + topology work to convert a
+// stale primary into a standby pointing at source. The action lock must be held
+// by the caller. Idempotency checks and term validation are the caller's
+// responsibility.
+//
+// Sequence: stop postgres -> pg_rewind -> fix pgbackrest paths -> restart as
+// standby -> reset sync replication -> set primary_conninfo -> report leader
+// observation -> bump local term if newer -> read final LSN -> flip topology
+// type to REPLICA.
+func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
+	ctx context.Context,
+	source *clustermetadatapb.MultiPooler,
+	consensusTerm int64,
+) (rewindPerformed bool, finalLSN string, err error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return false, "", err
 	}
 
 	port, ok := source.PortMap["postgres"]
 	if !ok {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
+		return false, "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
 	}
 
-	rewindPerformed, err := pm.runPgRewind(ctx, source.Hostname, port)
+	if err := pm.stopPostgresIfRunning(ctx); err != nil {
+		return false, "", mterrors.Wrap(err, "failed to stop postgres")
+	}
+
+	rewindPerformed, err = pm.runPgRewind(ctx, source.Hostname, port)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "pg_rewind failed")
+		return false, "", mterrors.Wrap(err, "pg_rewind failed")
 	}
 
 	// Fix pgbackrest paths in postgresql.auto.conf after pg_rewind
@@ -1072,7 +1106,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart as standby")
+		return false, "", mterrors.Wrap(err, "failed to restart as standby")
 	}
 
 	if err := pm.resetSynchronousReplication(ctx); err != nil {
@@ -1094,7 +1128,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	// Call the locked version directly since we already hold the action lock
 	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
 	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
+		return false, "", mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
 	// Report the new primary (source) so the gateway can use this observation.
@@ -1105,29 +1139,19 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 
 	// Update consensus term to match the correct primary's term after successful demotion
 	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		return nil, mterrors.Wrap(err, "failed to update consensus term")
+		return false, "", mterrors.Wrap(err, "failed to update consensus term")
 	}
 
-	// Get final LSN
-	finalLSN := ""
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
 		finalLSN = lsn
 	}
 
 	// Update topology to REPLICA
 	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-		return nil, mterrors.Wrap(err, "failed to update topology")
+		return false, "", mterrors.Wrap(err, "failed to update topology")
 	}
 
-	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
-		"rewind_performed", rewindPerformed,
-		"lsn_position", finalLSN)
-
-	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
-		Success:         true,
-		RewindPerformed: rewindPerformed,
-		LsnPosition:     finalLSN,
-	}, nil
+	return rewindPerformed, finalLSN, nil
 }
 
 // Promote promotes a standby to primary

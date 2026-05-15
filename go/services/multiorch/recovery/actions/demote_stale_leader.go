@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -146,25 +147,39 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		}
 	}()
 
-	// Call DemoteStalePrimary RPC - this will:
+	// Demote the stale leader. Under the new consensus flow, route through
+	// Inform .
+	//
+	// Both RPCs do the same work on the pooler side:
 	// 1. Stop postgres
 	// 2. Run pg_rewind to sync with the correct leader's postgres
 	// 3. Restart as standby
 	// 4. Clear sync replication config
 	// 5. Update topology to REPLICA
-	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
-		Source:        correctLeader.MultiPooler,
-		ConsensusTerm: correctLeaderTerm,
-		Force:         false,
-	})
-	if err != nil {
-		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
+	if a.config.GetUseNewConsensusFlow() {
+		informReq := &consensusdatapb.InformRequest{
+			Primary:  correctLeader.MultiPooler,
+			Position: correctLeader.GetConsensusStatus().GetCurrentPosition(),
+		}
+		if _, err := a.rpcClient.Inform(ctx, staleLeader.MultiPooler, informReq); err != nil {
+			return mterrors.Wrap(err, "Inform RPC failed")
+		}
+		a.logger.InfoContext(ctx, "stale leader demoted successfully via Inform",
+			"stale_leader", poolerIDStr)
+	} else {
+		demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
+			Source:        correctLeader.MultiPooler,
+			ConsensusTerm: correctLeaderTerm,
+			Force:         false,
+		})
+		if err != nil {
+			return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
+		}
+		a.logger.InfoContext(ctx, "stale leader demoted successfully",
+			"stale_leader", poolerIDStr,
+			"rewind_performed", demoteResp.RewindPerformed,
+			"lsn_position", demoteResp.LsnPosition)
 	}
-
-	a.logger.InfoContext(ctx, "stale leader demoted successfully",
-		"stale_leader", poolerIDStr,
-		"rewind_performed", demoteResp.RewindPerformed,
-		"lsn_position", demoteResp.LsnPosition)
 
 	a.logger.InfoContext(ctx, "demote stale leader action completed",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),

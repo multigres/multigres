@@ -172,6 +172,13 @@ type MultiPoolerClient interface {
 	// SetPrimaryConnInfo configures the standby's connection to a primary.
 	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error)
 
+	// Inform tells a pooler about the current primary and the position the
+	// caller knows the cluster is at. The pooler applies the change (update
+	// primary_conninfo if standby, demote if stale primary) only when the
+	// supplied position is strictly higher than its own. Otherwise it returns
+	// success without changes.
+	Inform(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.InformRequest) (*consensusdatapb.InformResponse, error)
+
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 

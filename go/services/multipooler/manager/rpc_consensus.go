@@ -764,6 +764,110 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	return &consensusdatapb.ProposeResponse{ConsensusStatus: cs}, nil
 }
 
+// Inform updates this pooler's replication settings to point at the supplied
+// primary, but only if the supplied position is strictly higher than the
+// pooler's own current position. If the supplied position is equal or behind,
+// Inform is a successful no-op — this makes it safe under retries and under
+// out-of-order delivery from stale recovery rounds.
+//
+// When the receiver is a standby, Inform rewrites primary_conninfo (same effect
+// as SetPrimaryConnInfo). When the receiver is currently acting as primary,
+// the caller knows about a more recent rule with a different leader, so this
+// node is a stale primary and gets demoted (same effect as DemoteStalePrimary).
+//
+// Unlike SetPrimaryConnInfo and DemoteStalePrimary, Inform does not perform
+// term validation — the position comparison is the gate.
+func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.InformRequest) (*consensusdatapb.InformResponse, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	primary := req.GetPrimary()
+	position := req.GetPosition()
+	if primary == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
+	}
+	if position == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "position is required")
+	}
+	if primary.Hostname == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary hostname is required")
+	}
+	port, ok := primary.PortMap["postgres"]
+	if !ok {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"primary %s has no postgres port configured", primary.GetId().GetName())
+	}
+
+	ctx, err := pm.actionLock.Acquire(ctx, "Inform")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Observe the freshest view of our position. Inform is the staleness gate,
+	// so we want authoritative state — not the cached snapshot.
+	selfPos, err := pm.rules.observePosition(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to observe local position")
+	}
+
+	if commonconsensus.ComparePosition(position, selfPos) <= 0 {
+		pm.logger.InfoContext(ctx, "Inform: incoming position not higher, no-op",
+			"incoming_rule", position.GetRule().GetRuleNumber(),
+			"self_rule", selfPos.GetRule().GetRuleNumber())
+		cs, err := pm.getCachedConsensusStatus()
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to build consensus status")
+		}
+		return &consensusdatapb.InformResponse{ConsensusStatus: cs}, nil
+	}
+
+	// Decide between "standby update" and "stale-primary demote" based on
+	// actual postgres recovery state rather than topology — a node mid-promote
+	// or mid-demote may have a topology label that lags reality.
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	// Used to update the local term cache and report the new leader to the
+	// gateway. This is not term validation — the position compare above is the
+	// gate. updateTermIfNewer (called inside demoteStalePrimaryLocked) only
+	// raises the local term, never lowers it.
+	consensusTerm := position.GetRule().GetRuleNumber().GetCoordinatorTerm()
+
+	if isPrimary {
+		pm.logger.InfoContext(ctx, "Inform: demoting stale primary",
+			"new_primary", primary.GetId().GetName(),
+			"incoming_rule", position.GetRule().GetRuleNumber())
+		if _, _, err := pm.demoteStalePrimaryLocked(ctx, primary, consensusTerm); err != nil {
+			return nil, err
+		}
+	} else {
+		pm.logger.InfoContext(ctx, "Inform: updating standby primary_conninfo",
+			"new_primary", primary.GetId().GetName(),
+			"incoming_rule", position.GetRule().GetRuleNumber())
+		pm.mu.Lock()
+		pm.primaryPoolerID = primary.GetId()
+		pm.primaryHost = primary.Hostname
+		pm.primaryPort = port
+		pm.mu.Unlock()
+		if err := pm.setPrimaryConnInfoLocked(ctx, primary.Hostname, port,
+			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+			return nil, err
+		}
+	}
+
+	pm.broadcastHealth()
+
+	cs, err := pm.getConsensusStatus(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to build consensus status after Inform")
+	}
+	return &consensusdatapb.InformResponse{ConsensusStatus: cs}, nil
+}
+
 // syncConfigFromProposedRule derives the synchronous replication config from a proposed rule
 // by delegating to the durability policy.
 func syncConfigFromProposedRule(

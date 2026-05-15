@@ -200,13 +200,21 @@ message ProposeResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// InformRequest broadcasts the committed shard rule to a pooler so it can
-// update its highest_known_rule and fix replication settings if needed.
-// Sent by the coordinator after a successful Propose round.
+// InformRequest tells a pooler about the current primary and the position the
+// caller knows the cluster is at. The pooler compares the supplied position
+// against its own; if the supplied position is strictly higher it applies the
+// change (standby: update primary_conninfo; stale primary: demote), otherwise
+// it returns success without changes. Idempotent under retries and safe against
+// out-of-order delivery from stale recovery rounds.
 message InformRequest {
-  // The rule that was successfully committed (written to rule_history by the
-  // new primary and replicated). Poolers that are behind use this to reconnect.
-  clustermetadata.ShardRule committed_rule = 1;
+  // Contact info for the primary. The pooler uses primary.hostname and
+  // primary.port_map["postgres"] when it rewrites primary_conninfo.
+  clustermetadata.MultiPooler primary = 1;
+
+  // The position the caller is informing about. The pooler compares this
+  // against its own observed PoolerPosition (rule first, LSN as tiebreaker)
+  // and only applies the change when this is strictly higher.
+  clustermetadata.PoolerPosition position = 2;
 }
 
 // InformResponse carries the pooler's state after processing an InformRequest.
