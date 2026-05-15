@@ -197,9 +197,90 @@ func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Equal(t, "primary-host", storedHost)
 }
 
-// The "stale primary" branch — when isPrimary returns true and the position is
-// higher — delegates to demoteStalePrimaryLocked, which is exhaustively
-// exercised by TestDemoteStalePrimary_UpdatesConsensusTerm. Asserting only the
-// routing decision in a unit test here would require duplicating that test's
-// full pgctld + query mock setup; the routing itself is a one-line if/else
-// and easy to read.
+// TestInform_StalePrimaryDemotes verifies the stale-primary branch end to end:
+// when the receiver is acting as primary (pg_is_in_recovery=false) and the
+// supplied position is higher, Inform must drive a full demote — pg_rewind,
+// restart as standby, set primary_conninfo at the new primary, flip topology
+// to REPLICA, advance the consensus term, and update the gateway's leader
+// observation. demoteStalePrimaryLocked itself is also covered by
+// TestDemoteStalePrimary_UpdatesConsensusTerm; this test pins down Inform's
+// routing decision plus the wiring that the helper expects from its caller.
+func TestInform_StalePrimaryDemotes(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// 1. Inform's own isPrimary check: not in recovery -> take the demote branch.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	// 2. After restart, every subsequent pg_is_in_recovery must report standby.
+	// Covers isInRecovery (verify after restart), resetSynchronousReplication's
+	// role check, and setPrimaryConnInfoLocked's guardrail.
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// 3. waitForDatabaseConnection polls SELECT 1 after the standby restart.
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+
+	// 4. resetSynchronousReplication clears sync standby list and reloads.
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names",
+		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
+
+	// 5. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
+	var capturedConnInfoSQL string
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(sql string) { capturedConnInfoSQL = sql },
+	)
+	expectReloadConfig(mockQueryService)
+
+	// 6. getStandbyReplayLSN — best-effort LSN read after demote.
+	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000"}}))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+
+	// Persist an initial revocation lower than the incoming rule's
+	// coordinator_term so updateTermIfNewer (inside demoteStalePrimaryLocked)
+	// has work to do and we can assert it ran.
+	require.NoError(t, pm.consensusState.setRevocation(
+		&clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+	))
+	_, err := pm.consensusState.Load()
+	require.NoError(t, err)
+
+	req := &consensusdatapb.InformRequest{
+		Primary:  newPrimaryPooler("new-primary", "primary-host", 5432),
+		Position: makeRulePosition(10),
+	}
+	resp, err := pm.Inform(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.ConsensusStatus)
+
+	// primary_conninfo points at the new primary.
+	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
+		"rendered primary_conninfo should reference the new primary host")
+
+	// Manager state recorded the new primary.
+	pm.mu.Lock()
+	storedID := pm.primaryPoolerID
+	storedHost := pm.primaryHost
+	pm.mu.Unlock()
+	require.NotNil(t, storedID)
+	assert.Equal(t, "new-primary", storedID.Name)
+	assert.Equal(t, "primary-host", storedHost)
+
+	// Term bumped from 3 -> 10 by updateTermIfNewer.
+	rev, err := pm.consensusState.getRevocation()
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), rev.GetRevokedBelowTerm(),
+		"consensus term should advance to match the incoming position's coordinator_term")
+
+	// Gateway leader observation should reflect the new primary.
+	healthState := pm.healthStreamer.getState()
+	require.NotNil(t, healthState.LeaderObservation)
+	assert.Equal(t, "new-primary", healthState.LeaderObservation.LeaderID.Name)
+	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
+}
