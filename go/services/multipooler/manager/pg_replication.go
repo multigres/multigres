@@ -165,7 +165,6 @@ func poolerIDFromAppName(appName string) (poolerID, error) {
 			appName: appName,
 		}, err
 	}
-	id.Component = clustermetadatapb.ID_MULTIPOOLER
 	return poolerID{id: id, appName: appName}, nil
 }
 
