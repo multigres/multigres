@@ -168,8 +168,8 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 5. Update topology to REPLICA
 	if a.config.GetUseNewConsensusFlow() {
 		informReq := &consensusdatapb.InformRequest{
-			Primary: correctLeader.MultiPooler,
-			Rule:    correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
+			Leader: correctLeader.MultiPooler,
+			Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 		}
 		if _, err := a.rpcClient.Inform(ctx, staleLeader.MultiPooler, informReq); err != nil {
 			return mterrors.Wrap(err, "Inform RPC failed")

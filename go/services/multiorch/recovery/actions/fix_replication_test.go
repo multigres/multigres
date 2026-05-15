@@ -424,9 +424,9 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 	// Verify the request carried the primary's contact info and known position.
 	informReq := fakeClient.InformRequests["multipooler-cell1-replica1"]
 	require.NotNil(t, informReq)
-	require.NotNil(t, informReq.Primary)
-	assert.Equal(t, "primary", informReq.Primary.Id.Name)
-	assert.Equal(t, "primary.example.com", informReq.Primary.Hostname)
+	require.NotNil(t, informReq.Leader)
+	assert.Equal(t, "primary", informReq.Leader.Id.Name)
+	assert.Equal(t, "primary.example.com", informReq.Leader.Hostname)
 	require.NotNil(t, informReq.Rule)
 	assert.Equal(t, int64(1), informReq.Rule.GetRuleNumber().GetCoordinatorTerm())
 }

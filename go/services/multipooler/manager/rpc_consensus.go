@@ -859,21 +859,36 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 		return nil, err
 	}
 
-	primary := req.GetPrimary()
+	leader := req.GetLeader()
 	rule := req.GetRule()
-	if primary == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
+	if leader == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "leader is required")
 	}
 	if rule == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "rule is required")
 	}
-	if primary.Hostname == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary hostname is required")
+	// The rule's leader_id is authoritative; the leader field carries contact
+	// info for that ID. A mismatch is a caller bug — we'd otherwise route
+	// replication at an identity that doesn't match the consensus-elected one.
+	ruleLeaderID := rule.GetLeaderId()
+	if ruleLeaderID == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "rule.leader_id is required")
 	}
-	port, ok := primary.PortMap["postgres"]
+	leaderID := leader.GetId()
+	if leaderID == nil ||
+		leaderID.GetCell() != ruleLeaderID.GetCell() ||
+		leaderID.GetName() != ruleLeaderID.GetName() {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"leader.id %q does not match rule.leader_id %q",
+			leaderID.GetName(), ruleLeaderID.GetName())
+	}
+	if leader.Hostname == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "leader hostname is required")
+	}
+	port, ok := leader.PortMap["postgres"]
 	if !ok {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"primary %s has no postgres port configured", primary.GetId().GetName())
+			"leader %s has no postgres port configured", leaderID.GetName())
 	}
 
 	ctx, err := pm.actionLock.Acquire(ctx, "Inform")
@@ -900,7 +915,7 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 	//   - Pooler-side reconciliation: reads last-known-primary to retry
 	//     ALTER SYSTEM SET primary_conninfo if this Inform arrived while
 	//     postgres was unavailable.
-	pm.consensusState.RecordInform(rule, primary)
+	pm.consensusState.RecordInform(rule, leader)
 
 	// Observe the freshest view of our rule. Inform is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
@@ -938,21 +953,21 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Inform: demoting stale primary",
-			"new_primary", primary.GetId().GetName(),
+			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
-		if _, _, err := pm.demoteStalePrimaryLocked(ctx, primary, consensusTerm); err != nil {
+		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, consensusTerm); err != nil {
 			return nil, err
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "Inform: updating standby primary_conninfo",
-			"new_primary", primary.GetId().GetName(),
+			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
 		pm.mu.Lock()
-		pm.primaryPoolerID = primary.GetId()
-		pm.primaryHost = primary.Hostname
+		pm.primaryPoolerID = leader.GetId()
+		pm.primaryHost = leader.Hostname
 		pm.primaryPort = port
 		pm.mu.Unlock()
-		if err := pm.setPrimaryConnInfoLocked(ctx, primary.Hostname, port,
+		if err := pm.setPrimaryConnInfoLocked(ctx, leader.Hostname, port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}

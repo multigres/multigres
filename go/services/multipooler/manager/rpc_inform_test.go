@@ -26,9 +26,9 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-// newPrimaryPooler builds a minimal MultiPooler with the postgres port set,
-// suitable for use as the primary in an InformRequest.
-func newPrimaryPooler(name, host string, port int32) *clustermetadatapb.MultiPooler {
+// newLeaderPooler builds a minimal MultiPooler with the postgres port set,
+// suitable for use as the leader in an InformRequest.
+func newLeaderPooler(name, host string, port int32) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -40,35 +40,69 @@ func newPrimaryPooler(name, host string, port int32) *clustermetadatapb.MultiPoo
 	}
 }
 
+// ruleAtTermForLeader builds a ShardRule with the given coordinator_term and
+// the leader_id matching the supplied leader. Used to satisfy Inform's
+// leader.id == rule.leader_id validation in tests.
+func ruleAtTermForLeader(leader *clustermetadatapb.MultiPooler, term int64) *clustermetadatapb.ShardRule {
+	return &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+		LeaderId:   leader.GetId(),
+	}
+}
+
 func TestInform_ValidationErrors(t *testing.T) {
+	validLeader := newLeaderPooler("p1", "host", 5432)
 	tests := []struct {
 		name           string
 		req            *consensusdatapb.InformRequest
 		expectErrMatch string
 	}{
 		{
-			name:           "NilPrimary",
-			req:            &consensusdatapb.InformRequest{Rule: makeRulePosition(5).GetRule()},
-			expectErrMatch: "primary is required",
+			name:           "NilLeader",
+			req:            &consensusdatapb.InformRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
+			expectErrMatch: "leader is required",
 		},
 		{
 			name:           "NilRule",
-			req:            &consensusdatapb.InformRequest{Primary: newPrimaryPooler("p1", "host", 5432)},
+			req:            &consensusdatapb.InformRequest{Leader: validLeader},
 			expectErrMatch: "rule is required",
+		},
+		{
+			name: "RuleMissingLeaderId",
+			req: &consensusdatapb.InformRequest{
+				Leader: validLeader,
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				},
+			},
+			expectErrMatch: "rule.leader_id is required",
+		},
+		{
+			name: "LeaderIdMismatchesRule",
+			req: &consensusdatapb.InformRequest{
+				Leader: validLeader,
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					LeaderId: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "different",
+					},
+				},
+			},
+			expectErrMatch: "does not match rule.leader_id",
 		},
 		{
 			name: "MissingHostname",
 			req: &consensusdatapb.InformRequest{
-				Primary: &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, PortMap: map[string]int32{"postgres": 5432}},
-				Rule:    makeRulePosition(5).GetRule(),
+				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), PortMap: map[string]int32{"postgres": 5432}},
+				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
-			expectErrMatch: "primary hostname is required",
+			expectErrMatch: "leader hostname is required",
 		},
 		{
 			name: "MissingPostgresPort",
 			req: &consensusdatapb.InformRequest{
-				Primary: &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, Hostname: "host"},
-				Rule:    makeRulePosition(5).GetRule(),
+				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), Hostname: "host"},
+				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
@@ -117,9 +151,12 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 			// at all should hit the mock query service.
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
 
+			leader := newLeaderPooler("new-primary", "primary-host", 5432)
+			incomingRule := tt.incomingPos.GetRule()
+			incomingRule.LeaderId = leader.GetId()
 			req := &consensusdatapb.InformRequest{
-				Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
-				Rule:    tt.incomingPos.GetRule(),
+				Leader: leader,
+				Rule:   incomingRule,
 			}
 			resp, err := pm.Inform(t.Context(), req)
 			require.NoError(t, err)
@@ -187,9 +224,10 @@ func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
 
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
+	leader := newLeaderPooler("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.InformRequest{
-		Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
-		Rule:    makeRulePosition(10).GetRule(),
+		Leader: leader,
+		Rule:   ruleAtTermForLeader(leader, 10),
 	}
 	resp, err := pm.Inform(t.Context(), req)
 	require.NoError(t, err)
@@ -261,9 +299,10 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 
+	leader := newLeaderPooler("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.InformRequest{
-		Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
-		Rule:    makeRulePosition(10).GetRule(),
+		Leader: leader,
+		Rule:   ruleAtTermForLeader(leader, 10),
 	}
 	resp, err := pm.Inform(t.Context(), req)
 	require.NoError(t, err)

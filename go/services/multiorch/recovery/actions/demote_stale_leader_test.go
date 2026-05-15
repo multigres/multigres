@@ -178,9 +178,9 @@ func TestDemoteStaleLeaderAction_ExecuteNewFlow(t *testing.T) {
 
 	req := fakeClient.InformRequests["multipooler-cell1-stale-leader"]
 	require.NotNil(t, req)
-	require.NotNil(t, req.Primary)
-	assert.Equal(t, "correct-leader", req.Primary.Id.Name)
-	assert.Equal(t, "correct.example.com", req.Primary.Hostname)
+	require.NotNil(t, req.Leader)
+	assert.Equal(t, "correct-leader", req.Leader.Id.Name)
+	assert.Equal(t, "correct.example.com", req.Leader.Hostname)
 	require.NotNil(t, req.Rule)
 	assert.Equal(t, int64(5), req.Rule.GetRuleNumber().GetCoordinatorTerm())
 }

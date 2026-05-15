@@ -835,17 +835,22 @@ func (x *ProposeResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 	return nil
 }
 
-// InformRequest tells a pooler about the current primary and the rule the
+// InformRequest tells a pooler about the current leader and the rule the
 // caller knows the cluster is at. The pooler compares the supplied rule against
 // its own; if the supplied rule is strictly higher it applies the change
 // (standby: update primary_conninfo; stale primary: demote), otherwise it
 // returns success without changes. Idempotent under retries and safe against
 // out-of-order delivery from stale recovery rounds.
+//
+// The pooler also validates that leader.id matches rule.leader_id — the
+// rule's identity is authoritative; the leader field is just the contact
+// information needed to act on that identity.
 type InformRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Contact info for the primary. The pooler uses primary.hostname and
-	// primary.port_map["postgres"] when it rewrites primary_conninfo.
-	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
+	// Contact info for the leader named in rule.leader_id. The pooler uses
+	// leader.hostname and leader.port_map["postgres"] when it rewrites
+	// primary_conninfo. leader.id must match rule.leader_id.
+	Leader *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
 	// The rule the caller is informing about. The pooler compares this against
 	// its own observed rule (by RuleNumber) and only applies the change when
 	// the supplied rule is strictly higher.
@@ -884,9 +889,9 @@ func (*InformRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *InformRequest) GetPrimary() *clustermetadata.MultiPooler {
+func (x *InformRequest) GetLeader() *clustermetadata.MultiPooler {
 	if x != nil {
-		return x.Primary
+		return x.Leader
 	}
 	return nil
 }
@@ -994,9 +999,9 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12?\n" +
 	"\x11accepted_node_ids\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0facceptedNodeIds\"^\n" +
 	"\x0fProposeResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"w\n" +
-	"\rInformRequest\x126\n" +
-	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x12.\n" +
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"u\n" +
+	"\rInformRequest\x124\n" +
+	"\x06leader\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06leader\x12.\n" +
 	"\x04rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"]\n" +
 	"\x0eInformResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus*s\n" +
@@ -1060,7 +1065,7 @@ var file_consensusdata_proto_depIdxs = []int32{
 	7,  // 14: consensusdata.ProposeRequest.proposal:type_name -> consensusdata.CoordinatorProposal
 	15, // 15: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
 	16, // 16: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	20, // 17: consensusdata.InformRequest.primary:type_name -> clustermetadata.MultiPooler
+	20, // 17: consensusdata.InformRequest.leader:type_name -> clustermetadata.MultiPooler
 	19, // 18: consensusdata.InformRequest.rule:type_name -> clustermetadata.ShardRule
 	16, // 19: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	20, // [20:20] is the sub-list for method output_type
