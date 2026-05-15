@@ -15,13 +15,17 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
+	"log/slog"
 	"math/big"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,4 +329,187 @@ func TestWrapTLSConfigForCertCapture_NilInputs(t *testing.T) {
 	}}
 	assert.Same(t, cfg, wrapTLSConfigForCertCapture(cfg, nil),
 		"nil capture must return base unchanged")
+}
+
+// minimalCaptureConn returns a Conn populated only with what
+// captureTLSServerCert touches (logger + the tlsServerCert writeback).
+// Avoids spinning a listener for pure-helper unit coverage.
+func minimalCaptureConn(t *testing.T) *Conn {
+	t.Helper()
+	return &Conn{logger: testLogger(t)}
+}
+
+// TestCaptureTLSServerCert_NilArgIsNoop ensures the helper tolerates the
+// crypto/tls case where selection returned (nil, nil); we must not panic
+// nor store anything.
+func TestCaptureTLSServerCert_NilArgIsNoop(t *testing.T) {
+	c := minimalCaptureConn(t)
+	c.captureTLSServerCert(nil)
+	assert.Nil(t, c.tlsServerCert)
+}
+
+// TestCaptureTLSServerCert_PrefersLeafField verifies the fast path:
+// callers that pre-parse and set tls.Certificate.Leaf skip x509 parsing.
+func TestCaptureTLSServerCert_PrefersLeafField(t *testing.T) {
+	ca, caKey := newTestCA(t)
+	leaf := signLeafCert(t, ca, caKey, "localhost", 42)
+	parsed, err := x509.ParseCertificate(leaf.Certificate[0])
+	require.NoError(t, err)
+	leaf.Leaf = parsed
+	// Clobber DER so a parse-fallback would fail; this proves Leaf is used.
+	leaf.Certificate = [][]byte{{0x00}}
+
+	c := minimalCaptureConn(t)
+	c.captureTLSServerCert(&leaf)
+	require.NotNil(t, c.tlsServerCert)
+	assert.Equal(t, big.NewInt(42), c.tlsServerCert.SerialNumber)
+}
+
+// TestCaptureTLSServerCert_EmptyCertificateBytes covers the guard before
+// x509.ParseCertificate: an empty Certificate slice with nil Leaf must
+// leave tlsServerCert nil rather than indexing into an empty slice.
+func TestCaptureTLSServerCert_EmptyCertificateBytes(t *testing.T) {
+	c := minimalCaptureConn(t)
+	c.captureTLSServerCert(&tls.Certificate{})
+	assert.Nil(t, c.tlsServerCert)
+}
+
+// TestCaptureTLSServerCert_ParseErrorIsNonFatal covers the warn-and-leave-nil
+// branch: garbage DER must not crash and must not be stored. SCRAM falls
+// back to non-PLUS in this case.
+func TestCaptureTLSServerCert_ParseErrorIsNonFatal(t *testing.T) {
+	c := minimalCaptureConn(t)
+	c.captureTLSServerCert(&tls.Certificate{Certificate: [][]byte{{0x00, 0x01, 0x02}}})
+	assert.Nil(t, c.tlsServerCert)
+}
+
+// TestWrapTLSConfigForCertCapture_GetConfigForClientError forwards the
+// user-supplied getter's error verbatim without invoking capture.
+func TestWrapTLSConfigForCertCapture_GetConfigForClientError(t *testing.T) {
+	sentinel := errors.New("boom")
+	cfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			return nil, sentinel
+		},
+	}
+	called := false
+	wrapped := wrapTLSConfigForCertCapture(cfg, func(*tls.Certificate) { called = true })
+	inner, err := wrapped.GetConfigForClient(&tls.ClientHelloInfo{})
+	assert.Nil(t, inner)
+	assert.ErrorIs(t, err, sentinel)
+	assert.False(t, called, "capture must not run when getter errors")
+}
+
+// TestWrapTLSConfigForCertCapture_GetConfigForClientNilInner covers the
+// crypto/tls "fall back to outer config" contract: returning nil from
+// GetConfigForClient must propagate untouched (outer config is already
+// wrapped, so re-wrapping would double-invoke capture).
+func TestWrapTLSConfigForCertCapture_GetConfigForClientNilInner(t *testing.T) {
+	cfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			return nil, nil
+		},
+	}
+	wrapped := wrapTLSConfigForCertCapture(cfg, func(*tls.Certificate) {})
+	inner, err := wrapped.GetConfigForClient(&tls.ClientHelloInfo{})
+	require.NoError(t, err)
+	assert.Nil(t, inner)
+}
+
+// TestWrapInnerCfgForCertCapture_InnerHasGetCertificate covers the inner
+// dynamic-getter branch: when GetConfigForClient returns a config that
+// itself has GetCertificate, that getter is the one crypto/tls uses, so
+// it must be wrapped to invoke capture.
+func TestWrapInnerCfgForCertCapture_InnerHasGetCertificate(t *testing.T) {
+	ca, caKey := newTestCA(t)
+	leaf := signLeafCert(t, ca, caKey, "localhost", 100)
+
+	var captured *tls.Certificate
+	inner := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return &leaf, nil
+		},
+	}
+
+	wrapped := wrapInnerCfgForCertCapture(inner, func(c *tls.Certificate) { captured = c })
+	require.NotSame(t, inner, wrapped, "inner must be cloned before mutating GetCertificate")
+	got, err := wrapped.GetCertificate(&tls.ClientHelloInfo{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Same(t, &leaf, captured, "capture must receive the cert that crypto/tls would present")
+}
+
+// TestWrapInnerCfgForCertCapture_InnerGetCertificateError surfaces the
+// user-supplied getter's error without capturing.
+func TestWrapInnerCfgForCertCapture_InnerGetCertificateError(t *testing.T) {
+	sentinel := errors.New("inner-boom")
+	inner := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return nil, sentinel
+		},
+	}
+	called := false
+	wrapped := wrapInnerCfgForCertCapture(inner, func(*tls.Certificate) { called = true })
+	got, err := wrapped.GetCertificate(&tls.ClientHelloInfo{})
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, sentinel)
+	assert.False(t, called, "capture must not run when getter errors")
+}
+
+// TestSelectCertificate_EmptyList covers the early return for a config
+// with no Certificates — should be nil, not a panic from indexing.
+func TestSelectCertificate_EmptyList(t *testing.T) {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	assert.Nil(t, selectCertificate(cfg, &tls.ClientHelloInfo{}))
+}
+
+// TestSelectCertificate_FallsBackToFirst covers the final return when
+// SupportsCertificate matches no entry. Mirrors crypto/tls's behavior of
+// using Certificates[0] as a last resort. The ClientHelloInfo here names
+// an SNI neither leaf supports, so both SupportsCertificate calls fail.
+func TestSelectCertificate_FallsBackToFirst(t *testing.T) {
+	ca, caKey := newTestCA(t)
+	leafA := signLeafCert(t, ca, caKey, "tenant-a.localhost", 50)
+	leafB := signLeafCert(t, ca, caKey, "tenant-b.localhost", 51)
+	cfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{leafA, leafB},
+	}
+
+	chi := &tls.ClientHelloInfo{
+		ServerName:        "mismatch.localhost",
+		CipherSuites:      []uint16{tls.TLS_AES_128_GCM_SHA256},
+		SupportedVersions: []uint16{tls.VersionTLS13},
+	}
+	got := selectCertificate(cfg, chi)
+	require.NotNil(t, got)
+	assert.Same(t, &cfg.Certificates[0], got, "fallback must be Certificates[0]")
+}
+
+// TestNewListener_WarnsWhenTLSConfigYieldsNoCert exercises the listener-
+// init warn path: a non-nil TLSConfig with no cert source would silently
+// disable SCRAM-SHA-256-PLUS and break handshakes at runtime, so init
+// must emit a Warn record. Captures the slog text output and asserts on
+// the marker phrase.
+func TestNewListener_WarnsWhenTLSConfigYieldsNoCert(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	listener, err := NewListener(ListenerConfig{
+		Address:            "localhost:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		Logger:             logger,
+		TLSConfig:          &tls.Config{MinVersion: tls.VersionTLS12}, // no Certificates, no getters
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+
+	out := buf.String()
+	assert.True(t, strings.Contains(out, "SCRAM-SHA-256-PLUS will not be advertised"),
+		"expected warn about disabled SCRAM-PLUS; got: %s", out)
 }
