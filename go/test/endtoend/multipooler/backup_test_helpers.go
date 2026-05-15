@@ -37,6 +37,7 @@ import (
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // Backup ID format patterns
@@ -125,12 +126,11 @@ func assertBackupComplete(t *testing.T, backup *multipoolermanagerdata.BackupMet
 func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.DB {
 	t.Helper()
 
-	// Use Unix socket connection which uses trust authentication
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
+	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable password=%s",
+		socketDir, port, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 
-	// Test the connection
 	err = db.Ping()
 	require.NoError(t, err, "Failed to ping database")
 

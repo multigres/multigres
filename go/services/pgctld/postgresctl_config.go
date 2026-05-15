@@ -26,6 +26,7 @@ import (
 type PostgresCtlConfig struct {
 	Port                  int
 	User                  string
+	Password              string
 	Database              string
 	PostgresDataDir       string
 	PostgresConfigFile    string

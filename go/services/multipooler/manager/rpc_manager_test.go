@@ -54,8 +54,9 @@ type fakeConnPoolMgr struct {
 	user string
 }
 
-func (f *fakeConnPoolMgr) PgUser() string { return f.user }
-func (f *fakeConnPoolMgr) Close()         {} // called from MultiPoolerManager.Shutdown
+func (f *fakeConnPoolMgr) PgUser() string     { return f.user }
+func (f *fakeConnPoolMgr) PgPassword() string { return "" }
+func (f *fakeConnPoolMgr) Close()             {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
