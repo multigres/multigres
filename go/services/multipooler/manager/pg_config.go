@@ -37,29 +37,41 @@ type SyncStandbyConfig struct {
 	StandbyIDs []*clustermetadatapb.ID                  // List of standby IDs
 }
 
-// parseApplicationName parses an application name back into a clustermetadata ID
+// parseApplicationName parses a postgres replication application_name back
+// into a clustermetadata ID. Application names are always set by multipoolers
+// (postgres replication clients), so Component is always MULTIPOOLER.
 // Format: {cell}_{name}
-// Example: "us-west_replica-1" -> ID{Cell: "us-west", Name: "replica-1"}
+// Example: "us-west_replica-1" -> ID{Component: MULTIPOOLER, Cell: "us-west", Name: "replica-1"}
+//
+// For decoding non-pooler IDs that happen to share the cell_name encoding
+// (e.g. coordinator_id in rule_history), use splitCellName directly.
 func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
-	parts := strings.SplitN(appName, "_", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid application name format: %q (expected cell_name)", appName)
+	cell, name, err := splitCellName(appName)
+	if err != nil {
+		return nil, err
 	}
+	return &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cell,
+		Name:      name,
+	}, nil
+}
 
-	cell := parts[0]
-	name := parts[1]
-
+// splitCellName splits the {cell}_{name} encoding shared by application_names
+// and rule_history ID columns. Returns an error for malformed input.
+func splitCellName(s string) (cell, name string, err error) {
+	parts := strings.SplitN(s, "_", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid cell_name format: %q (expected cell_name)", s)
+	}
+	cell, name = parts[0], parts[1]
 	if cell == "" {
-		return nil, fmt.Errorf("invalid application name: cell cannot be empty in %q", appName)
+		return "", "", fmt.Errorf("invalid cell_name: cell cannot be empty in %q", s)
 	}
 	if name == "" {
-		return nil, fmt.Errorf("invalid application name: name cannot be empty in %q", appName)
+		return "", "", fmt.Errorf("invalid cell_name: name cannot be empty in %q", s)
 	}
-
-	return &clustermetadatapb.ID{
-		Cell: cell,
-		Name: name,
-	}, nil
+	return cell, name, nil
 }
 
 // parseSynchronousStandbyNames parses a PostgreSQL synchronous_standby_names string

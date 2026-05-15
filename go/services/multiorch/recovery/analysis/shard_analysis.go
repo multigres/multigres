@@ -165,6 +165,11 @@ type PoolerAnalysis struct {
 	// ConsensusStatus from the pooler's most recent StatusResponse snapshot.
 	// Used to derive the primary term via commonconsensus.PrimaryTerm(ConsensusStatus).
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
+
+	// AvailabilityStatus carries the pooler's self-reported willingness signals
+	// (cohort eligibility, leader-resignation request). May be nil for older
+	// poolers that don't publish it.
+	AvailabilityStatus *clustermetadatapb.AvailabilityStatus
 }
 
 // compareLeaderTimeline compares two leader PoolerAnalysis entries by the

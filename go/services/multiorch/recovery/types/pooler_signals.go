@@ -50,3 +50,13 @@ func LeaderNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 	primaryTerm := commonconsensus.LeaderTerm(p.GetConsensusStatus())
 	return leadershipStatus.LeaderTerm != 0 && leadershipStatus.LeaderTerm == primaryTerm
 }
+
+// PoolerIsCohortIneligible reports whether a pooler has self-reported that it
+// is unwilling to serve as a consensus cohort member. UNKNOWN (the default for
+// poolers that don't publish the field, e.g. older versions) and ELIGIBLE both
+// return false. Eligibility is a current preference and not term-gated;
+// staleness comes from the freshness of the surrounding health snapshot.
+func PoolerIsCohortIneligible(av *clustermetadatapb.AvailabilityStatus) bool {
+	signal := av.GetCohortEligibilityStatus().GetSignal()
+	return signal == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE
+}

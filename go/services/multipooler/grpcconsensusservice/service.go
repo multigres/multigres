@@ -122,19 +122,17 @@ func (s *consensusService) Promote(ctx context.Context, req *multipoolermanagerd
 	return resp, nil
 }
 
-// UpdateConsensusRule updates the synchronous standby list (quorum membership)
-func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
-	err := s.manager.UpdateSynchronousStandbyList(ctx,
+// UpdateConsensusRule applies a cohort-membership change on the primary.
+func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
+	err := s.manager.UpdateConsensusRule(ctx,
 		req.Operation,
 		req.StandbyIds,
-		req.ReloadConfig,
-		req.ConsensusTerm,
-		req.Force,
+		req.ExpectedOutgoingRule,
 		req.CoordinatorId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
+	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server

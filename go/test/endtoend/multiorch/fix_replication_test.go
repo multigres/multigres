@@ -320,17 +320,22 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Use UpdateSynchronousStandbyList to remove the replica
+	// Read the primary's current rule number for the CAS guard.
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, currentRule, "primary must have a current rule number")
+
+	// Use UpdateConsensusRule to remove the replica
 	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
-	_, err := primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-		Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+	_, err = primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+		Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
 			Name:      replicaName,
 		}},
-		ReloadConfig: true,
-		Force:        true, // Force to bypass term check
+		ExpectedOutgoingRule: currentRule,
 	})
 	require.NoError(t, err, "UpdateConsensusRule (remove) should succeed")
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)
