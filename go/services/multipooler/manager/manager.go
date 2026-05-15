@@ -1800,7 +1800,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	}
 	parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
 	if err != nil || parsed == nil {
-		// Unparseable conninfo is itself drift worth fixing.
+		// Unparsable conninfo is itself drift worth fixing.
 		return true
 	}
 	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
