@@ -675,62 +675,6 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-// isolationHarnessDatabase returns the database name pg_isolation_regress
-// uses for tests. pg_regress unsets PGDATABASE when attaching to an existing
-// cluster (see pg_regress.c) and isolation_main.c defaults to
-// "isolation_regression". When PGISOLATION_TESTS is set we pass
-// --dbname=postgres to match our selective-test invocation.
-func isolationHarnessDatabase() string {
-	if os.Getenv("PGISOLATION_TESTS") != "" {
-		return "postgres"
-	}
-	return "isolation_regression"
-}
-
-// ensureIsolationHarnessDatabase recreates isolation_regression like
-// pg_regress create_database when the full schedule runs against that DB.
-// Without this, installPIDMappingFunction could run before
-// pg_isolation_regress drops/recreates the database, losing the shim;
-// with --use-existing (full-suite path) we must create the DB ourselves
-// first.
-func (pb *PostgresBuilder) ensureIsolationHarnessDatabase(t *testing.T, pgPort int, password, dbName string) error {
-	t.Helper()
-	if dbName != "isolation_regression" {
-		return nil
-	}
-	admin := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		pgPort, password)
-	db, err := sql.Open("postgres", admin)
-	if err != nil {
-		return fmt.Errorf("admin connect for isolation DB setup: %w", err)
-	}
-	defer db.Close()
-
-	if _, err := db.Exec(`
-		SELECT pg_terminate_backend(pid)
-		FROM pg_stat_activity
-		WHERE datname = 'isolation_regression' AND pid <> pg_backend_pid()`); err != nil {
-		return fmt.Errorf("terminate backends on isolation_regression: %w", err)
-	}
-	if _, err := db.Exec(`DROP DATABASE IF EXISTS isolation_regression`); err != nil {
-		return fmt.Errorf("drop isolation_regression: %w", err)
-	}
-	if _, err := db.Exec(`CREATE DATABASE isolation_regression TEMPLATE template0`); err != nil {
-		return fmt.Errorf("create isolation_regression: %w", err)
-	}
-	if _, err := db.Exec(`
-ALTER DATABASE isolation_regression SET lc_messages TO 'C';
-ALTER DATABASE isolation_regression SET lc_monetary TO 'C';
-ALTER DATABASE isolation_regression SET lc_numeric TO 'C';
-ALTER DATABASE isolation_regression SET lc_time TO 'C';
-ALTER DATABASE isolation_regression SET bytea_output TO 'hex';
-ALTER DATABASE isolation_regression SET timezone_abbreviations TO 'Default';`); err != nil {
-		return fmt.Errorf("alter isolation_regression: %w", err)
-	}
-	t.Logf("Recreated isolation_regression database for isolation harness (--use-existing)")
-	return nil
-}
-
 // installPIDMappingFunction creates public.multigres_test_session_is_blocked
 // in the target database so the patched isolationtester (see
 // patchIsolationtester) can probe lock waits through the multigateway →
@@ -738,9 +682,10 @@ ALTER DATABASE isolation_regression SET timezone_abbreviations TO 'Default';`); 
 //
 // Multipooler is configured with --database=postgres and routes every
 // query to a pooled connection against the postgres DB regardless of the
-// dbname in the client startup packet, so the shim must live in postgres
-// — not in isoDB, which the harness asks for but multigateway never
-// actually routes to.
+// dbname in the client startup packet, so the shim must live in postgres.
+// Both isolation invocation paths (selective via PGISOLATION_TESTS and
+// full-suite via the make installcheck target) force --dbname=postgres on
+// pg_isolation_regress, so postgres is also the dbname the harness opens.
 //
 // The shim mirrors the upstream builtin: returns true if check_pid is
 // waiting on any pid in blocked_by, considering both heavyweight lock
@@ -796,17 +741,24 @@ SET search_path = pg_catalog, public
 AS $$
 <<fn>>
 DECLARE
+    v_log_id int4;
     v_real_check_pid int4;
     v_real_blocked_by int4[];
     v_blocking_pids int4[];
     v_vpid_entries text[];
     v_all_backends text[];
+    v_stamp_found boolean;
     v_result boolean;
 BEGIN
+    -- Capture the inserted id directly so the later UPDATE targets THIS
+    -- invocation's row even under concurrent shim calls (parallel groups
+    -- in the isolation schedule, or multiple sessions polling at once).
+    -- max(id) would race against any concurrent INSERT in between.
     INSERT INTO public.isolation_debug_log
         (check_pid, blocked_by, result)
     VALUES
-        (check_pid, blocked_by, NULL);
+        (check_pid, blocked_by, NULL)
+    RETURNING id INTO v_log_id;
 
     SELECT array_agg(sa.application_name || '=' || sa.pid)
     INTO v_vpid_entries
@@ -836,6 +788,7 @@ BEGIN
     );
 
     -- Direct connections (no multigateway) hand us real pids; preserve them.
+    v_stamp_found := v_real_check_pid IS NOT NULL;
     v_real_check_pid := COALESCE(v_real_check_pid, check_pid);
     v_real_blocked_by := COALESCE(v_real_blocked_by, blocked_by);
 
@@ -846,6 +799,12 @@ BEGIN
     -- the duplicate-stamp case where one backend is the live reserved
     -- conn (potentially blocked) and another is a leaked pool conn
     -- (idle).
+    --
+    -- The direct-pid fallback only fires when no stamp was found for
+    -- check_pid. vpids occupy the full 31-bit signed int32 space, so a
+    -- vpid value can coincidentally equal an unrelated real PG backend
+    -- PID; probing check_pid as a real pid unconditionally would surface
+    -- that unrelated backend's blockers and risk a false positive.
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_blocking_pids
     FROM (
         SELECT unnest(pg_blocking_pids(sa.pid)) AS b
@@ -856,11 +815,9 @@ BEGIN
         FROM pg_stat_activity sa
         WHERE sa.application_name = 'multigres_vpid:' || check_pid
         UNION ALL
-        -- Fallback for direct (non-multigateway) connections: probe the
-        -- check_pid as a real pid directly.
-        SELECT unnest(pg_blocking_pids(check_pid)) AS b
+        SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
         UNION ALL
-        SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b
+        SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
     ) sub
     WHERE b IS NOT NULL;
 
@@ -873,7 +830,7 @@ BEGIN
         vpid_entries = v_vpid_entries,
         all_pg_backends = v_all_backends,
         result = v_result
-    WHERE id = (SELECT max(id) FROM public.isolation_debug_log);
+    WHERE id = v_log_id;
 
     RETURN v_result;
 END fn;
@@ -968,17 +925,13 @@ func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, passw
 func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
 	t.Helper()
 
-	isoDB := isolationHarnessDatabase()
-	t.Logf("Running PostgreSQL isolation tests against multigateway on port %d (harness db=%q)...", multigatewayPort, isoDB)
-
-	if err := pb.ensureIsolationHarnessDatabase(t, directPgPort, password, isoDB); err != nil {
-		return nil, fmt.Errorf("prepare isolation harness database: %w", err)
-	}
+	t.Logf("Running PostgreSQL isolation tests against multigateway on port %d (harness db=postgres)...", multigatewayPort)
 
 	// Install the lock-detection shim on PostgreSQL directly (bypassing
-	// multigateway). Multipooler routes every query to the postgres DB, so
-	// the shim must live there regardless of which dbname pg_isolation_regress
-	// asks for.
+	// multigateway). Both the selective (PGISOLATION_TESTS) and full-suite
+	// paths force --dbname=postgres on pg_isolation_regress (see the cmd
+	// construction below), and multipooler routes every query to the
+	// postgres DB anyway, so the shim only needs to live there.
 	if err := pb.installPIDMappingFunction(t, directPgPort, password); err != nil {
 		t.Logf("Warning: Failed to install PID mapping function: %v", err)
 		t.Logf("Isolation tests that rely on lock detection (deadlock, etc.) may fail")
