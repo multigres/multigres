@@ -4,3 +4,9 @@ ignore:
   - "go/tools/asthelpergen/**"
   - "go/tools/flakyaggregator/**"
   - "go/tools/ruleguard/**"
+  # PostgreSQL regression / isolation harness lives behind opt-in env
+  # gates (RUN_PGREGRESS, RUN_PGISOLATION, RUN_EXTENDED_QUERY_SERVING_TESTS),
+  # so coverage-collecting CI never executes any of it — every new line
+  # would otherwise show as missing patch coverage. The suite itself is
+  # exercised by the dedicated extended-suite workflow.
+  - "go/test/endtoend/pgregresstest/**"

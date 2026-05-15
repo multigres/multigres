@@ -58,6 +58,7 @@ type SetupConfig struct {
 	MultipoolerCount                   int
 	MultiOrchCount                     int
 	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
+	EnableMultiadmin                   bool // Enable multiadmin (opt-in, default: false)
 	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
 	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
 	Database                           string
@@ -78,6 +79,7 @@ type SetupConfig struct {
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -144,6 +146,17 @@ func WithDeferredMultipoolerStart() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithMultiadmin enables multiadmin in the test setup (default: disabled).
+// Multiadmin is started after shard bootstrap and exposes HTTP + gRPC APIs
+// against the same etcd topology used by the rest of the cluster. The
+// Next.js web UI in web/multiadmin/ can be pointed at the resulting HTTP
+// port via MULTIADMIN_API_URL=http://localhost:<port> pnpm dev.
+func WithMultiadmin() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultiadmin = true
 	}
 }
 
@@ -257,6 +270,19 @@ func WithMetricsExport() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMetricsExport = true
+	}
+}
+
+// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
+// the setup. Tags each PostgreSQL backend's application_name with
+// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
+// virtual PID back to its real backend PID via pg_stat_activity. Required by
+// the pgregress isolation harness shim and harmless elsewhere, but kept
+// opt-in so tests that probe application_name as a generic GUC aren't
+// accidentally shadowed.
+func WithVpidStamping() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableVpidStamping = true
 	}
 }
 
@@ -378,6 +404,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		attribute.String("shard", config.Shard),
 		attribute.String("cell", config.CellName),
 		attribute.Bool("enable.multigateway", config.EnableMultigateway),
+		attribute.Bool("enable.multiadmin", config.EnableMultiadmin),
 		attribute.Bool("enable.multigateway.tls", config.EnableMultigatewayTLS),
 		attribute.Bool("skip.initialization", config.SkipInitialization),
 	)
@@ -541,6 +568,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 		inst.Multipooler.LogLevel = config.LogLevel
 		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
+		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -606,6 +634,24 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			t.Fatalf("failed to start multigateway: %v", err)
 		}
 		t.Logf("Started multigateway")
+	}
+
+	// Start multiadmin (if enabled). Like multigateway, this is started after
+	// the multipooler instances exist so it can read them from topology.
+	// Multiadmin is a passive observer of topology — order vs. bootstrap
+	// doesn't matter the way it does for multigateway query serving.
+	if config.EnableMultiadmin {
+		httpPort := utils.GetFreePort(t)
+		grpcPort := utils.GetFreePort(t)
+
+		ma := setup.CreateMultiadminInstance(t, "multiadmin", httpPort, grpcPort)
+		ma.LogLevel = config.LogLevel
+		t.Logf("Created multiadmin instance: HTTP=%d, gRPC=%d", httpPort, grpcPort)
+
+		if err := ma.Start(runningCtx, t); err != nil {
+			t.Fatalf("failed to start multiadmin: %v", err)
+		}
+		t.Logf("Started multiadmin (UI base URL: http://localhost:%d)", httpPort)
 	}
 
 	// For uninitialized mode (bootstrap tests), we're done - leave nodes uninitialized

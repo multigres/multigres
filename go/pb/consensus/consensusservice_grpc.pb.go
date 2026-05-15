@@ -56,8 +56,10 @@ type MultiPoolerConsensusClient interface {
 	// is used by MultiOrch to monitor the cluster and determine if it needs to
 	// trigger failover or other recovery actions.
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
-	// UpdateConsensusRule updates the synchronous standby list (quorum membership)
-	UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
+	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
+	// primary handler updates synchronous_standby_names and records the cohort
+	// change in rule_history.
+	UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
 	// DemoteStalePrimary demotes a stale primary that came back after failover
 	// by rewinding to the correct primary and restarting as standby
 	// TODO: This will be replaced by informing a pooler of a newer rule version.
@@ -96,9 +98,9 @@ func (c *multiPoolerConsensusClient) Status(ctx context.Context, in *consensusda
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.UpdateSynchronousStandbyListResponse)
+	out := new(multipoolermanagerdata.UpdateConsensusRuleResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerConsensus_UpdateConsensusRule_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -177,8 +179,10 @@ type MultiPoolerConsensusServer interface {
 	// is used by MultiOrch to monitor the cluster and determine if it needs to
 	// trigger failover or other recovery actions.
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
-	// UpdateConsensusRule updates the synchronous standby list (quorum membership)
-	UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
+	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
+	// primary handler updates synchronous_standby_names and records the cohort
+	// change in rule_history.
+	UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
 	// DemoteStalePrimary demotes a stale primary that came back after failover
 	// by rewinding to the correct primary and restarting as standby
 	// TODO: This will be replaced by informing a pooler of a newer rule version.
@@ -210,7 +214,7 @@ type UnimplementedMultiPoolerConsensusServer struct{}
 func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConsensusRule not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
@@ -271,7 +275,7 @@ func _MultiPoolerConsensus_Status_Handler(srv interface{}, ctx context.Context, 
 }
 
 func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+	in := new(multipoolermanagerdata.UpdateConsensusRuleRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -283,7 +287,7 @@ func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx cont
 		FullMethod: MultiPoolerConsensus_UpdateConsensusRule_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateSynchronousStandbyListRequest))
+		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateConsensusRuleRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

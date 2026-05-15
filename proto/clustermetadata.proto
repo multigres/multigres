@@ -544,4 +544,36 @@ message LeadershipStatus {
 message AvailabilityStatus {
   // leadership_status is only set by poolers that are or have been the consensus leader.
   LeadershipStatus leadership_status = 1;
+
+  // cohort_eligibility_status is published by every pooler regardless of
+  // current cohort membership. It expresses whether the pooler is willing to
+  // serve as a cohort member; meaning falls out of the combination with the
+  // pooler's current membership in ShardRule.cohort_members. A current cohort
+  // member signaling INELIGIBLE is a candidate for removal/replacement; a
+  // non-member signaling INELIGIBLE should be skipped when growing the cohort.
+  CohortEligibilityStatus cohort_eligibility_status = 2;
+}
+
+// CohortEligibilitySignal describes a pooler's self-reported willingness to
+// be a member of the consensus cohort. 0 (UNKNOWN) means the field was not
+// intentionally set; coordinators should treat that the same as ELIGIBLE for
+// backwards compatibility with older poolers that don't publish the signal.
+enum CohortEligibilitySignal {
+  COHORT_ELIGIBILITY_SIGNAL_UNKNOWN = 0;
+
+  // Pooler is willing to serve as a cohort member.
+  COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE = 1;
+
+  // Pooler is not willing to serve as a cohort member. If currently a member,
+  // the coordinator should remove and (when possible) replace it. If not
+  // currently a member, the coordinator should not add it to the cohort.
+  COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE = 2;
+}
+
+// CohortEligibilityStatus carries the pooler's cohort-eligibility signal.
+// Unlike LeadershipStatus there is no per-term gating: eligibility is a
+// current preference, not tied to a specific epoch. Staleness comes from the
+// freshness of the surrounding health snapshot.
+message CohortEligibilityStatus {
+  CohortEligibilitySignal signal = 1;
 }

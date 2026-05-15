@@ -480,7 +480,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 
 // applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
 // GUCs without the primary guardrail or rule-history write. Safe to call on a standby
-// (e.g., before pg_promote) so the promoted primary inherits the correct config.
+// (e.g., before pg_promote) so the promoted primary takes effect with the new config.
 // The caller must hold the action lock.
 func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	ctx context.Context,
@@ -493,21 +493,33 @@ func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
 	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
 		return err
 	}
-	return pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
-	// TODO: Somehow make sure the GUC change has actually propagated
+	if err := pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames); err != nil {
+		return err
+	}
+	return pm.reloadPostgresConfig(ctx)
 }
 
-// UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
-// removing, or replacing members. It is idempotent and only valid when synchronous
+// UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
+// or removing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
+//
+// expectedOutgoingRule provides compare-and-swap semantics: the operation
+// proceeds only if this pooler's current recorded rule matches the given
+// RuleNumber. If they differ (the caller's view is stale), the operation
+// fails — the caller should re-read state and retry.
+func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
 
 	// Validate operation
-	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	}
+
+	if expectedOutgoingRule == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"expected_outgoing_rule is required (compare-and-swap guard)")
 	}
 
 	// Validate standby IDs using the shared validation function
@@ -519,17 +531,11 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// Pre-compute history fields before acquiring the lock.
 	leaderID := pm.servicePoolerID
 
-	ctx, err = pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
+	ctx, err = pm.actionLock.Acquire(ctx, "UpdateConsensusRule")
 	if err != nil {
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	// === Validation ===
-	// TODO: We need to validate consensus term here.
-	// We should check if the request is a valid term.
-	// If it's a newer term and probably we need to demote
-	// ourself. But details yet to be implemented
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -546,7 +552,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// Check if synchronous replication is configured
 	if len(syncConfig.StandbyIds) == 0 {
-		pm.logger.ErrorContext(ctx, "UpdateSynchronousStandbyList requires synchronous replication to be configured")
+		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
 	}
@@ -568,10 +574,10 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	var updatedStandbys []poolerID
 	switch operation {
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
 		updatedStandbys = applyAddOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
 	default:
@@ -613,18 +619,21 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	for i, p := range updatedStandbys {
 		updatedStandbyIDs[i] = p.id
 	}
+	// The new rule inherits the expected coordinator term — we're not
+	// changing the leader, just amending its cohort. The rule store assigns
+	// a fresh leader_subterm.
 	standbyUpdate := newRuleUpdate(
-		consensusTerm,
+		expectedOutgoingRule.GetCoordinatorTerm(),
 		coordID,
 		"replication_config",
-		"UpdateSynchronousStandbyList: "+operationName,
+		"UpdateConsensusRule: "+operationName,
 		time.Now()).
 		withLeader(leaderID.id).
 		withCohort(updatedStandbyIDs).
-		withOperation(operationName)
-	if force {
-		standbyUpdate.withForce()
-	}
+		withOperation(operationName).
+		withPreviousRule(
+			expectedOutgoingRule.GetCoordinatorTerm(),
+			expectedOutgoingRule.GetLeaderSubterm())
 	if _, err := pm.rules.updateRule(ctx, standbyUpdate); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
@@ -634,20 +643,18 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
-	// Reload configuration if requested
-	if reloadConfig {
-		if err := pm.reloadPostgresConfig(ctx); err != nil {
-			return err
-		}
+	// Reload Postgres config so the new synchronous_standby_names value
+	// takes effect immediately. Recording the cohort change in rule_history
+	// without applying it would leave the history out of step with the GUC.
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
+		return err
 	}
 
-	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
+	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully",
 		"operation", operation,
 		"old_value", currentValue,
 		"new_value", newValue,
-		"reload_config", reloadConfig,
-		"consensus_term", consensusTerm,
-		"force", force)
+		"expected_outgoing_rule", expectedOutgoingRule)
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.

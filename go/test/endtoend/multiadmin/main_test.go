@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package pgregresstest
+// Package multiadmin contains end-to-end tests that exercise the multiadmin
+// service started via shardsetup's WithMultiadmin() option, covering its
+// gRPC API, HTTP/REST grpc-gateway, and the multigres CLI that talks to it.
+package multiadmin
 
 import (
 	"os"
@@ -21,20 +24,16 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
-// setupManager manages the shared test setup for tests in this package.
+// setupManager manages a shared test cluster (multipoolers + multigateway +
+// multiadmin) so all tests in this package share the same multiadmin process.
 var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	// Create a 2-node cluster with multigateway for PostgreSQL regression tests
 	return shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
-		// Stamp multigres_vpid:<id> on every PG backend so the isolation
-		// harness shim (public.multigres_test_session_is_blocked) can map
-		// virtual PIDs back to real backend PIDs through multigateway.
-		shardsetup.WithVpidStamping(),
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultigateway(),
+		shardsetup.WithMultiadmin(),
 	)
 })
 
-// TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
 	exitCode := shardsetup.RunTestMain(m)
 	if exitCode != 0 {
@@ -44,7 +43,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
-// getSharedSetup returns the shared setup for tests.
+// getSharedSetup returns the shared cluster setup for tests in this package.
 func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
 	return setupManager.Get(t)

@@ -324,10 +324,10 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "UpdateSynchronousStandbyList times out when lock is held",
+			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true, nil)
+				return manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, &clustermetadatapb.RuleNumber{}, nil)
 			},
 		},
 	}
@@ -1034,9 +1034,9 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 		"If this fails, it means GUC update queries were called despite history insert failure")
 }
 
-func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing.T) {
+func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	// This test verifies that if updateRule fails during
-	// UpdateSynchronousStandbyList, the synchronous_standby_names GUC is NOT updated.
+	// UpdateConsensusRule, the synchronous_standby_names GUC is NOT updated.
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -1123,17 +1123,15 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	// We do NOT add expectations for ALTER SYSTEM SET synchronous_standby_names
 	// If it gets called, ExpectationsWereMet() will fail
 
-	// Call UpdateSynchronousStandbyList to add a new standby
+	// Call UpdateConsensusRule to add a new standby
 	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-3"}
 
-	err = manager.UpdateSynchronousStandbyList(
+	err = manager.UpdateConsensusRule(
 		ctx,
-		multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+		multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 		[]*clustermetadatapb.ID{newStandby},
-		true,  // reloadConfig
-		5,     // consensusTerm
-		false, // force
-		nil,   // coordinatorID
+		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5}, // expectedOutgoingRule
+		nil, // coordinatorID
 	)
 
 	// Verify it failed
