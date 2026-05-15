@@ -91,16 +91,16 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 	}
 }
 
-// TestGracefulShutdown_StopSucceedsOnSmart verifies the escalation stops at
+// TestGracefulShutdown_StopSucceedsOnFast verifies the escalation stops at
 // the first mode that succeeds.
-func TestGracefulShutdown_StopSucceedsOnSmart(t *testing.T) {
+func TestGracefulShutdown_StopSucceedsOnFast(t *testing.T) {
 	pgctld := &recordingPgctldClient{}
 	pm := newGracefulShutdownTestManager(t, pgctld)
 
 	pm.GracefulShutdown(context.Background())
 
-	assert.Equal(t, []string{"smart"}, pgctld.modesCalled(),
-		"smart should succeed on first try; no escalation expected")
+	assert.Equal(t, []string{"fast"}, pgctld.modesCalled(),
+		"fast should succeed on first try; no escalation expected")
 }
 
 // TestGracefulShutdown_StopEscalatesThroughModes verifies the escalation chain
@@ -118,8 +118,8 @@ func TestGracefulShutdown_StopEscalatesThroughModes(t *testing.T) {
 
 	pm.GracefulShutdown(context.Background())
 
-	assert.Equal(t, []string{"smart", "fast", "immediate"}, pgctld.modesCalled(),
-		"escalation should walk smart -> fast -> immediate when each preceding mode fails")
+	assert.Equal(t, []string{"fast", "immediate"}, pgctld.modesCalled(),
+		"escalation should walk fast -> immediate when fast fails")
 }
 
 // TestGracefulShutdown_StopAllModesFail verifies we still return without
@@ -132,8 +132,8 @@ func TestGracefulShutdown_StopAllModesFail(t *testing.T) {
 
 	pm.GracefulShutdown(context.Background())
 
-	assert.Equal(t, []string{"smart", "fast", "immediate"}, pgctld.modesCalled(),
-		"all three modes should have been attempted")
+	assert.Equal(t, []string{"fast", "immediate"}, pgctld.modesCalled(),
+		"both modes should have been attempted")
 }
 
 // TestGracefulShutdown_NilPgctldClient verifies GracefulShutdown returns

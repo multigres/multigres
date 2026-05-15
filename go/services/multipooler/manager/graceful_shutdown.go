@@ -27,14 +27,19 @@ import (
 // pgctld.Stop is escalated through these modes in order. Each mode gets its
 // own bounded timeout; the total fits inside servenv's --onterm-timeout (20s
 // default). Operators who need a longer shutdown can raise --onterm-timeout;
-// if all three modes fail we log and return and servenv's onterm-timeout
+// if both modes fail we log and return and servenv's onterm-timeout
 // enforcement eventually forces the process to move on.
+//
+// "smart" mode is intentionally absent. Smart waits for every postgres
+// client connection to disconnect, and our own connection pool keeps
+// backends open until process exit — so smart would always time out
+// waiting for them. fast sends SIGTERM to postgres which terminates those
+// backends directly, achieving the same end state with no wasted wait.
 var pgctldStopModes = []struct {
 	name    string
 	timeout time.Duration
 }{
-	{"smart", 10 * time.Second},
-	{"fast", 5 * time.Second},
+	{"fast", 10 * time.Second},
 	{"immediate", 5 * time.Second},
 }
 
@@ -71,8 +76,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// Transition to NOT_SERVING so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
 	// --connpool-drain-grace-period). Best-effort: a failure here is logged but
-	// doesn't block the rest of shutdown — pgctld smart mode below will also
-	// wait for clients to disconnect.
+	// doesn't block the rest of shutdown.
 	if pm.servingState != nil {
 		if err := pm.servingState.SetState(lockCtx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
@@ -106,7 +110,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(lockCtx, "graceful shutdown sequence complete")
 }
 
-// stopPostgresLocked stops postgres via pgctld using smart → fast → immediate.
+// stopPostgresLocked stops postgres via pgctld using fast → immediate.
 // Caller must hold the action lock.
 func (pm *MultiPoolerManager) stopPostgresLocked(ctx context.Context) {
 	if pm.pgctldClient == nil {

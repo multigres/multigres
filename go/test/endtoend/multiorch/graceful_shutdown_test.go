@@ -90,18 +90,31 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	oldPrimary := setup.GetPrimary(t)
 	require.NotNil(t, oldPrimary, "primary instance should exist")
+	require.NotNil(t, oldPrimary.Multipooler)
+	require.NotNil(t, oldPrimary.Multipooler.Process)
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// SIGTERM the primary's multipooler. The graceful-shutdown sequence runs
-	// inside this call; on return, the process has exited.
+	// Send SIGTERM but don't block on the old primary's exit — the orch
+	// promotion-side latency is what we want to measure, not the dying
+	// pooler's pgctld.Stop budget. We join the goroutine after the failover
+	// assertion to verify clean exit separately.
+	t.Logf("Sending SIGTERM to multipooler %s (PID %d)",
+		oldPrimary.Name, oldPrimary.Multipooler.Process.Process.Pid)
 	start := time.Now()
-	terminateMultipoolerGracefully(t, oldPrimary, 90*time.Second)
+	terminateDone := make(chan struct{})
+	go func() {
+		defer close(terminateDone)
+		termCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		_, _ = oldPrimary.Multipooler.Process.Stop(termCtx)
+	}()
 
 	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
-	// fires as soon as it sees REQUESTING_DEMOTION (no grace period), then
-	// AppointLeaderAction (BeginTerm + Promote) runs on the surviving cohort.
-	// Most runs complete in well under 15s.
+	// fires as soon as it sees REQUESTING_DEMOTION, then AppointLeaderAction
+	// (BeginTerm + Promote) runs on the surviving cohort — concurrently with
+	// the old primary's pgctld.Stop, because appointLeaderWithTerm excludes
+	// the resigned pooler from preVote and recruit.
 	t.Logf("Waiting for multiorch to elect a new primary...")
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	elapsed := time.Since(start)
@@ -110,12 +123,27 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		"new primary must be different from the terminated old primary")
 	t.Logf("New primary elected: %s (was: %s) in %s", newPrimaryName, oldPrimaryName, elapsed)
 
-	// Lock in a tight upper bound on end-to-end failover. If a regression
-	// reintroduces grace-period waiting or stream-EOF-only triggering, this
-	// would blow past 30s and the assertion would catch it.
+	// Lock in a tight upper bound on orch-side failover latency: SIGTERM
+	// delivery → REQUESTING_DEMOTION broadcast → orch detects →
+	// LeaderResignedAnalyzer fires → AppointLeader completes → new primary
+	// visible. Regressions in any of those (e.g. recruitNodes still waiting
+	// on the resigned pooler) would blow past 5s.
 	require.Less(t, elapsed, 5*time.Second,
 		"graceful primary replacement took %s (expected well under 5s); "+
-			"likely a regression in REQUESTING_DEMOTION delivery or LeaderResignedAnalyzer firing", elapsed)
+			"likely a regression in REQUESTING_DEMOTION delivery, LeaderResignedAnalyzer firing, "+
+			"or the appointment cohort still containing the resigned pooler", elapsed)
+
+	// Confirm the dying primary actually exited cleanly. Generous bound
+	// covers pgctld.Stop escalation (fast → immediate).
+	select {
+	case <-terminateDone:
+		t.Logf("Multipooler %s exited gracefully", oldPrimaryName)
+	case <-t.Context().Done():
+		t.Fatalf("test context cancelled while waiting for %s to exit: %v",
+			oldPrimaryName, t.Context().Err())
+	case <-time.After(60 * time.Second):
+		t.Fatalf("multipooler %s did not exit gracefully within 60s", oldPrimaryName)
+	}
 
 	// The terminated pooler must be marked DRAINED in topology. The pooler-side
 	// unregister hook (OnClose → tr.Unregister) writes this when the process

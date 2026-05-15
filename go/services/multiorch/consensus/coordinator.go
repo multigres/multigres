@@ -178,6 +178,31 @@ func (c *Coordinator) appointLeaderWithTerm(ctx context.Context, shardID string,
 		return mterrors.Wrap(err, "failed to parse durability policy")
 	}
 
+	// Drop poolers that have self-revoked via REQUESTING_DEMOTION. Their
+	// BeginTerm RPC would block on the action lock held by their own
+	// graceful-shutdown sequence (e.g. while pgctld.Stop runs), and the
+	// legacy recruit fan-out waits for every goroutine — so a single
+	// resigning leader would stall failover by the full shutdown budget.
+	// Excluding them before preVote is important: preVote uses the cohort
+	// for its quorum check, so counting a pooler we're not going to recruit
+	// would cause preVote to pass against a quorum it can't actually achieve.
+	// selectCandidate refuses to elect a resigned pooler in any case, so the
+	// only thing we lose by skipping them is uncommitted WAL position,
+	// which sync replication makes safe to drop. (The new Recruit/Propose
+	// flow in rule_change.go does not have this bug — it commits as soon as
+	// quorum is recruited, so a slow node doesn't stall the path.)
+	filteredCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))
+	for _, p := range cohort {
+		if types.LeaderNeedsReplacement(p) {
+			c.logger.InfoContext(ctx, "Excluding resigned pooler from election cohort",
+				"shard", shardID,
+				"pooler", p.MultiPooler.Id.Name)
+			continue
+		}
+		filteredCohort = append(filteredCohort, p)
+	}
+	cohort = filteredCohort
+
 	// PreVote — validate that leadership change is likely to succeed.
 	canProceed, preVoteReason := c.preVote(ctx, cohort, durabilityPolicy, proposedTerm)
 	if !canProceed {
