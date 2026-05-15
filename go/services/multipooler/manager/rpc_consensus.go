@@ -807,6 +807,19 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		}
 	}
 
+	// Record the proposed (rule, primary) so this pooler's published
+	// ConsensusStatus.ReplicationPrimary reflects who it's been told to point
+	// at. Both branches converge here: replicas record proposalLeader; leaders
+	// record themselves at the same address the coordinator is advertising.
+	// proposalLeader is the authoritative source of contact info — it's what
+	// the coordinator wants every cohort member (including the new primary)
+	// to use.
+	pm.consensusState.RecordInform(proposedRule, &clustermetadatapb.MultiPooler{
+		Id:       proposalLeader.GetId(),
+		Hostname: proposalLeader.GetHost(),
+		PortMap:  map[string]int32{"postgres": proposalLeader.GetPostgresPort()},
+	})
+
 	pm.logger.InfoContext(ctx, "Propose complete",
 		"revoked_below_term", revokedBelowTerm,
 		"is_leader", isLeader)

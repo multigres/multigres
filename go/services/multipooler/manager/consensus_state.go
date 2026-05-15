@@ -78,21 +78,28 @@ func (cs *ConsensusState) RecordInform(rule *clustermetadatapb.ShardRule, primar
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cs.replicationPrimary.GetRule().GetRuleNumber())
-	switch {
-	case cmp > 0:
-		if cs.replicationPrimary == nil {
-			cs.replicationPrimary = &clustermetadatapb.ReplicationPrimary{}
-		}
-		cs.replicationPrimary.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
-		// Update primary only when one is supplied; an RPC that advances the
-		// rule without re-stating the primary (or a future WAL-observation
-		// path) leaves the previously-recorded contact info in place.
-		if primary != nil {
-			cs.replicationPrimary.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
-		}
-	case cmp == 0 && primary != nil && !proto.Equal(primary, cs.replicationPrimary.GetPrimary()):
-		cs.replicationPrimary.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
+	if cmp < 0 {
+		return
 	}
+	if cmp == 0 && (primary == nil || proto.Equal(primary, cs.replicationPrimary.GetPrimary())) {
+		return
+	}
+	// Build the next value by starting from the existing fields (via getters,
+	// which are nil-safe) and overlaying the updates we want to apply.
+	next := &clustermetadatapb.ReplicationPrimary{
+		Rule:    cs.replicationPrimary.GetRule(),
+		Primary: cs.replicationPrimary.GetPrimary(),
+	}
+	if cmp > 0 {
+		next.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
+	}
+	// Update primary only when one is supplied; an RPC that advances the rule
+	// without re-stating the primary (or a future WAL-observation path) leaves
+	// the previously-recorded contact info in place.
+	if primary != nil {
+		next.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
+	}
+	cs.replicationPrimary = next
 }
 
 // GetReplicationPrimary returns a copy of the primary + rule this pooler has

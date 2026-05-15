@@ -1782,6 +1782,16 @@ func TestPropose(t *testing.T) {
 				pm.mu.Lock()
 				assert.Equal(t, int64(0), pm.resignedLeaderAtTerm, "clearResignedLeaderAtTerm should have cleared the term")
 				pm.mu.Unlock()
+
+				// ReplicationPrimary should advertise this pooler as the primary
+				// at the proposalLeader's host/port. Coordinators reading this
+				// pooler's health stream see (self, host, port).
+				rp := pm.consensusState.GetReplicationPrimary()
+				require.NotNil(t, rp)
+				require.NotNil(t, rp.GetPrimary())
+				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))
+				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHostname())
+				assert.Equal(t, int32(5432), rp.GetPrimary().GetPortMap()["postgres"])
 			},
 		},
 		{
@@ -1870,6 +1880,15 @@ func TestPropose(t *testing.T) {
 
 				assert.False(t, pm.rewindPending.Load())
 				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, pm.healthStreamer.getState().Target.PoolerType)
+
+				// ReplicationPrimary should advertise the proposalLeader, since
+				// this pooler took the standby branch of Propose.
+				rp := pm.consensusState.GetReplicationPrimary()
+				require.NotNil(t, rp)
+				require.NotNil(t, rp.GetPrimary())
+				assert.True(t, proto.Equal(otherPooler, rp.GetPrimary().GetId()))
+				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHostname())
+				assert.Equal(t, int32(5432), rp.GetPrimary().GetPortMap()["postgres"])
 			},
 		},
 		{
