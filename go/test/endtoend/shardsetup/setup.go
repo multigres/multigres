@@ -79,6 +79,7 @@ type SetupConfig struct {
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -269,6 +270,19 @@ func WithMetricsExport() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMetricsExport = true
+	}
+}
+
+// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
+// the setup. Tags each PostgreSQL backend's application_name with
+// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
+// virtual PID back to its real backend PID via pg_stat_activity. Required by
+// the pgregress isolation harness shim and harmless elsewhere, but kept
+// opt-in so tests that probe application_name as a generic GUC aren't
+// accidentally shadowed.
+func WithVpidStamping() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableVpidStamping = true
 	}
 }
 
@@ -554,6 +568,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 		inst.Multipooler.LogLevel = config.LogLevel
 		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
+		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
