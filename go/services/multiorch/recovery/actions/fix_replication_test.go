@@ -249,7 +249,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
 		},
-		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 			"multipooler-cell1-primary": {},
 		},
 	}
@@ -309,8 +309,10 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	// Verify SetPrimaryConnInfo was called on the replica
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
-	// Verify UpdateConsensusRule was called on the primary to add the replica
-	assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+	// FixReplication no longer mutates the cohort / synchronous standby list.
+	// That responsibility belongs to ReconcileCohortAction; verify FixReplication
+	// did NOT call UpdateConsensusRule.
+	assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 }
 
 // TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow is the
@@ -351,9 +353,6 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 		},
 		InformResponses: map[string]*consensusdatapb.InformResponse{
 			"multipooler-cell1-replica1": {},
-		},
-		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
-			"multipooler-cell1-primary": {},
 		},
 	}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
@@ -657,7 +656,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
 	}
-	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}
 	// pg_rewind dry-run fails, so it marks the pooler as DRAINED

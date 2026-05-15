@@ -78,6 +78,11 @@ func (f *RecoveryActionFactory) NewDemoteStaleLeaderAction() types.RecoveryActio
 	return actions.NewDemoteStaleLeaderAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
+// NewReconcileCohortAction creates an action to add or remove a cohort member.
+func (f *RecoveryActionFactory) NewReconcileCohortAction() types.RecoveryAction {
+	return actions.NewReconcileCohortAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+}
+
 // Logger returns the factory's logger for use by analyzers.
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger

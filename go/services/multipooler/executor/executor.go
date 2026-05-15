@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -458,8 +457,7 @@ func (e *Executor) reserveAndStreamExecute(
 // streamExecuteOnReservedConn executes a query on an existing reserved
 // connection. It optionally promotes the reservation by adding new reasons
 // (e.g., starting a transaction on a temp-table-reserved connection) before
-// running the query, and reconciles the in-memory transaction tracking against
-// PG's actual transaction status afterwards.
+// running the query.
 //
 // Defined over reservedConnAPI rather than *reserved.Conn so that unit tests
 // can substitute a mock and exercise this path without a live PG connection.
@@ -496,18 +494,6 @@ func (e *Executor) streamExecuteOnReservedConn(
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
 		// Query failed but connection still exists — return current state
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
-	}
-
-	// Sync our in-memory transaction tracking with PG's actual state. The SQL
-	// itself may contain transaction control statements (e.g., a simple-query
-	// payload like "BEGIN; SELECT 1; COMMIT;") that change PG's transaction
-	// status without going through ReservationOptions, so we reconcile against
-	// the ReadyForQuery transaction indicator after the query completes.
-	if rc.TxnStatus() == protocol.TxnStatusInBlock && !rc.IsInTransaction() {
-		rc.AddReservationReason(protoutil.ReasonTransaction)
-	} else if rc.TxnStatus() == protocol.TxnStatusIdle && rc.IsInTransaction() {
-		// Transaction ended via inline COMMIT/ROLLBACK — remove the reason.
-		rc.RemoveReservationReason(protoutil.ReasonTransaction)
 	}
 
 	return e.buildReservedStateFromAPI(rc), nil

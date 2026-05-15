@@ -265,6 +265,14 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	}
 	l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
 
+	// Warn when TLS is configured but no path will yield a server certificate.
+	// crypto/tls would fail the handshake in this state, but the SCRAM-SHA-256-
+	// PLUS advertisement would also silently disappear, so surface this early
+	// instead of letting it look like a channel-binding regression at runtime.
+	if config.TLSConfig != nil && !tlsConfigYieldsServerCert(config.TLSConfig) {
+		logger.Warn("TLS config has no Certificates, GetCertificate, or GetConfigForClient; SCRAM-SHA-256-PLUS will not be advertised and TLS handshakes will fail")
+	}
+
 	logger.Info("PostgreSQL listener started", "address", config.Address)
 
 	return l, nil
