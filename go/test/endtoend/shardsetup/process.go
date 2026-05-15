@@ -134,6 +134,8 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 		return p.startMultiOrch(ctx, t)
 	case "multigateway":
 		return p.startMultigateway(ctx, t)
+	case "multiadmin":
+		return p.startMultiadmin(ctx, t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
@@ -390,6 +392,53 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 	}
 	t.Logf("Multigateway is ready")
 
+	return nil
+}
+
+// startMultiadmin starts a multiadmin instance pointed at the harness's etcd.
+// The HTTP port serves both the JSON API used by the Next.js web UI in
+// web/multiadmin/ and the gRPC-gateway endpoints; the gRPC port is used by
+// the multigres CLI (admin-server flag).
+func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) error {
+	t.Helper()
+
+	t.Logf("Starting %s: binary '%s', HTTP port %d, gRPC port %d", p.Name, p.Binary, p.HttpPort, p.GrpcPort)
+
+	args := []string{
+		"--http-port", strconv.Itoa(p.HttpPort),
+		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--topo-global-server-addresses", p.EtcdAddr,
+		"--topo-global-root", p.GlobalRoot,
+		"--service-map", "grpc-multiadmin",
+		"--hostname", "localhost",
+		"--log-level", p.logLevelOrDefault(),
+	}
+
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
+
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+
+	if p.LogFile != "" {
+		logF, err := os.Create(p.LogFile)
+		if err != nil {
+			return fmt.Errorf("failed to create log file: %w", err)
+		}
+		p.Process.SetStdout(logF)
+		p.Process.SetStderr(logF)
+	}
+
+	if err := p.Process.Start(); err != nil {
+		return fmt.Errorf("failed to start multiadmin: %w", err)
+	}
+	t.Logf("Started multiadmin (pid: %d, http: %d, grpc: %d, log: %s)",
+		p.Process.Process.Pid, p.HttpPort, p.GrpcPort, p.LogFile)
+
+	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second); err != nil {
+		return err
+	}
+	t.Logf("Multiadmin is ready")
 	return nil
 }
 
