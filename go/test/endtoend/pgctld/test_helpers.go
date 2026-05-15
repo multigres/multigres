@@ -314,11 +314,33 @@ func getPgBackRestStatus(t *testing.T, client pgctldservice.PgCtldClient) *pgctl
 	return resp.PgbackrestStatus
 }
 
+// mockBinEnv returns the base environment for tests that use mock PostgreSQL
+// binaries. It includes PATH pointing at binDir, PGDATA, POSTGRES_PASSWORD and
+// PGPASSWORD so pgctld init/start/stop subprocesses can satisfy the scram-sha-256
+// requirement without needing a real PostgreSQL instance.
+func mockBinEnv(binDir, pgDataDir string) []string {
+	env := append(os.Environ(),
+		"PATH="+binDir+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+pgDataDir,
+		constants.PgPasswordEnvVar+"=test-password",
+		"PGPASSWORD=test-password",
+	)
+	if runtime.GOOS == "darwin" {
+		env = append(env, "LC_ALL=en_US.UTF-8")
+	}
+	return env
+}
+
 // setupTestEnv sets common environment variables for pgctld subprocesses.
+// Includes a default POSTGRES_PASSWORD because pgctld now refuses to init or
+// serve without one (pg_hba.conf requires scram-sha-256 for all connections).
+// Also sets PGPASSWORD so psql subprocesses can authenticate.
 func setupTestEnv(cmd *executil.Cmd, poolerDir string) {
 	cmd.AddEnv(
 		"PGCONNECT_TIMEOUT=5",
 		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+		constants.PgPasswordEnvVar+"=test-password",
+		"PGPASSWORD=test-password",
 	)
 	if runtime.GOOS == "darwin" {
 		// Required to avoid "postmaster became multithreaded during startup" on macOS.

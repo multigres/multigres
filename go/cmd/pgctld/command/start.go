@@ -52,6 +52,7 @@ func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddr
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
+	config.Password = os.Getenv("POSTGRES_PASSWORD")
 	return config, nil
 }
 

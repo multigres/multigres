@@ -180,14 +180,21 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	// Build primary_conninfo connection string
-	// Format: host=<host> port=<port> user=<user> application_name=<name>
-	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
+	// Format: host=<host> port=<port> user=<user> application_name=<name> [passfile=<path>]
+	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle.
+	// passfile points libpq at the pgpass file written at manager startup so the
+	// standby can authenticate to the primary via SCRAM without embedding the
+	// password in postgresql.auto.conf. It is omitted when pgpassPath is unset
+	// (early startup or unit tests that bypass loadMultiPoolerFromTopo).
 	user := constants.DefaultPostgresUser
 	if pm.connPoolMgr != nil {
 		user = pm.connPoolMgr.PgUser()
 	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
 		host, port, user, appName.appName)
+	if pm.pgpassPath != "" {
+		connInfo += " passfile=" + pm.pgpassPath
+	}
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {

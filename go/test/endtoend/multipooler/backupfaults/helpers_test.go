@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // connectToPostgresViaSocket opens a SQL connection to PostgreSQL over its
@@ -34,7 +35,8 @@ import (
 func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.DB {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
+	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable password=%s",
+		socketDir, port, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "open postgres via socket")
 	require.NoError(t, db.Ping(), "ping postgres via socket")

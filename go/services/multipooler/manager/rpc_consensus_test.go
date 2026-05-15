@@ -952,7 +952,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(`ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary passfile=[^']+'`, mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
@@ -1017,7 +1017,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(`ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary passfile=[^']+'`, mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 15, // With force, term is NOT updated when older
@@ -1057,7 +1057,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				expectReloadConfig(m) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(`ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=postgres application_name=zone1_stale-primary passfile=[^']+'`, mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,

@@ -276,6 +276,10 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return errors.New("database is required")
 	}
 
+	if mp.connPoolConfig.PgPassword() == "" {
+		return errors.New("admin password not configured: set CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD environment variable, or --connpool-admin-password flag")
+	}
+
 	if mp.tableGroup.Get() == "" {
 		return errors.New("table group is required")
 	}
