@@ -833,6 +833,14 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 //
 // Unlike SetPrimaryConnInfo and DemoteStalePrimary, Inform does not perform
 // term validation — the rule comparison is the gate.
+//
+// TODO: when the rule comparison no-ops but WAL replay is paused
+// (pg_is_wal_replay_paused), the caller's intent ("ensure this replica is
+// pointed at the right primary") would be better served by also resuming
+// replay. We don't do that today because StopReplication() is an explicit
+// admin/test signal — auto-resuming would silently override it. Implement
+// once StopReplication() can leave behind a "do not auto-resume" marker that
+// Inform can check.
 func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.InformRequest) (*consensusdatapb.InformResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
