@@ -666,9 +666,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 	return nil
 }
 
-// truncate clips s to at most n characters (with an ellipsis suffix when
+// truncateForLog clips s to at most n characters (with an ellipsis suffix when
 // truncation occurs). Used for compact log/error messages.
-func truncate(s string, n int) string {
+func truncateForLog(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
@@ -838,7 +838,7 @@ $$`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("failed to execute statement [%s]: %w", truncate(stmt, 80), err)
+			return fmt.Errorf("failed to execute statement [%s]: %w", truncateForLog(stmt, 80), err)
 		}
 	}
 
