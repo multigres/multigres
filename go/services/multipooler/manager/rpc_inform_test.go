@@ -48,27 +48,27 @@ func TestInform_ValidationErrors(t *testing.T) {
 	}{
 		{
 			name:           "NilPrimary",
-			req:            &consensusdatapb.InformRequest{Position: makeRulePosition(5)},
+			req:            &consensusdatapb.InformRequest{Rule: makeRulePosition(5).GetRule()},
 			expectErrMatch: "primary is required",
 		},
 		{
-			name:           "NilPosition",
+			name:           "NilRule",
 			req:            &consensusdatapb.InformRequest{Primary: newPrimaryPooler("p1", "host", 5432)},
-			expectErrMatch: "position is required",
+			expectErrMatch: "rule is required",
 		},
 		{
 			name: "MissingHostname",
 			req: &consensusdatapb.InformRequest{
-				Primary:  &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, PortMap: map[string]int32{"postgres": 5432}},
-				Position: makeRulePosition(5),
+				Primary: &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, PortMap: map[string]int32{"postgres": 5432}},
+				Rule:    makeRulePosition(5).GetRule(),
 			},
 			expectErrMatch: "primary hostname is required",
 		},
 		{
 			name: "MissingPostgresPort",
 			req: &consensusdatapb.InformRequest{
-				Primary:  &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, Hostname: "host"},
-				Position: makeRulePosition(5),
+				Primary: &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Name: "p1"}, Hostname: "host"},
+				Rule:    makeRulePosition(5).GetRule(),
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
@@ -118,8 +118,8 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
 
 			req := &consensusdatapb.InformRequest{
-				Primary:  newPrimaryPooler("new-primary", "primary-host", 5432),
-				Position: tt.incomingPos,
+				Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
+				Rule:    tt.incomingPos.GetRule(),
 			}
 			resp, err := pm.Inform(t.Context(), req)
 			require.NoError(t, err)
@@ -132,6 +132,17 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 			storedID := pm.primaryPoolerID
 			pm.mu.Unlock()
 			assert.Nil(t, storedID, "primary should not be recorded on no-op Inform")
+
+			// But (rule, primary) MUST be recorded even on no-op paths — that's
+			// the substrate multiorch reads from the health stream to skip
+			// future redundant Informs.
+			highest := pm.consensusState.GetReplicationPrimary()
+			require.NotNil(t, highest, "Inform should record the rule even on no-op")
+			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
+				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
+			require.NotNil(t, highest.GetPrimary(), "Inform should record the primary even on no-op")
+			assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
+			assert.Equal(t, "primary-host", highest.GetPrimary().Hostname)
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
@@ -177,8 +188,8 @@ func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
 	req := &consensusdatapb.InformRequest{
-		Primary:  newPrimaryPooler("new-primary", "primary-host", 5432),
-		Position: makeRulePosition(10),
+		Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
+		Rule:    makeRulePosition(10).GetRule(),
 	}
 	resp, err := pm.Inform(t.Context(), req)
 	require.NoError(t, err)
@@ -251,8 +262,8 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	require.NoError(t, err)
 
 	req := &consensusdatapb.InformRequest{
-		Primary:  newPrimaryPooler("new-primary", "primary-host", 5432),
-		Position: makeRulePosition(10),
+		Primary: newPrimaryPooler("new-primary", "primary-host", 5432),
+		Rule:    makeRulePosition(10).GetRule(),
 	}
 	resp, err := pm.Inform(t.Context(), req)
 	require.NoError(t, err)

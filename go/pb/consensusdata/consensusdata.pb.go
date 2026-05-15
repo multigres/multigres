@@ -835,21 +835,21 @@ func (x *ProposeResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 	return nil
 }
 
-// InformRequest tells a pooler about the current primary and the position the
-// caller knows the cluster is at. The pooler compares the supplied position
-// against its own; if the supplied position is strictly higher it applies the
-// change (standby: update primary_conninfo; stale primary: demote), otherwise
-// it returns success without changes. Idempotent under retries and safe against
+// InformRequest tells a pooler about the current primary and the rule the
+// caller knows the cluster is at. The pooler compares the supplied rule against
+// its own; if the supplied rule is strictly higher it applies the change
+// (standby: update primary_conninfo; stale primary: demote), otherwise it
+// returns success without changes. Idempotent under retries and safe against
 // out-of-order delivery from stale recovery rounds.
 type InformRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Contact info for the primary. The pooler uses primary.hostname and
 	// primary.port_map["postgres"] when it rewrites primary_conninfo.
 	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
-	// The position the caller is informing about. The pooler compares this
-	// against its own observed PoolerPosition (rule first, LSN as tiebreaker)
-	// and only applies the change when this is strictly higher.
-	Position      *clustermetadata.PoolerPosition `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	// The rule the caller is informing about. The pooler compares this against
+	// its own observed rule (by RuleNumber) and only applies the change when
+	// the supplied rule is strictly higher.
+	Rule          *clustermetadata.ShardRule `protobuf:"bytes,2,opt,name=rule,proto3" json:"rule,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -891,9 +891,9 @@ func (x *InformRequest) GetPrimary() *clustermetadata.MultiPooler {
 	return nil
 }
 
-func (x *InformRequest) GetPosition() *clustermetadata.PoolerPosition {
+func (x *InformRequest) GetRule() *clustermetadata.ShardRule {
 	if x != nil {
-		return x.Position
+		return x.Rule
 	}
 	return nil
 }
@@ -994,10 +994,10 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12?\n" +
 	"\x11accepted_node_ids\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0facceptedNodeIds\"^\n" +
 	"\x0fProposeResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"\x84\x01\n" +
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"w\n" +
 	"\rInformRequest\x126\n" +
-	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x12;\n" +
-	"\bposition\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\bposition\"]\n" +
+	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x12.\n" +
+	"\x04rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"]\n" +
 	"\x0eInformResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus*s\n" +
 	"\x0fBeginTermAction\x12!\n" +
@@ -1041,7 +1041,6 @@ var file_consensusdata_proto_goTypes = []any{
 	(*clustermetadata.TermRevocation)(nil),     // 18: clustermetadata.TermRevocation
 	(*clustermetadata.ShardRule)(nil),          // 19: clustermetadata.ShardRule
 	(*clustermetadata.MultiPooler)(nil),        // 20: clustermetadata.MultiPooler
-	(*clustermetadata.PoolerPosition)(nil),     // 21: clustermetadata.PoolerPosition
 }
 var file_consensusdata_proto_depIdxs = []int32{
 	14, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
@@ -1062,7 +1061,7 @@ var file_consensusdata_proto_depIdxs = []int32{
 	15, // 15: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
 	16, // 16: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	20, // 17: consensusdata.InformRequest.primary:type_name -> clustermetadata.MultiPooler
-	21, // 18: consensusdata.InformRequest.position:type_name -> clustermetadata.PoolerPosition
+	19, // 18: consensusdata.InformRequest.rule:type_name -> clustermetadata.ShardRule
 	16, // 19: consensusdata.InformResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	20, // [20:20] is the sub-list for method output_type
 	20, // [20:20] is the sub-list for method input_type

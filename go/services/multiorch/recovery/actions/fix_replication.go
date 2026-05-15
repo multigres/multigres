@@ -218,8 +218,8 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// Configure primary_conninfo on the replica.
 	if a.config.GetUseNewConsensusFlow() {
 		informReq := &consensusdatapb.InformRequest{
-			Primary:  primary.MultiPooler,
-			Position: primary.GetConsensusStatus().GetCurrentPosition(),
+			Primary: primary.MultiPooler,
+			Rule:    primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
 		}
 		if _, err := a.rpcClient.Inform(ctx, replica.MultiPooler, informReq); err != nil {
 			return mterrors.Wrap(err, "failed to inform replica of primary")

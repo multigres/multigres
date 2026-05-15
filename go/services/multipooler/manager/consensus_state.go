@@ -36,8 +36,15 @@ type ConsensusState struct {
 	poolerDir string
 	serviceID *clustermetadatapb.ID
 
-	mu         sync.Mutex
-	revocation *clustermetadatapb.TermRevocation // cached revocation from disk
+	mu sync.Mutex
+	// revocation is persisted to disk; see term_storage.go.
+	revocation *clustermetadatapb.TermRevocation
+	// replicationPrimary is held in memory only — see HighestKnownRule's proto
+	// comment. Populated by RPCs that inform this pooler about the cluster
+	// state (Inform today; Propose can be wired in via the same RecordInform
+	// entry point). Restarts reset it to nil; coordinators re-inform the
+	// pooler.
+	replicationPrimary *clustermetadatapb.ReplicationPrimary
 }
 
 // NewConsensusState creates a new ConsensusState manager.
@@ -48,6 +55,56 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 		serviceID:  serviceID,
 		revocation: nil,
 	}
+}
+
+// RecordInform updates the highest-known rule and last-known primary based on
+// what this pooler has been told. Either argument may be nil. Bump semantics:
+//
+//   - rule: updated only when strictly greater than the current value
+//     (comparison by RuleNumber: coordinator_term then leader_subterm).
+//
+//   - primary: updated when the rule advances, OR when the supplied rule
+//     equals the current rule but the primary's contact info has changed.
+//     The same-rule-different-contact case covers a primary pooler being
+//     re-homed (host or port changes) without a new election.
+//
+// Safe to call on no-op Inform paths so the recorded values reflect
+// everything the pooler has been told, regardless of whether postgres-side
+// changes were applied.
+func (cs *ConsensusState) RecordInform(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.MultiPooler) {
+	if rule == nil {
+		return
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cs.replicationPrimary.GetRule().GetRuleNumber())
+	switch {
+	case cmp > 0:
+		if cs.replicationPrimary == nil {
+			cs.replicationPrimary = &clustermetadatapb.ReplicationPrimary{}
+		}
+		cs.replicationPrimary.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
+		// Update primary only when one is supplied; an RPC that advances the
+		// rule without re-stating the primary (or a future WAL-observation
+		// path) leaves the previously-recorded contact info in place.
+		if primary != nil {
+			cs.replicationPrimary.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
+		}
+	case cmp == 0 && primary != nil && !proto.Equal(primary, cs.replicationPrimary.GetPrimary()):
+		cs.replicationPrimary.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
+	}
+}
+
+// GetReplicationPrimary returns a copy of the primary + rule this pooler has
+// been told to use, or nil if it has never been informed. The returned message
+// is the same one exposed in ConsensusStatus.
+func (cs *ConsensusState) GetReplicationPrimary() *clustermetadatapb.ReplicationPrimary {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.replicationPrimary == nil {
+		return nil
+	}
+	return proto.Clone(cs.replicationPrimary).(*clustermetadatapb.ReplicationPrimary)
 }
 
 // Load loads consensus state from disk into memory.

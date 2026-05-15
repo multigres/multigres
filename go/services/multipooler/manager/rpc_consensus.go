@@ -278,10 +278,18 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	return nil
 }
 
-// buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation and position.
-// Both arguments may be nil; in that case the corresponding fields in the returned status
-// are left unset. Never performs I/O.
-func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+// buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation,
+// position, and the highest-known RPC-told (rule, primary). Any argument may be
+// nil; the corresponding field is left unset. Never performs I/O.
+//
+// The published HighestKnownRule reflects best knowledge from any source:
+//   - rule: max of the observed position's rule and the rule from the most
+//     recent Inform/Propose RPC.
+//   - primary: the contact info from the most recent Inform/Propose, since
+//     observePosition cannot carry it.
+//
+// Result is left nil only when neither source has any information.
+func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition, rpcTold *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
 	status := &clustermetadatapb.ConsensusStatus{Id: id}
 	if revocation != nil {
 		status.TermRevocation = revocation
@@ -289,7 +297,30 @@ func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatap
 	if pos != nil {
 		status.CurrentPosition = pos
 	}
+	if highest := mergeHighestKnown(pos, rpcTold); highest != nil {
+		status.ReplicationPrimary = highest
+	}
 	return status
+}
+
+// mergeHighestKnown returns the HighestKnownRule to publish given the most
+// recent observed position and the most recent rule+primary heard via RPC.
+// See buildConsensusStatus for the merge semantics.
+func mergeHighestKnown(pos *clustermetadatapb.PoolerPosition, rpcTold *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
+	observedRule := pos.GetRule()
+	rpcRule := rpcTold.GetRule()
+	rpcPrimary := rpcTold.GetPrimary()
+	if observedRule == nil && rpcRule == nil && rpcPrimary == nil {
+		return nil
+	}
+	rule := observedRule
+	if commonconsensus.CompareRuleNumbers(rpcRule.GetRuleNumber(), observedRule.GetRuleNumber()) > 0 {
+		rule = rpcRule
+	}
+	return &clustermetadatapb.ReplicationPrimary{
+		Rule:    rule,
+		Primary: rpcPrimary,
+	}
 }
 
 // getConsensusStatus builds a ConsensusStatus snapshot while holding the action lock.
@@ -309,7 +340,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusState.GetReplicationPrimary()), nil
 }
 
 // getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
@@ -328,7 +359,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 	if pos == nil {
 		return nil, nil
 	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusState.GetReplicationPrimary()), nil
 }
 
 // getInconsistentConsensusStatus builds a ConsensusStatus without holding the action lock.
@@ -353,7 +384,7 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 		pm.logger.DebugContext(ctx, "observePosition failed; falling back to cached rule position", "error", err)
 		pos = pm.rules.cachedPosition()
 	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusState.GetReplicationPrimary()), nil
 }
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
@@ -776,19 +807,19 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 // node is a stale primary and gets demoted (same effect as DemoteStalePrimary).
 //
 // Unlike SetPrimaryConnInfo and DemoteStalePrimary, Inform does not perform
-// term validation — the position comparison is the gate.
+// term validation — the rule comparison is the gate.
 func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.InformRequest) (*consensusdatapb.InformResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
 
 	primary := req.GetPrimary()
-	position := req.GetPosition()
+	rule := req.GetRule()
 	if primary == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
 	}
-	if position == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "position is required")
+	if rule == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "rule is required")
 	}
 	if primary.Hostname == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary hostname is required")
@@ -805,16 +836,28 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Observe the freshest view of our position. Inform is the staleness gate,
+	// Record what we've been told, even if we don't end up applying the change.
+	// Two consumers:
+	//   - Health stream / multiorch: reads highest_known_rule to skip redundant
+	//     Inform RPCs during the window after an apply but before streaming
+	//     replication has caught up enough for current_position to advance.
+	//   - Pooler-side reconciliation: reads last-known-primary to retry
+	//     ALTER SYSTEM SET primary_conninfo if this Inform arrived while
+	//     postgres was unavailable.
+	pm.consensusState.RecordInform(rule, primary)
+
+	// Observe the freshest view of our rule. Inform is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
 	selfPos, err := pm.rules.observePosition(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to observe local position")
 	}
 
-	if commonconsensus.ComparePosition(position, selfPos) <= 0 {
-		pm.logger.InfoContext(ctx, "Inform: incoming position not higher, no-op",
-			"incoming_rule", position.GetRule().GetRuleNumber(),
+	// Compare by RuleNumber only — LSN is intentionally not part of the gate.
+	// See InformRequest's proto comment for the reasoning.
+	if commonconsensus.CompareRuleNumbers(rule.GetRuleNumber(), selfPos.GetRule().GetRuleNumber()) <= 0 {
+		pm.logger.InfoContext(ctx, "Inform: incoming rule not higher, no-op",
+			"incoming_rule", rule.GetRuleNumber(),
 			"self_rule", selfPos.GetRule().GetRuleNumber())
 		cs, err := pm.getCachedConsensusStatus()
 		if err != nil {
@@ -832,22 +875,22 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 	}
 
 	// Used to update the local term cache and report the new leader to the
-	// gateway. This is not term validation — the position compare above is the
+	// gateway. This is not term validation — the rule compare above is the
 	// gate. updateTermIfNewer (called inside demoteStalePrimaryLocked) only
 	// raises the local term, never lowers it.
-	consensusTerm := position.GetRule().GetRuleNumber().GetCoordinatorTerm()
+	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Inform: demoting stale primary",
 			"new_primary", primary.GetId().GetName(),
-			"incoming_rule", position.GetRule().GetRuleNumber())
+			"incoming_rule", rule.GetRuleNumber())
 		if _, _, err := pm.demoteStalePrimaryLocked(ctx, primary, consensusTerm); err != nil {
 			return nil, err
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "Inform: updating standby primary_conninfo",
 			"new_primary", primary.GetId().GetName(),
-			"incoming_rule", position.GetRule().GetRuleNumber())
+			"incoming_rule", rule.GetRuleNumber())
 		pm.mu.Lock()
 		pm.primaryPoolerID = primary.GetId()
 		pm.primaryHost = primary.Hostname

@@ -428,8 +428,8 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 	require.NotNil(t, informReq.Primary)
 	assert.Equal(t, "primary", informReq.Primary.Id.Name)
 	assert.Equal(t, "primary.example.com", informReq.Primary.Hostname)
-	require.NotNil(t, informReq.Position)
-	assert.Equal(t, int64(1), informReq.Position.GetRule().GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, informReq.Rule)
+	assert.Equal(t, int64(1), informReq.Rule.GetRuleNumber().GetCoordinatorTerm())
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {

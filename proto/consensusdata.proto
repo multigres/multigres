@@ -200,21 +200,21 @@ message ProposeResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// InformRequest tells a pooler about the current primary and the position the
-// caller knows the cluster is at. The pooler compares the supplied position
-// against its own; if the supplied position is strictly higher it applies the
-// change (standby: update primary_conninfo; stale primary: demote), otherwise
-// it returns success without changes. Idempotent under retries and safe against
+// InformRequest tells a pooler about the current primary and the rule the
+// caller knows the cluster is at. The pooler compares the supplied rule against
+// its own; if the supplied rule is strictly higher it applies the change
+// (standby: update primary_conninfo; stale primary: demote), otherwise it
+// returns success without changes. Idempotent under retries and safe against
 // out-of-order delivery from stale recovery rounds.
 message InformRequest {
   // Contact info for the primary. The pooler uses primary.hostname and
   // primary.port_map["postgres"] when it rewrites primary_conninfo.
   clustermetadata.MultiPooler primary = 1;
 
-  // The position the caller is informing about. The pooler compares this
-  // against its own observed PoolerPosition (rule first, LSN as tiebreaker)
-  // and only applies the change when this is strictly higher.
-  clustermetadata.PoolerPosition position = 2;
+  // The rule the caller is informing about. The pooler compares this against
+  // its own observed rule (by RuleNumber) and only applies the change when
+  // the supplied rule is strictly higher.
+  clustermetadata.ShardRule rule = 2;
 }
 
 // InformResponse carries the pooler's state after processing an InformRequest.
