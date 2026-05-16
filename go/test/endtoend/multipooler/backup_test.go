@@ -232,23 +232,27 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						restoredTerm = statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
-					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
-					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
+					t.Logf("Term after restore: %d (expected: %d)", restoredTerm, higherTerm)
+					assert.Equal(t, higherTerm, restoredTerm,
+						"Term should be preserved across restore: it records revocations this pooler has accepted, independent of PGDATA")
 
-					// Verify primary_term is 0 after restore (never been primary)
+					// primary_term is derived from the rule's leader_id matching this
+					// pooler's ID. Restoring a standby from a primary's backup carries
+					// over the rule, but the rule's leader_id is the primary's, so
+					// IsLeader returns false on the standby and primary_term is 0.
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
 					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
-						"primary_term should be 0 after restore")
+						"primary_term should be 0 after restore (this pooler is not the rule's leader)")
 
 					// Configure replication after restore
 					setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 						Primary:               primary,
 						StartReplicationAfter: true,
 						StopReplicationBefore: false,
-						CurrentTerm:           restoredTerm, // Term is 0 after restore; Force allows multiorch to advance it
-						Force:                 true,         // Force reconfiguration after restore
+						CurrentTerm:           restoredTerm,
+						Force:                 true, // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)

@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
@@ -208,25 +207,6 @@ func (cs *ConsensusState) saveAndUpdateLocked(newRevocation *clustermetadatapb.T
 
 	// Save succeeded - NOW update memory
 	cs.revocation = cloneRevocation(newRevocation)
-	return nil
-}
-
-// DeleteTermFile removes the consensus term file from disk and resets the
-// in-memory state to uninitialized (term 0, no accepted coordinator).
-// Called after a pgBackRest restore so the node re-joins consensus from
-// scratch; the cluster's current term will be propagated by multiorch on
-// first contact via Recruit.
-// If the file does not exist this is a no-op. Returns an error only if
-// the file exists but cannot be removed.
-func (cs *ConsensusState) DeleteTermFile() error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	if err := os.Remove(cs.consensusTermPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete consensus term file after restore: %w", err)
-	}
-
-	cs.revocation = &clustermetadatapb.TermRevocation{}
 	return nil
 }
 

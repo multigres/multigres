@@ -348,25 +348,11 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Delete the consensus term file after restore.
-	//
-	// The term file lives outside PGDATA and is not included in the backup, so
-	// its on-disk value may be ahead of what the restored PGDATA participated in.
-	// Deleting it resets the node to term 0; multiorch will advance the term to
-	// the current cluster value on first contact via Recruit.
-	//
-	// TODO: Revisit this when we restore backups for other reasons than to
-	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
-	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
-		pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
-		if err := pm.consensusState.DeleteTermFile(); err != nil {
-			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
-		}
-		pm.healthStreamer.UpdateLeaderObservation(nil)
-		return nil
-	}); err != nil {
-		return err
-	}
+	// Preserve the consensus term file across restore. The term records the
+	// highest revocation this pooler has accepted — it gates which Recruit
+	// requests this node will honor, independent of what PGDATA participated
+	// in. A node that already accepted term N must not accept a Recruit at
+	// term < N just because its data was rolled back to an earlier snapshot.
 
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
 		return pm.reopenPoolerManager(ctx)
