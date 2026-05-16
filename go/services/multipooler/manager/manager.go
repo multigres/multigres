@@ -1764,6 +1764,14 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 // when there's nothing to compare against, when we couldn't read the GUC, or
 // when the recorded primary names this pooler itself.
 //
+// Returns false when the recorded primary's rule is revoked by our recorded
+// revocation: a Recruit that's already advanced revoked_below_term has
+// deliberately cleared primary_conninfo, and the cached "recorded primary" is
+// stale until the next Inform/Propose updates it. Without this gate, the
+// monitor would race the Recruit/Propose flow by restoring conninfo to the
+// just-revoked primary, which then causes Propose to refuse with
+// "primary_conninfo is set".
+//
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
 func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState) bool {
@@ -1779,6 +1787,13 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	// primary-side case, out of scope for replica-conninfo reconciliation.
 	if leader := rp.GetRule().GetLeaderId(); leader != nil &&
 		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return false
+	}
+	// Skip if the recorded rule is revoked. The cached primary is from before
+	// the current revocation took effect; restoring conninfo to it would race
+	// the Recruit/Propose flow that's mid-flight (see function doc).
+	rev, err := pm.consensusState.GetInconsistentRevocation()
+	if err != nil || commonconsensus.IsRuleRevoked(rp.GetRule(), rev) {
 		return false
 	}
 	targetHost := target.GetHostname()
