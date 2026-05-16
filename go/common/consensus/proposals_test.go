@@ -115,11 +115,16 @@ func revocation(term int64) *clustermetadatapb.TermRevocation {
 
 // coordRevocation builds a *TermRevocation with coordinator fields populated.
 // Used by tests exercising ValidateRevocation / CheckProposalPossible.
+//
+// outgoing_rule is populated with a zero-valued RuleNumber to satisfy
+// ValidateRevocation's non-nil requirement; tests that care about the
+// specific outgoing_rule value should overwrite the field.
 func coordRevocation(term int64) *clustermetadatapb.TermRevocation {
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       term,
 		AcceptedCoordinatorId:  makeID("zone1", "coord-1"),
 		CoordinatorInitiatedAt: timestamppb.Now(),
+		OutgoingRule:           &clustermetadatapb.RuleNumber{},
 	}
 }
 

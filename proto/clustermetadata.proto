@@ -437,6 +437,13 @@ message TermRevocation {
   // recruiting. All poolers that accept the same recruitment store the same value.
   // TODO: populate once BeginTermRequest carries this timestamp.
   google.protobuf.Timestamp coordinator_initiated_at = 3;
+
+  // The rule the coordinator observed across the cohort at recruit time —
+  // the "from" side of the transition this recruit was authoring. Used as
+  // an override key during Inform: if a subsequent Inform carries a rule
+  // strictly greater than this, the cluster has demonstrably moved past
+  // the runaway recruit's premise and the revocation is moot.
+  RuleNumber outgoing_rule = 4;
 }
 
 // ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation

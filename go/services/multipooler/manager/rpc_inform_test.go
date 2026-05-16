@@ -322,15 +322,142 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	assert.Equal(t, "new-primary", storedID.Name)
 	assert.Equal(t, "primary-host", storedHost)
 
-	// Term bumped from 3 -> 10 by updateTermIfNewer.
+	// Inform must NOT touch term_revocation. The revocation seeded above
+	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
+	// by coordinators via Recruit, not by side effects of Inform.
 	rev, err := pm.consensusState.getRevocation()
 	require.NoError(t, err)
-	assert.Equal(t, int64(10), rev.GetRevokedBelowTerm(),
-		"consensus term should advance to match the incoming position's coordinator_term")
+	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
+		"Inform must not bump revoked_below_term — that's a coordinator responsibility")
 
 	// Gateway leader observation should reflect the new primary.
 	healthState := pm.healthStreamer.getState()
 	require.NotNil(t, healthState.LeaderObservation)
 	assert.Equal(t, "new-primary", healthState.LeaderObservation.LeaderID.Name)
 	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
+}
+
+// TestInform_IgnoresRevokedRule verifies that when the incoming rule is
+// revoked by the pooler's recorded revocation (i.e. coordinator_term below
+// revoked_below_term and the outgoing-rule override does not fire), Inform
+// returns success without touching postgres and without recording the rule.
+// The override scenarios are unit-tested at the IsRuleRevoked predicate; this
+// pins the RPC-level behavior.
+func TestInform_IgnoresRevokedRule(t *testing.T) {
+	tests := []struct {
+		name         string
+		revokedBelow int64
+		outgoing     *clustermetadatapb.RuleNumber
+		incomingTerm int64
+	}{
+		{
+			name:         "BelowRevoked_NoOutgoing",
+			revokedBelow: 5,
+			outgoing:     nil,
+			incomingTerm: 3,
+		},
+		{
+			name:         "BelowRevoked_BelowOutgoing",
+			revokedBelow: 5,
+			outgoing:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+			incomingTerm: 2,
+		},
+		{
+			name:         "BelowRevoked_EqualOutgoing",
+			revokedBelow: 5,
+			outgoing:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+			incomingTerm: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockQueryService := mock.NewQueryService()
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+
+			require.NoError(t, pm.consensusState.setRevocation(
+				&clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: tt.revokedBelow,
+					OutgoingRule:     tt.outgoing,
+				},
+			))
+			_, err := pm.consensusState.Load()
+			require.NoError(t, err)
+
+			leader := newLeaderPooler("new-primary", "primary-host", 5432)
+			req := &consensusdatapb.InformRequest{
+				Leader: leader,
+				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
+			}
+			resp, err := pm.Inform(t.Context(), req)
+			require.NoError(t, err, "Inform should silently ignore revoked rules")
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.ConsensusStatus)
+
+			// No primary recorded — apply branch must not have run.
+			pm.mu.Lock()
+			storedID := pm.primaryPoolerID
+			pm.mu.Unlock()
+			assert.Nil(t, storedID, "primary should not be recorded for revoked Inform")
+
+			// RecordInform must not have run either: the (rule, leader) tuple
+			// is not the substrate multiorch should read from a refused FYI.
+			highest := pm.consensusState.GetReplicationPrimary()
+			assert.Nil(t, highest, "revoked Inform should not be recorded")
+
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestInform_AppliesViaOutgoingRuleOverride verifies that an Inform whose
+// rule term is below revoked_below_term is accepted when the rule strictly
+// exceeds the revocation's recorded outgoing_rule — the runaway-recruit
+// self-heal path. To avoid wiring full postgres mocks for the apply branch,
+// the test sets self's rule term above the incoming rule so Inform takes
+// its "not higher, no-op" branch after the revocation check passes; the
+// (rule, leader) tuple is still recorded by RecordInform, which is the
+// observable proving the override fired.
+func TestInform_AppliesViaOutgoingRuleOverride(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	const selfRuleTerm = 10
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(selfRuleTerm)})
+
+	// Revocation at term 5 with outgoing_rule at term 1; an incoming rule
+	// at term 3 is below revoked_below_term but strictly above outgoing_rule.
+	require.NoError(t, pm.consensusState.setRevocation(
+		&clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: 5,
+			OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		},
+	))
+	_, err := pm.consensusState.Load()
+	require.NoError(t, err)
+
+	leader := newLeaderPooler("new-primary", "primary-host", 5432)
+	req := &consensusdatapb.InformRequest{
+		Leader: leader,
+		Rule:   ruleAtTermForLeader(leader, 3),
+	}
+	resp, err := pm.Inform(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.ConsensusStatus)
+
+	// Override fired → RecordInform ran → the rule + primary are observable.
+	highest := pm.consensusState.GetReplicationPrimary()
+	require.NotNil(t, highest, "override should let RecordInform persist the rule")
+	require.NotNil(t, highest.GetPrimary())
+	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
+	assert.Equal(t, int64(3), highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
+
+	// Self's rule is higher, so the apply branch is skipped — no primary
+	// recorded in manager state, no SQL.
+	pm.mu.Lock()
+	storedID := pm.primaryPoolerID
+	pm.mu.Unlock()
+	assert.Nil(t, storedID, "self rule is higher; apply branch must not run")
+
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }

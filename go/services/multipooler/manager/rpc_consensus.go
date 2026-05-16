@@ -897,14 +897,25 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Honor the revocation promise we made via Recruit/BeginTerm. We've
-	// committed to refuse any work below revoked_below_term, and to refuse
-	// any coordinator other than accepted_coordinator_id at that exact term.
-	// An Inform that violates this must be rejected — applying it would
-	// undermine the consensus invariant that lets the coordinator hold a
-	// rule decision durably.
-	if err := pm.checkInformAgainstRevocation(ctx, rule); err != nil {
-		return nil, err
+	// Honor the revocation promise we made via Recruit/BeginTerm. If the
+	// incoming rule is revoked, ignore it: Inform is a best-effort FYI and
+	// the cohort will reconverge as it makes progress. Returning the cached
+	// status keeps the response shape consistent with the "incoming rule
+	// not higher" no-op below.
+	revocation, err := pm.consensusState.GetRevocation(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read revocation while validating Inform")
+	}
+	if commonconsensus.IsRuleRevoked(rule, revocation) {
+		pm.logger.InfoContext(ctx, "Inform: rule revoked, ignoring",
+			"incoming_rule", rule.GetRuleNumber(),
+			"revoked_below_term", revocation.GetRevokedBelowTerm(),
+			"outgoing_rule", revocation.GetOutgoingRule())
+		cs, err := pm.getCachedConsensusStatus()
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to build consensus status")
+		}
+		return &consensusdatapb.InformResponse{ConsensusStatus: cs}, nil
 	}
 
 	// Record what we've been told, even if we don't end up applying the change.
@@ -945,10 +956,10 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	// Used to update the local term cache and report the new leader to the
-	// gateway. This is not term validation — the rule compare above is the
-	// gate. updateTermIfNewer (called inside demoteStalePrimaryLocked) only
-	// raises the local term, never lowers it.
+	// Reported to the gateway as the new leader's term. Not term validation —
+	// the rule compare above is the gate. Inform does not bump the local
+	// revocation: revocations are authored by coordinators via Recruit, and
+	// an Inform is a notification, not a revoke.
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	if isPrimary {
@@ -989,44 +1000,6 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 		return nil, mterrors.Wrap(err, "failed to build consensus status after Inform")
 	}
 	return &consensusdatapb.InformResponse{ConsensusStatus: cs}, nil
-}
-
-// checkInformAgainstRevocation refuses an Inform that would violate this
-// pooler's recorded revocation promise. The pooler must already hold the
-// action lock.
-//
-// Rules:
-//   - If the incoming rule's coordinator_term is strictly below
-//     revoked_below_term, we've promised to refuse any work below that term
-//     — reject.
-//   - If the term is equal to revoked_below_term, the coordinator that
-//     authored the rule must match the one we accepted at recruit time. A
-//     different coordinator at the same term is a consensus-protocol
-//     violation (two coordinators racing the same term).
-//   - If the term is strictly above revoked_below_term, accept — a higher
-//     term presumably went through its own Recruit round at that term.
-//
-// A pooler with no recorded revocation (revoked_below_term == 0) accepts
-// any incoming term; there's nothing to honor.
-func (pm *MultiPoolerManager) checkInformAgainstRevocation(ctx context.Context, rule *clustermetadatapb.ShardRule) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	revocation, err := pm.consensusState.GetRevocation(ctx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to read revocation while validating Inform")
-	}
-	revokedBelow := revocation.GetRevokedBelowTerm()
-	if revokedBelow == 0 {
-		return nil
-	}
-	ruleTerm := rule.GetRuleNumber().GetCoordinatorTerm()
-	if ruleTerm < revokedBelow {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"Inform refused: rule coordinator_term %d is below revoked_below_term %d",
-			ruleTerm, revokedBelow)
-	}
-	return nil
 }
 
 // syncConfigFromProposedRule derives the synchronous replication config from a proposed rule

@@ -37,6 +37,10 @@ import (
 )
 
 // makePoolerState creates a PoolerHealthState with the given cell/name.
+// A minimal ConsensusStatus is attached so the state is suitable as a cohort
+// member: NewTermRevocation requires at least one cohort member to have
+// reported a status. Tests that need richer status state overwrite the field
+// after construction.
 func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -50,6 +54,7 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 			PortMap:  map[string]int32{"postgres": 5432, "grpc": 9000},
 		},
 		IsLastCheckValid: true,
+		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{Id: id},
 	}
 }
 

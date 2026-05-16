@@ -1727,8 +1727,14 @@ type TermRevocation struct {
 	// recruiting. All poolers that accept the same recruitment store the same value.
 	// TODO: populate once BeginTermRequest carries this timestamp.
 	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// The rule the coordinator observed across the cohort at recruit time —
+	// the "from" side of the transition this recruit was authoring. Used as
+	// an override key during Inform: if a subsequent Inform carries a rule
+	// strictly greater than this, the cluster has demonstrably moved past
+	// the runaway recruit's premise and the revocation is moot.
+	OutgoingRule  *RuleNumber `protobuf:"bytes,4,opt,name=outgoing_rule,json=outgoingRule,proto3" json:"outgoing_rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TermRevocation) Reset() {
@@ -1778,6 +1784,13 @@ func (x *TermRevocation) GetAcceptedCoordinatorId() *ID {
 func (x *TermRevocation) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CoordinatorInitiatedAt
+	}
+	return nil
+}
+
+func (x *TermRevocation) GetOutgoingRule() *RuleNumber {
+	if x != nil {
+		return x.OutgoingRule
 	}
 	return nil
 }
@@ -2245,11 +2258,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"|\n" +
 	"\x12ReplicationPrimary\x12.\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x126\n" +
-	"\aprimary\x18\x02 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\"\xe1\x01\n" +
+	"\aprimary\x18\x02 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\"\xa3\x02\n" +
 	"\x0eTermRevocation\x12,\n" +
 	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
 	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +
-	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\xd7\x01\n" +
+	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\x12@\n" +
+	"\routgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\foutgoingRule\"\xd7\x01\n" +
 	"\x1dExternallyCertifiedRevocation\x12M\n" +
 	"\x14outgoing_rule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\x12outgoingRuleNumber\x12\x1d\n" +
 	"\n" +
@@ -2375,21 +2389,22 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	13, // 26: clustermetadata.ReplicationPrimary.primary:type_name -> clustermetadata.MultiPooler
 	17, // 27: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
 	33, // 28: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
-	20, // 29: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
-	24, // 30: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
-	24, // 31: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	22, // 32: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	23, // 33: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
-	17, // 34: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	3,  // 35: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	27, // 36: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	29, // 37: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
-	4,  // 38: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
-	39, // [39:39] is the sub-list for method output_type
-	39, // [39:39] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	20, // 29: clustermetadata.TermRevocation.outgoing_rule:type_name -> clustermetadata.RuleNumber
+	20, // 30: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
+	24, // 31: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
+	24, // 32: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	22, // 33: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	23, // 34: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
+	17, // 35: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 36: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	27, // 37: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	29, // 38: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
+	4,  // 39: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
+	40, // [40:40] is the sub-list for method output_type
+	40, // [40:40] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }

@@ -69,7 +69,10 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		}
 	}
 
-	revocation := commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
+	revocation, err := commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
+	if err != nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
+	}
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
 		"proposed_term", revocation.GetRevokedBelowTerm(),

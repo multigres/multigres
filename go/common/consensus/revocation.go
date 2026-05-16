@@ -31,23 +31,95 @@ import (
 // change. The revocation term is derived from the highest term observed across
 // the provided ConsensusStatus values — the maximum of each node's accepted
 // revocation term and its recorded rule's coordinator term — incremented by
-// one. If no non-zero terms are found (fresh cluster, no prior elections), term
-// 1 is used.
-func NewTermRevocation(statuses []*clustermetadatapb.ConsensusStatus, coordinatorID *clustermetadatapb.ID) *clustermetadatapb.TermRevocation {
+// one. If the cohort has no prior elections, term 1 is used.
+//
+// outgoing_rule is set to the highest RuleNumber recorded across the cohort
+// statuses. On a fresh cluster with no recorded rule anywhere, this is a
+// zero-valued RuleNumber rather than nil, so any real future rule compares
+// strictly greater. See the TermRevocation proto definition and
+// checkInformAgainstRevocation for how this is used as an override key during
+// Inform.
+//
+// statuses must be non-empty: a revocation is a promise the coordinator makes
+// to a cohort it has actually observed. An empty list indicates zero cohort
+// visibility, which is a programming error, not a "fresh cluster" semantic.
+// A fresh cluster still has cohort members in statuses; their TermRevocation
+// and CurrentPosition fields are simply empty.
+//
+// TODO: unify "outgoing rule" across the consensus flow. Today this function
+// derives outgoing_rule from cached cohort statuses, while buildProposalCore
+// independently re-derives a (full) outgoing ShardRule from recruited
+// statuses. A follow-up should make the coordinator pick one canonical
+// outgoing rule up front, have Recruit reject poolers whose recorded rule is
+// strictly newer than that expected outgoing rule, and have Propose accept
+// the outgoing rule as an input rather than re-deriving. That refactor is
+// out of scope here.
+func NewTermRevocation(
+	statuses []*clustermetadatapb.ConsensusStatus,
+	coordinatorID *clustermetadatapb.ID,
+) (*clustermetadatapb.TermRevocation, error) {
+	if len(statuses) == 0 {
+		return nil, errors.New("NewTermRevocation: statuses must be non-empty")
+	}
 	var maxTerm int64
+	var maxRule *clustermetadatapb.RuleNumber
 	for _, cs := range statuses {
 		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
 			maxTerm = t
 		}
-		if t := cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm(); t > maxTerm {
+		ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
+		if t := ruleNum.GetCoordinatorTerm(); t > maxTerm {
 			maxTerm = t
 		}
+		if CompareRuleNumbers(ruleNum, maxRule) > 0 {
+			maxRule = ruleNum
+		}
+	}
+	if maxRule == nil {
+		maxRule = &clustermetadatapb.RuleNumber{}
 	}
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
 		AcceptedCoordinatorId:  coordinatorID,
 		CoordinatorInitiatedAt: timestamppb.Now(),
+		OutgoingRule:           maxRule,
+	}, nil
+}
+
+// IsRuleRevoked reports whether the pooler's recorded revocation forbids
+// applying a rule received via Inform. The rule represents durable WAL state
+// the cohort has reached; the revocation is this pooler's promise to refuse
+// work below a given coordinator term. The predicate is a pure function of
+// the two consensus messages; callers handle storage I/O, locking, and any
+// logging.
+//
+// A rule is revoked when:
+//   - revocation.revoked_below_term is non-zero and exceeds the rule's
+//     coordinator_term, AND
+//   - the rule does not strictly exceed revocation.outgoing_rule.
+//
+// The second clause is the runaway-recruit override: if durable WAL exists
+// for a rule strictly newer than outgoing_rule, the cohort has demonstrably
+// moved past the rule the revocation was authored to transition away from,
+// so the promise is moot. See the TermRevocation proto for the full safety
+// argument.
+//
+// revocation may be nil (treated as no revocation). outgoing_rule may be nil
+// on revocations written by older code that predates the field; nil means
+// "no override available" and the override branch cannot fire.
+func IsRuleRevoked(rule *clustermetadatapb.ShardRule, revocation *clustermetadatapb.TermRevocation) bool {
+	revokedBelow := revocation.GetRevokedBelowTerm()
+	if revokedBelow == 0 {
+		return false
 	}
+	if rule.GetRuleNumber().GetCoordinatorTerm() >= revokedBelow {
+		return false
+	}
+	outgoing := revocation.GetOutgoingRule()
+	if outgoing != nil && CompareRuleNumbers(rule.GetRuleNumber(), outgoing) > 0 {
+		return false
+	}
+	return true
 }
 
 // ValidateRevocation reports whether the given revocation is safe for a node
@@ -88,6 +160,9 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	}
 	if revocation.GetCoordinatorInitiatedAt() == nil {
 		return errors.New("cannot accept revocation: coordinator_initiated_at is required")
+	}
+	if revocation.GetOutgoingRule() == nil {
+		return errors.New("cannot accept revocation: outgoing_rule is required")
 	}
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 

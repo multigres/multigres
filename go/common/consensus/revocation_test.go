@@ -32,6 +32,11 @@ var (
 
 	ts1 = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	ts2 = timestamppb.New(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+
+	// zeroOutgoingRule is a placeholder outgoing_rule used in tests where the
+	// specific outgoing rule value doesn't matter — only that it's non-nil so
+	// ValidateRevocation accepts the revocation.
+	zeroOutgoingRule = &clustermetadatapb.RuleNumber{}
 )
 
 func TestValidateRevocation(t *testing.T) {
@@ -39,6 +44,7 @@ func TestValidateRevocation(t *testing.T) {
 		RevokedBelowTerm:       5,
 		AcceptedCoordinatorId:  coordA,
 		CoordinatorInitiatedAt: ts1,
+		OutgoingRule:           zeroOutgoingRule,
 	}
 
 	tests := []struct {
@@ -59,6 +65,7 @@ func TestValidateRevocation(t *testing.T) {
 			revocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm:       5,
 				CoordinatorInitiatedAt: ts1,
+				OutgoingRule:           zeroOutgoingRule,
 			},
 			wantErr: "accepted_coordinator_id is required",
 		},
@@ -68,8 +75,19 @@ func TestValidateRevocation(t *testing.T) {
 			revocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm:      5,
 				AcceptedCoordinatorId: coordA,
+				OutgoingRule:          zeroOutgoingRule,
 			},
 			wantErr: "coordinator_initiated_at is required",
+		},
+		{
+			name:   "NilOutgoingRule_Refused",
+			status: nil,
+			revocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       5,
+				AcceptedCoordinatorId:  coordA,
+				CoordinatorInitiatedAt: ts1,
+			},
+			wantErr: "outgoing_rule is required",
 		},
 		{
 			name:       "NilStatus_Refused",
@@ -166,6 +184,7 @@ func TestValidateRevocation(t *testing.T) {
 				RevokedBelowTerm:       5,
 				AcceptedCoordinatorId:  coordB,
 				CoordinatorInitiatedAt: ts1,
+				OutgoingRule:           zeroOutgoingRule,
 			},
 			wantErr: "already accepted term 5 from coordinator",
 		},
@@ -183,6 +202,7 @@ func TestValidateRevocation(t *testing.T) {
 				RevokedBelowTerm:       5,
 				AcceptedCoordinatorId:  coordA,
 				CoordinatorInitiatedAt: ts2,
+				OutgoingRule:           zeroOutgoingRule,
 			},
 			wantErr: "different coordinator_initiated_at",
 		},
@@ -229,17 +249,25 @@ func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
-	t.Run("fresh cluster - no statuses", func(t *testing.T) {
-		rev := NewTermRevocation(nil, coord)
-		require.Equal(t, int64(1), rev.GetRevokedBelowTerm())
-		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
-		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
+	t.Run("empty statuses returns error", func(t *testing.T) {
+		rev, err := NewTermRevocation(nil, coord)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "statuses must be non-empty")
+		require.Nil(t, rev)
 	})
 
 	t.Run("fresh cluster - statuses with no term history", func(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
-		rev := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord)
+		require.NoError(t, err)
 		require.Equal(t, int64(1), rev.GetRevokedBelowTerm())
+		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
+		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
+		// outgoing_rule is always populated; on a fresh cluster it is the
+		// zero-valued RuleNumber so any future rule beats it.
+		require.NotNil(t, rev.GetOutgoingRule())
+		require.Equal(t, int64(0), rev.GetOutgoingRule().GetCoordinatorTerm())
+		require.Equal(t, int64(0), rev.GetOutgoingRule().GetLeaderSubterm())
 	})
 
 	t.Run("uses max of revocation terms", func(t *testing.T) {
@@ -248,7 +276,8 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}},
 		}
-		rev := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord)
+		require.NoError(t, err)
 		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
 	})
 
@@ -257,7 +286,8 @@ func TestNewTermRevocation(t *testing.T) {
 			{CurrentPosition: positionAtCoordTerm(4)},
 			{CurrentPosition: positionAtCoordTerm(9)},
 		}
-		rev := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord)
+		require.NoError(t, err)
 		require.Equal(t, int64(10), rev.GetRevokedBelowTerm())
 	})
 
@@ -266,7 +296,126 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6}},
 			{CurrentPosition: positionAtCoordTerm(11)},
 		}
-		rev := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord)
+		require.NoError(t, err)
 		require.Equal(t, int64(12), rev.GetRevokedBelowTerm())
 	})
+
+	t.Run("outgoing_rule picks the highest RuleNumber across statuses", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 2},
+				},
+				Lsn: "16/B374D848",
+			}},
+			{CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 5},
+				},
+				Lsn: "16/B374D900",
+			}},
+			{CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 9},
+				},
+				Lsn: "16/B374D700",
+			}},
+		}
+		rev, err := NewTermRevocation(statuses, coord)
+		require.NoError(t, err)
+		got := rev.GetOutgoingRule()
+		require.NotNil(t, got)
+		require.Equal(t, int64(4), got.GetCoordinatorTerm())
+		require.Equal(t, int64(5), got.GetLeaderSubterm())
+	})
+}
+
+func TestIsRuleRevoked(t *testing.T) {
+	ruleAt := func(term, subterm int64) *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm},
+		}
+	}
+	revocation := func(revokedBelow int64, outgoing *clustermetadatapb.RuleNumber) *clustermetadatapb.TermRevocation {
+		return &clustermetadatapb.TermRevocation{RevokedBelowTerm: revokedBelow, OutgoingRule: outgoing}
+	}
+	ruleNum := func(term, subterm int64) *clustermetadatapb.RuleNumber {
+		return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm}
+	}
+
+	tests := []struct {
+		name       string
+		rule       *clustermetadatapb.ShardRule
+		revocation *clustermetadatapb.TermRevocation
+		want       bool
+	}{
+		{
+			name:       "NilRevocation_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: nil,
+			want:       false,
+		},
+		{
+			name:       "ZeroRevokedBelow_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(0, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleTermAboveRevokedBelow_NotRevoked",
+			rule:       ruleAt(5, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleTermEqualsRevokedBelow_NotRevoked",
+			rule:       ruleAt(3, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndOverridesOutgoing_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndOverridesOutgoingBySubterm_NotRevoked",
+			rule:       ruleAt(2, 5),
+			revocation: revocation(3, ruleNum(2, 4)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndEqualsOutgoing_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(2, 0)),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndBelowOutgoing_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(2, 5)),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndOutgoingNil_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, nil),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndOutgoingZero_Revoked",
+			rule:       ruleAt(0, 0),
+			revocation: revocation(3, &clustermetadatapb.RuleNumber{}),
+			want:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsRuleRevoked(tt.rule, tt.revocation)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

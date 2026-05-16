@@ -1063,6 +1063,14 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, err
 	}
 
+	// Bump the local revoked_below_term to match the new primary's term. This
+	// is the explicit RPC, where the caller (typically multiorch) intends to
+	// commit this node to the new term. Inform deliberately does not do this
+	// — see demoteStalePrimaryLocked's doc.
+	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update consensus term")
+	}
+
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
 		"rewind_performed", rewindPerformed,
 		"lsn_position", finalLSN)
@@ -1079,10 +1087,15 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 // by the caller. Idempotency checks and term validation are the caller's
 // responsibility.
 //
+// The helper does not touch term_revocation: revocations are authored by
+// coordinators via Recruit/AcceptRevocation, not by side effects of demotion.
+// Callers that want to record the new term (the explicit DemoteStalePrimary
+// RPC) call updateTermIfNewer themselves after the demotion succeeds; Inform
+// deliberately does not, because an Inform is a notification, not a revoke.
+//
 // Sequence: stop postgres -> pg_rewind -> fix pgbackrest paths -> restart as
 // standby -> reset sync replication -> set primary_conninfo -> report leader
-// observation -> bump local term if newer -> read final LSN -> flip topology
-// type to REPLICA.
+// observation -> read final LSN -> flip topology type to REPLICA.
 func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 	ctx context.Context,
 	source *clustermetadatapb.MultiPooler,
@@ -1143,11 +1156,6 @@ func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 		LeaderID:   source.Id,
 		LeaderTerm: consensusTerm,
 	})
-
-	// Update consensus term to match the correct primary's term after successful demotion
-	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		return false, "", mterrors.Wrap(err, "failed to update consensus term")
-	}
 
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
 		finalLSN = lsn
