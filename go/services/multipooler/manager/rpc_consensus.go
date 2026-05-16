@@ -956,16 +956,26 @@ func (pm *MultiPoolerManager) Inform(ctx context.Context, req *consensusdatapb.I
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
+	// A standby with rewindPending=true was emergency-demoted earlier and still
+	// has divergent WAL relative to the new primary. Routing through
+	// demoteStalePrimaryLocked runs pg_rewind, which clears rewindPending and
+	// makes the node recruitable again. Without this, the lightweight standby
+	// branch sets primary_conninfo but leaves the WAL divergent, and the next
+	// Recruit refuses with "rewind pending after emergency demotion".
+	needsRewind := pm.rewindPending.Load()
+
 	// Reported to the gateway as the new leader's term. Not term validation —
 	// the rule compare above is the gate. Inform does not bump the local
 	// revocation: revocations are authored by coordinators via Recruit, and
 	// an Inform is a notification, not a revoke.
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
-	if isPrimary {
+	if isPrimary || needsRewind {
 		pm.logger.InfoContext(ctx, "Inform: demoting stale primary",
 			"new_leader", leader.GetId().GetName(),
-			"incoming_rule", rule.GetRuleNumber())
+			"incoming_rule", rule.GetRuleNumber(),
+			"is_primary", isPrimary,
+			"rewind_pending", needsRewind)
 		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, consensusTerm); err != nil {
 			return nil, err
 		}
