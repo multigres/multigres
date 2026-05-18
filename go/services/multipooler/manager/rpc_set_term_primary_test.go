@@ -27,7 +27,7 @@ import (
 )
 
 // newLeaderPooler builds a minimal MultiPooler with the postgres port set,
-// suitable for use as the leader in an InformRequest.
+// suitable for use as the leader in an SetTermPrimaryRequest.
 func newLeaderPooler(name, host string, port int32) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -41,7 +41,7 @@ func newLeaderPooler(name, host string, port int32) *clustermetadatapb.MultiPool
 }
 
 // ruleAtTermForLeader builds a ShardRule with the given coordinator_term and
-// the leader_id matching the supplied leader. Used to satisfy Inform's
+// the leader_id matching the supplied leader. Used to satisfy SetTermPrimary's
 // leader.id == rule.leader_id validation in tests.
 func ruleAtTermForLeader(leader *clustermetadatapb.MultiPooler, term int64) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
@@ -50,26 +50,26 @@ func ruleAtTermForLeader(leader *clustermetadatapb.MultiPooler, term int64) *clu
 	}
 }
 
-func TestInform_ValidationErrors(t *testing.T) {
+func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 	validLeader := newLeaderPooler("p1", "host", 5432)
 	tests := []struct {
 		name           string
-		req            *consensusdatapb.InformRequest
+		req            *consensusdatapb.SetTermPrimaryRequest
 		expectErrMatch string
 	}{
 		{
 			name:           "NilLeader",
-			req:            &consensusdatapb.InformRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
+			req:            &consensusdatapb.SetTermPrimaryRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
 			expectErrMatch: "leader is required",
 		},
 		{
 			name:           "NilRule",
-			req:            &consensusdatapb.InformRequest{Leader: validLeader},
+			req:            &consensusdatapb.SetTermPrimaryRequest{Leader: validLeader},
 			expectErrMatch: "rule is required",
 		},
 		{
 			name: "RuleMissingLeaderId",
-			req: &consensusdatapb.InformRequest{
+			req: &consensusdatapb.SetTermPrimaryRequest{
 				Leader: validLeader,
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -79,7 +79,7 @@ func TestInform_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "LeaderIdMismatchesRule",
-			req: &consensusdatapb.InformRequest{
+			req: &consensusdatapb.SetTermPrimaryRequest{
 				Leader: validLeader,
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -92,7 +92,7 @@ func TestInform_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "MissingHostname",
-			req: &consensusdatapb.InformRequest{
+			req: &consensusdatapb.SetTermPrimaryRequest{
 				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), PortMap: map[string]int32{"postgres": 5432}},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
@@ -100,7 +100,7 @@ func TestInform_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "MissingPostgresPort",
-			req: &consensusdatapb.InformRequest{
+			req: &consensusdatapb.SetTermPrimaryRequest{
 				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), Hostname: "host"},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
@@ -113,7 +113,7 @@ func TestInform_ValidationErrors(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(5)})
 
-			resp, err := pm.Inform(t.Context(), tt.req)
+			resp, err := pm.SetTermPrimary(t.Context(), tt.req)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErrMatch)
 			assert.Nil(t, resp)
@@ -121,11 +121,11 @@ func TestInform_ValidationErrors(t *testing.T) {
 	}
 }
 
-// TestInform_NoOpWhenPositionNotHigher verifies that Inform returns success
+// TestSetTermPrimary_NoOpWhenPositionNotHigher verifies that SetTermPrimary returns success
 // without touching primary_conninfo when the supplied position is equal to or
 // lower than this pooler's own observed position. This is the staleness gate
 // that keeps out-of-order recovery rounds from clobbering fresh state.
-func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
+func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 	tests := []struct {
 		name        string
 		selfTerm    int64
@@ -146,7 +146,7 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
-			// The only postgres call Inform must make in the no-op path is
+			// The only postgres call SetTermPrimary must make in the no-op path is
 			// observePosition, which is handled by the fakeRuleStore — no SQL
 			// at all should hit the mock query service.
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
@@ -154,30 +154,30 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 			leader := newLeaderPooler("new-primary", "primary-host", 5432)
 			incomingRule := tt.incomingPos.GetRule()
 			incomingRule.LeaderId = leader.GetId()
-			req := &consensusdatapb.InformRequest{
+			req := &consensusdatapb.SetTermPrimaryRequest{
 				Leader: leader,
 				Rule:   incomingRule,
 			}
-			resp, err := pm.Inform(t.Context(), req)
+			resp, err := pm.SetTermPrimary(t.Context(), req)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
-			// Verify primary tracking was NOT updated — Inform short-circuited
+			// Verify primary tracking was NOT updated — SetTermPrimary short-circuited
 			// before reaching the apply branch.
 			pm.mu.Lock()
 			storedID := pm.primaryPoolerID
 			pm.mu.Unlock()
-			assert.Nil(t, storedID, "primary should not be recorded on no-op Inform")
+			assert.Nil(t, storedID, "primary should not be recorded on no-op SetTermPrimary")
 
 			// But (rule, primary) MUST be recorded even on no-op paths — that's
 			// the substrate multiorch reads from the health stream to skip
-			// future redundant Informs.
+			// future redundant SetTermPrimary calls.
 			highest := pm.consensusState.GetReplicationPrimary()
-			require.NotNil(t, highest, "Inform should record the rule even on no-op")
+			require.NotNil(t, highest, "SetTermPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
-			require.NotNil(t, highest.GetPrimary(), "Inform should record the primary even on no-op")
+			require.NotNil(t, highest.GetPrimary(), "SetTermPrimary should record the primary even on no-op")
 			assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
 			assert.Equal(t, "primary-host", highest.GetPrimary().Hostname)
 
@@ -186,14 +186,14 @@ func TestInform_NoOpWhenPositionNotHigher(t *testing.T) {
 	}
 }
 
-// TestInform_StandbyAppliesNewPrimary verifies the standby branch: when the
-// receiver is in recovery and the incoming position is higher, Inform issues
+// TestSetTermPrimary_StandbyAppliesNewPrimary verifies the standby branch: when the
+// receiver is in recovery and the incoming position is higher, SetTermPrimary issues
 // the same setPrimaryConnInfo work (stop replication -> ALTER SYSTEM SET
 // primary_conninfo -> reload -> start replication).
-func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
+func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
-	// Inform's isPrimary check: returns true for "in recovery" -> standby.
+	// SetTermPrimary's isPrimary check: returns true for "in recovery" -> standby.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
@@ -225,11 +225,11 @@ func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
 	leader := newLeaderPooler("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.InformRequest{
+	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
 	}
-	resp, err := pm.Inform(t.Context(), req)
+	resp, err := pm.SetTermPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
@@ -246,18 +246,18 @@ func TestInform_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Equal(t, "primary-host", storedHost)
 }
 
-// TestInform_StalePrimaryDemotes verifies the stale-primary branch end to end:
+// TestSetTermPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
 // when the receiver is acting as primary (pg_is_in_recovery=false) and the
-// supplied position is higher, Inform must drive a full demote — pg_rewind,
+// supplied position is higher, SetTermPrimary must drive a full demote — pg_rewind,
 // restart as standby, set primary_conninfo at the new primary, flip topology
 // to REPLICA, advance the consensus term, and update the gateway's leader
 // observation. demoteStalePrimaryLocked itself is also covered by
-// TestDemoteStalePrimary_UpdatesConsensusTerm; this test pins down Inform's
+// TestDemoteStalePrimary_UpdatesConsensusTerm; this test pins down SetTermPrimary's
 // routing decision plus the wiring that the helper expects from its caller.
-func TestInform_StalePrimaryDemotes(t *testing.T) {
+func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
-	// 1. Inform's own isPrimary check: not in recovery -> take the demote branch.
+	// 1. SetTermPrimary's own isPrimary check: not in recovery -> take the demote branch.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
@@ -300,11 +300,11 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	require.NoError(t, err)
 
 	leader := newLeaderPooler("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.InformRequest{
+	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
 	}
-	resp, err := pm.Inform(t.Context(), req)
+	resp, err := pm.SetTermPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
@@ -322,13 +322,13 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	assert.Equal(t, "new-primary", storedID.Name)
 	assert.Equal(t, "primary-host", storedHost)
 
-	// Inform must NOT touch term_revocation. The revocation seeded above
+	// SetTermPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
-	// by coordinators via Recruit, not by side effects of Inform.
+	// by coordinators via Recruit, not by side effects of SetTermPrimary.
 	rev, err := pm.consensusState.getRevocation()
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
-		"Inform must not bump revoked_below_term — that's a coordinator responsibility")
+		"SetTermPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 
 	// Gateway leader observation should reflect the new primary.
 	healthState := pm.healthStreamer.getState()
@@ -337,13 +337,13 @@ func TestInform_StalePrimaryDemotes(t *testing.T) {
 	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
 }
 
-// TestInform_IgnoresRevokedRule verifies that when the incoming rule is
+// TestSetTermPrimary_IgnoresRevokedRule verifies that when the incoming rule is
 // revoked by the pooler's recorded revocation (i.e. coordinator_term below
-// revoked_below_term and the outgoing-rule override does not fire), Inform
+// revoked_below_term and the outgoing-rule override does not fire), SetTermPrimary
 // returns success without touching postgres and without recording the rule.
 // The override scenarios are unit-tested at the IsRuleRevoked predicate; this
 // pins the RPC-level behavior.
-func TestInform_IgnoresRevokedRule(t *testing.T) {
+func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 	tests := []struct {
 		name         string
 		revokedBelow int64
@@ -385,12 +385,12 @@ func TestInform_IgnoresRevokedRule(t *testing.T) {
 			require.NoError(t, err)
 
 			leader := newLeaderPooler("new-primary", "primary-host", 5432)
-			req := &consensusdatapb.InformRequest{
+			req := &consensusdatapb.SetTermPrimaryRequest{
 				Leader: leader,
 				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
 			}
-			resp, err := pm.Inform(t.Context(), req)
-			require.NoError(t, err, "Inform should silently ignore revoked rules")
+			resp, err := pm.SetTermPrimary(t.Context(), req)
+			require.NoError(t, err, "SetTermPrimary should silently ignore revoked rules")
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
@@ -398,27 +398,27 @@ func TestInform_IgnoresRevokedRule(t *testing.T) {
 			pm.mu.Lock()
 			storedID := pm.primaryPoolerID
 			pm.mu.Unlock()
-			assert.Nil(t, storedID, "primary should not be recorded for revoked Inform")
+			assert.Nil(t, storedID, "primary should not be recorded for revoked SetTermPrimary")
 
-			// RecordInform must not have run either: the (rule, leader) tuple
+			// RecordTermPrimary must not have run either: the (rule, leader) tuple
 			// is not the substrate multiorch should read from a refused FYI.
 			highest := pm.consensusState.GetReplicationPrimary()
-			assert.Nil(t, highest, "revoked Inform should not be recorded")
+			assert.Nil(t, highest, "revoked SetTermPrimary should not be recorded")
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
-// TestInform_AppliesViaOutgoingRuleOverride verifies that an Inform whose
+// TestSetTermPrimary_AppliesViaOutgoingRuleOverride verifies that an SetTermPrimary whose
 // rule term is below revoked_below_term is accepted when the rule strictly
 // exceeds the revocation's recorded outgoing_rule — the runaway-recruit
 // self-heal path. To avoid wiring full postgres mocks for the apply branch,
-// the test sets self's rule term above the incoming rule so Inform takes
+// the test sets self's rule term above the incoming rule so SetTermPrimary takes
 // its "not higher, no-op" branch after the revocation check passes; the
-// (rule, leader) tuple is still recorded by RecordInform, which is the
+// (rule, leader) tuple is still recorded by RecordTermPrimary, which is the
 // observable proving the override fired.
-func TestInform_AppliesViaOutgoingRuleOverride(t *testing.T) {
+func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
 	const selfRuleTerm = 10
@@ -436,18 +436,18 @@ func TestInform_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	require.NoError(t, err)
 
 	leader := newLeaderPooler("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.InformRequest{
+	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 3),
 	}
-	resp, err := pm.Inform(t.Context(), req)
+	resp, err := pm.SetTermPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
 
-	// Override fired → RecordInform ran → the rule + primary are observable.
+	// Override fired → RecordTermPrimary ran → the rule + primary are observable.
 	highest := pm.consensusState.GetReplicationPrimary()
-	require.NotNil(t, highest, "override should let RecordInform persist the rule")
+	require.NotNil(t, highest, "override should let RecordTermPrimary persist the rule")
 	require.NotNil(t, highest.GetPrimary())
 	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
 	assert.Equal(t, int64(3), highest.GetRule().GetRuleNumber().GetCoordinatorTerm())

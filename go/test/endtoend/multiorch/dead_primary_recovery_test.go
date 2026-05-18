@@ -532,7 +532,7 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 // streaming replication, and that the primary has added it back to its standby list.
 //
 // Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
-// Recruit/Propose/Inform model that field is a per-pooler revocation promise
+// Recruit/Propose/SetTermPrimary model that field is a per-pooler revocation promise
 // (set by Recruit on cohort members). A pooler that was momentarily unavailable
 // when the coordinator ran Recruit at the new term legitimately has the older
 // term but is otherwise healthy. expectedPrimaryName/expectedTerm are kept in

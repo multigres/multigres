@@ -94,7 +94,7 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 }
 
 func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
-	// Under the new consensus flow the demote goes through Inform, which is
+	// Under the new consensus flow the demote goes through SetTermPrimary, which is
 	// position-fenced: a leader that's only momentarily-stale would see its
 	// own rule >= the incoming rule and no-op without touching postgres.
 	// A spurious detection costs an RPC, not a wrongful demote, so the
@@ -158,7 +158,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	}()
 
 	// Demote the stale leader. Under the new consensus flow, route through
-	// Inform .
+	// SetTermPrimary .
 	//
 	// Both RPCs do the same work on the pooler side:
 	// 1. Stop postgres
@@ -167,14 +167,14 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 4. Clear sync replication config
 	// 5. Update topology to REPLICA
 	if a.config.GetUseNewConsensusFlow() {
-		informReq := &consensusdatapb.InformRequest{
+		informReq := &consensusdatapb.SetTermPrimaryRequest{
 			Leader: correctLeader.MultiPooler,
 			Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 		}
-		if _, err := a.rpcClient.Inform(ctx, staleLeader.MultiPooler, informReq); err != nil {
-			return mterrors.Wrap(err, "Inform RPC failed")
+		if _, err := a.rpcClient.SetTermPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {
+			return mterrors.Wrap(err, "SetTermPrimary RPC failed")
 		}
-		a.logger.InfoContext(ctx, "stale leader demoted successfully via Inform",
+		a.logger.InfoContext(ctx, "stale leader demoted successfully via SetTermPrimary",
 			"stale_leader", poolerIDStr)
 	} else {
 		demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{

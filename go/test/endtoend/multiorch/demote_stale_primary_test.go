@@ -50,14 +50,14 @@ import (
 //     writes from P1, so it can't commit anything. P1 is now a "running stale
 //     primary" awaiting multiorch's demotion.
 //  6. Multiorch's StaleLeaderAnalyzer detects the topology mismatch (both
-//     PRIMARY but P1 at a lower term) and sends Inform with the new leader.
-//  7. Inform on P1 sees isPrimary=true and routes through demoteStalePrimaryLocked:
+//     PRIMARY but P1 at a lower term) and sends SetTermPrimary with the new leader.
+//  7. SetTermPrimary on P1 sees isPrimary=true and routes through demoteStalePrimaryLocked:
 //     stop postgres, pg_rewind to reconcile divergent WAL, restart as standby,
 //     set primary_conninfo to P2.
 //  8. Verify P1 rejoins as a replica of P2 and replication actually works.
 //
 // This exercises the realistic production failure mode: postgres crashes, the
-// local monitor revives it, and multiorch's Inform-driven recovery brings the
+// local monitor revives it, and multiorch's SetTermPrimary-driven recovery brings the
 // revived stale primary back into the cohort as a standby.
 func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	if testing.Short() {
@@ -121,7 +121,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 
 	// Step 5: Wait for multiorch to detect and repair divergence. Once postgres
 	// is back up on the old primary, multiorch's StaleLeaderAnalyzer fires and
-	// sends Inform. Inform's isPrimary=true branch demotes via
+	// sends SetTermPrimary. SetTermPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
@@ -219,13 +219,13 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// already at a higher term, so when MonitorPostgres revives postgres on
 	// the old primary it comes back as a "running stale primary" that the
 	// revocation handshake prevents from committing writes. Multiorch's
-	// Inform-driven demotion then runs pg_rewind and restarts as standby.
+	// SetTermPrimary-driven demotion then runs pg_rewind and restarts as standby.
 	t.Log("Resuming postgres restarts on old primary - monitor will revive postgres as stale primary...")
 	resumeRestarts()
 
 	// Step 5: Wait for multiorch to detect and repair divergence. Once postgres
 	// is back up on the old primary, multiorch's StaleLeaderAnalyzer fires and
-	// sends Inform. Inform's isPrimary=true branch demotes via
+	// sends SetTermPrimary. SetTermPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)

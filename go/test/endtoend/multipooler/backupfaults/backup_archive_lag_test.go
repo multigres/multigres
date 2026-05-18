@@ -395,7 +395,7 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 // step to confirm the cohort is healthy before the next assertion.
 //
 // Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
-// Recruit/Propose/Inform model, that field is a per-pooler revocation promise
+// Recruit/Propose/SetTermPrimary model, that field is a per-pooler revocation promise
 // (set by Recruit) — not a cluster-wide "current term" replicas inherit. A
 // freshly-provisioned replica that joined post-failover legitimately reports
 // term 0 even while streaming from the elected primary.

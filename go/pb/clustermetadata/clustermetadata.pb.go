@@ -1627,24 +1627,24 @@ func (x *PoolerPosition) GetLsn() string {
 // ReplicationPrimary advertises the primary this pooler believes it should be
 // pointed at for replication, along with the rule under which that primary
 // holds leadership. The primary contact info is the main payload — it's how a
-// pooler in a degraded state (partition, mid-bootstrap, Inform-while-postgres-
+// pooler in a degraded state (partition, mid-bootstrap, SetTermPrimary-while-postgres-
 // was-down) figures out who to reconnect replication to. The rule is supporting
 // evidence and has secondary uses such as coordinators learning of rules newer
 // than what's in any replica's WAL.
 //
-// Not persisted across pooler restarts — best-effort, populated by Inform and
+// Not persisted across pooler restarts — best-effort, populated by SetTermPrimary and
 // Propose RPCs. Coordinators that notice a pooler has incorrect replication
 // settings will re-inform it.
 type ReplicationPrimary struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The most recent rule under which this primary holds leadership. May be
 	// ahead of the pooler's committed PoolerPosition while replication catches
-	// up. Coordinators compare this to what they would otherwise Inform with —
-	// if (rule, primary) already matches, the Inform is redundant and can be
-	// skipped.
+	// up. Coordinators compare this to what they would otherwise SetTermPrimary
+	// with — if (rule, primary) already matches, the SetTermPrimary is
+	// redundant and can be skipped.
 	Rule *ShardRule `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
 	// Contact info for the primary the pooler was last told to use. Snapshot
-	// from the most recent Inform/Propose; treat as "what this pooler currently
+	// from the most recent SetTermPrimary/Propose; treat as "what this pooler currently
 	// believes," not as the canonical primary for the cluster.
 	Primary       *MultiPooler `protobuf:"bytes,2,opt,name=primary,proto3" json:"primary,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1729,7 +1729,7 @@ type TermRevocation struct {
 	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
 	// The rule the coordinator observed across the cohort at recruit time —
 	// the "from" side of the transition this recruit was authoring. Used as
-	// an override key during Inform: if a subsequent Inform carries a rule
+	// an override key during SetTermPrimary: if a subsequent SetTermPrimary carries a rule
 	// strictly greater than this, the cluster has demonstrably moved past
 	// the runaway recruit's premise and the revocation is moot.
 	OutgoingRule  *RuleNumber `protobuf:"bytes,4,opt,name=outgoing_rule,json=outgoingRule,proto3" json:"outgoing_rule,omitempty"`

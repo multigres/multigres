@@ -1072,7 +1072,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 
 	// Bump the local revoked_below_term to match the new primary's term. This
 	// is the explicit RPC, where the caller (typically multiorch) intends to
-	// commit this node to the new term. Inform deliberately does not do this
+	// commit this node to the new term. SetTermPrimary deliberately does not do this
 	// — see demoteStalePrimaryLocked's doc.
 	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
 		return nil, mterrors.Wrap(err, "failed to update consensus term")
@@ -1097,8 +1097,8 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 // The helper does not touch term_revocation: revocations are authored by
 // coordinators via Recruit/AcceptRevocation, not by side effects of demotion.
 // Callers that want to record the new term (the explicit DemoteStalePrimary
-// RPC) call updateTermIfNewer themselves after the demotion succeeds; Inform
-// deliberately does not, because an Inform is a notification, not a revoke.
+// RPC) call updateTermIfNewer themselves after the demotion succeeds; SetTermPrimary
+// deliberately does not, because an SetTermPrimary is a notification, not a revoke.
 //
 // Sequence: stop postgres -> pg_rewind -> fix pgbackrest paths -> restart as
 // standby -> reset sync replication -> set primary_conninfo -> report leader

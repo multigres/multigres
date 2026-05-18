@@ -398,7 +398,7 @@ func WithCell(cell string) func(*Config) {
 	}
 }
 
-// WithUseNewConsensusFlow toggles the Recruit/Propose/Inform consensus flow.
+// WithUseNewConsensusFlow toggles the Recruit/Propose/SetTermPrimary consensus flow.
 func WithUseNewConsensusFlow(enabled bool) func(*Config) {
 	return func(cfg *Config) {
 		cfg.useNewConsensusFlow.Set(enabled)

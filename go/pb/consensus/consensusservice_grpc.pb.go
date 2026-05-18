@@ -45,7 +45,7 @@ const (
 	MultiPoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultiPoolerConsensus/RewindToSource"
 	MultiPoolerConsensus_Recruit_FullMethodName             = "/consensus.MultiPoolerConsensus/Recruit"
 	MultiPoolerConsensus_Propose_FullMethodName             = "/consensus.MultiPoolerConsensus/Propose"
-	MultiPoolerConsensus_Inform_FullMethodName              = "/consensus.MultiPoolerConsensus/Inform"
+	MultiPoolerConsensus_SetTermPrimary_FullMethodName      = "/consensus.MultiPoolerConsensus/SetTermPrimary"
 )
 
 // MultiPoolerConsensusClient is the client API for MultiPoolerConsensus service.
@@ -90,8 +90,10 @@ type MultiPoolerConsensusClient interface {
 	// leader promotes its postgres; all other cohort members point replication at
 	// the new primary.
 	Propose(ctx context.Context, in *consensusdata.ProposeRequest, opts ...grpc.CallOption) (*consensusdata.ProposeResponse, error)
-	// Inform broadcasts a decided, durable rule.
-	Inform(ctx context.Context, in *consensusdata.InformRequest, opts ...grpc.CallOption) (*consensusdata.InformResponse, error)
+	// SetTermPrimary tells a pooler which postgres primary to follow at a given
+	// consensus term. Used both to endorse in-flight proposals and to catch
+	// followers up to durable decisions.
+	SetTermPrimary(ctx context.Context, in *consensusdata.SetTermPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.SetTermPrimaryResponse, error)
 }
 
 type multiPoolerConsensusClient struct {
@@ -202,10 +204,10 @@ func (c *multiPoolerConsensusClient) Propose(ctx context.Context, in *consensusd
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) Inform(ctx context.Context, in *consensusdata.InformRequest, opts ...grpc.CallOption) (*consensusdata.InformResponse, error) {
+func (c *multiPoolerConsensusClient) SetTermPrimary(ctx context.Context, in *consensusdata.SetTermPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.SetTermPrimaryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(consensusdata.InformResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Inform_FullMethodName, in, out, cOpts...)
+	out := new(consensusdata.SetTermPrimaryResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_SetTermPrimary_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +256,10 @@ type MultiPoolerConsensusServer interface {
 	// leader promotes its postgres; all other cohort members point replication at
 	// the new primary.
 	Propose(context.Context, *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error)
-	// Inform broadcasts a decided, durable rule.
-	Inform(context.Context, *consensusdata.InformRequest) (*consensusdata.InformResponse, error)
+	// SetTermPrimary tells a pooler which postgres primary to follow at a given
+	// consensus term. Used both to endorse in-flight proposals and to catch
+	// followers up to durable decisions.
+	SetTermPrimary(context.Context, *consensusdata.SetTermPrimaryRequest) (*consensusdata.SetTermPrimaryResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
 
@@ -296,8 +300,8 @@ func (UnimplementedMultiPoolerConsensusServer) Recruit(context.Context, *consens
 func (UnimplementedMultiPoolerConsensusServer) Propose(context.Context, *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Propose not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) Inform(context.Context, *consensusdata.InformRequest) (*consensusdata.InformResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Inform not implemented")
+func (UnimplementedMultiPoolerConsensusServer) SetTermPrimary(context.Context, *consensusdata.SetTermPrimaryRequest) (*consensusdata.SetTermPrimaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTermPrimary not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) mustEmbedUnimplementedMultiPoolerConsensusServer() {}
 func (UnimplementedMultiPoolerConsensusServer) testEmbeddedByValue()                              {}
@@ -500,20 +504,20 @@ func _MultiPoolerConsensus_Propose_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_Inform_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(consensusdata.InformRequest)
+func _MultiPoolerConsensus_SetTermPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.SetTermPrimaryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).Inform(ctx, in)
+		return srv.(MultiPoolerConsensusServer).SetTermPrimary(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_Inform_FullMethodName,
+		FullMethod: MultiPoolerConsensus_SetTermPrimary_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).Inform(ctx, req.(*consensusdata.InformRequest))
+		return srv.(MultiPoolerConsensusServer).SetTermPrimary(ctx, req.(*consensusdata.SetTermPrimaryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -566,8 +570,8 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerConsensus_Propose_Handler,
 		},
 		{
-			MethodName: "Inform",
-			Handler:    _MultiPoolerConsensus_Inform_Handler,
+			MethodName: "SetTermPrimary",
+			Handler:    _MultiPoolerConsensus_SetTermPrimary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

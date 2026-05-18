@@ -200,17 +200,17 @@ message ProposeResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// InformRequest tells a pooler about the current leader and the rule the
-// caller knows the cluster is at. The pooler compares the supplied rule against
-// its own; if the supplied rule is strictly higher it applies the change
-// (standby: update primary_conninfo; stale primary: demote), otherwise it
-// returns success without changes. Idempotent under retries and safe against
-// out-of-order delivery from stale recovery rounds.
+// SetTermPrimaryRequest tells a pooler about the current leader and the rule
+// the caller knows the cluster is at. The pooler compares the supplied rule
+// against its own; if the supplied rule is strictly higher it applies the
+// change (standby: update primary_conninfo; stale primary: demote), otherwise
+// it returns success without changes. Idempotent under retries and safe
+// against out-of-order delivery from stale recovery rounds.
 //
 // The pooler also validates that leader.id matches rule.leader_id — the
 // rule's identity is authoritative; the leader field is just the contact
 // information needed to act on that identity.
-message InformRequest {
+message SetTermPrimaryRequest {
   // Contact info for the leader named in rule.leader_id. The pooler uses
   // leader.hostname and leader.port_map["postgres"] when it rewrites
   // primary_conninfo. leader.id must match rule.leader_id.
@@ -222,7 +222,8 @@ message InformRequest {
   clustermetadata.ShardRule rule = 2;
 }
 
-// InformResponse carries the pooler's state after processing an InformRequest.
-message InformResponse {
+// SetTermPrimaryResponse carries the pooler's state after processing a
+// SetTermPrimaryRequest.
+message SetTermPrimaryResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }

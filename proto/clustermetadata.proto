@@ -382,24 +382,24 @@ message PoolerPosition {
 // ReplicationPrimary advertises the primary this pooler believes it should be
 // pointed at for replication, along with the rule under which that primary
 // holds leadership. The primary contact info is the main payload — it's how a
-// pooler in a degraded state (partition, mid-bootstrap, Inform-while-postgres-
+// pooler in a degraded state (partition, mid-bootstrap, SetTermPrimary-while-postgres-
 // was-down) figures out who to reconnect replication to. The rule is supporting
 // evidence and has secondary uses such as coordinators learning of rules newer
 // than what's in any replica's WAL.
 //
-// Not persisted across pooler restarts — best-effort, populated by Inform and
+// Not persisted across pooler restarts — best-effort, populated by SetTermPrimary and
 // Propose RPCs. Coordinators that notice a pooler has incorrect replication
 // settings will re-inform it.
 message ReplicationPrimary {
   // The most recent rule under which this primary holds leadership. May be
   // ahead of the pooler's committed PoolerPosition while replication catches
-  // up. Coordinators compare this to what they would otherwise Inform with —
-  // if (rule, primary) already matches, the Inform is redundant and can be
-  // skipped.
+  // up. Coordinators compare this to what they would otherwise SetTermPrimary
+  // with — if (rule, primary) already matches, the SetTermPrimary is
+  // redundant and can be skipped.
   ShardRule rule = 1;
 
   // Contact info for the primary the pooler was last told to use. Snapshot
-  // from the most recent Inform/Propose; treat as "what this pooler currently
+  // from the most recent SetTermPrimary/Propose; treat as "what this pooler currently
   // believes," not as the canonical primary for the cluster.
   MultiPooler primary = 2;
 }
@@ -440,7 +440,7 @@ message TermRevocation {
 
   // The rule the coordinator observed across the cohort at recruit time —
   // the "from" side of the transition this recruit was authoring. Used as
-  // an override key during Inform: if a subsequent Inform carries a rule
+  // an override key during SetTermPrimary: if a subsequent SetTermPrimary carries a rule
   // strictly greater than this, the cluster has demonstrably moved past
   // the runaway recruit's premise and the revocation is moot.
   RuleNumber outgoing_rule = 4;

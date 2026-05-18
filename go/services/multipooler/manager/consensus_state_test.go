@@ -45,7 +45,7 @@ func primaryAt(name, host string, port int32) *clustermetadatapb.MultiPooler {
 	}
 }
 
-func TestRecordInform(t *testing.T) {
+func TestRecordTermPrimary(t *testing.T) {
 	tests := []struct {
 		name                 string
 		seedRule             *clustermetadatapb.ShardRule
@@ -57,7 +57,7 @@ func TestRecordInform(t *testing.T) {
 		wantPrimaryUnchanged bool // primary should still equal seedPrimary
 	}{
 		{
-			name:        "FirstInform_RecordsBoth",
+			name:        "FirstSetTermPrimary_RecordsBoth",
 			callRule:    ruleAt(5, 0),
 			callPrimary: primaryAt("p1", "hostA", 5432),
 			wantRule:    ruleAt(5, 0),
@@ -142,9 +142,9 @@ func TestRecordInform(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := NewConsensusState(t.TempDir(), nil)
 			if tt.seedRule != nil {
-				cs.RecordInform(tt.seedRule, tt.seedPrimary)
+				cs.RecordTermPrimary(tt.seedRule, tt.seedPrimary)
 			}
-			cs.RecordInform(tt.callRule, tt.callPrimary)
+			cs.RecordTermPrimary(tt.callRule, tt.callPrimary)
 
 			got := cs.GetReplicationPrimary()
 			if tt.wantRule == nil && tt.wantPrimary == nil {
@@ -171,11 +171,11 @@ func TestRecordInform(t *testing.T) {
 	}
 }
 
-// TestRecordInform_ReturnsCopies guards against callers mutating internal state
+// TestRecordTermPrimary_ReturnsCopies guards against callers mutating internal state
 // by holding the returned pointer.
-func TestRecordInform_ReturnsCopies(t *testing.T) {
+func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	cs := NewConsensusState(t.TempDir(), nil)
-	cs.RecordInform(ruleAt(5, 0), primaryAt("p1", "hostA", 5432))
+	cs.RecordTermPrimary(ruleAt(5, 0), primaryAt("p1", "hostA", 5432))
 
 	got := cs.GetReplicationPrimary()
 	require.NotNil(t, got)

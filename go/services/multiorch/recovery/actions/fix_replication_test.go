@@ -317,7 +317,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 
 // TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow is the
 // new-flow analogue of the previous test: with use-new-consensus-flow enabled,
-// fixNotReplicating must route through Inform instead of SetPrimaryConnInfo.
+// fixNotReplicating must route through SetTermPrimary instead of SetPrimaryConnInfo.
 func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -351,7 +351,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 				},
 			},
 		},
-		InformResponses: map[string]*consensusdatapb.InformResponse{
+		SetTermPrimaryResponses: map[string]*consensusdatapb.SetTermPrimaryResponse{
 			"multipooler-cell1-replica1": {},
 		},
 	}
@@ -417,12 +417,12 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 	err := action.Execute(ctx, problem)
 	require.NoError(t, err)
 
-	// Verify Inform was called on the replica, NOT SetPrimaryConnInfo.
-	assert.Contains(t, fakeClient.CallLog, "Inform(multipooler-cell1-replica1)")
+	// Verify SetTermPrimary was called on the replica, NOT SetPrimaryConnInfo.
+	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)")
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
 	// Verify the request carried the primary's contact info and known position.
-	informReq := fakeClient.InformRequests["multipooler-cell1-replica1"]
+	informReq := fakeClient.SetTermPrimaryRequests["multipooler-cell1-replica1"]
 	require.NotNil(t, informReq)
 	require.NotNil(t, informReq.Leader)
 	assert.Equal(t, "primary", informReq.Leader.Id.Name)

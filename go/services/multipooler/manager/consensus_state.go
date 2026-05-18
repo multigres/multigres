@@ -41,7 +41,7 @@ type ConsensusState struct {
 	revocation *clustermetadatapb.TermRevocation
 	// replicationPrimary is held in memory only — see HighestKnownRule's proto
 	// comment. Populated by RPCs that inform this pooler about the cluster
-	// state (Inform today; Propose can be wired in via the same RecordInform
+	// state (SetTermPrimary today; Propose can be wired in via the same RecordTermPrimary
 	// entry point). Restarts reset it to nil; coordinators re-inform the
 	// pooler.
 	replicationPrimary *clustermetadatapb.ReplicationPrimary
@@ -57,7 +57,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 	}
 }
 
-// RecordInform updates the highest-known rule and last-known primary based on
+// RecordTermPrimary updates the highest-known rule and last-known primary based on
 // what this pooler has been told. Either argument may be nil. Bump semantics:
 //
 //   - rule: updated only when strictly greater than the current value
@@ -68,10 +68,10 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 //     The same-rule-different-contact case covers a primary pooler being
 //     re-homed (host or port changes) without a new election.
 //
-// Safe to call on no-op Inform paths so the recorded values reflect
+// Safe to call on no-op SetTermPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
-func (cs *ConsensusState) RecordInform(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.MultiPooler) {
+func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.MultiPooler) {
 	if rule == nil {
 		return
 	}

@@ -149,10 +149,10 @@ func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoo
 	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
-// Inform updates this pooler's replication settings to point at the supplied
-// primary, gated on a position comparison. See manager.Inform for details.
-func (s *consensusService) Inform(ctx context.Context, req *consensusdata.InformRequest) (*consensusdata.InformResponse, error) {
-	resp, err := s.manager.Inform(ctx, req)
+// SetTermPrimary updates this pooler's replication settings to point at the supplied
+// primary, gated on a position comparison. See manager.SetTermPrimary for details.
+func (s *consensusService) SetTermPrimary(ctx context.Context, req *consensusdata.SetTermPrimaryRequest) (*consensusdata.SetTermPrimaryResponse, error) {
+	resp, err := s.manager.SetTermPrimary(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

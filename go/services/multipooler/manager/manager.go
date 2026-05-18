@@ -1139,7 +1139,7 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 // consistent WAL) should leave rewindPending=false. An unexpected demote
 // (crash, external pg_demote, monitor-driven restart after an unknown
 // shutdown) should set rewindPending=true so that the next standby-side
-// operation (Inform's standby branch, remedialActionFixPrimaryConnInfo,
+// operation (SetTermPrimary's standby branch, remedialActionFixPrimaryConnInfo,
 // or self-rewind detection) routes through pg_rewind dry-run before
 // trusting local WAL. Today the only setter is emergencyDemoteLocked,
 // which leaves several transition paths under-defended.
@@ -1629,8 +1629,8 @@ const (
 	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
 	// topology says REPLICA, but primary_conninfo doesn't match the primary
 	// recorded in ConsensusState.ReplicationPrimary (the most recent
-	// Inform/Propose). Reconciles the GUC so this replica points at the right
-	// primary regardless of how it got out of sync (failed Inform apply,
+	// SetTermPrimary/Propose). Reconciles the GUC so this replica points at the right
+	// primary regardless of how it got out of sync (failed SetTermPrimary apply,
 	// hand edit, snapshot restore, etc.).
 	remedialActionFixPrimaryConnInfo
 )
@@ -1805,7 +1805,7 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 }
 
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
-// informed about a primary (via Inform or Propose) and the live primary_conninfo
+// informed about a primary (via SetTermPrimary or Propose) and the live primary_conninfo
 // in postgres doesn't match the recorded primary's contact info. Returns false
 // when there's nothing to compare against, when we couldn't read the GUC, or
 // when the recorded primary names this pooler itself.
@@ -1813,7 +1813,7 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 // Returns false when the recorded primary's rule is revoked by our recorded
 // revocation: a Recruit that's already advanced revoked_below_term has
 // deliberately cleared primary_conninfo, and the cached "recorded primary" is
-// stale until the next Inform/Propose updates it. Without this gate, the
+// stale until the next SetTermPrimary/Propose updates it. Without this gate, the
 // monitor would race the Recruit/Propose flow by restoring conninfo to the
 // just-revoked primary, which then causes Propose to refuse with
 // "primary_conninfo is set".
@@ -1894,7 +1894,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 				return remedialActionAdjustTypeToReplica
 			}
 			// Drift check: replica is otherwise healthy but its primary_conninfo
-			// may not match what we've been told via Inform/Propose. Reconcile
+			// may not match what we've been told via SetTermPrimary/Propose. Reconcile
 			// to the recorded ReplicationPrimary if there's a mismatch.
 			if pm.primaryConnInfoDiffersFromRecorded(currentState) {
 				return remedialActionFixPrimaryConnInfo
@@ -1904,7 +1904,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			// (e.g. via a brief sync-replication ack that got rolled back on
 			// the primary). The old consensus flow let orch re-issue an
 			// explicit rewind whenever it suspected one; the new flow's
-			// Inform is idempotent and won't repeat work, so the monitor
+			// SetTermPrimary is idempotent and won't repeat work, so the monitor
 			// needs to self-detect stuck replication. Check
 			// pg_stat_wal_receiver.status: if not "streaming" for
 			// >stuckThreshold AND we have a recorded primary, treat as
@@ -2082,7 +2082,7 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 // happened between the previous run and now — postgres may have crashed
 // mid-write as primary, or may have been killed externally. The safe default
 // is to come back as a standby with rewindPending=true so that the next
-// Inform/Propose/standby-conninfo path routes through demoteStalePrimaryLocked
+// SetTermPrimary/Propose/standby-conninfo path routes through demoteStalePrimaryLocked
 // (which runs pg_rewind dry-run; cheap when there's no divergence) before
 // trusting local WAL. This bears on the broader self-rewind plan:
 //   - replicas with phantom transactions: orch sends an explicit
