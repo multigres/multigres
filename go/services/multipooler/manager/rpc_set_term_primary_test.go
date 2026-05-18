@@ -26,9 +26,9 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-// newLeaderPooler builds a PoolerAddress suitable for use as the leader in a
+// newLeaderAddress builds a PoolerAddress suitable for use as the leader in a
 // SetTermPrimaryRequest.
-func newLeaderPooler(name, host string, port int32) *clustermetadatapb.PoolerAddress {
+func newLeaderAddress(name, host string, port int32) *clustermetadatapb.PoolerAddress {
 	return &clustermetadatapb.PoolerAddress{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -51,7 +51,7 @@ func ruleAtTermForLeader(leader *clustermetadatapb.PoolerAddress, term int64) *c
 }
 
 func TestSetTermPrimary_ValidationErrors(t *testing.T) {
-	validLeader := newLeaderPooler("p1", "host", 5432)
+	validLeader := newLeaderAddress("p1", "host", 5432)
 	tests := []struct {
 		name           string
 		req            *consensusdatapb.SetTermPrimaryRequest
@@ -106,6 +106,25 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
+		{
+			// SetTermPrimary is the follower-side RPC. If the coordinator routes
+			// this call to the designated leader itself, reject with INVALID_ARGUMENT
+			// and direct the caller to Propose, which carries the full
+			// CoordinatorProposal a leader needs to safely promote.
+			//
+			// setupManagerWithMockDB creates a pooler whose serviceID names
+			// "test-pooler" in cell "zone1", so building leader with the same ID
+			// triggers the self-leader guard.
+			name: "LeaderIsSelf",
+			req: func() *consensusdatapb.SetTermPrimaryRequest {
+				selfLeader := newLeaderAddress("test-pooler", "host", 5432)
+				return &consensusdatapb.SetTermPrimaryRequest{
+					Leader: selfLeader,
+					Rule:   ruleAtTermForLeader(selfLeader, 5),
+				}
+			}(),
+			expectErrMatch: "leader is self; designated leaders are appointed via Propose",
+		},
 	}
 
 	for _, tt := range tests {
@@ -151,7 +170,7 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			// at all should hit the mock query service.
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
 
-			leader := newLeaderPooler("new-primary", "primary-host", 5432)
+			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			incomingRule := tt.incomingPos.GetRule()
 			incomingRule.LeaderId = leader.GetId()
 			req := &consensusdatapb.SetTermPrimaryRequest{
@@ -224,7 +243,7 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
-	leader := newLeaderPooler("new-primary", "primary-host", 5432)
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
@@ -299,7 +318,7 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 
-	leader := newLeaderPooler("new-primary", "primary-host", 5432)
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
@@ -384,7 +403,7 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 			_, err := pm.consensusState.Load()
 			require.NoError(t, err)
 
-			leader := newLeaderPooler("new-primary", "primary-host", 5432)
+			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			req := &consensusdatapb.SetTermPrimaryRequest{
 				Leader: leader,
 				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
@@ -435,7 +454,7 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 
-	leader := newLeaderPooler("new-primary", "primary-host", 5432)
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetTermPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 3),
