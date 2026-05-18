@@ -129,6 +129,22 @@ message S3Backup {
 // Cell Topology
 // =============================================================================
 
+// PoolerAddress identifies a pooler and carries the connection information a
+// peer needs to reach its postgres. Used wherever consensus references a
+// primary (CoordinatorProposal.proposal_leader, SetTermPrimaryRequest.leader,
+// ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+// topology record onto the wire.
+message PoolerAddress {
+  // The pooler being addressed.
+  ID id = 1;
+
+  // Hostname peers use to connect to this pooler's postgres.
+  string host = 2;
+
+  // Port of this pooler's postgres instance.
+  int32 postgres_port = 3;
+}
+
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
 message MultiPooler {
   // id is the unique identifier of the multipooler in the cluster.
@@ -401,7 +417,7 @@ message ReplicationPrimary {
   // Contact info for the primary the pooler was last told to use. Snapshot
   // from the most recent SetTermPrimary/Propose; treat as "what this pooler currently
   // believes," not as the canonical primary for the cluster.
-  MultiPooler primary = 2;
+  PoolerAddress primary = 2;
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms

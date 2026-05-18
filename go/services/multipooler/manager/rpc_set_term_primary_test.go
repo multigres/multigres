@@ -26,24 +26,24 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-// newLeaderPooler builds a minimal MultiPooler with the postgres port set,
-// suitable for use as the leader in an SetTermPrimaryRequest.
-func newLeaderPooler(name, host string, port int32) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+// newLeaderPooler builds a PoolerAddress suitable for use as the leader in a
+// SetTermPrimaryRequest.
+func newLeaderPooler(name, host string, port int32) *clustermetadatapb.PoolerAddress {
+	return &clustermetadatapb.PoolerAddress{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      name,
 		},
-		Hostname: host,
-		PortMap:  map[string]int32{"postgres": port},
+		Host:         host,
+		PostgresPort: port,
 	}
 }
 
 // ruleAtTermForLeader builds a ShardRule with the given coordinator_term and
 // the leader_id matching the supplied leader. Used to satisfy SetTermPrimary's
 // leader.id == rule.leader_id validation in tests.
-func ruleAtTermForLeader(leader *clustermetadatapb.MultiPooler, term int64) *clustermetadatapb.ShardRule {
+func ruleAtTermForLeader(leader *clustermetadatapb.PoolerAddress, term int64) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 		LeaderId:   leader.GetId(),
@@ -91,17 +91,17 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 			expectErrMatch: "does not match rule.leader_id",
 		},
 		{
-			name: "MissingHostname",
+			name: "MissingHost",
 			req: &consensusdatapb.SetTermPrimaryRequest{
-				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), PortMap: map[string]int32{"postgres": 5432}},
+				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
-			expectErrMatch: "leader hostname is required",
+			expectErrMatch: "leader host is required",
 		},
 		{
 			name: "MissingPostgresPort",
 			req: &consensusdatapb.SetTermPrimaryRequest{
-				Leader: &clustermetadatapb.MultiPooler{Id: validLeader.GetId(), Hostname: "host"},
+				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
 			expectErrMatch: "has no postgres port configured",
@@ -179,7 +179,7 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
 			require.NotNil(t, highest.GetPrimary(), "SetTermPrimary should record the primary even on no-op")
 			assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
-			assert.Equal(t, "primary-host", highest.GetPrimary().Hostname)
+			assert.Equal(t, "primary-host", highest.GetPrimary().GetHost())
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})

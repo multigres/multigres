@@ -71,7 +71,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // Safe to call on no-op SetTermPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
-func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.MultiPooler) {
+func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) {
 	if rule == nil {
 		return
 	}
@@ -97,7 +97,7 @@ func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, p
 	// without re-stating the primary (or a future WAL-observation path) leaves
 	// the previously-recorded contact info in place.
 	if primary != nil {
-		next.Primary = proto.Clone(primary).(*clustermetadatapb.MultiPooler)
+		next.Primary = proto.Clone(primary).(*clustermetadatapb.PoolerAddress)
 	}
 	cs.replicationPrimary = next
 }

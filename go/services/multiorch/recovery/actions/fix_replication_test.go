@@ -426,7 +426,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating_NewConsensusFlow(t *t
 	require.NotNil(t, informReq)
 	require.NotNil(t, informReq.Leader)
 	assert.Equal(t, "primary", informReq.Leader.Id.Name)
-	assert.Equal(t, "primary.example.com", informReq.Leader.Hostname)
+	assert.Equal(t, "primary.example.com", informReq.Leader.GetHost())
 	require.NotNil(t, informReq.Rule)
 	assert.Equal(t, int64(1), informReq.Rule.GetRuleNumber().GetCoordinatorTerm())
 }

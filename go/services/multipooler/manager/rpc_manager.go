@@ -1065,7 +1065,14 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, err
 	}
 
-	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, source, consensusTerm)
+	// Project the legacy MultiPooler source into the PoolerAddress shape the
+	// helper takes. demoteStalePrimaryLocked only needs id/host/postgres_port.
+	sourceAddr := &clustermetadatapb.PoolerAddress{
+		Id:           source.GetId(),
+		Host:         source.GetHostname(),
+		PostgresPort: source.GetPortMap()["postgres"],
+	}
+	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, sourceAddr, consensusTerm)
 	if err != nil {
 		return nil, err
 	}
@@ -1105,23 +1112,24 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 // observation -> read final LSN -> flip topology type to REPLICA.
 func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 	ctx context.Context,
-	source *clustermetadatapb.MultiPooler,
+	source *clustermetadatapb.PoolerAddress,
 	consensusTerm int64,
 ) (rewindPerformed bool, finalLSN string, err error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return false, "", err
 	}
 
-	port, ok := source.PortMap["postgres"]
-	if !ok {
-		return false, "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
+	port := source.GetPostgresPort()
+	if port == 0 {
+		return false, "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not configured on source pooler")
 	}
 
 	if err := pm.stopPostgresIfRunning(ctx); err != nil {
 		return false, "", mterrors.Wrap(err, "failed to stop postgres")
 	}
 
-	rewindPerformed, err = pm.runPgRewind(ctx, source.Hostname, port)
+	host := source.GetHost()
+	rewindPerformed, err = pm.runPgRewind(ctx, host, port)
 	if err != nil {
 		return false, "", mterrors.Wrap(err, "pg_rewind failed")
 	}
@@ -1141,26 +1149,26 @@ func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 	}
 
 	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
-		"source", source.Id.Name,
-		"source_host", source.Hostname,
+		"source", source.GetId().GetName(),
+		"source_host", host,
 		"source_port", port)
 
 	// Store primary pooler ID for tracking
 	pm.mu.Lock()
-	pm.primaryPoolerID = source.Id
-	pm.primaryHost = source.Hostname
+	pm.primaryPoolerID = source.GetId()
+	pm.primaryHost = host
 	pm.primaryPort = port
 	pm.mu.Unlock()
 
 	// Call the locked version directly since we already hold the action lock
 	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
-	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
+	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, false, false); err != nil {
 		return false, "", mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
 	// Report the new primary (source) so the gateway can use this observation.
 	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   source.Id,
+		LeaderID:   source.GetId(),
 		LeaderTerm: consensusTerm,
 	})
 

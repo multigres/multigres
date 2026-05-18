@@ -1558,19 +1558,6 @@ func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
 }
 
-// expectReplicaProposeMocks sets up the postgres query expectations for the replica
-// Propose path: guardrail check (is it a standby?), set primary_conninfo, reload config.
-func expectReplicaProposeMocks(m *mock.QueryService) {
-	expectStandbyReadyMocks(m)
-	// setPrimaryConnInfoLocked guardrail: postgres is in recovery (standby), so setting conninfo is allowed
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// SET primary_conninfo
-	m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	// reload config
-	expectReloadConfig(m)
-}
-
 func TestPropose(t *testing.T) {
 	// selfID matches the service ID created by setupManagerWithMockDB
 	selfID := &clustermetadatapb.ID{
@@ -1609,7 +1596,7 @@ func TestPropose(t *testing.T) {
 		return &consensusdatapb.ProposeRequest{
 			Proposal: &consensusdatapb.CoordinatorProposal{
 				TermRevocation: recruitedTerm,
-				ProposalLeader: &consensusdatapb.ProposalLeader{
+				ProposalLeader: &clustermetadatapb.PoolerAddress{
 					Id:           selfID,
 					Host:         "pg-primary.internal",
 					PostgresPort: 5432,
@@ -1623,7 +1610,7 @@ func TestPropose(t *testing.T) {
 		return &consensusdatapb.ProposeRequest{
 			Proposal: &consensusdatapb.CoordinatorProposal{
 				TermRevocation: recruitedTerm,
-				ProposalLeader: &consensusdatapb.ProposalLeader{
+				ProposalLeader: &clustermetadatapb.PoolerAddress{
 					Id:           otherPooler,
 					Host:         "pg-primary.internal",
 					PostgresPort: 5432,
@@ -1659,7 +1646,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID, PostgresPort: 5432},
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
 					ProposedRule:   validProposedRule,
 				},
 			},
@@ -1688,7 +1675,7 @@ func TestPropose(t *testing.T) {
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
 					TermRevocation: recruitedTerm,
-					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID},
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID},
 					ProposedRule:   validProposedRule,
 				},
 			},
@@ -1703,7 +1690,7 @@ func TestPropose(t *testing.T) {
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
 					TermRevocation: recruitedTerm,
-					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID, PostgresPort: 5432},
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -1741,7 +1728,7 @@ func TestPropose(t *testing.T) {
 						CoordinatorInitiatedAt: recruitTS,
 						OutgoingRule:           &clustermetadatapb.RuleNumber{},
 					},
-					ProposalLeader: &consensusdatapb.ProposalLeader{Id: selfID, PostgresPort: 5432},
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
 					ProposedRule:   validProposedRule,
 				},
 			},
@@ -1802,8 +1789,8 @@ func TestPropose(t *testing.T) {
 				require.NotNil(t, rp)
 				require.NotNil(t, rp.GetPrimary())
 				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))
-				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHostname())
-				assert.Equal(t, int32(5432), rp.GetPrimary().GetPortMap()["postgres"])
+				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHost())
+				assert.Equal(t, int32(5432), rp.GetPrimary().GetPostgresPort())
 			},
 		},
 		{
@@ -1816,7 +1803,7 @@ func TestPropose(t *testing.T) {
 			req: &consensusdatapb.ProposeRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
 					TermRevocation: recruitedTerm,
-					ProposalLeader: &consensusdatapb.ProposalLeader{
+					ProposalLeader: &clustermetadatapb.PoolerAddress{
 						Id:           selfID,
 						Host:         "pg-primary.internal",
 						PostgresPort: 5432,
@@ -1875,64 +1862,18 @@ func TestPropose(t *testing.T) {
 			expectErrContains: "primary_conninfo is set",
 		},
 		{
-			name:        "ReplicaSuccess",
-			initialTerm: recruitedTerm,
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req:         makeReplicaReq(),
-			setupMocks: func(m *mock.QueryService) {
-				expectReplicaProposeMocks(m)
-			},
-			// Verify primary connection info was stored and the pooler type was set correctly.
-			postCheck: func(t *testing.T, pm *MultiPoolerManager, _ *fakeRuleStore) {
-				pm.mu.Lock()
-				assert.True(t, proto.Equal(otherPooler, pm.primaryPoolerID))
-				assert.Equal(t, "pg-primary.internal", pm.primaryHost)
-				assert.Equal(t, int32(5432), pm.primaryPort)
-				pm.mu.Unlock()
-
-				assert.False(t, pm.rewindPending.Load())
-				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, pm.healthStreamer.getState().Target.PoolerType)
-
-				// ReplicationPrimary should advertise the proposalLeader, since
-				// this pooler took the standby branch of Propose.
-				rp := pm.consensusState.GetReplicationPrimary()
-				require.NotNil(t, rp)
-				require.NotNil(t, rp.GetPrimary())
-				assert.True(t, proto.Equal(otherPooler, rp.GetPrimary().GetId()))
-				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHostname())
-				assert.Equal(t, int32(5432), rp.GetPrimary().GetPortMap()["postgres"])
-			},
-		},
-		{
-			// postgres is not in recovery (it's primary): caught by the standby-state
-			// precondition check before any conninfo is touched.
-			name:        "ReplicaRejected_IsPrimary",
-			initialTerm: recruitedTerm,
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req:         makeReplicaReq(),
-			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-			},
-			expectError:       true,
-			expectErrContains: "not in standby mode",
-		},
-		{
-			// pg_reload_conf fails after setting primary_conninfo: Propose returns an error.
-			name:        "ReplicaRejected_ReloadFails",
+			// proposal_leader is some other pooler: Propose is leader-only, so
+			// it must reject this and direct the coordinator to use
+			// SetTermPrimary for followers.
+			name:        "RejectedWhenNotDesignatedLeader",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeReplicaReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectStandbyReadyMocks(m)
-				// setPrimaryConnInfoLocked guardrail
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:       true,
-			expectErrContains: "failed to reload PostgreSQL configuration",
+			expectErrContains: "non-leaders should be told via SetTermPrimary",
 		},
 	}
 

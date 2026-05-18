@@ -168,7 +168,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 5. Update topology to REPLICA
 	if a.config.GetUseNewConsensusFlow() {
 		informReq := &consensusdatapb.SetTermPrimaryRequest{
-			Leader: correctLeader.MultiPooler,
+			Leader: poolerAddressFor(correctLeader.MultiPooler),
 			Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 		}
 		if _, err := a.rpcClient.SetTermPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {

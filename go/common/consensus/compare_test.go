@@ -120,21 +120,21 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 			Name:      name,
 		}
 	}
-	mkPooler := func(name, host string, pgPort int32) *clustermetadatapb.MultiPooler {
-		return &clustermetadatapb.MultiPooler{
-			Id:       mkID(name),
-			Hostname: host,
-			PortMap:  map[string]int32{"postgres": pgPort, "grpc": 9000},
+	mkAddr := func(name, host string, pgPort int32) *clustermetadatapb.PoolerAddress {
+		return &clustermetadatapb.PoolerAddress{
+			Id:           mkID(name),
+			Host:         host,
+			PostgresPort: pgPort,
 		}
 	}
 	mkRule := func(term int64) *clustermetadatapb.ShardRule {
 		return &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}
 	}
-	mkRP := func(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.MultiPooler) *clustermetadatapb.ReplicationPrimary {
+	mkRP := func(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
 		return &clustermetadatapb.ReplicationPrimary{Rule: rule, Primary: primary}
 	}
 
-	target := mkPooler("primary-1", "host-a", 5432)
+	target := mkAddr("primary-1", "host-a", 5432)
 	targetRule := mkRule(3)
 
 	t.Run("nil rp returns false", func(t *testing.T) {
@@ -162,31 +162,31 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 	})
 
 	t.Run("primary id mismatch returns false", func(t *testing.T) {
-		rp := mkRP(targetRule, mkPooler("primary-2", "host-a", 5432))
+		rp := mkRP(targetRule, mkAddr("primary-2", "host-a", 5432))
 		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
 	})
 
 	t.Run("primary id different cell returns false", func(t *testing.T) {
-		other := mkPooler("primary-1", "host-a", 5432)
+		other := mkAddr("primary-1", "host-a", 5432)
 		other.Id.Cell = "zone2"
 		rp := mkRP(targetRule, other)
 		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
 	})
 
 	t.Run("primary id different component returns false", func(t *testing.T) {
-		other := mkPooler("primary-1", "host-a", 5432)
+		other := mkAddr("primary-1", "host-a", 5432)
 		other.Id.Component = clustermetadatapb.ID_MULTIGATEWAY
 		rp := mkRP(targetRule, other)
 		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
 	})
 
 	t.Run("primary hostname mismatch returns false", func(t *testing.T) {
-		rp := mkRP(targetRule, mkPooler("primary-1", "host-b", 5432))
+		rp := mkRP(targetRule, mkAddr("primary-1", "host-b", 5432))
 		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
 	})
 
 	t.Run("primary port mismatch returns false", func(t *testing.T) {
-		rp := mkRP(targetRule, mkPooler("primary-1", "host-a", 5433))
+		rp := mkRP(targetRule, mkAddr("primary-1", "host-a", 5433))
 		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
 	})
 

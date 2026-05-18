@@ -180,7 +180,7 @@ func TestDemoteStaleLeaderAction_ExecuteNewFlow(t *testing.T) {
 	require.NotNil(t, req)
 	require.NotNil(t, req.Leader)
 	assert.Equal(t, "correct-leader", req.Leader.Id.Name)
-	assert.Equal(t, "correct.example.com", req.Leader.Hostname)
+	assert.Equal(t, "correct.example.com", req.Leader.GetHost())
 	require.NotNil(t, req.Rule)
 	assert.Equal(t, int64(5), req.Rule.GetRuleNumber().GetCoordinatorTerm())
 }

@@ -1842,9 +1842,9 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	if err != nil || commonconsensus.IsRuleRevoked(rp.GetRule(), rev) {
 		return false
 	}
-	targetHost := target.GetHostname()
-	targetPort, ok := target.GetPortMap()["postgres"]
-	if !ok || targetHost == "" {
+	targetHost := target.GetHost()
+	targetPort := target.GetPostgresPort()
+	if targetHost == "" || targetPort == 0 {
 		return false
 	}
 
@@ -1986,8 +1986,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionFixPrimaryConnInfo:
 		rp := pm.consensusState.GetReplicationPrimary()
 		target := rp.GetPrimary()
-		targetHost := target.GetHostname()
-		targetPort := target.GetPortMap()["postgres"]
+		targetHost := target.GetHost()
+		targetPort := target.GetPostgresPort()
 		pm.logger.InfoContext(ctx, "MonitorPostgres: primary_conninfo drift detected; rewriting to recorded primary",
 			"target_primary", target.GetId().GetName(),
 			"target_host", targetHost,

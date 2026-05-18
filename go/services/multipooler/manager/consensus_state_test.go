@@ -33,15 +33,15 @@ func ruleAt(term, subterm int64) *clustermetadatapb.ShardRule {
 	}
 }
 
-func primaryAt(name, host string, port int32) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func primaryAt(name, host string, port int32) *clustermetadatapb.PoolerAddress {
+	return &clustermetadatapb.PoolerAddress{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      name,
 		},
-		Hostname: host,
-		PortMap:  map[string]int32{"postgres": port},
+		Host:         host,
+		PostgresPort: port,
 	}
 }
 
@@ -49,11 +49,11 @@ func TestRecordTermPrimary(t *testing.T) {
 	tests := []struct {
 		name                 string
 		seedRule             *clustermetadatapb.ShardRule
-		seedPrimary          *clustermetadatapb.MultiPooler
+		seedPrimary          *clustermetadatapb.PoolerAddress
 		callRule             *clustermetadatapb.ShardRule
-		callPrimary          *clustermetadatapb.MultiPooler
+		callPrimary          *clustermetadatapb.PoolerAddress
 		wantRule             *clustermetadatapb.ShardRule
-		wantPrimary          *clustermetadatapb.MultiPooler
+		wantPrimary          *clustermetadatapb.PoolerAddress
 		wantPrimaryUnchanged bool // primary should still equal seedPrimary
 	}{
 		{
@@ -180,11 +180,11 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	got := cs.GetReplicationPrimary()
 	require.NotNil(t, got)
 	require.NotNil(t, got.GetPrimary())
-	got.Primary.Hostname = "tampered"
+	got.Primary.Host = "tampered"
 
 	got2 := cs.GetReplicationPrimary()
 	require.NotNil(t, got2)
 	require.NotNil(t, got2.GetPrimary())
-	assert.Equal(t, "hostA", got2.GetPrimary().Hostname,
+	assert.Equal(t, "hostA", got2.GetPrimary().GetHost(),
 		"mutating the returned pointer must not affect internal state")
 }

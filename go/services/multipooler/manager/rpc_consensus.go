@@ -699,130 +699,96 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 			"primary_conninfo is set (%q); call Recruit before Propose to stop replication", connInfo)
 	}
 
-	// Step 2: Act based on role.
-	isLeader := proto.Equal(pm.serviceID, proposalLeader.GetId())
-
-	if isLeader {
-		// Step 3a: Leader — promote postgres, write rule, enable query service.
-		state, err := pm.checkPromotionState(ctx, nil)
-		if err != nil {
-			return nil, err
-		}
-		// Pre-configure synchronous_standby_names before pg_promote() so the primary
-		// enforces sync replication from the moment it starts accepting connections.
-		// Both failures are fatal: a misconfigured or partially applied GUC would let
-		// the primary accept writes without the required sync acknowledgment, risking
-		// data loss.
-		// TODO: Eventually updateRule() should own this GUC update so that the ordering
-		// of WAL writes and GUC changes is managed in one place, ensuring the durability
-		// configuration is always consistent with what is recorded in the rule history.
-		if proposedRule.GetDurabilityPolicy() != nil {
-			syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
-			if err != nil {
-				return nil, mterrors.Wrap(err, "cannot derive sync config from proposed rule")
-			}
-			if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
-				return nil, mterrors.Wrap(err, "failed to pre-configure sync replication before promote")
-			}
-		}
-		// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
-		// postgres becomes a writable primary after pg_promote(), but this pooler's
-		// type remains REPLICA until updateTopologyAfterPromotion() below. While type
-		// is REPLICA, the query server returns MTF01 for any PRIMARY (write) request,
-		// causing the gateway to buffer — so no client write transactions can be served.
-		//
-		// DO NOT call updateTopologyAfterPromotion() before updateRule() succeeds.
-		// The rule commit is the durability gate: it waits for sync-standby
-		// acknowledgment, proving the new primary position is replicated. Only after
-		// that gate closes is it safe to advertise PRIMARY + SERVING to the gateway.
-		if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
-			return nil, err
-		}
-		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
-			return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
-		}
-		finalLSN, err := pm.getPrimaryLSN(ctx)
-		if err != nil {
-			return nil, err
-		}
-		// TODO: If this proposal already exists, we're being asked to propagate
-		// rather than make a new entry. We can make the rule store understand
-		// propagation for that case.
-		reason := req.GetReason()
-		if reason == "" {
-			reason = "propose"
-		}
-		if _, err = pm.rules.updateRule(ctx, newRuleUpdate(
-			revokedBelowTerm,
-			coordinatorID,
-			"promotion",
-			reason,
-			time.Now()).
-			withLeader(pm.serviceID).
-			withCohort(proposedRule.GetCohortMembers()).
-			withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
-			withAcceptedMembers(req.GetAcceptedNodeIds()).
-			withWALPosition(finalLSN)); err != nil {
-			return nil, mterrors.Wrap(err, "propose failed: could not write rule")
-		}
-		// ---- END CRITICAL ORDERING SECTION ------------------------------------------
-		// Rule committed and replicated. Safe to open write traffic.
-		// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
-		// ends the write-buffering window and lets the gateway route writes here.
-		pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-			LeaderID:   pm.serviceID,
-			LeaderTerm: revokedBelowTerm,
-		})
-		if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
-		}
-	} else {
-		// Step 3b: Replica — configure replication toward the new primary.
-		// Recruit stopped only the WAL receiver (RECEIVER_ONLY), not replay, so
-		// startAfter=false: replication restarts automatically when postgres
-		// reloads the new primary_conninfo; no pg_wal_replay_resume() needed.
-		host := proposalLeader.GetHost()
-		port := proposalLeader.GetPostgresPort()
-		pm.mu.Lock()
-		pm.primaryPoolerID = proposalLeader.GetId()
-		pm.primaryHost = host
-		pm.primaryPort = port
-		pm.mu.Unlock()
-
-		if err := pm.setPrimaryConnInfoLocked(ctx, host, port, false /* stopBefore */, false /* startAfter */); err != nil {
-			return nil, err
-		}
-		// Ensure health state reflects REPLICA, even if this node was recently
-		// an emergency-demoted primary (which restarts postgres as standby but
-		// does not update the pooler type until a Propose arrives).
-		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after propose", "error", err)
-		}
-		if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after propose", "error", err)
-		}
-		pm.broadcastHealth()
-		if _, err := pm.rules.observePosition(ctx); err != nil {
-			return nil, mterrors.Wrap(err, "propose failed: could not refresh rule position")
-		}
+	// Propose is only valid for the designated leader. Non-leaders should
+	// receive the leader's identity via SetTermPrimary, which handles
+	// replication setup without requiring a prior Recruit.
+	if !proto.Equal(pm.serviceID, proposalLeader.GetId()) {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"Propose received on %s but proposal_leader is %s; non-leaders should be told via SetTermPrimary",
+			pm.serviceID.GetName(), proposalLeader.GetId().GetName())
 	}
 
-	// Record the proposed (rule, primary) so this pooler's published
-	// ConsensusStatus.ReplicationPrimary reflects who it's been told to point
-	// at. Both branches converge here: replicas record proposalLeader; leaders
-	// record themselves at the same address the coordinator is advertising.
-	// proposalLeader is the authoritative source of contact info — it's what
-	// the coordinator wants every cohort member (including the new primary)
-	// to use.
-	pm.consensusState.RecordTermPrimary(proposedRule, &clustermetadatapb.MultiPooler{
-		Id:       proposalLeader.GetId(),
-		Hostname: proposalLeader.GetHost(),
-		PortMap:  map[string]int32{"postgres": proposalLeader.GetPostgresPort()},
+	// Leader path: promote postgres, write rule, enable query service.
+	state, err := pm.checkPromotionState(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Pre-configure synchronous_standby_names before pg_promote() so the primary
+	// enforces sync replication from the moment it starts accepting connections.
+	// Both failures are fatal: a misconfigured or partially applied GUC would let
+	// the primary accept writes without the required sync acknowledgment, risking
+	// data loss.
+	// TODO: Eventually updateRule() should own this GUC update so that the ordering
+	// of WAL writes and GUC changes is managed in one place, ensuring the durability
+	// configuration is always consistent with what is recorded in the rule history.
+	if proposedRule.GetDurabilityPolicy() != nil {
+		syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "cannot derive sync config from proposed rule")
+		}
+		if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
+			return nil, mterrors.Wrap(err, "failed to pre-configure sync replication before promote")
+		}
+	}
+	// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
+	// postgres becomes a writable primary after pg_promote(), but this pooler's
+	// type remains REPLICA until updateTopologyAfterPromotion() below. While type
+	// is REPLICA, the query server returns MTF01 for any PRIMARY (write) request,
+	// causing the gateway to buffer — so no client write transactions can be served.
+	//
+	// DO NOT call updateTopologyAfterPromotion() before updateRule() succeeds.
+	// The rule commit is the durability gate: it waits for sync-standby
+	// acknowledgment, proving the new primary position is replicated. Only after
+	// that gate closes is it safe to advertise PRIMARY + SERVING to the gateway.
+	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
+	}
+	finalLSN, err := pm.getPrimaryLSN(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: If this proposal already exists, we're being asked to propagate
+	// rather than make a new entry. We can make the rule store understand
+	// propagation for that case.
+	reason := req.GetReason()
+	if reason == "" {
+		reason = "propose"
+	}
+	if _, err = pm.rules.updateRule(ctx, newRuleUpdate(
+		revokedBelowTerm,
+		coordinatorID,
+		"promotion",
+		reason,
+		time.Now()).
+		withLeader(pm.serviceID).
+		withCohort(proposedRule.GetCohortMembers()).
+		withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
+		withAcceptedMembers(req.GetAcceptedNodeIds()).
+		withWALPosition(finalLSN)); err != nil {
+		return nil, mterrors.Wrap(err, "propose failed: could not write rule")
+	}
+	// ---- END CRITICAL ORDERING SECTION ------------------------------------------
+	// Rule committed and replicated. Safe to open write traffic.
+	// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
+	// ends the write-buffering window and lets the gateway route writes here.
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   pm.serviceID,
+		LeaderTerm: revokedBelowTerm,
 	})
+	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
+	}
+
+	// Record the (rule, primary) — this pooler IS now the primary. Stamping
+	// the published ReplicationPrimary lets the health stream advertise the
+	// new leadership immediately.
+	pm.consensusState.RecordTermPrimary(proposedRule, proposalLeader)
 
 	pm.logger.InfoContext(ctx, "Propose complete",
-		"revoked_below_term", revokedBelowTerm,
-		"is_leader", isLeader)
+		"revoked_below_term", revokedBelowTerm)
 
 	// Step 4: Return ConsensusStatus. The cache was warmed by getConsensusStatus in step 1
 	// and updated by updateRule (leader path); the replica position is unchanged.
@@ -882,13 +848,22 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			"leader.id %q does not match rule.leader_id %q",
 			leaderID.GetName(), ruleLeaderID.GetName())
 	}
-	if leader.Hostname == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "leader hostname is required")
+	if leader.GetHost() == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "leader host is required")
 	}
-	port, ok := leader.PortMap["postgres"]
-	if !ok {
+	port := leader.GetPostgresPort()
+	if port == 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"leader %s has no postgres port configured", leaderID.GetName())
+	}
+	// SetTermPrimary is the follower-side RPC. If the coordinator is telling this
+	// pooler that it is the new primary, that's a routing mistake — the leader
+	// path goes through Propose (which carries the full CoordinatorProposal and
+	// the Recruit-established term revocation needed to safely promote).
+	if proto.Equal(pm.serviceID, leaderID) {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"SetTermPrimary received on %s but leader is self; designated leaders are appointed via Propose",
+			pm.serviceID.GetName())
 	}
 
 	ctx, err := pm.actionLock.Acquire(ctx, "SetTermPrimary")
@@ -985,10 +960,10 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			"incoming_rule", rule.GetRuleNumber())
 		pm.mu.Lock()
 		pm.primaryPoolerID = leader.GetId()
-		pm.primaryHost = leader.Hostname
+		pm.primaryHost = leader.GetHost()
 		pm.primaryPort = port
 		pm.mu.Unlock()
-		if err := pm.setPrimaryConnInfoLocked(ctx, leader.Hostname, port,
+		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
@@ -1001,6 +976,22 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetTermPrimary", "error", err)
 		}
+	}
+
+	// Advertise the new leader to the health stream so the gateway can route
+	// reads/writes against it. The stale-primary branch gets this for free
+	// via demoteStalePrimaryLocked; the standby branch must do it explicitly.
+	// TODO: LeaderObservation is redundant with the (rule, primary) tuple
+	// already recorded in consensusState.replicationPrimary. Plan to make
+	// RecordTermPrimary (or its successor) drive the health-stream
+	// observation directly, so callers don't have to remember to do both.
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   leader.GetId(),
+		LeaderTerm: consensusTerm,
+	})
+
+	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after propose", "error", err)
 	}
 
 	pm.broadcastHealth()
