@@ -1624,42 +1624,47 @@ func (x *PoolerPosition) GetLsn() string {
 	return ""
 }
 
-// HighestKnownRule is the most recent ShardRule this pooler is aware of,
-// which could be beyond the end of this pooler's WAL / PoolerPosition.
+// ReplicationPrimary advertises the primary this pooler believes it should be
+// pointed at for replication, along with the rule under which that primary
+// holds leadership. The primary contact info is the main payload — it's how a
+// pooler in a degraded state (partition, mid-bootstrap, Inform-while-postgres-
+// was-down) figures out who to reconnect replication to. The rule is supporting
+// evidence and has secondary uses such as coordinators learning of rules newer
+// than what's in any replica's WAL.
 //
-// If a pooler is disconnected from replication due to network partitions
-// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
-// to learn the latest shard state.
-//
-// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
-// may represent a rule that the coordinator is _about_ to write that doesn't exist in
-// any WAL entries yet.
-//
-// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
-// settings so that nodes can participate in replication. Nodes with out-of-date information
-// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
-// pooler has incorrect replication settings.
-type HighestKnownRule struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Rule          *ShardRule             `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+// Not persisted across pooler restarts — best-effort, populated by Inform and
+// Propose RPCs. Coordinators that notice a pooler has incorrect replication
+// settings will re-inform it.
+type ReplicationPrimary struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The most recent rule under which this primary holds leadership. May be
+	// ahead of the pooler's committed PoolerPosition while replication catches
+	// up. Coordinators compare this to what they would otherwise Inform with —
+	// if (rule, primary) already matches, the Inform is redundant and can be
+	// skipped.
+	Rule *ShardRule `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	// Contact info for the primary the pooler was last told to use. Snapshot
+	// from the most recent Inform/Propose; treat as "what this pooler currently
+	// believes," not as the canonical primary for the cluster.
+	Primary       *MultiPooler `protobuf:"bytes,2,opt,name=primary,proto3" json:"primary,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *HighestKnownRule) Reset() {
-	*x = HighestKnownRule{}
+func (x *ReplicationPrimary) Reset() {
+	*x = ReplicationPrimary{}
 	mi := &file_clustermetadata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *HighestKnownRule) String() string {
+func (x *ReplicationPrimary) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*HighestKnownRule) ProtoMessage() {}
+func (*ReplicationPrimary) ProtoMessage() {}
 
-func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
+func (x *ReplicationPrimary) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1671,14 +1676,21 @@ func (x *HighestKnownRule) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use HighestKnownRule.ProtoReflect.Descriptor instead.
-func (*HighestKnownRule) Descriptor() ([]byte, []int) {
+// Deprecated: Use ReplicationPrimary.ProtoReflect.Descriptor instead.
+func (*ReplicationPrimary) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *HighestKnownRule) GetRule() *ShardRule {
+func (x *ReplicationPrimary) GetRule() *ShardRule {
 	if x != nil {
 		return x.Rule
+	}
+	return nil
+}
+
+func (x *ReplicationPrimary) GetPrimary() *MultiPooler {
+	if x != nil {
+		return x.Primary
 	}
 	return nil
 }
@@ -1715,8 +1727,14 @@ type TermRevocation struct {
 	// recruiting. All poolers that accept the same recruitment store the same value.
 	// TODO: populate once BeginTermRequest carries this timestamp.
 	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// The rule the coordinator observed across the cohort at recruit time —
+	// the "from" side of the transition this recruit was authoring. Used as
+	// an override key during Inform: if a subsequent Inform carries a rule
+	// strictly greater than this, the cluster has demonstrably moved past
+	// the runaway recruit's premise and the revocation is moot.
+	OutgoingRule  *RuleNumber `protobuf:"bytes,4,opt,name=outgoing_rule,json=outgoingRule,proto3" json:"outgoing_rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TermRevocation) Reset() {
@@ -1770,6 +1788,13 @@ func (x *TermRevocation) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *TermRevocation) GetOutgoingRule() *RuleNumber {
+	if x != nil {
+		return x.OutgoingRule
+	}
+	return nil
+}
+
 // ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation
 // has been established by an external agent rather than through normal Recruit
 // RPCs. The incoming cohort is still recruited normally via Recruit RPCs.
@@ -1777,8 +1802,8 @@ func (x *TermRevocation) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
 // The external actor certifies:
 //
 //  1. No pooler in the outgoing cohort can make progress beyond frozen_lsn
-//     under outgoing_rule_number — all durable transactions at the time of
-//     revocation are captured at or below that position.
+//     under term_revocation.outgoing_rule — all durable transactions at the
+//     time of revocation are captured at or below that position.
 //
 //  2. The term in term_revocation is globally unique; no other coordinator has
 //     used or will use it.
@@ -1787,18 +1812,17 @@ func (x *TermRevocation) GetCoordinatorInitiatedAt() *timestamppb.Timestamp {
 // it is acting on an external request.
 type ExternallyCertifiedRevocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The rule number being superseded. Identifies which outgoing cohort is frozen.
-	OutgoingRuleNumber *RuleNumber `protobuf:"bytes,1,opt,name=outgoing_rule_number,json=outgoingRuleNumber,proto3" json:"outgoing_rule_number,omitempty"`
+	// Records the unique coordinator term for this proposal, the coordinator
+	// facilitating the request, and the outgoing_rule the cohort is being
+	// transitioned from. The coordinator fills this in even though it is acting
+	// on behalf of an external operator request.
+	TermRevocation *TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
 	// The LSN at which the outgoing cohort's progress is frozen. No durable writes
-	// occurred beyond this position under outgoing_rule_number. The chosen leader's
-	// WAL position must meet or exceed this LSN.
-	FrozenLsn string `protobuf:"bytes,2,opt,name=frozen_lsn,json=frozenLsn,proto3" json:"frozen_lsn,omitempty"`
-	// Records the unique coordinator term for this proposal and the coordinator
-	// facilitating the request. The coordinator fills this in even though it is
-	// acting on behalf of an external operator request.
-	TermRevocation *TermRevocation `protobuf:"bytes,3,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// occurred beyond this position under term_revocation.outgoing_rule. The chosen
+	// leader's WAL position must meet or exceed this LSN.
+	FrozenLsn     string `protobuf:"bytes,2,opt,name=frozen_lsn,json=frozenLsn,proto3" json:"frozen_lsn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExternallyCertifiedRevocation) Reset() {
@@ -1831,9 +1855,9 @@ func (*ExternallyCertifiedRevocation) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ExternallyCertifiedRevocation) GetOutgoingRuleNumber() *RuleNumber {
+func (x *ExternallyCertifiedRevocation) GetTermRevocation() *TermRevocation {
 	if x != nil {
-		return x.OutgoingRuleNumber
+		return x.TermRevocation
 	}
 	return nil
 }
@@ -1843,13 +1867,6 @@ func (x *ExternallyCertifiedRevocation) GetFrozenLsn() string {
 		return x.FrozenLsn
 	}
 	return ""
-}
-
-func (x *ExternallyCertifiedRevocation) GetTermRevocation() *TermRevocation {
-	if x != nil {
-		return x.TermRevocation
-	}
-	return nil
 }
 
 // ConsensusStatus is a pooler's complete view of its position in the distributed
@@ -1863,10 +1880,10 @@ func (x *ExternallyCertifiedRevocation) GetTermRevocation() *TermRevocation {
 //     The highest ShardRule committed to local WAL (from rule_history) and the
 //     current LSN. Authoritative because postgres WAL is durable and ordered.
 //
-//  3. highest_known_rule (best-effort, coordinator-provided)
-//     The most recent rule the coordinator is about to establish or has recently
-//     established. May be ahead of current_position; not persisted and may be
-//     stale after restarts.
+//  3. replication_primary (best-effort, coordinator-provided)
+//     The primary this pooler should be pointed at for replication, plus the
+//     rule under which that primary holds leadership. May be ahead of
+//     current_position; not persisted and may be stale after restarts.
 type ConsensusStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// term_revocation records the highest coordinator term this pooler has revoked for.
@@ -1874,10 +1891,11 @@ type ConsensusStatus struct {
 	// current_position is the highest rule this pooler has committed to local WAL
 	// and the latest WAL position.
 	CurrentPosition *PoolerPosition `protobuf:"bytes,2,opt,name=current_position,json=currentPosition,proto3" json:"current_position,omitempty"`
-	// highest_known_rule is the most recent rule this pooler is aware of. May be
-	// ahead of current_position when the pooler has forward knowledge of an
-	// upcoming rule that has not yet been replicated or written.
-	HighestKnownRule *HighestKnownRule `protobuf:"bytes,3,opt,name=highest_known_rule,json=highestKnownRule,proto3" json:"highest_known_rule,omitempty"`
+	// replication_primary is the pooler's best-effort view of who its primary
+	// should be (and under what rule). May reflect a rule ahead of
+	// current_position when the pooler has been informed of a newer rule that
+	// has not yet been replicated through WAL.
+	ReplicationPrimary *ReplicationPrimary `protobuf:"bytes,3,opt,name=replication_primary,json=replicationPrimary,proto3" json:"replication_primary,omitempty"`
 	// id identifies the pooler that produced this status. Makes ConsensusStatus
 	// self-describing when passed around without a surrounding envelope.
 	Id            *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
@@ -1929,9 +1947,9 @@ func (x *ConsensusStatus) GetCurrentPosition() *PoolerPosition {
 	return nil
 }
 
-func (x *ConsensusStatus) GetHighestKnownRule() *HighestKnownRule {
+func (x *ConsensusStatus) GetReplicationPrimary() *ReplicationPrimary {
 	if x != nil {
-		return x.HighestKnownRule
+		return x.ReplicationPrimary
 	}
 	return nil
 }
@@ -2229,22 +2247,23 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rcreation_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fcreationTime\"R\n" +
 	"\x0ePoolerPosition\x12.\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x12\x10\n" +
-	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"B\n" +
-	"\x10HighestKnownRule\x12.\n" +
-	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"\xe1\x01\n" +
+	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"|\n" +
+	"\x12ReplicationPrimary\x12.\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x126\n" +
+	"\aprimary\x18\x02 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\"\xa3\x02\n" +
 	"\x0eTermRevocation\x12,\n" +
 	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
 	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +
-	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\"\xd7\x01\n" +
-	"\x1dExternallyCertifiedRevocation\x12M\n" +
-	"\x14outgoing_rule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\x12outgoingRuleNumber\x12\x1d\n" +
+	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\x12@\n" +
+	"\routgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\foutgoingRule\"\x88\x01\n" +
+	"\x1dExternallyCertifiedRevocation\x12H\n" +
+	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12\x1d\n" +
 	"\n" +
-	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\x12H\n" +
-	"\x0fterm_revocation\x18\x03 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"\x9d\x02\n" +
+	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\"\xa2\x02\n" +
 	"\x0fConsensusStatus\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
-	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12O\n" +
-	"\x12highest_known_rule\x18\x03 \x01(\v2!.clustermetadata.HighestKnownRuleR\x10highestKnownRule\x12#\n" +
+	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12T\n" +
+	"\x13replication_primary\x18\x03 \x01(\v2#.clustermetadata.ReplicationPrimaryR\x12replicationPrimary\x12#\n" +
 	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"n\n" +
 	"\x10LeadershipStatus\x12\x1f\n" +
 	"\vleader_term\x18\x01 \x01(\x03R\n" +
@@ -2319,7 +2338,7 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*RuleNumber)(nil),                    // 20: clustermetadata.RuleNumber
 	(*ShardRule)(nil),                     // 21: clustermetadata.ShardRule
 	(*PoolerPosition)(nil),                // 22: clustermetadata.PoolerPosition
-	(*HighestKnownRule)(nil),              // 23: clustermetadata.HighestKnownRule
+	(*ReplicationPrimary)(nil),            // 23: clustermetadata.ReplicationPrimary
 	(*TermRevocation)(nil),                // 24: clustermetadata.TermRevocation
 	(*ExternallyCertifiedRevocation)(nil), // 25: clustermetadata.ExternallyCertifiedRevocation
 	(*ConsensusStatus)(nil),               // 26: clustermetadata.ConsensusStatus
@@ -2357,24 +2376,25 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	17, // 22: clustermetadata.ShardRule.coordinator_id:type_name -> clustermetadata.ID
 	33, // 23: clustermetadata.ShardRule.creation_time:type_name -> google.protobuf.Timestamp
 	21, // 24: clustermetadata.PoolerPosition.rule:type_name -> clustermetadata.ShardRule
-	21, // 25: clustermetadata.HighestKnownRule.rule:type_name -> clustermetadata.ShardRule
-	17, // 26: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
-	33, // 27: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
-	20, // 28: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
-	24, // 29: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
-	24, // 30: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	22, // 31: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	23, // 32: clustermetadata.ConsensusStatus.highest_known_rule:type_name -> clustermetadata.HighestKnownRule
-	17, // 33: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	3,  // 34: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	27, // 35: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	29, // 36: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
-	4,  // 37: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
-	38, // [38:38] is the sub-list for method output_type
-	38, // [38:38] is the sub-list for method input_type
-	38, // [38:38] is the sub-list for extension type_name
-	38, // [38:38] is the sub-list for extension extendee
-	0,  // [0:38] is the sub-list for field type_name
+	21, // 25: clustermetadata.ReplicationPrimary.rule:type_name -> clustermetadata.ShardRule
+	13, // 26: clustermetadata.ReplicationPrimary.primary:type_name -> clustermetadata.MultiPooler
+	17, // 27: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
+	33, // 28: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
+	20, // 29: clustermetadata.TermRevocation.outgoing_rule:type_name -> clustermetadata.RuleNumber
+	24, // 30: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
+	24, // 31: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	22, // 32: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	23, // 33: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
+	17, // 34: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 35: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	27, // 36: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	29, // 37: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
+	4,  // 38: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }

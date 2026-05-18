@@ -69,18 +69,62 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 		if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
 			continue
 		}
-		if best == nil || comparePosition(pos, best) > 0 {
+		if best == nil || ComparePosition(pos, best) > 0 {
 			best = pos
 		}
 	}
 	return best
 }
 
-// comparePosition returns negative, zero, or positive based on whether a is
+// ReplicationPrimaryMatches reports whether a pooler's published
+// ReplicationPrimary already names target as its primary at a rule no older
+// than targetRule. Coordinators use this to skip Inform RPCs that wouldn't
+// change anything on the pooler.
+//
+// Returns false when:
+//   - rp is nil
+//   - the published rule is strictly older than targetRule
+//   - the published primary is missing
+//   - the published primary's (id, hostname, postgres port) differs from
+//     target's
+//
+// target and targetRule are required; passing nil for either returns false.
+// Only the contact-info fields of MultiPooler are compared — pooler type,
+// serving status, and other operational state are ignored.
+func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target *clustermetadatapb.MultiPooler, targetRule *clustermetadatapb.ShardRule) bool {
+	if rp == nil || target == nil || targetRule == nil {
+		return false
+	}
+	if CompareRuleNumbers(rp.GetRule().GetRuleNumber(), targetRule.GetRuleNumber()) < 0 {
+		return false
+	}
+	rpPrimary := rp.GetPrimary()
+	if rpPrimary == nil {
+		return false
+	}
+	if !idsEqual(rpPrimary.GetId(), target.GetId()) {
+		return false
+	}
+	if rpPrimary.GetHostname() != target.GetHostname() {
+		return false
+	}
+	if rpPrimary.GetPortMap()["postgres"] != target.GetPortMap()["postgres"] {
+		return false
+	}
+	return true
+}
+
+func idsEqual(a, b *clustermetadatapb.ID) bool {
+	return a.GetComponent() == b.GetComponent() &&
+		a.GetCell() == b.GetCell() &&
+		a.GetName() == b.GetName()
+}
+
+// ComparePosition returns negative, zero, or positive based on whether a is
 // behind, equal to, or ahead of b. Rule number takes precedence; LSN breaks
 // ties within the same rule. A missing or unparsable LSN is treated as less
 // than any valid LSN.
-func comparePosition(a, b *clustermetadatapb.PoolerPosition) int {
+func ComparePosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp := CompareRuleNumbers(a.GetRule().GetRuleNumber(), b.GetRule().GetRuleNumber()); cmp != 0 {
 		return cmp
 	}

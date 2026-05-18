@@ -56,20 +56,34 @@ func (c *Coordinator) newRuleChange(
 	}
 }
 
-// Run executes the rule change: derive term, pre-validate, recruit all nodes
-// concurrently, and propose as soon as a viable proposal can be assembled.
-// Each node receives its Propose immediately once it has been recruited and
-// the proposal is ready — there is no unnecessary waiting between the two.
-func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) error {
-	// Extract cached consensus statuses to derive the revocation term.
+// Run executes the rule change: pre-validate, recruit all nodes concurrently,
+// and propose as soon as a viable proposal can be assembled. Each node
+// receives its Propose immediately once it has been recruited and the
+// proposal is ready — there is no unnecessary waiting between the two.
+//
+// revocation is the authoritative term revocation the coordinator is
+// proposing. Callers own its construction:
+//   - For safe coordinator-led transitions (failover), use
+//     commonconsensus.NewTermRevocation to derive it from cohort statuses.
+//   - For externally-certified transitions (bootstrap, operator override),
+//     construct the cert and pass cert.GetTermRevocation() — the agent
+//     defines revoked_below_term and outgoing_rule, not local discovery.
+func (r *coordinatorLedRuleChange) Run(
+	ctx context.Context,
+	cohort []*multiorchdatapb.PoolerHealthState,
+	revocation *clustermetadatapb.TermRevocation,
+) error {
+	if revocation == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Run: revocation is required")
+	}
+
+	// Extract cached consensus statuses for the pre-vote feasibility check.
 	var initialStatuses []*clustermetadatapb.ConsensusStatus
 	for _, p := range cohort {
 		if cs := p.GetConsensusStatus(); cs != nil {
 			initialStatuses = append(initialStatuses, cs)
 		}
 	}
-
-	revocation := commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
 		"proposed_term", revocation.GetRevokedBelowTerm(),
