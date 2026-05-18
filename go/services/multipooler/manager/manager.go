@@ -154,7 +154,6 @@ type MultiPoolerManager struct {
 	// snapshot via AvailabilityStatus.CohortEligibilityStatus. Protected by mu.
 	cohortEligibility clustermetadatapb.CohortEligibilitySignal
 
-
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 

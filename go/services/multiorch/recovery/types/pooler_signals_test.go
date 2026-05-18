@@ -73,6 +73,7 @@ func TestPoolerIsCohortIneligible(t *testing.T) {
 		})
 	}
 }
+
 // poolerWithLeaderTerm builds a PoolerHealthState whose ConsensusStatus has
 // the given primary term. Used to construct fixtures that exercise the
 // staleness check on REQUESTING_DEMOTION.
