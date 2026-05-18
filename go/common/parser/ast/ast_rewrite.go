@@ -80,6 +80,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfAlterPolicyStmt(parent, node, replacer)
 	case *AlterPublicationStmt:
 		return a.rewriteRefOfAlterPublicationStmt(parent, node, replacer)
+	case *AlterReplicationSlotCmd:
+		return a.rewriteRefOfAlterReplicationSlotCmd(parent, node, replacer)
 	case *AlterRoleSetStmt:
 		return a.rewriteRefOfAlterRoleSetStmt(parent, node, replacer)
 	case *AlterRoleStmt:
@@ -214,6 +216,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfCreatePublicationStmt(parent, node, replacer)
 	case *CreateRangeStmt:
 		return a.rewriteRefOfCreateRangeStmt(parent, node, replacer)
+	case *CreateReplicationSlotCmd:
+		return a.rewriteRefOfCreateReplicationSlotCmd(parent, node, replacer)
 	case *CreateRoleStmt:
 		return a.rewriteRefOfCreateRoleStmt(parent, node, replacer)
 	case *CreateSchemaStmt:
@@ -256,6 +260,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfDoStmt(parent, node, replacer)
 	case *DropOwnedStmt:
 		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
+	case *DropReplicationSlotCmd:
+		return a.rewriteRefOfDropReplicationSlotCmd(parent, node, replacer)
 	case *DropRoleStmt:
 		return a.rewriteRefOfDropRoleStmt(parent, node, replacer)
 	case *DropStmt:
@@ -296,6 +302,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfGroupingSet(parent, node, replacer)
 	case *Identifier:
 		return a.rewriteRefOfIdentifier(parent, node, replacer)
+	case *IdentifySystemCmd:
+		return a.rewriteRefOfIdentifySystemCmd(parent, node, replacer)
 	case *ImportForeignSchemaStmt:
 		return a.rewriteRefOfImportForeignSchemaStmt(parent, node, replacer)
 	case *IndexElem:
@@ -460,6 +468,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfRangeVar(parent, node, replacer)
 	case *RawStmt:
 		return a.rewriteRefOfRawStmt(parent, node, replacer)
+	case *ReadReplicationSlotCmd:
+		return a.rewriteRefOfReadReplicationSlotCmd(parent, node, replacer)
 	case *ReassignOwnedStmt:
 		return a.rewriteRefOfReassignOwnedStmt(parent, node, replacer)
 	case *RefreshMatViewStmt:
@@ -506,6 +516,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfSortBy(parent, node, replacer)
 	case *SortGroupClause:
 		return a.rewriteRefOfSortGroupClause(parent, node, replacer)
+	case *StartReplicationCmd:
+		return a.rewriteRefOfStartReplicationCmd(parent, node, replacer)
 	case *StatsElem:
 		return a.rewriteRefOfStatsElem(parent, node, replacer)
 	case *String:
@@ -1691,6 +1703,44 @@ func (a *application) rewriteRefOfAlterPublicationStmt(parent Node, node *AlterP
 		parent.(*AlterPublicationStmt).PubObjects = newNode.(*NodeList)
 	}) {
 		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfAlterReplicationSlotCmd(parent Node, node *AlterReplicationSlotCmd, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	for x, el := range node.Options {
+		if !a.rewriteRefOfDefElem(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*AlterReplicationSlotCmd).Options[x] = newNode.(*DefElem)
+			}
+		}(x)) {
+			return false
+		}
 	}
 	if a.post != nil {
 		a.cur.replacer = replacer
@@ -4324,6 +4374,44 @@ func (a *application) rewriteRefOfCreateRangeStmt(parent Node, node *CreateRange
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfCreateReplicationSlotCmd(parent Node, node *CreateReplicationSlotCmd, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	for x, el := range node.Options {
+		if !a.rewriteRefOfDefElem(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*CreateReplicationSlotCmd).Options[x] = newNode.(*DefElem)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfCreateRoleStmt(parent Node, node *CreateRoleStmt, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -5175,6 +5263,37 @@ func (a *application) rewriteRefOfDropOwnedStmt(parent Node, node *DropOwnedStmt
 		a.cur.replacer = replacer
 		a.cur.parent = parent
 		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfDropReplicationSlotCmd(parent Node, node *DropReplicationSlotCmd, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
 		if !a.post(&a.cur) {
 			return false
 		}
@@ -6235,6 +6354,37 @@ func (a *application) rewriteRefOfGroupingSet(parent Node, node *GroupingSet, re
 
 // Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfIdentifier(parent Node, node *Identifier, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfIdentifySystemCmd(parent Node, node *IdentifySystemCmd, replacer replacerFunc) bool {
 	if node == nil {
 		return true
 	}
@@ -9750,6 +9900,37 @@ func (a *application) rewriteRefOfRawStmt(parent Node, node *RawStmt, replacer r
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfReadReplicationSlotCmd(parent Node, node *ReadReplicationSlotCmd, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfReassignOwnedStmt(parent Node, node *ReassignOwnedStmt, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -10650,6 +10831,44 @@ func (a *application) rewriteRefOfSortGroupClause(parent Node, node *SortGroupCl
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfStartReplicationCmd(parent Node, node *StartReplicationCmd, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	for x, el := range node.Options {
+		if !a.rewriteRefOfDefElem(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*StartReplicationCmd).Options[x] = newNode.(*DefElem)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfStatsElem(parent Node, node *StatsElem, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -10731,6 +10950,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfAlterPolicyStmt(parent, node, replacer)
 	case *AlterPublicationStmt:
 		return a.rewriteRefOfAlterPublicationStmt(parent, node, replacer)
+	case *AlterReplicationSlotCmd:
+		return a.rewriteRefOfAlterReplicationSlotCmd(parent, node, replacer)
 	case *AlterRoleSetStmt:
 		return a.rewriteRefOfAlterRoleSetStmt(parent, node, replacer)
 	case *AlterRoleStmt:
@@ -10813,6 +11034,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfCreatePublicationStmt(parent, node, replacer)
 	case *CreateRangeStmt:
 		return a.rewriteRefOfCreateRangeStmt(parent, node, replacer)
+	case *CreateReplicationSlotCmd:
+		return a.rewriteRefOfCreateReplicationSlotCmd(parent, node, replacer)
 	case *CreateRoleStmt:
 		return a.rewriteRefOfCreateRoleStmt(parent, node, replacer)
 	case *CreateSchemaStmt:
@@ -10851,6 +11074,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfDoStmt(parent, node, replacer)
 	case *DropOwnedStmt:
 		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
+	case *DropReplicationSlotCmd:
+		return a.rewriteRefOfDropReplicationSlotCmd(parent, node, replacer)
 	case *DropRoleStmt:
 		return a.rewriteRefOfDropRoleStmt(parent, node, replacer)
 	case *DropStmt:
@@ -10873,6 +11098,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfGrantStmt(parent, node, replacer)
 	case *GroupingSet:
 		return a.rewriteRefOfGroupingSet(parent, node, replacer)
+	case *IdentifySystemCmd:
+		return a.rewriteRefOfIdentifySystemCmd(parent, node, replacer)
 	case *ImportForeignSchemaStmt:
 		return a.rewriteRefOfImportForeignSchemaStmt(parent, node, replacer)
 	case *IndexStmt:
@@ -10927,6 +11154,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfRangeVar(parent, node, replacer)
 	case *RawStmt:
 		return a.rewriteRefOfRawStmt(parent, node, replacer)
+	case *ReadReplicationSlotCmd:
+		return a.rewriteRefOfReadReplicationSlotCmd(parent, node, replacer)
 	case *ReassignOwnedStmt:
 		return a.rewriteRefOfReassignOwnedStmt(parent, node, replacer)
 	case *RefreshMatViewStmt:
@@ -10949,6 +11178,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfSinglePartitionSpec(parent, node, replacer)
 	case *SortBy:
 		return a.rewriteRefOfSortBy(parent, node, replacer)
+	case *StartReplicationCmd:
+		return a.rewriteRefOfStartReplicationCmd(parent, node, replacer)
 	case *TableFunc:
 		return a.rewriteRefOfTableFunc(parent, node, replacer)
 	case *TableSampleClause:

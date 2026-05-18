@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/replparser"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -193,6 +194,13 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
+
+	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
+		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
+			return err
+		}
+		// SHOW falls through to the regular SQL path below.
+	}
 
 	parseStart := time.Now()
 	asts, err := parser.ParseSQL(queryStr)
