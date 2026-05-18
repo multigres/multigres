@@ -203,8 +203,8 @@ func TestGracefulShutdown_AnnouncesBeforeStop(t *testing.T) {
 
 	pm.GracefulShutdown(context.Background())
 
-	require.Equal(t, []string{"smart"}, pgctld.modesCalled(),
-		"pgctld.Stop should have been called once (smart succeeded)")
+	require.Equal(t, []string{"fast"}, pgctld.modesCalled(),
+		"pgctld.Stop should have been called once (fast succeeded)")
 
 	pm.mu.Lock()
 	got := pm.resignedLeaderAtTerm
