@@ -289,7 +289,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 //     observePosition cannot carry it.
 //
 // Result is left nil only when neither source has any information.
-func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition, rpcTold *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
+func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
 	status := &clustermetadatapb.ConsensusStatus{Id: id}
 	if revocation != nil {
 		status.TermRevocation = revocation
@@ -297,19 +297,19 @@ func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatap
 	if pos != nil {
 		status.CurrentPosition = pos
 	}
-	if highest := mergeHighestKnown(pos, rpcTold); highest != nil {
+	if highest := buildStatusReplicationPrimary(pos, replicationPrimary); highest != nil {
 		status.ReplicationPrimary = highest
 	}
 	return status
 }
 
-// mergeHighestKnown returns the HighestKnownRule to publish given the most
+// buildStatusReplicationPrimary returns the HighestKnownRule to publish given the most
 // recent observed position and the most recent rule+primary heard via RPC.
 // See buildConsensusStatus for the merge semantics.
-func mergeHighestKnown(pos *clustermetadatapb.PoolerPosition, rpcTold *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
+func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
 	observedRule := pos.GetRule()
-	rpcRule := rpcTold.GetRule()
-	rpcPrimary := rpcTold.GetPrimary()
+	rpcRule := replicationPrimary.GetRule()
+	rpcPrimary := replicationPrimary.GetPrimary()
 	if observedRule == nil && rpcRule == nil && rpcPrimary == nil {
 		return nil
 	}
