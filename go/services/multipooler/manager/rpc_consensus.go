@@ -951,18 +951,13 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			"incoming_rule", rule.GetRuleNumber(),
 			"is_primary", isPrimary,
 			"rewind_pending", needsRewind)
-		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, consensusTerm); err != nil {
+		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, rule); err != nil {
 			return nil, err
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "SetTermPrimary: updating standby primary_conninfo",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
-		pm.mu.Lock()
-		pm.primaryPoolerID = leader.GetId()
-		pm.primaryHost = leader.GetHost()
-		pm.primaryPort = port
-		pm.mu.Unlock()
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err

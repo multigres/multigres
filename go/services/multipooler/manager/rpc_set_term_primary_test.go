@@ -182,16 +182,11 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
-			// Verify primary tracking was NOT updated — SetTermPrimary short-circuited
-			// before reaching the apply branch.
-			pm.mu.Lock()
-			storedID := pm.primaryPoolerID
-			pm.mu.Unlock()
-			assert.Nil(t, storedID, "primary should not be recorded on no-op SetTermPrimary")
-
-			// But (rule, primary) MUST be recorded even on no-op paths — that's
+			// (rule, primary) MUST be recorded even on no-op paths — that's
 			// the substrate multiorch reads from the health stream to skip
-			// future redundant SetTermPrimary calls.
+			// future redundant SetTermPrimary calls. The proof that the apply
+			// branch wasn't reached is that no apply-path postgres queries
+			// were issued (ExpectationsWereMet below).
 			highest := pm.consensusState.GetReplicationPrimary()
 			require.NotNil(t, highest, "SetTermPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
@@ -256,13 +251,10 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
 		"rendered primary_conninfo should reference the new primary host")
 
-	pm.mu.Lock()
-	storedID := pm.primaryPoolerID
-	storedHost := pm.primaryHost
-	pm.mu.Unlock()
-	require.NotNil(t, storedID, "primary should be recorded after standby update")
-	assert.Equal(t, "new-primary", storedID.Name)
-	assert.Equal(t, "primary-host", storedHost)
+	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	require.NotNil(t, recorded, "primary should be recorded after standby update")
+	assert.Equal(t, "new-primary", recorded.GetId().GetName())
+	assert.Equal(t, "primary-host", recorded.GetHost())
 }
 
 // TestSetTermPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
@@ -333,13 +325,10 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 		"rendered primary_conninfo should reference the new primary host")
 
 	// Manager state recorded the new primary.
-	pm.mu.Lock()
-	storedID := pm.primaryPoolerID
-	storedHost := pm.primaryHost
-	pm.mu.Unlock()
-	require.NotNil(t, storedID)
-	assert.Equal(t, "new-primary", storedID.Name)
-	assert.Equal(t, "primary-host", storedHost)
+	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	require.NotNil(t, recorded)
+	assert.Equal(t, "new-primary", recorded.GetId().GetName())
+	assert.Equal(t, "primary-host", recorded.GetHost())
 
 	// SetTermPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
@@ -413,14 +402,9 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
-			// No primary recorded — apply branch must not have run.
-			pm.mu.Lock()
-			storedID := pm.primaryPoolerID
-			pm.mu.Unlock()
-			assert.Nil(t, storedID, "primary should not be recorded for revoked SetTermPrimary")
-
-			// RecordTermPrimary must not have run either: the (rule, leader) tuple
+			// RecordTermPrimary must not have run: the (rule, leader) tuple
 			// is not the substrate multiorch should read from a refused FYI.
+			// This is also the proof the apply branch wasn't reached.
 			highest := pm.consensusState.GetReplicationPrimary()
 			assert.Nil(t, highest, "revoked SetTermPrimary should not be recorded")
 
@@ -471,12 +455,7 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
 	assert.Equal(t, int64(3), highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
 
-	// Self's rule is higher, so the apply branch is skipped — no primary
-	// recorded in manager state, no SQL.
-	pm.mu.Lock()
-	storedID := pm.primaryPoolerID
-	pm.mu.Unlock()
-	assert.Nil(t, storedID, "self rule is higher; apply branch must not run")
-
+	// Self's rule is higher, so the apply branch is skipped — proof is that
+	// no apply-path postgres queries were issued (ExpectationsWereMet below).
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }

@@ -177,11 +177,6 @@ type MultiPoolerManager struct {
 	// (query service, heartbeat tracker) and updates the multipooler record.
 	servingState *StateManager
 
-	// The following three variables are for pgbackrest.
-	primaryPoolerID *clustermetadatapb.ID
-	primaryHost     string
-	primaryPort     int32
-
 	// metrics holds OTel gauges for pgBackRest server health.
 	metrics *Metrics
 
@@ -1992,11 +1987,6 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			"target_primary", target.GetId().GetName(),
 			"target_host", targetHost,
 			"target_port", targetPort)
-		pm.mu.Lock()
-		pm.primaryPoolerID = target.GetId()
-		pm.primaryHost = targetHost
-		pm.primaryPort = targetPort
-		pm.mu.Unlock()
 		// TODO: when rewindPending=true (an unexpected demotion happened
 		// without a follow-up pg_rewind), just setting primary_conninfo is
 		// not enough — the WAL receiver will fail to start due to timeline

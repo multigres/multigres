@@ -120,18 +120,27 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 		}
 	}
 
-	// Store primary pooler ID (nil if clearing)
-	pm.mu.Lock()
+	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
+	// source for "who is the primary now."
+	//
+	// TODO: this entire SetPrimaryConnInfo RPC goes away with the legacy
+	// consensus flow; the new flow's SetTermPrimary already carries a real
+	// ShardRule. Until then, build a minimal synthetic rule from
+	// (currentTerm, primary.Id). No consumer of rp.Rule reads cohort_members
+	// or durability_policy today, so the stub is sufficient for the
+	// rule-number ordering and self-as-leader checks that downstream code
+	// performs.
 	if primary != nil {
-		pm.primaryPoolerID = primary.Id
-		pm.primaryHost = host
-		pm.primaryPort = port
-	} else {
-		pm.primaryPoolerID = nil
-		pm.primaryHost = ""
-		pm.primaryPort = 0
+		syntheticRule := &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: currentTerm},
+			LeaderId:   primary.GetId(),
+		}
+		pm.consensusState.RecordTermPrimary(syntheticRule, &clustermetadatapb.PoolerAddress{
+			Id:           primary.GetId(),
+			Host:         host,
+			PostgresPort: port,
+		})
 	}
-	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
 	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter); err != nil {
@@ -1072,7 +1081,15 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		Host:         source.GetHostname(),
 		PostgresPort: source.GetPortMap()["postgres"],
 	}
-	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, sourceAddr, consensusTerm)
+	// TODO: this RPC will be removed in the new consensus flow; the new flow's
+	// SetTermPrimary passes the real ShardRule it received. Until then, build
+	// a synthetic rule from (term, leader_id). No consumer of rp.Rule reads
+	// cohort_members or durability_policy today.
+	syntheticRule := &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: consensusTerm},
+		LeaderId:   source.GetId(),
+	}
+	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, sourceAddr, syntheticRule)
 	if err != nil {
 		return nil, err
 	}
@@ -1113,11 +1130,13 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 	ctx context.Context,
 	source *clustermetadatapb.PoolerAddress,
-	consensusTerm int64,
+	rule *clustermetadatapb.ShardRule,
 ) (rewindPerformed bool, finalLSN string, err error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return false, "", err
 	}
+
+	ruleTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	port := source.GetPostgresPort()
 	if port == 0 {
@@ -1153,12 +1172,11 @@ func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 		"source_host", host,
 		"source_port", port)
 
-	// Store primary pooler ID for tracking
-	pm.mu.Lock()
-	pm.primaryPoolerID = source.GetId()
-	pm.primaryHost = host
-	pm.primaryPort = port
-	pm.mu.Unlock()
+	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
+	// source for "who is the primary now." The new flow's SetTermPrimary
+	// passes the real rule; the legacy DemoteStalePrimary RPC synthesises one
+	// from its term parameter.
+	pm.consensusState.RecordTermPrimary(rule, source)
 
 	// Call the locked version directly since we already hold the action lock
 	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
@@ -1169,7 +1187,7 @@ func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 	// Report the new primary (source) so the gateway can use this observation.
 	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
 		LeaderID:   source.GetId(),
-		LeaderTerm: consensusTerm,
+		LeaderTerm: ruleTerm,
 	})
 
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
