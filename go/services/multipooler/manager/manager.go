@@ -1097,6 +1097,16 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 
 // restartPostgresAsStandby restarts PostgreSQL as a standby server
 // This creates standby.signal and restarts PostgreSQL via pgctld
+//
+// TODO: require callers to declare whether this restart is a "clean" or
+// "unexpected" demote. A clean demote (graceful failover handoff, known
+// consistent WAL) should leave rewindPending=false. An unexpected demote
+// (crash, external pg_demote, monitor-driven restart after an unknown
+// shutdown) should set rewindPending=true so that the next standby-side
+// operation (Inform's standby branch, remedialActionFixPrimaryConnInfo,
+// or self-rewind detection) routes through pg_rewind dry-run before
+// trusting local WAL. Today the only setter is emergencyDemoteLocked,
+// which leaves several transition paths under-defended.
 func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
 		pm.logger.InfoContext(ctx, "PostgreSQL already running as standby, skipping")
@@ -1853,6 +1863,19 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			if pm.primaryConnInfoDiffersFromRecorded(currentState) {
 				return remedialActionFixPrimaryConnInfo
 			}
+			// TODO: self-rewind detection. A replica may need pg_rewind even
+			// when it was never primary — phantom transactions can leak in
+			// (e.g. via a brief sync-replication ack that got rolled back on
+			// the primary). The old consensus flow let orch re-issue an
+			// explicit rewind whenever it suspected one; the new flow's
+			// Inform is idempotent and won't repeat work, so the monitor
+			// needs to self-detect stuck replication. Check
+			// pg_stat_wal_receiver.status: if not "streaming" for
+			// >stuckThreshold AND we have a recorded primary, treat as
+			// suspected divergence — set rewindPending=true so the next
+			// remedialActionFixPrimaryConnInfo iteration runs
+			// pg_rewind dry-run before re-establishing replication. Cheap
+			// when no divergence, conclusive when there is.
 		}
 		return remedialActionNone // Pooler type already matches
 	}
@@ -1938,6 +1961,14 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.primaryHost = targetHost
 		pm.primaryPort = targetPort
 		pm.mu.Unlock()
+		// TODO: when rewindPending=true (an unexpected demotion happened
+		// without a follow-up pg_rewind), just setting primary_conninfo is
+		// not enough — the WAL receiver will fail to start due to timeline
+		// divergence. Route through demoteStalePrimaryLocked instead, which
+		// runs pg_rewind dry-run (cheap when there's no divergence) before
+		// re-establishing replication. This would let the monitor self-heal
+		// a stuck-replica scenario without waiting for orch's
+		// FixReplicationAction to issue a RewindToSource RPC.
 		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile primary_conninfo", "error", err)
@@ -2010,6 +2041,22 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 }
 
 // startPostgres starts PostgreSQL via pgctld
+//
+// TODO: preemptive-rewind safety. A monitor-driven restart can't know what
+// happened between the previous run and now — postgres may have crashed
+// mid-write as primary, or may have been killed externally. The safe default
+// is to come back as a standby with rewindPending=true so that the next
+// Inform/Propose/standby-conninfo path routes through demoteStalePrimaryLocked
+// (which runs pg_rewind dry-run; cheap when there's no divergence) before
+// trusting local WAL. This bears on the broader self-rewind plan:
+//   - replicas with phantom transactions: orch sends an explicit
+//     RewindToSource RPC today; a future change should let the local monitor
+//     detect stuck replication and self-heal without needing orch in the loop.
+//   - primaries demoted unexpectedly (crash, SIGKILL, external pg_demote):
+//     the restart-as-standby helper should require callers to declare
+//     "clean" vs "unexpected" so an unexpected transition can set
+//     rewindPending up front, increasing the odds of fast convergence once
+//     a new leader is announced.
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
 	if pm.pgctldClient == nil {
