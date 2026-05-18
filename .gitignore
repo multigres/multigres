@@ -59,6 +59,7 @@ super-linter-output/
 .claude/settings.local.json
 .claude/commands/*.local.md
 .claude/scheduled_tasks/
+.claude/scheduled_tasks.lock
 .claude/worktrees/
 CLAUDE.local.md
 

@@ -337,6 +337,9 @@ enum ReservationReason {
   RESERVATION_REASON_COPY = 8;         // 0b1000
   // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
   RESERVATION_REASON_LISTEN = 16;      // 0b10000
+  // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+  // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+  RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

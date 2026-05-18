@@ -467,6 +467,16 @@ func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]strin
 	})
 }
 
+// NewLogicalReplicationConn returns a Postgres connection opened in
+// replication mode (replication=database) and tagged with
+// ReasonLogicalReplication, on the specified user's reserved pool. SCRAM
+// passthrough key semantics match NewReservedConn.
+func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
+	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+		return pool.NewLogicalReplicationConn(ctx)
+	})
+}
+
 // evictUserPool removes stale from the snapshot and closes it. Used when a
 // pool's cached SCRAM keys no longer match pg_authid — typically because the
 // user rotated their PostgreSQL password — so the next getOrCreateUserPool
