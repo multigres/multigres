@@ -200,8 +200,8 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 		"sanity check: original conninfo should point at the real primary host")
 
 	// Clobber primary_conninfo with a different, unreachable host. The string
-	// is intentionally parseable so primaryConnInfoDiffersFromRecorded takes
-	// its host-mismatch branch (not the unparseable fallback). ALTER SYSTEM
+	// is intentionally parsable so primaryConnInfoDiffersFromRecorded takes
+	// its host-mismatch branch (not the unparsable fallback). ALTER SYSTEM
 	// does not accept query parameters, so the value is inlined; pg_reload_conf
 	// makes the new value visible to subsequent reads.
 	//
