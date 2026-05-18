@@ -107,6 +107,19 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 
 	pm.stopPostgresLocked(lockCtx)
 
+	// Signal long-lived subscribers (health-stream gRPC handlers) that the
+	// manager is shutting down. Their cleanup goroutines close subscriber
+	// channels, which makes the gRPC handlers return Unavailable and unblocks
+	// servenv's parallel grpcServer.GracefulStop hook. Without this, the
+	// handlers sit in `select { <-pollTicker.C }` forever and GracefulStop
+	// only completes when servenv's --onterm-timeout fires.
+	//
+	// Nil guard: some unit tests construct MultiPoolerManager via struct
+	// literal without going through NewMultiPoolerManager.
+	if pm.shutdownCancel != nil {
+		pm.shutdownCancel()
+	}
+
 	pm.logger.InfoContext(lockCtx, "graceful shutdown sequence complete")
 }
 

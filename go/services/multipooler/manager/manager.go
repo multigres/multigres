@@ -116,6 +116,15 @@ type MultiPoolerManager struct {
 	cancel         context.CancelFunc
 	loadTimeout    time.Duration
 
+	// shutdownCtx is cancelled at the end of GracefulShutdown to signal
+	// long-lived subscribers (currently the health-stream gRPC handlers via
+	// SubscribeHealth) that they should disconnect immediately rather than
+	// wait for their own context to be cancelled. This unblocks
+	// grpcServer.GracefulStop, which would otherwise wait for the stream
+	// handlers to return on their own.
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+
 	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
 	// Unbuffered is safe here because we only close() the channel (which never blocks
 	// and broadcasts to all receivers) rather than sending to it.
@@ -294,6 +303,14 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// shutdownCtx is independent of ctx: ctx is recreated on every Open(),
+	// while shutdownCtx exists for the lifetime of the manager and is
+	// cancelled exactly once, by GracefulShutdown. Background root is
+	// intentional: this ctx must outlive any Open()/Close() cycle so
+	// long-lived stream subscribers can keep watching it.
+	//nolint:gocritic // intentional; see comment above
+	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(context.Background())
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
