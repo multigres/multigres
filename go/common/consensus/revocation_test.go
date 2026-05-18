@@ -90,6 +90,22 @@ func TestValidateRevocation(t *testing.T) {
 			wantErr: "outgoing_rule is required",
 		},
 		{
+			// outgoing_rule.coordinator_term must be strictly less than
+			// revoked_below_term. NewTermRevocation always produces values that
+			// satisfy this, but a hand-built revocation (e.g. from an external
+			// agent constructing a cert) could violate it and ValidateRevocation
+			// catches it on read.
+			name:   "OutgoingRuleTermAtOrAboveRevokedBelow_Refused",
+			status: nil,
+			revocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       5,
+				AcceptedCoordinatorId:  coordA,
+				CoordinatorInitiatedAt: ts1,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			},
+			wantErr: "outgoing_rule coordinator_term 5 >= revoked_below_term 5",
+		},
+		{
 			name:       "NilStatus_Refused",
 			status:     nil,
 			revocation: revocationAt5,
@@ -256,29 +272,52 @@ func TestNewTermRevocation(t *testing.T) {
 		require.Nil(t, rev)
 	})
 
-	t.Run("fresh cluster - statuses with no term history", func(t *testing.T) {
+	t.Run("no cohort member has a recorded rule returns error", func(t *testing.T) {
+		// Bootstrap-shaped scenario: cohort visible but nobody reports a
+		// rule. NewTermRevocation refuses; the agent should construct the
+		// revocation directly with an explicit outgoing_rule.
 		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
 		rev, err := NewTermRevocation(statuses, coord)
-		require.NoError(t, err)
-		require.Equal(t, int64(1), rev.GetRevokedBelowTerm())
-		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
-		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
-		// outgoing_rule is always populated; on a fresh cluster it is the
-		// zero-valued RuleNumber so any future rule beats it.
-		require.NotNil(t, rev.GetOutgoingRule())
-		require.Equal(t, int64(0), rev.GetOutgoingRule().GetCoordinatorTerm())
-		require.Equal(t, int64(0), rev.GetOutgoingRule().GetLeaderSubterm())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
+		require.Nil(t, rev)
 	})
 
-	t.Run("uses max of revocation terms", func(t *testing.T) {
+	t.Run("revocation-term-only statuses with no recorded rule return error", func(t *testing.T) {
+		// Same shape: statuses carry a stored revocation but no recorded
+		// rule. NewTermRevocation requires at least one rule to derive
+		// outgoing_rule from.
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
-			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}},
+		}
+		rev, err := NewTermRevocation(statuses, coord)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
+		require.Nil(t, rev)
+	})
+
+	t.Run("revocation term + recorded rule: max across both", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{
+				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7},
+				CurrentPosition: positionAtCoordTerm(4),
+			},
+			{
+				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
+				CurrentPosition: positionAtCoordTerm(4),
+			},
+			{
+				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+				CurrentPosition: positionAtCoordTerm(4),
+			},
 		}
 		rev, err := NewTermRevocation(statuses, coord)
 		require.NoError(t, err)
 		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
+		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
+		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
+		require.Equal(t, int64(4), rev.GetOutgoingRule().GetCoordinatorTerm())
 	})
 
 	t.Run("uses max of recorded rule terms", func(t *testing.T) {

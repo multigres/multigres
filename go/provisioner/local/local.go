@@ -811,15 +811,17 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
 
 	// Pass POSTGRES_PASSWORD so multipooler can authenticate to the admin pool.
-	// Read from the password file written by initializePgctldDirectories; fall back to "postgres".
-	pgPassword := "postgres"
-	if content, err := os.ReadFile(filepath.Join(poolerDir, "pgpassword.txt")); err == nil {
-		pgPassword = strings.TrimSpace(string(content))
+	// Source it from the same pgctld config block pgctld itself uses, so both
+	// services agree on the credential. Required: multipooler refuses to start
+	// without it (pg_hba.conf uses scram-sha-256 for every connection).
+	pgPassword, ok := pgctldConfig["password"].(string)
+	if !ok || pgPassword == "" {
+		return nil, fmt.Errorf("pgctld password not configured for cell %s: set pg-password in the local provisioner config", cell)
 	}
-	multipoolerCmd.Env = append(os.Environ(), "POSTGRES_PASSWORD="+pgPassword)
-
-	// Set PGDATA so multipooler knows where the PostgreSQL data directory is.
-	multipoolerCmd.Env = append(os.Environ(), constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"))
+	multipoolerCmd.Env = append(os.Environ(),
+		"POSTGRES_PASSWORD="+pgPassword,
+		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+	)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 

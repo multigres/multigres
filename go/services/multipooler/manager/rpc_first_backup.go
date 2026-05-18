@@ -28,7 +28,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -222,7 +221,7 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := executil.Command(stanzaCtx, "pgbackrest",
+	cmd := pm.pgbackrestCmd(stanzaCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"stanza-create")

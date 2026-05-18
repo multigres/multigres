@@ -15,6 +15,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -132,7 +133,7 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 
 	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
 		"create_database", createDB, "init_sql_files", len(cfg.InitdbSQLFiles))
-	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg.Port, cfg.User)
+	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg)
 	if err != nil {
 		return err
 	}
@@ -240,31 +241,34 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// the backup.
 	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", cfg.User}
 
-	// If password is provided, create a temporary password file for initdb
-	var tempPwFile string
-	if cfg.Password != "" {
-		// Create temporary password file
-		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
-		if err != nil {
-			return fmt.Errorf("failed to create temporary password file: %w", err)
-		}
-		tempPwFile = tmpFile.Name()
-		defer os.Remove(tempPwFile)
-
-		if _, err := tmpFile.WriteString(cfg.Password); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("failed to write password to temporary file: %w", err)
-		}
-		if err := tmpFile.Close(); err != nil {
-			return fmt.Errorf("failed to close temporary password file: %w", err)
-		}
-
-		// Add pwfile argument to initdb
-		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
-	} else {
-		logger.Warn("No password provided - skipping password setup", "user", cfg.User, "warning", "PostgreSQL user will not have password authentication enabled")
+	// Password is required: pg_hba.conf uses scram-sha-256 for all connections,
+	// including the local socket, so initdb must set a password.
+	if cfg.Password == "" {
+		return errors.New("POSTGRES_PASSWORD must be set before initializing data directory")
 	}
+
+	// Write the password to a temporary file for initdb --pwfile. The filename
+	// uses a random pattern with no prefix so the file's purpose isn't
+	// advertised in /tmp listings. This is the only way to set the password
+	// during initdb without exposing it in process arguments or environment
+	// variables, and the file is removed immediately after initdb completes.
+	tmpFile, err := os.CreateTemp("", "*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary password file: %w", err)
+	}
+	tempPwFile := tmpFile.Name()
+	defer os.Remove(tempPwFile)
+
+	if _, err := tmpFile.WriteString(cfg.Password); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write password to temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary password file: %w", err)
+	}
+
+	args = append(args, "--pwfile="+tempPwFile)
+	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
 
 	if cfg.InitdbArgs != "" {
 		args = append(args, strings.Fields(cfg.InitdbArgs)...)
@@ -279,10 +283,7 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-
-	if cfg.Password != "" {
-		logger.Info("User password set successfully", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
-	}
+	logger.Info("User password set successfully", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
 
 	return nil
 }

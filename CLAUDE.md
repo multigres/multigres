@@ -58,6 +58,7 @@ make clean      # Remove build artifacts
 ### Development Workflow
 
 - Run `make proto` after modifying `.proto` files
+- Run `make build-all` after adding or removing AST node types in `go/common/parser/ast/`. The asthelpergen tool walks the AST types and regenerates `ast_clone.go` and `ast_rewrite.go` — they must be committed alongside the new types or the `validate-generated-files` CI job will fail. (`make parser` alone is not enough; it only runs goyacc.)
 - Use `/mt-dev` skill for all test execution (unit and integration)
 - Unit tests run directly; integration tests automatically run `make build` first
 

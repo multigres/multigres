@@ -1802,8 +1802,8 @@ func (x *TermRevocation) GetOutgoingRule() *RuleNumber {
 // The external actor certifies:
 //
 //  1. No pooler in the outgoing cohort can make progress beyond frozen_lsn
-//     under outgoing_rule_number — all durable transactions at the time of
-//     revocation are captured at or below that position.
+//     under term_revocation.outgoing_rule — all durable transactions at the
+//     time of revocation are captured at or below that position.
 //
 //  2. The term in term_revocation is globally unique; no other coordinator has
 //     used or will use it.
@@ -1812,18 +1812,17 @@ func (x *TermRevocation) GetOutgoingRule() *RuleNumber {
 // it is acting on an external request.
 type ExternallyCertifiedRevocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The rule number being superseded. Identifies which outgoing cohort is frozen.
-	OutgoingRuleNumber *RuleNumber `protobuf:"bytes,1,opt,name=outgoing_rule_number,json=outgoingRuleNumber,proto3" json:"outgoing_rule_number,omitempty"`
+	// Records the unique coordinator term for this proposal, the coordinator
+	// facilitating the request, and the outgoing_rule the cohort is being
+	// transitioned from. The coordinator fills this in even though it is acting
+	// on behalf of an external operator request.
+	TermRevocation *TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
 	// The LSN at which the outgoing cohort's progress is frozen. No durable writes
-	// occurred beyond this position under outgoing_rule_number. The chosen leader's
-	// WAL position must meet or exceed this LSN.
-	FrozenLsn string `protobuf:"bytes,2,opt,name=frozen_lsn,json=frozenLsn,proto3" json:"frozen_lsn,omitempty"`
-	// Records the unique coordinator term for this proposal and the coordinator
-	// facilitating the request. The coordinator fills this in even though it is
-	// acting on behalf of an external operator request.
-	TermRevocation *TermRevocation `protobuf:"bytes,3,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// occurred beyond this position under term_revocation.outgoing_rule. The chosen
+	// leader's WAL position must meet or exceed this LSN.
+	FrozenLsn     string `protobuf:"bytes,2,opt,name=frozen_lsn,json=frozenLsn,proto3" json:"frozen_lsn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExternallyCertifiedRevocation) Reset() {
@@ -1856,9 +1855,9 @@ func (*ExternallyCertifiedRevocation) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ExternallyCertifiedRevocation) GetOutgoingRuleNumber() *RuleNumber {
+func (x *ExternallyCertifiedRevocation) GetTermRevocation() *TermRevocation {
 	if x != nil {
-		return x.OutgoingRuleNumber
+		return x.TermRevocation
 	}
 	return nil
 }
@@ -1868,13 +1867,6 @@ func (x *ExternallyCertifiedRevocation) GetFrozenLsn() string {
 		return x.FrozenLsn
 	}
 	return ""
-}
-
-func (x *ExternallyCertifiedRevocation) GetTermRevocation() *TermRevocation {
-	if x != nil {
-		return x.TermRevocation
-	}
-	return nil
 }
 
 // ConsensusStatus is a pooler's complete view of its position in the distributed
@@ -2263,12 +2255,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
 	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +
 	"\x18coordinator_initiated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x16coordinatorInitiatedAt\x12@\n" +
-	"\routgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\foutgoingRule\"\xd7\x01\n" +
-	"\x1dExternallyCertifiedRevocation\x12M\n" +
-	"\x14outgoing_rule_number\x18\x01 \x01(\v2\x1b.clustermetadata.RuleNumberR\x12outgoingRuleNumber\x12\x1d\n" +
+	"\routgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\foutgoingRule\"\x88\x01\n" +
+	"\x1dExternallyCertifiedRevocation\x12H\n" +
+	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12\x1d\n" +
 	"\n" +
-	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\x12H\n" +
-	"\x0fterm_revocation\x18\x03 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"\xa2\x02\n" +
+	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\"\xa2\x02\n" +
 	"\x0fConsensusStatus\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
 	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12T\n" +
@@ -2390,21 +2381,20 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	17, // 27: clustermetadata.TermRevocation.accepted_coordinator_id:type_name -> clustermetadata.ID
 	33, // 28: clustermetadata.TermRevocation.coordinator_initiated_at:type_name -> google.protobuf.Timestamp
 	20, // 29: clustermetadata.TermRevocation.outgoing_rule:type_name -> clustermetadata.RuleNumber
-	20, // 30: clustermetadata.ExternallyCertifiedRevocation.outgoing_rule_number:type_name -> clustermetadata.RuleNumber
-	24, // 31: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
-	24, // 32: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
-	22, // 33: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
-	23, // 34: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
-	17, // 35: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	3,  // 36: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	27, // 37: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	29, // 38: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
-	4,  // 39: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
-	40, // [40:40] is the sub-list for method output_type
-	40, // [40:40] is the sub-list for method input_type
-	40, // [40:40] is the sub-list for extension type_name
-	40, // [40:40] is the sub-list for extension extendee
-	0,  // [0:40] is the sub-list for field type_name
+	24, // 30: clustermetadata.ExternallyCertifiedRevocation.term_revocation:type_name -> clustermetadata.TermRevocation
+	24, // 31: clustermetadata.ConsensusStatus.term_revocation:type_name -> clustermetadata.TermRevocation
+	22, // 32: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
+	23, // 33: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
+	17, // 34: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
+	3,  // 35: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	27, // 36: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	29, // 37: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
+	4,  // 38: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
