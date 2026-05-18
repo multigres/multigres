@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -309,8 +310,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// cancelled exactly once, by GracefulShutdown. Background root is
 	// intentional: this ctx must outlive any Open()/Close() cycle so
 	// long-lived stream subscribers can keep watching it.
-	//nolint:gocritic // intentional; see comment above
-	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(context.Background())
+	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(ctxutil.Detach(ctx))
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
