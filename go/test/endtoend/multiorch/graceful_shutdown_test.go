@@ -82,11 +82,16 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 
-	// Wait for multiorch to establish health streams to all poolers and see a
-	// clean cluster state. Without this, the REQUESTING_DEMOTION announcement
-	// we make below can race a stream that's still being established and
-	// multiorch never receives the signal.
+	// Wait for multiorch to settle to a clean cluster state, then for it to
+	// actually establish health streams to every pooler. The
+	// RequireRecovery-only gate is satisfied by topology state alone — it
+	// can return before the orchestrator has subscribed to the
+	// ManagerHealthStream, in which case the REQUESTING_DEMOTION snapshot
+	// our SIGTERM produces never reaches multiorch and failover falls back
+	// to the slow LeaderIsDeadAnalyzer path. The streams check closes that
+	// window.
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	oldPrimary := setup.GetPrimary(t)
 	require.NotNil(t, oldPrimary, "primary instance should exist")
@@ -189,6 +194,7 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
 	require.NotEmpty(t, primaryName, "initial primary must be elected")
@@ -272,6 +278,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
 	require.NotEmpty(t, primaryName)
@@ -379,6 +386,7 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
 	require.NotEmpty(t, primaryName)
