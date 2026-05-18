@@ -1669,6 +1669,23 @@ func TestPropose(t *testing.T) {
 			expectErrContains: "proposal.proposal_leader is required",
 		},
 		{
+			// proposal_leader is present but its id is missing. The handler must
+			// reject before any postgres work — it can't know who to promote.
+			name:        "NilProposalLeaderId",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{},
+			req: &consensusdatapb.ProposeRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: recruitedTerm,
+					ProposalLeader: &clustermetadatapb.PoolerAddress{PostgresPort: 5432},
+					ProposedRule:   validProposedRule,
+				},
+			},
+			setupMocks:        func(m *mock.QueryService) {},
+			expectError:       true,
+			expectErrContains: "proposal.proposal_leader.id is required",
+		},
+		{
 			name:        "ZeroPostgresPort",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{},
@@ -1874,6 +1891,58 @@ func TestPropose(t *testing.T) {
 			},
 			expectError:       true,
 			expectErrContains: "non-leaders should be told via SetTermPrimary",
+		},
+		{
+			// DurabilityPolicy is structurally invalid (RequiredCount=0 violates
+			// AT_LEAST_N's invariant). syncConfigFromProposedRule fails before
+			// any postgres GUCs are written; Propose must propagate the error.
+			name:        "InvalidDurabilityPolicy",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.ProposeRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: recruitedTerm,
+					ProposalLeader: &clustermetadatapb.PoolerAddress{
+						Id:           selfID,
+						Host:         "pg-primary.internal",
+						PostgresPort: 5432,
+					},
+					ProposedRule: &clustermetadatapb.ShardRule{
+						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+							RequiredCount: 0,
+						},
+					},
+				},
+			},
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyReadyMocks(m)
+				// checkPromotionState: standby.
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+			},
+			expectError:       true,
+			expectErrContains: "cannot derive sync config",
+		},
+		{
+			// fakeRuleStore.updateRule returns an error after the postgres
+			// promote has already happened. Propose must propagate that error
+			// rather than mark the promotion successful — the rule write is
+			// the durability gate, and a failure here means the new primary
+			// hasn't satisfied sync replication.
+			name:        "UpdateRuleFails",
+			initialTerm: recruitedTerm,
+			ruleStore: &fakeRuleStore{
+				pos:       makeRulePosition(0),
+				updateErr: errors.New("rule store offline"),
+			},
+			req: makeLeaderReq(),
+			setupMocks: func(m *mock.QueryService) {
+				expectLeaderProposeMocks(m, "0/5000000")
+			},
+			expectError:       true,
+			expectErrContains: "propose failed: could not write rule",
 		},
 	}
 

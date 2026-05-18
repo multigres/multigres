@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -458,4 +459,91 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	// Self's rule is higher, so the apply branch is skipped — proof is that
 	// no apply-path postgres queries were issued (ExpectationsWereMet below).
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// TestSetTermPrimary_ApplyPathErrors covers the post-revocation-check error
+// paths in SetTermPrimary: observePosition, isPrimary, and the standby branch's
+// setPrimaryConnInfoLocked. Each case drives the handler past validation and
+// the revocation gate, then injects a failure at a single downstream step
+// and asserts the error is propagated (wrapped) to the caller.
+//
+// The stale-primary branch's demote error path is already exercised end-to-end
+// by TestDemoteStalePrimary_UpdatesConsensusTerm in rpc_manager_test.go, so
+// it's not re-tested here.
+func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		// ruleStore overrides the default fakeRuleStore. Used to inject
+		// observePosition failures.
+		ruleStore *fakeRuleStore
+		// setupMocks runs after the default fakeRuleStore (if used) but before
+		// the SetTermPrimary call, to inject postgres-query failures.
+		setupMocks     func(*mock.QueryService)
+		expectErrMatch string
+	}{
+		{
+			// observePosition fails: SetTermPrimary cannot decide whether the
+			// incoming rule is higher than the recorded one. Caller learns about
+			// the failure rather than silently dropping the SetTermPrimary.
+			name: "ObservePositionFails",
+			ruleStore: &fakeRuleStore{
+				pos:        makeRulePosition(3),
+				observeErr: errors.New("rule store offline"),
+			},
+			setupMocks:     func(_ *mock.QueryService) {},
+			expectErrMatch: "failed to observe local position",
+		},
+		{
+			// isPrimary check (pg_is_in_recovery) fails: SetTermPrimary cannot
+			// route between the standby and stale-primary branches.
+			name:      "IsPrimaryQueryFails",
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(3)},
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_is_in_recovery",
+					errors.New("postgres unreachable"))
+			},
+			expectErrMatch: "failed to check recovery status",
+		},
+		{
+			// setPrimaryConnInfoLocked fails in the standby branch: postgres
+			// reload errors are surfaced rather than swallowed.
+			name:      "SetPrimaryConnInfoFails",
+			ruleStore: &fakeRuleStore{pos: makeRulePosition(3)},
+			setupMocks: func(m *mock.QueryService) {
+				// Route to the standby branch: isPrimary -> "t" (in recovery).
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// setPrimaryConnInfoLocked's own isPrimary guardrail.
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// pauseReplication: pg_wal_replay_pause + verify paused.
+				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+					mock.MakeQueryResult(nil, nil))
+				m.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+					mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+				// ALTER SYSTEM SET primary_conninfo fails.
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET primary_conninfo",
+					errors.New("disk full"))
+			},
+			expectErrMatch: "disk full",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockQueryService := mock.NewQueryService()
+			tt.setupMocks(mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
+
+			leader := newLeaderAddress("new-primary", "primary-host", 5432)
+			req := &consensusdatapb.SetTermPrimaryRequest{
+				Leader: leader,
+				Rule:   ruleAtTermForLeader(leader, 10),
+			}
+			resp, err := pm.SetTermPrimary(t.Context(), req)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectErrMatch)
+			assert.Nil(t, resp)
+		})
+	}
 }
