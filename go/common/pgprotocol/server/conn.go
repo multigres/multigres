@@ -346,7 +346,9 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
-// ReplicationMode returns the replication-protocol mode set during startup.
+// ReplicationMode returns the parsed `replication` startup parameter for this
+// connection. ReplicationOff means the client did not request a replication
+// connection (or sent replication=false).
 func (c *Conn) ReplicationMode() ReplicationMode {
 	return c.replicationMode
 }
@@ -362,13 +364,6 @@ func (c *Conn) ScramClientKey() []byte {
 // verifier, or nil if the session did not authenticate via SCRAM.
 func (c *Conn) ScramServerKey() []byte {
 	return c.scramServerKey
-}
-
-// ReplicationMode returns the parsed `replication` startup parameter for this
-// connection. ReplicationOff means the client did not request a replication
-// connection (or sent replication=false).
-func (c *Conn) ReplicationMode() ReplicationMode {
-	return c.replicationMode
 }
 
 // GetStartupParams returns the startup parameters sent by the client,
