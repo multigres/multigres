@@ -218,6 +218,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	recruitTerm := oldPrimaryTerm + 1
 	t.Logf("Calling Recruit on primary %s with term %d to trigger emergency demotion", currentPrimaryName, recruitTerm)
 
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
 	recruitReq := &consensusdatapb.RecruitRequest{
 		TermRevocation: &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm: recruitTerm,
@@ -227,6 +229,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 				Name:      "test-coordinator",
 			},
 			CoordinatorInitiatedAt: timestamppb.Now(),
+			OutgoingRule:           outgoingRule,
 		},
 	}
 	recruitResp, err := primaryClient.Consensus.Recruit(utils.WithTimeout(t, 10*time.Second), recruitReq)
