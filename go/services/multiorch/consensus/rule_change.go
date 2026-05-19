@@ -304,7 +304,7 @@ func (r *coordinatorLedRuleChange) propose(
 // any pooler reaching this point is treated as a valid leader candidate.
 func buildFailoverProposal(
 	result commonconsensus.RecruitmentResult,
-	poolerByID map[string]*clustermetadatapb.MultiPooler,
+	addressByID map[string]*clustermetadatapb.PoolerAddress,
 ) (*consensusdatapb.CoordinatorProposal, error) {
 	if result.OutgoingRule == nil {
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
@@ -314,18 +314,14 @@ func buildFailoverProposal(
 	}
 	leader := result.EligibleLeaders[0]
 
-	mp, ok := poolerByID[topoclient.ClusterIDString(leader.GetId())]
+	addr, ok := addressByID[topoclient.ClusterIDString(leader.GetId())]
 	if !ok {
 		return nil, fmt.Errorf("leader %s not found in cohort", leader.GetId().GetName())
 	}
 
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &clustermetadatapb.PoolerAddress{
-			Id:           leader.GetId(),
-			Host:         mp.GetHostname(),
-			PostgresPort: mp.GetPortMap()["postgres"],
-		},
+		ProposalLeader: addr,
 		ProposedRule: &clustermetadatapb.ShardRule{
 			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
 			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
@@ -349,23 +345,19 @@ func buildBootstrapProposal(
 	result commonconsensus.RecruitmentResult,
 	cohortIDs []*clustermetadatapb.ID,
 	policy *clustermetadatapb.DurabilityPolicy,
-	poolerByID map[string]*clustermetadatapb.MultiPooler,
+	addressByID map[string]*clustermetadatapb.PoolerAddress,
 ) (*consensusdatapb.CoordinatorProposal, error) {
 	if len(result.EligibleLeaders) == 0 {
 		return nil, errors.New("no eligible leaders for bootstrap proposal")
 	}
 	leader := result.EligibleLeaders[0]
-	mp, ok := poolerByID[topoclient.ClusterIDString(leader.GetId())]
+	addr, ok := addressByID[topoclient.ClusterIDString(leader.GetId())]
 	if !ok {
 		return nil, fmt.Errorf("leader %s not found in cohort", leader.GetId().GetName())
 	}
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &clustermetadatapb.PoolerAddress{
-			Id:           leader.GetId(),
-			Host:         mp.GetHostname(),
-			PostgresPort: mp.GetPortMap()["postgres"],
-		},
+		ProposalLeader: addr,
 		ProposedRule: &clustermetadatapb.ShardRule{
 			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
 			CohortMembers:    cohortIDs,
@@ -401,15 +393,17 @@ func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*m
 	return nil
 }
 
-// buildCohortMaps returns pooler-by-ID and health-by-ID lookup maps built from
-// a cohort slice. Keys are ClusterIDString values.
-func buildCohortMaps(cohort []*multiorchdatapb.PoolerHealthState) (map[string]*clustermetadatapb.MultiPooler, map[string]*multiorchdatapb.PoolerHealthState) {
-	poolerByID := make(map[string]*clustermetadatapb.MultiPooler, len(cohort))
+// buildCohortMaps returns address-by-ID and health-by-ID lookup maps built
+// from a cohort slice. Keys are ClusterIDString values. Consensus paths only
+// need the leader's contact info to build proposals, so the cohort map is
+// flattened to PoolerAddress here.
+func buildCohortMaps(cohort []*multiorchdatapb.PoolerHealthState) (map[string]*clustermetadatapb.PoolerAddress, map[string]*multiorchdatapb.PoolerHealthState) {
+	addressByID := make(map[string]*clustermetadatapb.PoolerAddress, len(cohort))
 	healthByID := make(map[string]*multiorchdatapb.PoolerHealthState, len(cohort))
 	for _, p := range cohort {
 		key := topoclient.ClusterIDString(p.MultiPooler.Id)
-		poolerByID[key] = p.MultiPooler
+		addressByID[key] = topoclient.PoolerAddressFor(p.MultiPooler)
 		healthByID[key] = p
 	}
-	return poolerByID, healthByID
+	return addressByID, healthByID
 }

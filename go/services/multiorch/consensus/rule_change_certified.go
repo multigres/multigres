@@ -62,7 +62,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return err
 	}
 
-	poolerByID, cohort, err := c.resolveCohort(ctx, proposedRule.GetCohortMembers())
+	addressByID, cohort, err := c.resolveCohort(ctx, proposedRule.GetCohortMembers())
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	// MultiPooler for every cohort member, so this lookup cannot fail in
 	// practice. The explicit check guards against future refactors.
 	leaderKey := topoclient.ClusterIDString(proposedRule.GetLeaderId())
-	leaderPooler, ok := poolerByID[leaderKey]
+	leaderAddr, ok := addressByID[leaderKey]
 	if !ok {
 		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 			"leader %s is not a member of the proposed cohort (should be unreachable)", leaderKey)
@@ -90,12 +90,8 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	revocation := cert.GetTermRevocation()
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: revocation,
-		ProposalLeader: &clustermetadatapb.PoolerAddress{
-			Id:           proposedRule.GetLeaderId(),
-			Host:         leaderPooler.GetHostname(),
-			PostgresPort: leaderPooler.GetPortMap()["postgres"],
-		},
-		ProposedRule: proposedRule,
+		ProposalLeader: leaderAddr,
+		ProposedRule:   proposedRule,
 	}
 
 	buildProposal := func(_ commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
@@ -208,15 +204,15 @@ func checkNoShardPoolerAheadOfOutgoingRule(
 	return nil
 }
 
-// resolveCohort looks up each cohort member ID in topology and returns a
-// lookup map by ClusterIDString plus a PoolerHealthState slice for the
+// resolveCohort looks up each cohort member ID in topology and returns an
+// address-by-ID lookup map plus a PoolerHealthState slice for the
 // coordinatorLedRuleChange runner. PoolerHealthState entries carry only
 // MultiPooler — consensus statuses are gathered fresh during recruit.
 func (c *Coordinator) resolveCohort(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
-) (map[string]*clustermetadatapb.MultiPooler, []*multiorchdatapb.PoolerHealthState, error) {
-	poolerByID := make(map[string]*clustermetadatapb.MultiPooler, len(cohortMembers))
+) (map[string]*clustermetadatapb.PoolerAddress, []*multiorchdatapb.PoolerHealthState, error) {
+	addressByID := make(map[string]*clustermetadatapb.PoolerAddress, len(cohortMembers))
 	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortMembers))
 	for _, id := range cohortMembers {
 		info, err := c.topoStore.GetMultiPooler(ctx, id)
@@ -225,12 +221,12 @@ func (c *Coordinator) resolveCohort(
 				"failed to look up cohort member %s", topoclient.ClusterIDString(id))
 		}
 		key := topoclient.ClusterIDString(id)
-		poolerByID[key] = info.MultiPooler
+		addressByID[key] = topoclient.PoolerAddressFor(info.MultiPooler)
 		cohort = append(cohort, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: info.MultiPooler,
 		})
 	}
-	return poolerByID, cohort, nil
+	return addressByID, cohort, nil
 }
 
 // validateCertifiedRuleChange enforces the shape contract documented on the
