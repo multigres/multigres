@@ -232,6 +232,11 @@ func (t *TransactionPrimitive) executeRollback(
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
+	// PostgreSQL closes every open cursor on ROLLBACK, including `WITH HOLD`
+	// ones. Drop the gateway's HOLD-cursor bookkeeping so a subsequent
+	// CLOSE-or-FETCH won't think a now-gone cursor is still open. The
+	// multipooler-side pin set is dropped inside ConcludeTransaction.
+	state.ClearOpenHoldCursors()
 	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
 	// snapshot so any SET / RESET issued in the transaction is reverted.
 	state.RollbackTransaction()

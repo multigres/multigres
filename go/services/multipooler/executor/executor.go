@@ -420,6 +420,14 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.AddReservationReason(nonBeginReasons)
 	}
 
+	// Register pin-portal entries from the gateway. Each name is a cursor
+	// declared with WITH HOLD; ReserveForPortal adds the name to the
+	// per-conn portal set and ORs ReasonPortal into the reservation
+	// bitmask (idempotent with the AddReservationReason call above).
+	for _, name := range reservationOptions.GetPinPortalNames() {
+		reservedConn.ReserveForPortal(name)
+	}
+
 	// If this is a transaction reservation, execute BEGIN first.
 	// The BEGIN result is not sent to the callback — it's an internal setup detail.
 	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
@@ -491,9 +499,34 @@ func (e *Executor) streamExecuteOnReservedConn(
 		}
 	}
 
+	// Register pin-portal entries for DECLARE … WITH HOLD before running
+	// the DECLARE itself. Done up-front so that if the DECLARE fails on
+	// the backend the caller can still rely on the pin bitmask to keep
+	// the conn until ROLLBACK / session-end cleanup runs.
+	for _, name := range reservationOptions.GetPinPortalNames() {
+		rc.ReserveForPortal(name)
+	}
+
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
 		// Query failed but connection still exists — return current state
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
+	}
+
+	// Apply portal releases after the query succeeds. CLOSE forwards the
+	// statement to PG first; only on success do we unpin so the
+	// gateway's HOLD-cursor bookkeeping matches the server side. If the
+	// final release drains every reservation reason, return the backend
+	// to the pool and surface a zero ReservedState so the gateway clears
+	// its tracking.
+	shouldRelease := false
+	for _, name := range reservationOptions.GetReleasePortalNames() {
+		if rc.ReleasePortal(name) {
+			shouldRelease = true
+		}
+	}
+	if shouldRelease && rc.RemainingReasons() == 0 {
+		rc.Release(reserved.ReleasePortalComplete)
+		return nil, nil
 	}
 
 	return e.buildReservedStateFromAPI(rc), nil
@@ -1239,6 +1272,11 @@ func (e *Executor) ConcludeTransaction(
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, nil, err
 		}
+		// PostgreSQL closes every open portal — both transaction-scoped
+		// cursors and `WITH HOLD` cursors — at ROLLBACK. Drop our pin set
+		// so the reservation bitmask matches the server state and the
+		// connection can be returned to the pool when nothing else holds it.
+		reservedConn.ReleaseAllPortals()
 	default:
 		return nil, nil, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
 	}

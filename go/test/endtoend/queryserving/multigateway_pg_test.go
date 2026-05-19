@@ -417,8 +417,6 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 			})
 
 			t.Run("cursor via DECLARE and FETCH", func(t *testing.T) {
-				t.Skip("Cursors require transaction management which is not yet implemented")
-
 				tableName := fmt.Sprintf("cursor_test_%d", time.Now().UnixNano())
 
 				// Create and populate table
@@ -482,6 +480,68 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 
 				err = tx.Commit(ctx)
 				require.NoError(t, err)
+			})
+
+			// MUL-389: DECLARE … WITH HOLD promotes the cursor to session-level
+			// state that must survive COMMIT. Without backend pinning, the
+			// reserved connection is released to the pool when the transaction
+			// commits and the next FETCH lands on a different backend, raising
+			// `cursor "x" does not exist`. This test exercises the full
+			// gateway-managed pin / release lifecycle.
+			t.Run("cursor WITH HOLD survives COMMIT", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_cursor_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur"
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s SCROLL CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err, "failed to declare WITH HOLD cursor")
+
+				rows, err := tx.Query(ctx, "FETCH 1 FROM "+cursorName)
+				require.NoError(t, err, "failed to fetch from WITH HOLD cursor inside txn")
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got, "expected first row inside transaction")
+
+				require.NoError(t, tx.Commit(ctx), "COMMIT should succeed and leave WITH HOLD cursor open")
+
+				// Acceptance #1: FETCH after COMMIT must still see the cursor.
+				rows, err = conn.Query(ctx, "FETCH FROM "+cursorName)
+				require.NoError(t, err, "failed to fetch from WITH HOLD cursor AFTER COMMIT — cursor was lost")
+				got = nil
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{2}, got, "WITH HOLD cursor must continue from row 2 after COMMIT")
+
+				// Acceptance #3: CLOSE on the HOLD cursor releases the backend
+				// pin. A follow-up FETCH on the (now-closed) cursor errors.
+				// Use Exec — pgx.Query is lazy and would defer the error
+				// past require.Error.
+				_, err = conn.Exec(ctx, "CLOSE "+cursorName)
+				require.NoError(t, err, "failed to close WITH HOLD cursor")
+
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "cursor should not exist after CLOSE")
 			})
 
 			t.Run("transaction with prepared statements", func(t *testing.T) {

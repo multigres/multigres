@@ -78,6 +78,28 @@ type MultiGatewayConnectionState struct {
 	// cleared after the reservation is created.
 	PendingTempTableReservation bool
 
+	// PendingPinPortals carries the cursor names that the next StreamExecute
+	// must register on the reserved backend's portal set via
+	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a
+	// `DECLARE ... WITH HOLD` is planned. One-shot: cleared by ScatterConn
+	// after the reservation request is sent.
+	PendingPinPortals []string
+
+	// PendingReleasePortals carries the cursor names to unpin on the next
+	// StreamExecute via ReservationOptions.ReleasePortalNames. Populated by
+	// CloseCursorRoute when a `CLOSE <name>` / `CLOSE ALL` is planned and the
+	// named cursor is currently a WITH HOLD pin on the reserved connection.
+	// One-shot.
+	PendingReleasePortals []string
+
+	// OpenHoldCursors tracks the names of currently-open `DECLARE ... WITH HOLD`
+	// cursors on this gateway session. Used to compute `CLOSE ALL` membership
+	// and as a single-source-of-truth refcount so the gateway can answer
+	// "do we still have any HOLD cursor open" without round-tripping to the
+	// multipooler. Membership mirrors the per-conn `reservedProps.Portals`
+	// set on the multipooler side for HOLD entries.
+	OpenHoldCursors map[string]bool
+
 	// TxnStartTime records when the current transaction began (set at BEGIN,
 	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
 	// means no active transaction is being timed.
@@ -149,9 +171,72 @@ type ShardState struct {
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
 func NewMultiGatewayConnectionState() *MultiGatewayConnectionState {
 	return &MultiGatewayConnectionState{
-		mu:      sync.Mutex{},
-		Portals: make(map[string]*preparedstatement.PortalInfo),
+		mu:              sync.Mutex{},
+		Portals:         make(map[string]*preparedstatement.PortalInfo),
+		OpenHoldCursors: make(map[string]bool),
 	}
+}
+
+// AddOpenHoldCursor records a `DECLARE ... WITH HOLD` cursor as currently open
+// on this gateway session. Idempotent.
+func (m *MultiGatewayConnectionState) AddOpenHoldCursor(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.OpenHoldCursors == nil {
+		m.OpenHoldCursors = make(map[string]bool)
+	}
+	m.OpenHoldCursors[name] = true
+}
+
+// RemoveOpenHoldCursor drops the named HOLD cursor from the open set.
+// Returns true if the entry existed.
+func (m *MultiGatewayConnectionState) RemoveOpenHoldCursor(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.OpenHoldCursors[name]; !ok {
+		return false
+	}
+	delete(m.OpenHoldCursors, name)
+	return true
+}
+
+// HasOpenHoldCursor reports whether the named HOLD cursor is open.
+func (m *MultiGatewayConnectionState) HasOpenHoldCursor(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.OpenHoldCursors[name]
+}
+
+// OpenHoldCursorNames returns a snapshot of the open HOLD cursor names.
+// Used to materialise the target list for `CLOSE ALL`.
+func (m *MultiGatewayConnectionState) OpenHoldCursorNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.OpenHoldCursors) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(m.OpenHoldCursors))
+	for name := range m.OpenHoldCursors {
+		names = append(names, name)
+	}
+	return names
+}
+
+// HasAnyOpenHoldCursor reports whether the session is holding at least one
+// `DECLARE ... WITH HOLD` cursor open. Used by ScatterConn to keep
+// ReasonPortal applied on follow-up queries while any HOLD cursor remains.
+func (m *MultiGatewayConnectionState) HasAnyOpenHoldCursor() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.OpenHoldCursors) > 0
+}
+
+// ClearOpenHoldCursors drops every tracked HOLD cursor. Called at ROLLBACK,
+// when PostgreSQL closes all open cursors regardless of WITH HOLD.
+func (m *MultiGatewayConnectionState) ClearOpenHoldCursors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.OpenHoldCursors = make(map[string]bool)
 }
 
 // StorePortalInfo stores the portal information.

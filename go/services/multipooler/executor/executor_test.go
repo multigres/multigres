@@ -50,6 +50,11 @@ type mockReservedConn struct {
 
 	beginErr     error
 	streamingErr error
+
+	pinnedPortals   []string
+	releasedPortals []string
+	releaseCalls    []reserved.ReleaseReason
+	openHoldCursors map[string]bool
 }
 
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
@@ -82,6 +87,34 @@ func (m *mockReservedConn) QueryStreaming(_ context.Context, sql string, _ func(
 	m.streamingCalled = true
 	m.streamingSQL = sql
 	return m.streamingErr
+}
+
+func (m *mockReservedConn) ReserveForPortal(portalName string) {
+	if m.openHoldCursors == nil {
+		m.openHoldCursors = make(map[string]bool)
+	}
+	m.openHoldCursors[portalName] = true
+	m.pinnedPortals = append(m.pinnedPortals, portalName)
+	m.remainingReasons |= protoutil.ReasonPortal
+	m.addedReasons |= protoutil.ReasonPortal
+}
+
+func (m *mockReservedConn) ReleasePortal(portalName string) bool {
+	if _, ok := m.openHoldCursors[portalName]; !ok {
+		return false
+	}
+	delete(m.openHoldCursors, portalName)
+	m.releasedPortals = append(m.releasedPortals, portalName)
+	if len(m.openHoldCursors) == 0 {
+		m.remainingReasons &^= protoutil.ReasonPortal
+		m.removedReasons |= protoutil.ReasonPortal
+		return m.remainingReasons == 0
+	}
+	return false
+}
+
+func (m *mockReservedConn) Release(reason reserved.ReleaseReason) {
+	m.releaseCalls = append(m.releaseCalls, reason)
 }
 
 // Compile-time check.
