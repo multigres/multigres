@@ -39,6 +39,8 @@ Step 4: Launch the multigres cluster
 
 This deploys multipooler, multiorch, and multigateway, waits for them to be ready, then starts port-forwards for the cluster.
 
+The script also applies `k8s-postgres-password-secret.yaml`, which holds the plaintext PostgreSQL superuser password each multipooler/pgctld container reads via `POSTGRES_PASSWORD_FILE`. The committed value (`postgres`) is for the demo only — replace it before reusing this manifest anywhere real.
+
 Step 5 (optional): Load demo data with supafirehose
 
 # First build the supafirehose image (in the supafirehose directory):
