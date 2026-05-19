@@ -790,6 +790,9 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		seedRP *clustermetadatapb.ReplicationPrimary
 		// seedRevocation, when non-nil, is written to consensusState before the call.
 		seedRevocation *clustermetadatapb.TermRevocation
+		// seedManualStop, when true, sets the walReceiverManuallyStopped flag
+		// before the call to simulate a prior StopReplication.
+		seedManualStop bool
 		// mockConnInfo controls what readPrimaryConnInfo returns. Empty string
 		// means NULL; mockReadError takes precedence and triggers a query error.
 		mockConnInfo  string
@@ -803,6 +806,19 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			name: "NoReplicationPrimaryRecorded",
 			// rp == nil -> nothing to compare against
 			want: false,
+		},
+		{
+			// StopReplication-set manual-stop flag preempts drift detection
+			// so the monitor doesn't fire a reconciliation action that
+			// setPrimaryConnInfoLocked would refuse with FAILED_PRECONDITION
+			// (once per 5s tick, noisily).
+			name: "ManualStopFlagSet",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			seedManualStop: true,
+			want:           false,
 		},
 		{
 			name: "PrimaryFieldMissing",
@@ -944,6 +960,9 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				require.NoError(t, pm.consensusState.setRevocation(tt.seedRevocation))
 				_, err := pm.consensusState.Load()
 				require.NoError(t, err)
+			}
+			if tt.seedManualStop {
+				pm.walReceiverManuallyStopped.Store(true)
 			}
 
 			got := pm.primaryConnInfoDiffersFromRecorded(postgresState{})

@@ -156,6 +156,16 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 
 // setPrimaryConnInfoLocked sets the primary connection info for a standby server.
 // This function assumes the action lock is already held by the caller.
+//
+// Refuses with FAILED_PRECONDITION when StopReplication previously cleared
+// primary_conninfo and set the manual-stop flag — every conninfo writer
+// (orch's FixReplication via SetPrimaryConnInfo, SetTermPrimary's standby
+// branch, and the postgres-monitor self-heal) funnels through here, so this
+// single check is what keeps the admin pause honored against routine
+// reconciliation. Use StartReplication to clear the flag before rewriting
+// conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
+// this point — a stale-primary detection is an escalated event that
+// supersedes an older admin pause.
 func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -163,6 +173,11 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 
 	if err := pm.checkReady(); err != nil {
 		return err
+	}
+
+	if pm.walReceiverManuallyStopped.Load() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"replication manually stopped via StopReplication; call StartReplication first")
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
@@ -240,7 +255,16 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	return nil
 }
 
-// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume).
+// As the counterpart to StopReplication, it also clears any in-memory
+// "manually stopped" signal that StopReplication may have set. Clearing
+// flips this pooler's published CohortEligibility back to ELIGIBLE and
+// re-enables the postgres-monitor self-heal of primary_conninfo, which in
+// turn lets routine reconciliation re-establish the WAL receiver.
+//
+// StartReplication itself does not rewrite primary_conninfo — that happens
+// via the monitor's self-heal (or via orch's FixReplicationAction) once
+// eligibility flips.
 func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
@@ -253,6 +277,8 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	started := pm.walReceiverManuallyStopped.CompareAndSwap(true, false)
+
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
@@ -261,6 +287,10 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	// Resume WAL replay on the standby
 	if err := pm.resumeWALReplay(ctx); err != nil {
 		return err
+	}
+
+	if started {
+		pm.broadcastHealth()
 	}
 
 	return nil
@@ -287,6 +317,20 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	_, err = pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return err
+	}
+
+	// Modes that clear primary_conninfo are an explicit admin signal that
+	// replication should stay stopped. Mark this so the postgres monitor
+	// does not "self-heal" the cleared conninfo back to the recorded primary,
+	// and so this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE while
+	// stopped. Cleared the next time something re-establishes the primary
+	// link (SetTermPrimary / SetPrimaryConnInfo / demoteStalePrimaryLocked).
+	switch mode {
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
+		if pm.walReceiverManuallyStopped.CompareAndSwap(false, true) {
+			pm.broadcastHealth()
+		}
 	}
 
 	return nil

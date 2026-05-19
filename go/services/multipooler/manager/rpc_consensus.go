@@ -398,9 +398,17 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 }
 
 // buildCohortEligibilityStatus returns the pooler's self-reported willingness
-// to be a cohort member. Defaults to ELIGIBLE; mutated only by
-// setCohortEligibility (currently test-only).
+// to be a cohort member. Defaults to ELIGIBLE; downgraded to INELIGIBLE when
+// the WAL receiver was manually stopped (StopReplication cleared
+// primary_conninfo), so the coordinator does not try to re-include this node
+// while the admin signal is in effect. setCohortEligibility (currently
+// test-only) sets the base value the dynamic downgrade applies on top of.
 func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
+	if pm.walReceiverManuallyStopped.Load() {
+		return &clustermetadatapb.CohortEligibilityStatus{
+			Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		}
+	}
 	pm.mu.Lock()
 	signal := pm.cohortEligibility
 	pm.mu.Unlock()

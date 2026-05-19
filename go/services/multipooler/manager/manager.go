@@ -170,6 +170,18 @@ type MultiPoolerManager struct {
 	// False by default (restarts enabled); tests and demos set it during controlled failovers.
 	postgresRestartsDisabled atomic.Bool
 
+	// walReceiverManuallyStopped is set by StopReplication when it clears
+	// primary_conninfo (RECEIVER_ONLY / REPLAY_AND_RECEIVER modes). It tells
+	// the postgres monitor not to "self-heal" the cleared conninfo back to
+	// the recorded primary — the admin/test explicitly asked replication to
+	// stop. While set, this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE
+	// in its status so the coordinator does not try to include it in the
+	// cohort. Cleared by SetTermPrimary, SetPrimaryConnInfo, and
+	// demoteStalePrimaryLocked — anything that re-establishes a primary
+	// link is interpreted as the admin signal expiring. Not persisted; a
+	// process restart implicitly clears it.
+	walReceiverManuallyStopped atomic.Bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
@@ -1816,6 +1828,14 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
 func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState) bool {
+	// Don't detect drift we can't fix: when StopReplication has set the
+	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
+	// rewrite until StartReplication clears it. Detecting drift anyway would
+	// fire the reconciliation action on every tick and log a noisy
+	// FAILED_PRECONDITION error each time.
+	if pm.walReceiverManuallyStopped.Load() {
+		return false
+	}
 	rp := pm.consensusState.GetReplicationPrimary()
 	if rp == nil {
 		return false
