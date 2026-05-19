@@ -48,17 +48,12 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return err
 	}
 
-	// Refresh ConsensusStatus from every pooler registered for the shard
-	// (not just the proposed cohort). The same snapshot drives both the
-	// shard-wide safety check below and the pre-vote check in
-	// coordinatorLedRuleChange.Run; without primed statuses the
-	// externally-certified pre-vote sees an empty set and fails before
-	// recruitment can prove the cert is acceptable.
+	// Refresh ConsensusStatus from every pooler registered for the shard so
+	// the pre-vote check in coordinatorLedRuleChange.Run sees real positions;
+	// without primed statuses the externally-certified pre-vote sees an empty
+	// set and fails before recruitment can prove the cert is acceptable.
 	statusesByPoolerID, err := c.refreshShardConsensusStatuses(ctx, shardKey)
 	if err != nil {
-		return err
-	}
-	if err := checkNoShardPoolerAheadOfOutgoingRule(statusesByPoolerID, cert.GetTermRevocation().GetOutgoingRule()); err != nil {
 		return err
 	}
 
@@ -178,30 +173,6 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 	}
 	wg.Wait()
 	return statuses, nil
-}
-
-// checkNoShardPoolerAheadOfOutgoingRule rejects the rule change if any
-// reachable pooler has a recorded rule with a coordinator_term greater than
-// the cert's outgoing_rule_number.coordinator_term. This catches operator
-// certs that claim a stale outgoing rule when a non-cohort node has actually
-// progressed further. Operates on the snapshot returned by
-// refreshShardConsensusStatuses.
-func checkNoShardPoolerAheadOfOutgoingRule(
-	statuses map[string]*clustermetadatapb.ConsensusStatus,
-	outgoingRule *clustermetadatapb.RuleNumber,
-) error {
-	for poolerKey, cs := range statuses {
-		observed := cs.GetCurrentPosition().GetRule().GetRuleNumber()
-		if observed == nil {
-			continue
-		}
-		if commonconsensus.CompareRuleNumbers(observed, outgoingRule) > 0 {
-			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"pooler %s has rule term %d which is ahead of cert.outgoing_rule_number.coordinator_term %d; cert is stale",
-				poolerKey, observed.GetCoordinatorTerm(), outgoingRule.GetCoordinatorTerm())
-		}
-	}
-	return nil
 }
 
 // resolveCohort looks up each cohort member ID in topology and returns an

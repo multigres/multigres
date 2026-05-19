@@ -26,10 +26,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
@@ -158,41 +156,4 @@ func TestApplyCertifiedRuleChange_RejectsMissingTermRevocationFields(t *testing.
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "accepted_coordinator_id")
-}
-
-func TestApplyCertifiedRuleChange_PoolerAheadOfOutgoingRuleRejected(t *testing.T) {
-	mp1 := makePoolerState("zone1", "mp1")
-	// The pre-flight shard probe filters poolers by shard key, so the
-	// MultiPooler record must carry the matching database/table_group/shard.
-	mp1.MultiPooler.ShardKey = &clustermetadatapb.ShardKey{
-		Database:   "db1",
-		TableGroup: "default",
-		Shard:      "0-inf",
-	}
-
-	fc := rpcclient.NewFakeClient()
-	// mp1 reports rule term 5 (ahead of the cert's outgoing term 2).
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	fc.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		mp1Key: {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: mp1.MultiPooler.Id,
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-					},
-					Lsn: "0/100",
-				},
-			},
-		},
-	}
-
-	c, orchID := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
-	// Outgoing term 2 < observed term 5, so the pre-flight check fires.
-	shardKey, rule, cert := makeCertifiedRequest(2, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
-
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
-	require.Error(t, err)
-	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
-	assert.Contains(t, err.Error(), "cert is stale")
 }
