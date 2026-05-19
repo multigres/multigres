@@ -60,6 +60,9 @@ const (
 	ReservationReason_RESERVATION_REASON_COPY ReservationReason = 8 // 0b1000
 	// Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
 	ReservationReason_RESERVATION_REASON_LISTEN ReservationReason = 16 // 0b10000
+	// Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+	// START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+	ReservationReason_RESERVATION_REASON_LOGICAL_REPLICATION ReservationReason = 32 // 0b100000
 )
 
 // Enum value maps for ReservationReason.
@@ -71,14 +74,16 @@ var (
 		4:  "RESERVATION_REASON_PORTAL",
 		8:  "RESERVATION_REASON_COPY",
 		16: "RESERVATION_REASON_LISTEN",
+		32: "RESERVATION_REASON_LOGICAL_REPLICATION",
 	}
 	ReservationReason_value = map[string]int32{
-		"RESERVATION_REASON_UNSPECIFIED": 0,
-		"RESERVATION_REASON_TRANSACTION": 1,
-		"RESERVATION_REASON_TEMP_TABLE":  2,
-		"RESERVATION_REASON_PORTAL":      4,
-		"RESERVATION_REASON_COPY":        8,
-		"RESERVATION_REASON_LISTEN":      16,
+		"RESERVATION_REASON_UNSPECIFIED":         0,
+		"RESERVATION_REASON_TRANSACTION":         1,
+		"RESERVATION_REASON_TEMP_TABLE":          2,
+		"RESERVATION_REASON_PORTAL":              4,
+		"RESERVATION_REASON_COPY":                8,
+		"RESERVATION_REASON_LISTEN":              16,
+		"RESERVATION_REASON_LOGICAL_REPLICATION": 32,
 	}
 )
 
@@ -1973,14 +1978,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12\x1a\n" +
 	"\bchannels\x18\x02 \x03(\tR\bchannels\"X\n" +
 	"\x1bStreamNotificationsResponse\x129\n" +
-	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification*\xd9\x01\n" +
+	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification*\x85\x02\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +
 	"\x1dRESERVATION_REASON_TEMP_TABLE\x10\x02\x12\x1d\n" +
 	"\x19RESERVATION_REASON_PORTAL\x10\x04\x12\x1b\n" +
 	"\x17RESERVATION_REASON_COPY\x10\b\x12\x1d\n" +
-	"\x19RESERVATION_REASON_LISTEN\x10\x10*\x87\x01\n" +
+	"\x19RESERVATION_REASON_LISTEN\x10\x10\x12*\n" +
+	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 *\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +

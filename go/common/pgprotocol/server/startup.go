@@ -523,6 +523,14 @@ func (c *Conn) finishAuth() error {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
 	}
 
+	// Notify handlers that opted into the established hook *before*
+	// sending ReadyForQuery. Otherwise the client returns from Connect
+	// as soon as it sees ReadyForQuery, races ahead, and may observe
+	// the conn before the hook records per-connection startup state.
+	if h, ok := c.handler.(ConnectionEstablishedHandler); ok {
+		h.ConnectionEstablished(c)
+	}
+
 	// Send ReadyForQuery to indicate we're ready to receive commands.
 	if err := c.sendReadyForQuery(); err != nil {
 		return fmt.Errorf("failed to send ReadyForQuery: %w", err)

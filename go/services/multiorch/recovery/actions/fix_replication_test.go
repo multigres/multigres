@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -35,7 +36,7 @@ import (
 )
 
 func TestFixReplicationAction_Metadata(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
 
 	metadata := action.Metadata()
 
@@ -46,14 +47,14 @@ func TestFixReplicationAction_Metadata(t *testing.T) {
 }
 
 func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
 
 	// FixReplication requires a healthy primary to configure replication
 	assert.True(t, action.RequiresHealthyLeader())
 }
 
 func TestFixReplicationAction_Priority(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
 
 	assert.Equal(t, types.PriorityHigh, action.Priority())
 }
@@ -66,7 +67,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	fakeClient := &rpcclient.FakeClient{}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -114,7 +115,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -193,7 +194,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaLagging, // Not yet supported
@@ -211,6 +212,8 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported problem code")
 }
 
+// TestFixReplicationAction_ExecuteSuccessNotReplicating asserts that
+// fixNotReplicating routes through SetTermPrimary on the replica.
 func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -230,8 +233,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{
 						ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-							// No PrimaryConnInfo - replication not configured (triggers fix)
-							WalReceiverStatus: "streaming", // Streaming after fix is applied
+							WalReceiverStatus: "streaming",
 							LastReceiveLsn:    "0/1234",
 						},
 					},
@@ -245,16 +247,12 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				},
 			},
 		},
-		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
+		SetTermPrimaryResponses: map[string]*consensusdatapb.SetTermPrimaryResponse{
 			"multipooler-cell1-replica1": {},
-		},
-		UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
-			"multipooler-cell1-primary": {},
 		},
 	}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
-	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "cell1",
@@ -271,6 +269,12 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
+	primaryPosition := &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		},
+		Lsn: "0/1234",
+	}
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -287,9 +291,14 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			Hostname: "primary.example.com",
 			PortMap:  map[string]int32{"postgres": 5432},
 		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			CurrentPosition: primaryPosition,
+		},
 	})
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	cfg := config.NewTestConfig()
+	action := NewFixReplicationAction(cfg, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -302,16 +311,20 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	}
 
 	err := action.Execute(ctx, problem)
-
 	require.NoError(t, err)
 
-	// Verify SetPrimaryConnInfo was called on the replica
-	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+	// Verify SetTermPrimary was called on the replica, NOT SetPrimaryConnInfo.
+	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)")
+	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
-	// FixReplication no longer mutates the cohort / synchronous standby list.
-	// That responsibility belongs to ReconcileCohortAction; verify FixReplication
-	// did NOT call UpdateConsensusRule.
-	assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+	// Verify the request carried the primary's contact info and known position.
+	informReq := fakeClient.SetTermPrimaryRequests["multipooler-cell1-replica1"]
+	require.NotNil(t, informReq)
+	require.NotNil(t, informReq.Leader)
+	assert.Equal(t, "primary", informReq.Leader.Id.Name)
+	assert.Equal(t, "primary.example.com", informReq.Leader.GetHost())
+	require.NotNil(t, informReq.Rule)
+	assert.Equal(t, int64(1), informReq.Rule.GetRuleNumber().GetCoordinatorTerm())
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
@@ -385,7 +398,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -450,7 +463,7 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 		streamAfterCalls: streamAfterCalls,
 	}
 
-	action := NewFixReplicationAction(nil, fakeClient, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, nil, nil, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	replica := &multiorchdatapb.PoolerHealthState{
@@ -596,7 +609,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 	})
 
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	problem := types.Problem{
@@ -615,8 +628,8 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	// and the action returns nil — the problem is resolved by draining the node.
 	require.NoError(t, err)
 
-	// Verify SetPrimaryConnInfo was called (configuration was attempted)
-	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+	// Verify SetTermPrimary was called (configuration was attempted)
+	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)")
 	// Verify pg_rewind was tried after replication failed to start
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 

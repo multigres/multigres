@@ -246,6 +246,21 @@ func TestInitializeDataDir(t *testing.T) {
 		assert.Contains(t, err.Error(), "initdb failed")
 	})
 
+	t.Run("fails when password is empty", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_nopw_test")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		logger := slog.New(slog.DiscardHandler)
+		cfg := PgCtldServiceConfig{
+			User: constants.DefaultPostgresUser,
+			// Password intentionally left empty.
+		}
+		err := initializeDataDir(logger, cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "POSTGRES_PASSWORD must be set")
+	})
+
 	t.Run("extra initdb args are forwarded to initdb", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_args_test")
 		defer cleanup()
@@ -269,6 +284,7 @@ touch "$2/pg_hba.conf"
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
 			User:       constants.DefaultPostgresUser,
+			Password:   "test-password",
 			InitdbArgs: "--locale-provider=icu --icu-locale=en_US.UTF-8",
 		}
 		err := initializeDataDir(logger, cfg)

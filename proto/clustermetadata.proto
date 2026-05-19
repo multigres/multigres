@@ -129,6 +129,22 @@ message S3Backup {
 // Cell Topology
 // =============================================================================
 
+// PoolerAddress identifies a pooler and carries the connection information a
+// peer needs to reach its postgres. Used wherever consensus references a
+// primary (CoordinatorProposal.proposal_leader, SetTermPrimaryRequest.leader,
+// ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+// topology record onto the wire.
+message PoolerAddress {
+  // The pooler being addressed.
+  ID id = 1;
+
+  // Hostname peers use to connect to this pooler's postgres.
+  string host = 2;
+
+  // Port of this pooler's postgres instance.
+  int32 postgres_port = 3;
+}
+
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
 message MultiPooler {
   // id is the unique identifier of the multipooler in the cluster.
@@ -378,23 +394,29 @@ message PoolerPosition {
   string lsn = 2;
 }
 
-// HighestKnownRule is the most recent ShardRule this pooler is aware of,
-// which could be beyond the end of this pooler's WAL / PoolerPosition.
+// ReplicationPrimary advertises the primary this pooler believes it should be
+// pointed at for replication, along with the rule under which that primary
+// holds leadership. The primary contact info is the main payload — it's how a
+// pooler in a degraded state (partition, mid-bootstrap, SetTermPrimary-while-postgres-
+// was-down) figures out who to reconnect replication to. The rule is supporting
+// evidence and has secondary uses such as coordinators learning of rules newer
+// than what's in any replica's WAL.
 //
-// If a pooler is disconnected from replication due to network partitions
-// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
-// to learn the latest shard state.
-//
-// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
-// may represent a rule that the coordinator is _about_ to write that doesn't exist in
-// any WAL entries yet.
-//
-// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
-// settings so that nodes can participate in replication. Nodes with out-of-date information
-// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
-// pooler has incorrect replication settings.
-message HighestKnownRule {
+// Not persisted across pooler restarts — best-effort, populated by SetTermPrimary and
+// Propose RPCs. Coordinators that notice a pooler has incorrect replication
+// settings will re-inform it.
+message ReplicationPrimary {
+  // The most recent rule under which this primary holds leadership. May be
+  // ahead of the pooler's committed PoolerPosition while replication catches
+  // up. Coordinators compare this to what they would otherwise SetTermPrimary
+  // with — if (rule, primary) already matches, the SetTermPrimary is
+  // redundant and can be skipped.
   ShardRule rule = 1;
+
+  // Contact info for the primary the pooler was last told to use. Snapshot
+  // from the most recent SetTermPrimary/Propose; treat as "what this pooler currently
+  // believes," not as the canonical primary for the cluster.
+  PoolerAddress primary = 2;
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms
@@ -430,6 +452,13 @@ message TermRevocation {
   // recruiting. All poolers that accept the same recruitment store the same value.
   // TODO: populate once RecruitRequest carries this timestamp.
   google.protobuf.Timestamp coordinator_initiated_at = 3;
+
+  // The rule the coordinator observed across the cohort at recruit time —
+  // the "from" side of the transition this recruit was authoring. Used as
+  // an override key during SetTermPrimary: if a subsequent SetTermPrimary carries a rule
+  // strictly greater than this, the cluster has demonstrably moved past
+  // the runaway recruit's premise and the revocation is moot.
+  RuleNumber outgoing_rule = 4;
 }
 
 // ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation
@@ -439,8 +468,8 @@ message TermRevocation {
 // The external actor certifies:
 //
 //  1. No pooler in the outgoing cohort can make progress beyond frozen_lsn
-//     under outgoing_rule_number — all durable transactions at the time of
-//     revocation are captured at or below that position.
+//     under term_revocation.outgoing_rule — all durable transactions at the
+//     time of revocation are captured at or below that position.
 //
 //  2. The term in term_revocation is globally unique; no other coordinator has
 //     used or will use it.
@@ -448,18 +477,16 @@ message TermRevocation {
 // The coordinator names itself as the initiator in term_revocation even though
 // it is acting on an external request.
 message ExternallyCertifiedRevocation {
-  // The rule number being superseded. Identifies which outgoing cohort is frozen.
-  RuleNumber outgoing_rule_number = 1;
+  // Records the unique coordinator term for this proposal, the coordinator
+  // facilitating the request, and the outgoing_rule the cohort is being
+  // transitioned from. The coordinator fills this in even though it is acting
+  // on behalf of an external operator request.
+  TermRevocation term_revocation = 1;
 
   // The LSN at which the outgoing cohort's progress is frozen. No durable writes
-  // occurred beyond this position under outgoing_rule_number. The chosen leader's
-  // WAL position must meet or exceed this LSN.
+  // occurred beyond this position under term_revocation.outgoing_rule. The chosen
+  // leader's WAL position must meet or exceed this LSN.
   string frozen_lsn = 2;
-
-  // Records the unique coordinator term for this proposal and the coordinator
-  // facilitating the request. The coordinator fills this in even though it is
-  // acting on behalf of an external operator request.
-  TermRevocation term_revocation = 3;
 }
 
 // ConsensusStatus is a pooler's complete view of its position in the distributed
@@ -473,10 +500,10 @@ message ExternallyCertifiedRevocation {
 //     The highest ShardRule committed to local WAL (from rule_history) and the
 //     current LSN. Authoritative because postgres WAL is durable and ordered.
 //
-//  3. highest_known_rule (best-effort, coordinator-provided)
-//     The most recent rule the coordinator is about to establish or has recently
-//     established. May be ahead of current_position; not persisted and may be
-//     stale after restarts.
+//  3. replication_primary (best-effort, coordinator-provided)
+//     The primary this pooler should be pointed at for replication, plus the
+//     rule under which that primary holds leadership. May be ahead of
+//     current_position; not persisted and may be stale after restarts.
 message ConsensusStatus {
   // term_revocation records the highest coordinator term this pooler has revoked for.
   TermRevocation term_revocation = 1;
@@ -485,10 +512,11 @@ message ConsensusStatus {
   // and the latest WAL position.
   PoolerPosition current_position = 2;
 
-  // highest_known_rule is the most recent rule this pooler is aware of. May be
-  // ahead of current_position when the pooler has forward knowledge of an
-  // upcoming rule that has not yet been replicated or written.
-  HighestKnownRule highest_known_rule = 3;
+  // replication_primary is the pooler's best-effort view of who its primary
+  // should be (and under what rule). May reflect a rule ahead of
+  // current_position when the pooler has been informed of a newer rule that
+  // has not yet been replicated through WAL.
+  ReplicationPrimary replication_primary = 3;
 
   // id identifies the pooler that produced this status. Makes ConsensusStatus
   // self-describing when passed around without a surrounding envelope.

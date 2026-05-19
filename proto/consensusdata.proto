@@ -83,19 +83,6 @@ message StatusResponse {
   clustermetadata.AvailabilityStatus availability_status = 12;
 }
 
-// ProposalLeader identifies the node the coordinator intends to promote and
-// carries the connection information replicas need to stream WAL from it.
-message ProposalLeader {
-  // Which pooler should become (or remain) primary.
-  clustermetadata.ID id = 1;
-
-  // Hostname replicas use to connect to the new primary's postgres.
-  string host = 2;
-
-  // Port of the new primary's postgres instance.
-  int32 postgres_port = 3;
-}
-
 // CoordinatorProposal is a coordinator-assisted rule proposal. It either reflects
 // a rule that's not yet in WAL that the coordinator wants to write, or it could
 // reflect a rule discovered in WAL that hasn't been propagated to the point of
@@ -106,7 +93,7 @@ message CoordinatorProposal {
   clustermetadata.TermRevocation term_revocation = 1;
 
   // The node that should become primary to facilitate this proposal.
-  ProposalLeader proposal_leader = 2;
+  clustermetadata.PoolerAddress proposal_leader = 2;
 
   // The full proposed rule. This can either be an entirely new rule or an
   // existing rule that hasn't yet finished propagating to durability.
@@ -148,16 +135,30 @@ message ProposeResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// InformRequest broadcasts the committed shard rule to a pooler so it can
-// update its highest_known_rule and fix replication settings if needed.
-// Sent by the coordinator after a successful Propose round.
-message InformRequest {
-  // The rule that was successfully committed (written to rule_history by the
-  // new primary and replicated). Poolers that are behind use this to reconnect.
-  clustermetadata.ShardRule committed_rule = 1;
+// SetTermPrimaryRequest tells a pooler about the current leader and the rule
+// the caller knows the cluster is at. The pooler compares the supplied rule
+// against its own; if the supplied rule is strictly higher it applies the
+// change (standby: update primary_conninfo; stale primary: demote), otherwise
+// it returns success without changes. Idempotent under retries and safe
+// against out-of-order delivery from stale recovery rounds.
+//
+// The pooler also validates that leader.id matches rule.leader_id — the
+// rule's identity is authoritative; the leader field is just the contact
+// information needed to act on that identity.
+message SetTermPrimaryRequest {
+  // Contact info for the leader named in rule.leader_id. The pooler uses
+  // leader.host and leader.postgres_port when it rewrites primary_conninfo.
+  // leader.id must match rule.leader_id.
+  clustermetadata.PoolerAddress leader = 1;
+
+  // The rule the caller is informing about. The pooler compares this against
+  // its own observed rule (by RuleNumber) and only applies the change when
+  // the supplied rule is strictly higher.
+  clustermetadata.ShardRule rule = 2;
 }
 
-// InformResponse carries the pooler's state after processing an InformRequest.
-message InformResponse {
+// SetTermPrimaryResponse carries the pooler's state after processing a
+// SetTermPrimaryRequest.
+message SetTermPrimaryResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }

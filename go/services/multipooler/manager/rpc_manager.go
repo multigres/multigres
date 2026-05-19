@@ -119,18 +119,27 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 		}
 	}
 
-	// Store primary pooler ID (nil if clearing)
-	pm.mu.Lock()
+	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
+	// source for "who is the primary now."
+	//
+	// TODO: this entire SetPrimaryConnInfo RPC goes away with the legacy
+	// consensus flow; the new flow's SetTermPrimary already carries a real
+	// ShardRule. Until then, build a minimal synthetic rule from
+	// (currentTerm, primary.Id). No consumer of rp.Rule reads cohort_members
+	// or durability_policy today, so the stub is sufficient for the
+	// rule-number ordering and self-as-leader checks that downstream code
+	// performs.
 	if primary != nil {
-		pm.primaryPoolerID = primary.Id
-		pm.primaryHost = host
-		pm.primaryPort = port
-	} else {
-		pm.primaryPoolerID = nil
-		pm.primaryHost = ""
-		pm.primaryPort = 0
+		syntheticRule := &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: currentTerm},
+			LeaderId:   primary.GetId(),
+		}
+		pm.consensusState.RecordTermPrimary(syntheticRule, &clustermetadatapb.PoolerAddress{
+			Id:           primary.GetId(),
+			Host:         host,
+			PostgresPort: port,
+		})
 	}
-	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
 	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter); err != nil {
@@ -146,6 +155,16 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 
 // setPrimaryConnInfoLocked sets the primary connection info for a standby server.
 // This function assumes the action lock is already held by the caller.
+//
+// Refuses with FAILED_PRECONDITION when StopReplication previously cleared
+// primary_conninfo and set the manual-stop flag — every conninfo writer
+// (orch's FixReplication via SetPrimaryConnInfo, SetTermPrimary's standby
+// branch, and the postgres-monitor self-heal) funnels through here, so this
+// single check is what keeps the admin pause honored against routine
+// reconciliation. Use StartReplication to clear the flag before rewriting
+// conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
+// this point — a stale-primary detection is an escalated event that
+// supersedes an older admin pause.
 func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -153,6 +172,11 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 
 	if err := pm.checkReady(); err != nil {
 		return err
+	}
+
+	if pm.walReceiverManuallyStopped.Load() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"replication manually stopped via StopReplication; call StartReplication first")
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
@@ -179,14 +203,21 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	// Build primary_conninfo connection string
-	// Format: host=<host> port=<port> user=<user> application_name=<name>
-	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
+	// Format: host=<host> port=<port> user=<user> application_name=<name> [passfile=<path>]
+	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle.
+	// passfile points libpq at the pgpass file written at manager startup so the
+	// standby can authenticate to the primary via SCRAM without embedding the
+	// password in postgresql.auto.conf. It is omitted when pgpassPath is unset
+	// (early startup or unit tests that bypass loadMultiPoolerFromTopo).
 	user := constants.DefaultPostgresUser
 	if pm.connPoolMgr != nil {
 		user = pm.connPoolMgr.PgUser()
 	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
 		host, port, user, appName.appName)
+	if pm.pgpassPath != "" {
+		connInfo += " passfile=" + pm.pgpassPath
+	}
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -223,7 +254,16 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	return nil
 }
 
-// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume).
+// As the counterpart to StopReplication, it also clears any in-memory
+// "manually stopped" signal that StopReplication may have set. Clearing
+// flips this pooler's published CohortEligibility back to ELIGIBLE and
+// re-enables the postgres-monitor self-heal of primary_conninfo, which in
+// turn lets routine reconciliation re-establish the WAL receiver.
+//
+// StartReplication itself does not rewrite primary_conninfo — that happens
+// via the monitor's self-heal (or via orch's FixReplicationAction) once
+// eligibility flips.
 func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
@@ -236,6 +276,8 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	started := pm.walReceiverManuallyStopped.CompareAndSwap(true, false)
+
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
@@ -244,6 +286,10 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	// Resume WAL replay on the standby
 	if err := pm.resumeWALReplay(ctx); err != nil {
 		return err
+	}
+
+	if started {
+		pm.broadcastHealth()
 	}
 
 	return nil
@@ -270,6 +316,20 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	_, err = pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return err
+	}
+
+	// Modes that clear primary_conninfo are an explicit admin signal that
+	// replication should stay stopped. Mark this so the postgres monitor
+	// does not "self-heal" the cleared conninfo back to the recorded primary,
+	// and so this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE while
+	// stopped. Cleared the next time something re-establishes the primary
+	// link (SetTermPrimary / SetPrimaryConnInfo / demoteStalePrimaryLocked).
+	switch mode {
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
+		if pm.walReceiverManuallyStopped.CompareAndSwap(false, true) {
+			pm.broadcastHealth()
+		}
 	}
 
 	return nil
@@ -995,72 +1055,32 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, err
 	}
 
-	if err := pm.stopPostgresIfRunning(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to stop postgres")
+	// Project the legacy MultiPooler source into the PoolerAddress shape the
+	// helper takes. demoteStalePrimaryLocked only needs id/host/postgres_port.
+	sourceAddr := &clustermetadatapb.PoolerAddress{
+		Id:           source.GetId(),
+		Host:         source.GetHostname(),
+		PostgresPort: source.GetPortMap()["postgres"],
 	}
-
-	port, ok := source.PortMap["postgres"]
-	if !ok {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
+	// TODO: this RPC will be removed in the new consensus flow; the new flow's
+	// SetTermPrimary passes the real ShardRule it received. Until then, build
+	// a synthetic rule from (term, leader_id). No consumer of rp.Rule reads
+	// cohort_members or durability_policy today.
+	syntheticRule := &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: consensusTerm},
+		LeaderId:   source.GetId(),
 	}
-
-	rewindPerformed, err := pm.runPgRewind(ctx, source.Hostname, port)
+	rewindPerformed, finalLSN, err := pm.demoteStalePrimaryLocked(ctx, sourceAddr, syntheticRule)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "pg_rewind failed")
+		return nil, err
 	}
 
-	// Fix pgbackrest paths in postgresql.auto.conf after pg_rewind
-	// The config may have wrong paths copied from another pooler during initial setup
-	if err := pm.fixPgBackRestPaths(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths, continuing anyway", "error", err)
-	}
-
-	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart as standby")
-	}
-
-	if err := pm.resetSynchronousReplication(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
-	}
-
-	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
-		"source", source.Id.Name,
-		"source_host", source.Hostname,
-		"source_port", port)
-
-	// Store primary pooler ID for tracking
-	pm.mu.Lock()
-	pm.primaryPoolerID = source.Id
-	pm.primaryHost = source.Hostname
-	pm.primaryPort = port
-	pm.mu.Unlock()
-
-	// Call the locked version directly since we already hold the action lock
-	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
-	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
-	}
-
-	// Report the new primary (source) so the gateway can use this observation.
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   source.Id,
-		LeaderTerm: consensusTerm,
-	})
-
-	// Update consensus term to match the correct primary's term after successful demotion
+	// Bump the local revoked_below_term to match the new primary's term. This
+	// is the explicit RPC, where the caller (typically multiorch) intends to
+	// commit this node to the new term. SetTermPrimary deliberately does not do this
+	// — see demoteStalePrimaryLocked's doc.
 	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
 		return nil, mterrors.Wrap(err, "failed to update consensus term")
-	}
-
-	// Get final LSN
-	finalLSN := ""
-	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
-		finalLSN = lsn
-	}
-
-	// Update topology to REPLICA
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
@@ -1072,6 +1092,95 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		RewindPerformed: rewindPerformed,
 		LsnPosition:     finalLSN,
 	}, nil
+}
+
+// demoteStalePrimaryLocked performs the postgres + topology work to convert a
+// stale primary into a standby pointing at source. The action lock must be held
+// by the caller. Idempotency checks and term validation are the caller's
+// responsibility.
+//
+// The helper does not touch term_revocation: revocations are authored by
+// coordinators via Recruit/AcceptRevocation, not by side effects of demotion.
+// Callers that want to record the new term (the explicit DemoteStalePrimary
+// RPC) call updateTermIfNewer themselves after the demotion succeeds; SetTermPrimary
+// deliberately does not, because an SetTermPrimary is a notification, not a revoke.
+//
+// Sequence: stop postgres -> pg_rewind -> fix pgbackrest paths -> restart as
+// standby -> reset sync replication -> set primary_conninfo -> report leader
+// observation -> read final LSN -> flip topology type to REPLICA.
+func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
+	ctx context.Context,
+	source *clustermetadatapb.PoolerAddress,
+	rule *clustermetadatapb.ShardRule,
+) (rewindPerformed bool, finalLSN string, err error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return false, "", err
+	}
+
+	ruleTerm := rule.GetRuleNumber().GetCoordinatorTerm()
+
+	port := source.GetPostgresPort()
+	if port == 0 {
+		return false, "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not configured on source pooler")
+	}
+
+	if err := pm.stopPostgresIfRunning(ctx); err != nil {
+		return false, "", mterrors.Wrap(err, "failed to stop postgres")
+	}
+
+	host := source.GetHost()
+	rewindPerformed, err = pm.runPgRewind(ctx, host, port)
+	if err != nil {
+		return false, "", mterrors.Wrap(err, "pg_rewind failed")
+	}
+
+	// Fix pgbackrest paths in postgresql.auto.conf after pg_rewind
+	// The config may have wrong paths copied from another pooler during initial setup
+	if err := pm.fixPgBackRestPaths(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths, continuing anyway", "error", err)
+	}
+
+	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
+		return false, "", mterrors.Wrap(err, "failed to restart as standby")
+	}
+
+	if err := pm.resetSynchronousReplication(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
+	}
+
+	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
+		"source", source.GetId().GetName(),
+		"source_host", host,
+		"source_port", port)
+
+	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
+	// source for "who is the primary now." The new flow's SetTermPrimary
+	// passes the real rule; the legacy DemoteStalePrimary RPC synthesises one
+	// from its term parameter.
+	pm.consensusState.RecordTermPrimary(rule, source)
+
+	// Call the locked version directly since we already hold the action lock
+	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
+	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, false, false); err != nil {
+		return false, "", mterrors.Wrap(err, "failed to configure replication to source primary")
+	}
+
+	// Report the new primary (source) so the gateway can use this observation.
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   source.GetId(),
+		LeaderTerm: ruleTerm,
+	})
+
+	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
+		finalLSN = lsn
+	}
+
+	// Update topology to REPLICA
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return false, "", mterrors.Wrap(err, "failed to update topology")
+	}
+
+	return rewindPerformed, finalLSN, nil
 }
 
 // RewindToSource performs pg_rewind to synchronize this server with a source.

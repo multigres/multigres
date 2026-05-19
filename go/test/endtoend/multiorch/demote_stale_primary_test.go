@@ -37,21 +37,28 @@ import (
 // This variant uses SIGKILL to simulate a hard crash of postgres.
 //
 // Scenario:
-// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with AT_LEAST_2 durability
-// 2. Kill P1's postgres with SIGKILL to trigger failover
-// 3. Wait for multiorch to elect new primary (S1 becomes P2)
-// 4. Write data to new primary to ensure timeline has diverged
-// 5. Leave P1's postgres stopped (it's still marked PRIMARY in topology with old term)
-// 6. Multiorch detects stale primary (both PRIMARY in topology, P1 has lower term)
-// 7. Multiorch calls DemoteStalePrimary which starts postgres, runs pg_rewind, restarts as standby
-// 8. Multiorch configures replication from P2
-// 9. Verify P1 rejoins as a replica of P2
+//  1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with AT_LEAST_2 durability.
+//  2. Disable postgres auto-restarts on P1, then SIGKILL postgres. The disable
+//     keeps the monitor from racing the failover by reviving P1 too soon, so we
+//     can observe the new-leader election happen first.
+//  3. Wait for multiorch to elect a new primary at a higher term (S1 -> P2).
+//  4. Write data to the new primary so its timeline diverges from P1's.
+//  5. Re-enable postgres auto-restarts on the old primary. MonitorPostgres
+//     revives postgres on P1, which comes back as a primary at the stale term
+//     (its data dir hasn't been demoted). This is safe: the revocation
+//     handshake at the higher term means the surviving cohort won't accept
+//     writes from P1, so it can't commit anything. P1 is now a "running stale
+//     primary" awaiting multiorch's demotion.
+//  6. Multiorch's StaleLeaderAnalyzer detects the topology mismatch (both
+//     PRIMARY but P1 at a lower term) and sends SetTermPrimary with the new leader.
+//  7. SetTermPrimary on P1 sees isPrimary=true and routes through demoteStalePrimaryLocked:
+//     stop postgres, pg_rewind to reconcile divergent WAL, restart as standby,
+//     set primary_conninfo to P2.
+//  8. Verify P1 rejoins as a replica of P2 and replication actually works.
 //
-// This test verifies the complete stale primary detection and timeline divergence repair flow:
-// 1. StaleLeaderAnalyzer detects when old primary comes back with a lower consensus term
-// 2. DemoteStaleLeaderAction demotes the stale primary using the correct primary's term
-// 3. NotReplicatingAnalyzer detects the replica is not replicating
-// 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
+// This exercises the realistic production failure mode: postgres crashes, the
+// local monitor revives it, and multiorch's SetTermPrimary-driven recovery brings the
+// revived stale primary back into the cohort as a standby.
 func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestDemoteStalePrimary test in short mode")
@@ -77,7 +84,9 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Disable postgres restarts on old primary so postgres is not restarted by pooler
+	// Disable postgres restarts on old primary BEFORE killing so the monitor
+	// doesn't revive postgres before multiorch has elected a new leader. We
+	// re-enable explicitly below once the new leader is in place.
 	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	defer oldPrimaryClient.Close()
@@ -102,18 +111,18 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Writing data to new primary to ensure timeline divergence...")
 	writeDataToNewPrimary(t, setup, newPrimaryName)
 
-	// Step 4: Leave postgres stopped on old primary
-	// Multiorch will detect split-brain based on topology (both PRIMARY) and consensus terms,
-	// then call DemoteStalePrimary which will handle starting postgres, pg_rewind, and restart
-	t.Log("Leaving postgres stopped on old primary - multiorch will handle restart...")
+	// Step 4: Re-enable postgres auto-restarts on the old primary. The new
+	// leader is already in place at a higher term, so when MonitorPostgres
+	// revives postgres on the old primary it comes back as a "running stale
+	// primary" that the revocation handshake prevents from committing writes.
+	t.Log("Re-enabling postgres restarts on old primary - monitor will revive postgres as stale primary...")
+	_, err = oldPrimaryClient.Manager.SetPostgresRestartsEnabled(t.Context(), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err)
 
-	// Step 5: Wait for multiorch to detect and repair divergence
-	// This may take longer because multiorch needs to:
-	// 1. Detect the split-brain (both PRIMARY in topology, different terms)
-	// 2. Call DemoteStalePrimary RPC on the stale primary (lower term)
-	// 3. DemoteStalePrimary starts postgres, runs pg_rewind, restarts as standby
-	// 4. Configure replication to the new primary
-	// 5. Start WAL receiver
+	// Step 5: Wait for multiorch to detect and repair divergence. Once postgres
+	// is back up on the old primary, multiorch's StaleLeaderAnalyzer fires and
+	// sends SetTermPrimary. SetTermPrimary's isPrimary=true branch demotes via
+	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 
@@ -189,7 +198,9 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
 	// Step 1: Gracefully shutdown postgres on primary to trigger failover.
-	// Restarts are disabled first so the monitor does not restart postgres immediately.
+	// Restarts are disabled first so the monitor doesn't revive postgres
+	// before multiorch has elected a new leader. We resume restarts
+	// explicitly below once the new leader is in place.
 	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
 	resumeRestarts := setup.ShutdownPostgres(t, oldPrimaryName)
 	defer resumeRestarts()
@@ -204,18 +215,18 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	t.Log("Writing data to new primary to ensure timeline divergence...")
 	writeDataToNewPrimary(t, setup, newPrimaryName)
 
-	// Step 4: Leave postgres stopped on old primary
-	// Multiorch will detect split-brain based on topology (both PRIMARY) and consensus terms,
-	// then call DemoteStalePrimary which will handle starting postgres, pg_rewind, and restart
-	t.Log("Leaving postgres stopped on old primary - multiorch will handle restart...")
+	// Step 4: Resume postgres restarts on the old primary. The new leader is
+	// already at a higher term, so when MonitorPostgres revives postgres on
+	// the old primary it comes back as a "running stale primary" that the
+	// revocation handshake prevents from committing writes. Multiorch's
+	// SetTermPrimary-driven demotion then runs pg_rewind and restarts as standby.
+	t.Log("Resuming postgres restarts on old primary - monitor will revive postgres as stale primary...")
+	resumeRestarts()
 
-	// Step 5: Wait for multiorch to detect and repair divergence
-	// This may take longer because multiorch needs to:
-	// 1. Detect the split-brain (both PRIMARY in topology, different terms)
-	// 2. Call DemoteStalePrimary RPC on the stale primary (lower term)
-	// 3. DemoteStalePrimary starts postgres, runs pg_rewind, restarts as standby
-	// 4. Configure replication to the new primary
-	// 5. Start WAL receiver
+	// Step 5: Wait for multiorch to detect and repair divergence. Once postgres
+	// is back up on the old primary, multiorch's StaleLeaderAnalyzer fires and
+	// sends SetTermPrimary. SetTermPrimary's isPrimary=true branch demotes via
+	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
 

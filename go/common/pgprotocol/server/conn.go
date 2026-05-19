@@ -346,6 +346,13 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// ReplicationMode returns the parsed `replication` startup parameter for this
+// connection. ReplicationOff means the client did not request a replication
+// connection (or sent replication=false).
+func (c *Conn) ReplicationMode() ReplicationMode {
+	return c.replicationMode
+}
+
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the
 // client's authentication handshake, or nil if the session did not
 // authenticate via SCRAM. Used for passthrough auth to backend PostgreSQL.

@@ -96,6 +96,19 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 			"no non-resigned poolers in cohort; cannot fail over")
 	}
 
+	// Failover constructs the revocation via NewTermRevocation: outgoing_rule
+	// is the highest RuleNumber discovered across cohort statuses.
+	var liveStatuses []*clustermetadatapb.ConsensusStatus
+	for _, p := range liveCohort {
+		if cs := p.GetConsensusStatus(); cs != nil {
+			liveStatuses = append(liveStatuses, cs)
+		}
+	}
+	revocation, err := commonconsensus.NewTermRevocation(liveStatuses, c.coordinatorID)
+	if err != nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
+	}
+
 	poolerByID, _ := buildCohortMaps(liveCohort)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return buildFailoverProposal(r, poolerByID)
@@ -106,7 +119,7 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, liveCohort)
+	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, liveCohort, revocation)
 }
 
 // AppointInitialLeader orchestrates consensus leader election for a freshly
@@ -140,17 +153,24 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 		}
 	}
 
-	// This is the discovery phase of coordinator-led rule changes. For externally-certified
-	// rule changes, the client (this method) is responsible for discovery.
+	// This is the discovery phase of coordinator-led rule changes. For
+	// externally-certified rule changes, the agent (this method) is
+	// responsible for choosing the outgoing rule and authoring the
+	// revocation; common/consensus consumes the cert without re-deriving.
 	mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
 	if mostAdvanced == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardKey.GetShard())
 	}
-	outgoingRule := mostAdvanced.GetRule().GetRuleNumber()
-	if outgoingRule == nil {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot bootstrap shard %s: db initialization didn't set up consensus rules", shardKey.GetShard())
+
+	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID)
+	if err != nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
+	}
+
+	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
+		TermRevocation: revocation,
+		FrozenLsn:      mostAdvanced.GetLsn(),
 	}
 
 	poolerByID, _ := buildCohortMaps(cohort)
@@ -158,22 +178,15 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	buildProposalFn := func(result commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return buildBootstrapProposal(result, cohortIDs, policy, poolerByID)
 	}
-	certFor := func(rev *clustermetadatapb.TermRevocation) *clustermetadatapb.ExternallyCertifiedRevocation {
-		return &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation:     rev,
-			OutgoingRuleNumber: outgoingRule,
-			FrozenLsn:          mostAdvanced.GetLsn(),
-		}
-	}
 	return c.newRuleChange(
 		"ShardInit",
-		func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-			return commonconsensus.BuildExternallyCertifiedProposal(certFor(rev), statuses, buildProposalFn)
+		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+			return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposalFn)
 		},
-		func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-			return commonconsensus.CheckExternallyCertifiedProposalPossible(certFor(rev), statuses, buildProposalFn)
+		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
+			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposalFn)
 		},
-	).Run(ctx, cohort)
+	).Run(ctx, cohort, revocation)
 }
 
 // GetCoordinatorID returns the coordinator's ID.

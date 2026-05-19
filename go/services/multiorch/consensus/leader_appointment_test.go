@@ -144,17 +144,29 @@ func TestAppointLeader(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
 	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_failover"))
 
-	// Every node should have received a Propose carrying the same proposal.
-	for _, id := range cohortIDs {
+	// The designated leader (mp1) should receive a Propose with the full
+	// CoordinatorProposal.
+	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	propReq, ok := fakeClient.ProposeRequests[leaderKey]
+	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "test_failover", propReq.GetReason())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+		"failover should pick mp1 (highest LSN) as leader")
+	require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should be max prior term (5) + 1")
+
+	// Followers should receive SetTermPrimary carrying the same leader + rule
+	// (no Propose).
+	for _, id := range cohortIDs[1:] {
 		key := topoclient.MultiPoolerIDString(id)
-		propReq, ok := fakeClient.ProposeRequests[key]
-		require.True(t, ok, "Propose should be sent to %s", id.Name)
-		require.NotNil(t, propReq.GetProposal())
-		require.Equal(t, "test_failover", propReq.GetReason())
-		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
-			"failover should pick mp1 (highest LSN) as leader")
-		require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
-			"revocation term should be max prior term (5) + 1")
+		_, isPropose := fakeClient.ProposeRequests[key]
+		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetTermPrimaryRequests[key]
+		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+			"follower %s should be informed of mp1 as leader", id.Name)
+		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }
 
@@ -228,22 +240,33 @@ func TestAppointInitialLeader(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
 	require.NoError(t, c.AppointInitialLeader(ctx, shardKey, cohort))
 
-	// Every node should receive an identical Propose carrying the bootstrap proposal.
-	for _, id := range cohortIDs {
+	// The designated leader (mp1) should receive a Propose carrying the
+	// bootstrap proposal.
+	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	propReq, ok := fakeClient.ProposeRequests[leaderKey]
+	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "ShardInit", propReq.GetReason())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+		"bootstrap should pick mp1 (highest LSN) as leader")
+	// Fresh cluster: max prior term is 0, so the new revocation is term 1.
+	require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"bootstrap revocation term should be 1")
+	// Proposed rule carries the bootstrap policy and the full cohort.
+	propRule := propReq.GetProposal().GetProposedRule()
+	require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
+	require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
+	require.Len(t, propRule.GetCohortMembers(), 3)
+
+	// Followers should receive SetTermPrimary carrying the same leader + rule.
+	for _, id := range cohortIDs[1:] {
 		key := topoclient.MultiPoolerIDString(id)
-		propReq, ok := fakeClient.ProposeRequests[key]
-		require.True(t, ok, "Propose should be sent to %s", id.Name)
-		require.NotNil(t, propReq.GetProposal())
-		require.Equal(t, "ShardInit", propReq.GetReason())
-		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
-			"bootstrap should pick mp1 (highest LSN) as leader")
-		// Fresh cluster: max prior term is 0, so the new revocation is term 1.
-		require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
-			"bootstrap revocation term should be 1")
-		// Proposed rule carries the bootstrap policy and the full cohort.
-		propRule := propReq.GetProposal().GetProposedRule()
-		require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
-		require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
-		require.Len(t, propRule.GetCohortMembers(), 3)
+		_, isPropose := fakeClient.ProposeRequests[key]
+		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetTermPrimaryRequests[key]
+		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+			"follower %s should be informed of mp1 as leader", id.Name)
+		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }

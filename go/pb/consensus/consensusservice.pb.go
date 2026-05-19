@@ -40,7 +40,7 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xa3\x06\n" +
+	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xbb\x06\n" +
 	"\x14MultiPoolerConsensus\x12E\n" +
 	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12~\n" +
 	"\x13UpdateConsensusRule\x122.multipoolermanagerdata.UpdateConsensusRuleRequest\x1a3.multipoolermanagerdata.UpdateConsensusRuleResponse\x12{\n" +
@@ -48,8 +48,8 @@ const file_consensusservice_proto_rawDesc = "" +
 	"\x12SetPrimaryConnInfo\x121.multipoolermanagerdata.SetPrimaryConnInfoRequest\x1a2.multipoolermanagerdata.SetPrimaryConnInfoResponse\x12o\n" +
 	"\x0eRewindToSource\x12-.multipoolermanagerdata.RewindToSourceRequest\x1a..multipoolermanagerdata.RewindToSourceResponse\x12H\n" +
 	"\aRecruit\x12\x1d.consensusdata.RecruitRequest\x1a\x1e.consensusdata.RecruitResponse\x12H\n" +
-	"\aPropose\x12\x1d.consensusdata.ProposeRequest\x1a\x1e.consensusdata.ProposeResponse\x12E\n" +
-	"\x06Inform\x12\x1c.consensusdata.InformRequest\x1a\x1d.consensusdata.InformResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
+	"\aPropose\x12\x1d.consensusdata.ProposeRequest\x1a\x1e.consensusdata.ProposeResponse\x12]\n" +
+	"\x0eSetTermPrimary\x12$.consensusdata.SetTermPrimaryRequest\x1a%.consensusdata.SetTermPrimaryResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
 
 var file_consensusservice_proto_goTypes = []any{
 	(*consensusdata.StatusRequest)(nil),                        // 0: consensusdata.StatusRequest
@@ -59,7 +59,7 @@ var file_consensusservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.RewindToSourceRequest)(nil),       // 4: multipoolermanagerdata.RewindToSourceRequest
 	(*consensusdata.RecruitRequest)(nil),                       // 5: consensusdata.RecruitRequest
 	(*consensusdata.ProposeRequest)(nil),                       // 6: consensusdata.ProposeRequest
-	(*consensusdata.InformRequest)(nil),                        // 7: consensusdata.InformRequest
+	(*consensusdata.SetTermPrimaryRequest)(nil),                // 7: consensusdata.SetTermPrimaryRequest
 	(*consensusdata.StatusResponse)(nil),                       // 8: consensusdata.StatusResponse
 	(*multipoolermanagerdata.UpdateConsensusRuleResponse)(nil), // 9: multipoolermanagerdata.UpdateConsensusRuleResponse
 	(*multipoolermanagerdata.DemoteStalePrimaryResponse)(nil),  // 10: multipoolermanagerdata.DemoteStalePrimaryResponse
@@ -67,7 +67,7 @@ var file_consensusservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.RewindToSourceResponse)(nil),      // 12: multipoolermanagerdata.RewindToSourceResponse
 	(*consensusdata.RecruitResponse)(nil),                      // 13: consensusdata.RecruitResponse
 	(*consensusdata.ProposeResponse)(nil),                      // 14: consensusdata.ProposeResponse
-	(*consensusdata.InformResponse)(nil),                       // 15: consensusdata.InformResponse
+	(*consensusdata.SetTermPrimaryResponse)(nil),               // 15: consensusdata.SetTermPrimaryResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
 	0,  // 0: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
@@ -77,7 +77,7 @@ var file_consensusservice_proto_depIdxs = []int32{
 	4,  // 4: consensus.MultiPoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
 	5,  // 5: consensus.MultiPoolerConsensus.Recruit:input_type -> consensusdata.RecruitRequest
 	6,  // 6: consensus.MultiPoolerConsensus.Propose:input_type -> consensusdata.ProposeRequest
-	7,  // 7: consensus.MultiPoolerConsensus.Inform:input_type -> consensusdata.InformRequest
+	7,  // 7: consensus.MultiPoolerConsensus.SetTermPrimary:input_type -> consensusdata.SetTermPrimaryRequest
 	8,  // 8: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
 	9,  // 9: consensus.MultiPoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateConsensusRuleResponse
 	10, // 10: consensus.MultiPoolerConsensus.DemoteStalePrimary:output_type -> multipoolermanagerdata.DemoteStalePrimaryResponse
@@ -85,7 +85,7 @@ var file_consensusservice_proto_depIdxs = []int32{
 	12, // 12: consensus.MultiPoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
 	13, // 13: consensus.MultiPoolerConsensus.Recruit:output_type -> consensusdata.RecruitResponse
 	14, // 14: consensus.MultiPoolerConsensus.Propose:output_type -> consensusdata.ProposeResponse
-	15, // 15: consensus.MultiPoolerConsensus.Inform:output_type -> consensusdata.InformResponse
+	15, // 15: consensus.MultiPoolerConsensus.SetTermPrimary:output_type -> consensusdata.SetTermPrimaryResponse
 	8,  // [8:16] is the sub-list for method output_type
 	0,  // [0:8] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name

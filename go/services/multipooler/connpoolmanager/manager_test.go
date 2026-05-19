@@ -920,8 +920,10 @@ func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
 // TestBuildUserClientConfig_NilKeys_FallsBack ensures that an
 // authenticated-but-keyless session (not expected in practice, but possible
 // during rollout) does not crash and falls back to the empty-password path.
-// An empty-password dial only succeeds against the pg_hba admin-user trust
-// exception; any other user will fail authentication at PostgreSQL.
+// pg_hba.conf now requires scram-sha-256 for all connections, so the resulting
+// dial will fail authentication at PostgreSQL — but this test only checks that
+// the config-building code returns a well-formed (empty-credential) config
+// rather than panicking on nil keys.
 func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)

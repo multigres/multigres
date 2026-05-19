@@ -59,7 +59,7 @@ service MultiPoolerConsensus {
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
     returns (multipoolermanagerdata.RewindToSourceResponse);
 
-  // Recruit → Propose → Inform appointment protocol.
+  // Recruit → Propose → SetTermPrimary appointment protocol.
 
   // Recruit asks a pooler to revoke all terms below the one specified and
   // record the coordinator's exclusive claim on that term.
@@ -70,6 +70,8 @@ service MultiPoolerConsensus {
   // the new primary.
   rpc Propose(consensusdata.ProposeRequest) returns (consensusdata.ProposeResponse);
 
-  // Inform broadcasts a decided, durable rule.
-  rpc Inform(consensusdata.InformRequest) returns (consensusdata.InformResponse);
+  // SetTermPrimary tells a pooler which postgres primary to follow at a given
+  // consensus term. Used both to endorse in-flight proposals and to catch
+  // followers up to durable decisions.
+  rpc SetTermPrimary(consensusdata.SetTermPrimaryRequest) returns (consensusdata.SetTermPrimaryResponse);
 }

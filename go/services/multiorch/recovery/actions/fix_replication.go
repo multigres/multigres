@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -200,37 +201,17 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
-	// Use the term numbers already carried in the health state rather than
-	// making extra ConsensusStatus RPCs. Both values come from StatusResponse
-	// via the health stream, so they reflect the same data we would get from
-	// a fresh RPC at the time the problem was detected.
-	//
-	// We take max(primaryTerm, replicaTerm) because after a failover the
-	// replica may have accepted a higher term (from Recruit) than the
-	// newly-elected primary has seen yet. validateAndUpdateTerm rejects
-	// requests whose CurrentTerm is below the local term, so using the
-	// maximum satisfies both nodes. A higher term is safe: the primary
-	// accepts it and advances its own term to match.
-	primaryTerm := primary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	replicaTerm := replica.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	consensusTerm := max(primaryTerm, replicaTerm)
-
-	// Configure primary_conninfo on the replica
-	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               primary.MultiPooler,
-		StopReplicationBefore: true,
-		StartReplicationAfter: true,
-		CurrentTerm:           consensusTerm,
-		Force:                 false,
+	// Configure primary_conninfo on the replica via SetTermPrimary.
+	informReq := &consensusdatapb.SetTermPrimaryRequest{
+		Leader: poolerAddressFor(primary.MultiPooler),
+		Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
-
-	_, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to set primary connection info")
+	if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {
+		return mterrors.Wrap(err, "failed to inform replica of primary")
 	}
 
 	// Verify replication started
-	err = a.verifyReplicationStarted(ctx, replica)
+	err := a.verifyReplicationStarted(ctx, replica)
 	if err != nil {
 		a.logger.WarnContext(ctx, "replication did not start after configuration",
 			"replica", replica.MultiPooler.Id.Name,

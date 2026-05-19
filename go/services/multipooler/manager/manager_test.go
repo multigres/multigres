@@ -748,3 +748,226 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestPrimaryConnInfoDiffersFromRecorded exercises the MonitorPostgres
+// self-heal predicate. The function decides whether the monitor should issue
+// remedialActionFixPrimaryConnInfo on a given tick by comparing the live
+// primary_conninfo (read from postgres) against the (rule, primary) tuple
+// recorded by SetTermPrimary/Propose. The function is intentionally
+// conservative: when in doubt, return false so the monitor takes no action.
+//
+// The cases below cover each early-exit path plus the live-vs-recorded
+// comparison branches. setupManagerWithMockDB seeds serviceID with cell
+// "zone1" and name "test-pooler"; the SelfIsLeader case relies on that.
+func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
+	const (
+		recordedHost = "primary.example.com"
+		recordedPort = int32(5432)
+	)
+	recordedID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "primary-pooler",
+	}
+	selfID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+	mkRule := func(term int64, leader *clustermetadatapb.ID) *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			LeaderId:   leader,
+		}
+	}
+	mkAddress := func(host string, port int32) *clustermetadatapb.PoolerAddress {
+		return &clustermetadatapb.PoolerAddress{Id: recordedID, Host: host, PostgresPort: port}
+	}
+
+	tests := []struct {
+		name string
+		// seedRP, when non-nil, is recorded on consensusState before the call.
+		seedRP *clustermetadatapb.ReplicationPrimary
+		// seedRevocation, when non-nil, is written to consensusState before the call.
+		seedRevocation *clustermetadatapb.TermRevocation
+		// seedManualStop, when true, sets the walReceiverManuallyStopped flag
+		// before the call to simulate a prior StopReplication.
+		seedManualStop bool
+		// mockConnInfo controls what readPrimaryConnInfo returns. Empty string
+		// means NULL; mockReadError takes precedence and triggers a query error.
+		mockConnInfo  string
+		mockReadError bool
+		// expectQuery is true when readPrimaryConnInfo is expected to run; the
+		// early-exit branches don't issue the SQL.
+		expectQuery bool
+		want        bool
+	}{
+		{
+			name: "NoReplicationPrimaryRecorded",
+			// rp == nil -> nothing to compare against
+			want: false,
+		},
+		{
+			// StopReplication-set manual-stop flag preempts drift detection
+			// so the monitor doesn't fire a reconciliation action that
+			// setPrimaryConnInfoLocked would refuse with FAILED_PRECONDITION
+			// (once per 5s tick, noisily).
+			name: "ManualStopFlagSet",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			seedManualStop: true,
+			want:           false,
+		},
+		{
+			name: "PrimaryFieldMissing",
+			// rule recorded but primary contact info absent -> nothing to compare
+			seedRP: &clustermetadatapb.ReplicationPrimary{Rule: mkRule(5, recordedID)},
+			want:   false,
+		},
+		{
+			name: "SelfIsLeader",
+			// recorded rule names this pooler — primary-side case, not replica
+			// reconciliation
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, selfID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			want: false,
+		},
+		{
+			name: "RecordedRuleRevoked",
+			// revocation at term 9 outranks rule at term 5 -> reconcile would
+			// race the in-flight Recruit/Propose
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			seedRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 9,
+				OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			},
+			want: false,
+		},
+		{
+			name: "RecordedHostEmpty",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress("", recordedPort),
+			},
+			want: false,
+		},
+		{
+			name: "RecordedPortZero",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, 0),
+			},
+			want: false,
+		},
+		{
+			name: "ReadPrimaryConnInfoErrors",
+			// Conservative: don't trigger reconciliation we can't verify
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:   true,
+			mockReadError: true,
+			want:          false,
+		},
+		{
+			name: "LiveConnInfoEmpty_DriftsFromRecorded",
+			// Recorded says we should be following a primary; postgres has
+			// nothing -> drift
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "",
+			want:         true,
+		},
+		{
+			name: "LiveConnInfoUnparseable_TreatedAsDrift",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=primary.example.com port=invalid user=replicator",
+			want:         true,
+		},
+		{
+			name: "LiveConnInfoMatchesRecorded",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
+			want:         false,
+		},
+		{
+			name: "LiveConnInfoHostMismatch",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=other.example.com port=5432 user=replicator",
+			want:         true,
+		},
+		{
+			name: "LiveConnInfoPortMismatch",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Rule:    mkRule(5, recordedID),
+				Primary: mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=primary.example.com port=9999 user=replicator",
+			want:         true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockQueryService := mock.NewQueryService()
+			if tt.expectQuery {
+				if tt.mockReadError {
+					mockQueryService.AddQueryPatternOnceWithError(
+						"current_setting.*primary_conninfo", assert.AnError)
+				} else {
+					var row [][]any
+					if tt.mockConnInfo == "" {
+						row = [][]any{{nil}}
+					} else {
+						row = [][]any{{tt.mockConnInfo}}
+					}
+					mockQueryService.AddQueryPatternOnce(
+						"current_setting.*primary_conninfo",
+						mock.MakeQueryResult([]string{"current_setting"}, row))
+				}
+			}
+
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+
+			if tt.seedRP != nil {
+				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
+			}
+			if tt.seedRevocation != nil {
+				require.NoError(t, pm.consensusState.setRevocation(tt.seedRevocation))
+				_, err := pm.consensusState.Load()
+				require.NoError(t, err)
+			}
+			if tt.seedManualStop {
+				pm.walReceiverManuallyStopped.Store(true)
+			}
+
+			got := pm.primaryConnInfoDiffersFromRecorded(postgresState{})
+			assert.Equal(t, tt.want, got)
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}

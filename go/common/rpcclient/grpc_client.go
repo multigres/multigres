@@ -147,6 +147,19 @@ func (c *Client) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadata
 	return conn.consensusClient.SetPrimaryConnInfo(ctx, request)
 }
 
+// SetTermPrimary tells a pooler about the current primary, gated on position comparison.
+func (c *Client) SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetTermPrimaryRequest) (*consensusdatapb.SetTermPrimaryResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.SetTermPrimary(ctx, request)
+}
+
 // RewindToSource performs pg_rewind to synchronize a replica with its source.
 func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
