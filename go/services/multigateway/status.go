@@ -84,7 +84,7 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 		for _, pooler := range cs.Poolers {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
 				Name:     pooler.Id.GetName(),
-				Database: pooler.GetDatabase(),
+				Database: pooler.GetShardKey().GetDatabase(),
 				Type:     pooler.GetType().String(),
 			})
 		}

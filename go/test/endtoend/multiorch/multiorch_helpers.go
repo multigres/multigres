@@ -31,7 +31,8 @@ import (
 func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
+	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable password=%s",
+		socketDir, port, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 

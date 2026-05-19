@@ -56,12 +56,14 @@ func orchID(cell, name string) *clustermetadatapb.ID {
 
 func makePooler(cell, name string) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
-		Id:         poolerID(cell, name),
-		Database:   "db1",
-		TableGroup: "default",
-		Shard:      "0-inf",
-		Hostname:   "localhost",
-		PortMap:    map[string]int32{"postgres": 5432, "grpc": 9000},
+		Id: poolerID(cell, name),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "db1",
+			TableGroup: "default",
+			Shard:      "0-inf",
+		},
+		Hostname: "localhost",
+		PortMap:  map[string]int32{"postgres": 5432, "grpc": 9000},
 	}
 }
 
@@ -87,8 +89,10 @@ func atLeastN(n int32) *clustermetadatapb.DurabilityPolicy {
 func TestFillIdentityFields_PopulatesEmpty(t *testing.T) {
 	rule := &clustermetadatapb.ShardRule{}
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-		FrozenLsn:          "0/100",
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		},
+		FrozenLsn: "0/100",
 	}
 	orch := orchID("cell1", "orch1")
 	now := timestamppb.New(timestamppb.Now().AsTime())
@@ -117,12 +121,12 @@ func TestFillIdentityFields_PreservesCallerValues(t *testing.T) {
 		CreationTime:  callerTime,
 	}
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-		FrozenLsn:          "0/100",
+		FrozenLsn: "0/100",
 		TermRevocation: &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       42,
 			AcceptedCoordinatorId:  callerOrch,
 			CoordinatorInitiatedAt: callerTime,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 		},
 	}
 	// Multiadmin happens to pick the same orch the caller named.
@@ -141,10 +145,10 @@ func TestFillIdentityFields_RejectsCoordinatorMismatch(t *testing.T) {
 	callerOrch := orchID("cell1", "caller-chose-this")
 	rule := &clustermetadatapb.ShardRule{}
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-		FrozenLsn:          "0/100",
+		FrozenLsn: "0/100",
 		TermRevocation: &clustermetadatapb.TermRevocation{
 			AcceptedCoordinatorId: callerOrch,
+			OutgoingRule:          &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 		},
 	}
 	differentOrch := orchID("cell2", "multiadmin-chose-this")
@@ -160,8 +164,10 @@ func TestFillIdentityFields_RejectsCoordinatorMismatch(t *testing.T) {
 func TestFillIdentityFields_BootstrapZeroOutgoing(t *testing.T) {
 	rule := &clustermetadatapb.ShardRule{}
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{},
-		FrozenLsn:          "0/0",
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			OutgoingRule: &clustermetadatapb.RuleNumber{},
+		},
+		FrozenLsn: "0/0",
 	}
 	orch := orchID("cell1", "orch1")
 	require.NoError(t, fillIdentityFields(rule, cert, orch, timestamppb.Now()))

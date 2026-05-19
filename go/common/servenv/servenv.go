@@ -148,7 +148,13 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			Dynamic:  false,
 		}),
 		onTermTimeout: viperutil.Configure(reg, "onterm-timeout", viperutil.Options[time.Duration]{
-			Default:  10 * time.Second,
+			// Default matches Kubernetes' default terminationGracePeriodSeconds
+			// (30s). A pod manifest that doesn't override the grace period gets
+			// SIGKILL'd at 30s, so it doesn't help to give OnTermSync hooks
+			// more than that — they'd be cut off mid-flight anyway. Manifests
+			// that need a longer graceful-shutdown budget should bump both
+			// terminationGracePeriodSeconds and --onterm-timeout in lockstep.
+			Default:  30 * time.Second,
 			FlagName: "onterm-timeout",
 			Dynamic:  false,
 		}),

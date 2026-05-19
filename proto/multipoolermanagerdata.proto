@@ -504,11 +504,11 @@ enum SynchronousMethod {
   SYNCHRONOUS_METHOD_ANY = 2;
 }
 
-// Enum representing the type of standby list modification
-enum StandbyUpdateOperation {
-  STANDBY_UPDATE_OPERATION_UNSPECIFIED = 0;
-  STANDBY_UPDATE_OPERATION_ADD = 1;
-  STANDBY_UPDATE_OPERATION_REMOVE = 2;
+// Enum representing the type of cohort membership change
+enum CohortUpdateOperation {
+  COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+  COHORT_UPDATE_OPERATION_ADD = 1;
+  COHORT_UPDATE_OPERATION_REMOVE = 2;
 }
 
 // Synchronous commit level
@@ -556,29 +556,31 @@ message ConfigureSynchronousReplicationRequest {
 message ConfigureSynchronousReplicationResponse {
 }
 
-// UpdateSynchronousStandbyList updates the synchronous standby list
-message UpdateSynchronousStandbyListRequest {
-  // Operation to perform (add, remove, or replace)
-  StandbyUpdateOperation operation = 1;
+// UpdateConsensusRule applies a cohort-membership change on the primary.
+// Internally this updates synchronous_standby_names and records the cohort
+// change in rule_history.
+message UpdateConsensusRuleRequest {
+  // Operation to perform (add, remove)
+  CohortUpdateOperation operation = 1;
 
-  // List of standby multipooler IDs to add/remove/replace
-  // The application names will be generated as {cell}_{name} from these IDs
+  // List of multipooler IDs to add to or remove from the cohort.
+  // The application names will be generated as {cell}_{name} from these IDs.
   repeated clustermetadata.ID standby_ids = 2;
 
-  // Whether to reload configuration immediately
-  bool reload_config = 3;
-
-  // Consensus term (used by MultiOrch for term validation)
-  int64 consensus_term = 4;
-
-  // Force the operation even if the term doesn't match
-  bool force = 5;
+  // expected_outgoing_rule is the RuleNumber the caller observed as the
+  // primary's current rule. The primary applies the change only if its
+  // recorded rule still matches this value (compare-and-swap). It rejects
+  // with a "rule has changed" error otherwise, signaling that the caller's
+  // view is stale and it should re-read state and retry. This prevents
+  // races between concurrent coordinators making cohort decisions based on
+  // stale snapshots. Required.
+  clustermetadata.RuleNumber expected_outgoing_rule = 4;
 
   // Coordinator ID that initiated this operation (for audit trail)
   clustermetadata.ID coordinator_id = 6;
 }
 
-message UpdateSynchronousStandbyListResponse {
+message UpdateConsensusRuleResponse {
 }
 
 // Backup operations

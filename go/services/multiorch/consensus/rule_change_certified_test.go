@@ -57,12 +57,12 @@ func makeCertifiedRequest(outgoingTerm int64, leaderID *clustermetadatapb.ID, co
 		CreationTime:  timestamppb.Now(),
 	}
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		OutgoingRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: outgoingTerm},
-		FrozenLsn:          frozenLSN,
+		FrozenLsn: frozenLSN,
 		TermRevocation: &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       newTerm,
 			AcceptedCoordinatorId:  orchID,
 			CoordinatorInitiatedAt: timestamppb.Now(),
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: outgoingTerm},
 		},
 	}
 	return shardKey, rule, cert
@@ -140,7 +140,7 @@ func TestApplyCertifiedRuleChange_RejectsRevocationNotAboveOutgoing(t *testing.T
 	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
 	shardKey, rule, cert := makeCertifiedRequest(5, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
 	// New term must be > outgoing term. Force them equal.
-	cert.OutgoingRuleNumber.CoordinatorTerm = cert.TermRevocation.RevokedBelowTerm
+	cert.TermRevocation.OutgoingRule.CoordinatorTerm = cert.TermRevocation.RevokedBelowTerm
 
 	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
 	require.Error(t, err)
@@ -164,9 +164,11 @@ func TestApplyCertifiedRuleChange_PoolerAheadOfOutgoingRuleRejected(t *testing.T
 	mp1 := makePoolerState("zone1", "mp1")
 	// The pre-flight shard probe filters poolers by shard key, so the
 	// MultiPooler record must carry the matching database/table_group/shard.
-	mp1.MultiPooler.Database = "db1"
-	mp1.MultiPooler.TableGroup = "default"
-	mp1.MultiPooler.Shard = "0-inf"
+	mp1.MultiPooler.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   "db1",
+		TableGroup: "default",
+		Shard:      "0-inf",
+	}
 
 	fc := rpcclient.NewFakeClient()
 	// mp1 reports rule term 5 (ahead of the cert's outgoing term 2).

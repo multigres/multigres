@@ -69,8 +69,10 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
 	multiPooler := &clustermetadatapb.MultiPooler{
-		TableGroup: tableGroup,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
 	}
 
 	svcID := &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"}

@@ -28,7 +28,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -75,7 +74,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast.
-	// The policy is also written into the sentinel row of current_rule so all
+	// The policy is also written into the initial row of current_rule so all
 	// subsequent rule reads carry a non-nil DurabilityPolicy.
 	policy, err := pm.loadDurabilityPolicy(ctx)
 	if err != nil {
@@ -144,7 +143,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
 	}
 
-	// The zero-state sentinel row (term=0, empty cohort) was already inserted by
+	// The initial row (term=0, empty cohort) was already inserted by
 	// createRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
 
@@ -222,7 +221,7 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := executil.Command(stanzaCtx, "pgbackrest",
+	cmd := pm.pgbackrestCmd(stanzaCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"stanza-create")
@@ -240,14 +239,14 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.Database)
+	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.GetShardKey().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.multipooler.Database)
+			"database %s has no durability_policy configured", pm.multipooler.GetShardKey().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

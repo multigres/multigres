@@ -237,6 +237,12 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -331,6 +337,9 @@ enum ReservationReason {
   RESERVATION_REASON_COPY = 8;         // 0b1000
   // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
   RESERVATION_REASON_LISTEN = 16;      // 0b10000
+  // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+  // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+  RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

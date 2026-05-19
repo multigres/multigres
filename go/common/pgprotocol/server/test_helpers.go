@@ -65,6 +65,11 @@ func WithTestDatabase(db string) TestConnOption {
 	return func(c *Conn) { c.database = db }
 }
 
+// WithTestReplicationMode sets the replication mode on a test connection.
+func WithTestReplicationMode(mode ReplicationMode) TestConnOption {
+	return func(c *Conn) { c.replicationMode = mode }
+}
+
 // NewTestConn creates a Conn suitable for testing.
 // readBuf contains data that will be read by the Conn (simulating client input).
 // The returned TestConn includes WriteBuf to inspect what was written.

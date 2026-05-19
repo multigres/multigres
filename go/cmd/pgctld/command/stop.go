@@ -202,6 +202,9 @@ func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error
 	}
 
 	cmd := exec.Command("psql", args...)
+	if config.Password != "" {
+		cmd.Env = append(os.Environ(), "PGPASSWORD="+config.Password)
+	}
 
 	// Capture output to avoid cluttering the terminal
 	output, err := cmd.CombinedOutput()

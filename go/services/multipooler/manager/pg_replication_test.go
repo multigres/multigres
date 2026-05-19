@@ -34,6 +34,27 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// expectReloadConfig sets up the mock query expectations for one successful call
+// to MultiPoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
+// pg_reload_conf, then read pg_conf_load_time (post) returning a different value
+// so the wait loop exits on the first poll.
+func expectReloadConfig(m *mock.QueryService) {
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01+00"}}))
+}
+
+// expectReloadConfigFailure sets up the mock query expectations for a call to
+// MultiPoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
+// The wait loop is never entered.
+func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", reloadErr)
+}
+
 // mustPoolerIDFromAppName constructs a poolerID from a "cell_name" application name string.
 // Panics if parsing or construction fails; for use in tests only.
 func mustPoolerIDFromAppName(appName string) poolerID {
@@ -1369,7 +1390,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: true,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1389,7 +1410,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError:  false,
 			expectStatus: false,
@@ -1410,7 +1431,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1421,7 +1442,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: true,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
@@ -1446,7 +1467,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1472,7 +1493,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnceWithError("SELECT COUNT", errors.New("query failed"))
 			},
 			expectError:   true,
@@ -1484,7 +1505,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1538,7 +1559,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 			name: "successful reset",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError: false,
 		},
@@ -1554,7 +1575,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1594,7 +1615,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 			name: "successful clear synchronous replication",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError: false,
 		},
@@ -1610,7 +1631,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload configuration for demotion",

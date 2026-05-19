@@ -147,12 +147,12 @@ func TestBootstrap_ViaCLI(t *testing.T) {
 		},
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
 			Cert: &clustermetadatapb.ExternallyCertifiedRevocation{
-				OutgoingRuleNumber: &clustermetadatapb.RuleNumber{},
-				FrozenLsn:          "0/0",
+				FrozenLsn: "0/0",
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm:       1,
 					AcceptedCoordinatorId:  orchProtoID,
 					CoordinatorInitiatedAt: now,
+					OutgoingRule:           &clustermetadatapb.RuleNumber{},
 				},
 			},
 		},

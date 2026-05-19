@@ -27,6 +27,10 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
+		// Stamp multigres_vpid:<id> on every PG backend so the isolation
+		// harness shim (public.multigres_test_session_is_blocked) can map
+		// virtual PIDs back to real backend PIDs through multigateway.
+		shardsetup.WithVpidStamping(),
 	)
 })
 

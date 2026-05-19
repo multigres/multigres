@@ -43,8 +43,11 @@ type Listener struct {
 	// When nil, cancel requests are handled locally only.
 	cancelHandler CancelHandler
 
-	// hashProvider provides password hashes for SCRAM authentication.
-	hashProvider scram.PasswordHashProvider
+	// credentialProvider supplies per-role authentication data: the SCRAM
+	// password hash and the rolreplication flag from pg_authid. A single
+	// fetch satisfies both SCRAM and the post-auth replication-role gate,
+	// so neither path has to round-trip to the pooler twice.
+	credentialProvider CredentialProvider
 
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
@@ -54,6 +57,10 @@ type Listener struct {
 	// When set, the server accepts SSLRequest and upgrades to TLS.
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
+
+	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
+	// hostssl posture. Validated against tlsConfig at construction.
+	requireTLS bool
 
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
@@ -107,6 +114,45 @@ type TrustAuthProvider interface {
 	AllowTrustAuth(ctx context.Context, user, database string) bool
 }
 
+// Credentials carries the per-role authentication data the gateway needs
+// to admit a startup connection. A single lookup feeds both the SCRAM
+// handshake (Hash) and the post-auth replication-role gate
+// (IsReplicationRole), so the gateway never has to round-trip twice for
+// the same role.
+type Credentials struct {
+	// Hash is the SCRAM-SHA-256 hash from pg_authid. Always set for
+	// successful lookups; the gateway hands it to ScramAuthenticator.
+	Hash *scram.ScramHash
+
+	// IsReplicationRole mirrors pg_authid.rolreplication. PostgreSQL
+	// requires this attribute (or rolsuper) for any connection started
+	// with the replication=true / replication=database startup
+	// parameter. The gateway gates replication startups on this flag
+	// after SCRAM succeeds, matching PG's "must be superuser or
+	// replication role to start walsender" error (SQLSTATE 42501).
+	IsReplicationRole bool
+}
+
+// CredentialProvider supplies the per-role authentication data the gateway
+// needs to admit a startup connection. Implementations should look up the
+// role once (e.g. via the multipooler admin connection) and return both
+// the SCRAM hash and any role attributes the listener will gate on.
+//
+// Lookup outcomes:
+//   - User missing or has no password: return scram.ErrUserNotFound. The
+//     gateway emits the opaque "password authentication failed" error
+//     (SQLSTATE 28P01) so user existence is not disclosed.
+//   - rolcanlogin=false: return scram.ErrLoginDisabled. The gateway emits
+//     "role \"X\" is not permitted to log in" (SQLSTATE 28000).
+//   - rolvaliduntil in the past: return scram.ErrPasswordExpired. The
+//     gateway emits the same opaque 28P01 message as unknown user.
+//   - Any other lookup failure: return the error as-is; the gateway fails
+//     closed and surfaces a generic FATAL so we don't leak which roles
+//     exist on lookup failure.
+type CredentialProvider interface {
+	GetCredentials(ctx context.Context, username, database string) (*Credentials, error)
+}
+
 // ListenerConfig holds configuration for the listener.
 type ListenerConfig struct {
 	// Address to listen on (e.g., "localhost:5432").
@@ -120,9 +166,12 @@ type ListenerConfig struct {
 	// When 0, connection IDs are used as-is (backward compatible).
 	GatewayID uint32
 
-	// HashProvider provides password hashes for SCRAM authentication.
-	// Required unless TrustAuthProvider is set.
-	HashProvider scram.PasswordHashProvider
+	// CredentialProvider supplies the SCRAM hash and rolreplication flag
+	// for each authenticating role. Required unless TrustAuthProvider is
+	// set. When nil and a startup requests replication != false, the
+	// gateway rejects the connection because it cannot verify the role's
+	// replication attribute.
+	CredentialProvider CredentialProvider
 
 	// TrustAuthProvider enables trust authentication for testing.
 	// When set, connections that pass AllowTrustAuth() skip password auth.
@@ -134,6 +183,12 @@ type ListenerConfig struct {
 	// When set, the listener accepts SSLRequest and upgrades connections to TLS.
 	// When nil, SSLRequest is declined with 'N' (plaintext only).
 	TLSConfig *tls.Config
+
+	// RequireTLS rejects any client that does not negotiate TLS before
+	// sending a StartupMessage. Mirrors the `hostssl` posture in
+	// PostgreSQL's pg_hba.conf. CancelRequest is still accepted over
+	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
+	RequireTLS bool
 
 	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
 	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
@@ -156,9 +211,13 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("handler is required")
 	}
 
-	// HashProvider is required unless TrustAuthProvider is set
-	if config.HashProvider == nil && config.TrustAuthProvider == nil {
-		return nil, errors.New("hash provider is required (or TrustAuthProvider for testing)")
+	// CredentialProvider is required unless TrustAuthProvider is set.
+	if config.CredentialProvider == nil && config.TrustAuthProvider == nil {
+		return nil, errors.New("credential provider is required (or TrustAuthProvider for testing)")
+	}
+
+	if config.RequireTLS && config.TLSConfig == nil {
+		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
@@ -181,9 +240,10 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	l := &Listener{
 		listener:              netListener,
 		handler:               config.Handler,
-		hashProvider:          config.HashProvider,
+		credentialProvider:    config.CredentialProvider,
 		trustAuthProvider:     config.TrustAuthProvider,
 		tlsConfig:             config.TLSConfig,
+		requireTLS:            config.RequireTLS,
 		authenticationTimeout: authTimeout,
 		logger:                logger,
 		gatewayID:             config.GatewayID,
@@ -204,6 +264,14 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		},
 	}
 	l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
+
+	// Warn when TLS is configured but no path will yield a server certificate.
+	// crypto/tls would fail the handshake in this state, but the SCRAM-SHA-256-
+	// PLUS advertisement would also silently disappear, so surface this early
+	// instead of letting it look like a channel-binding regression at runtime.
+	if config.TLSConfig != nil && !tlsConfigYieldsServerCert(config.TLSConfig) {
+		logger.Warn("TLS config has no Certificates, GetCertificate, or GetConfigForClient; SCRAM-SHA-256-PLUS will not be advertised and TLS handshakes will fail")
+	}
 
 	logger.Info("PostgreSQL listener started", "address", config.Address)
 
@@ -236,9 +304,10 @@ func (l *Listener) Serve() error {
 		}
 		conn := newConn(netConn, l, connID)
 		conn.handler = l.handler
-		conn.hashProvider = l.hashProvider
+		conn.credentialProvider = l.credentialProvider
 		conn.trustAuthProvider = l.trustAuthProvider
 		conn.tlsConfig = l.tlsConfig
+		conn.requireTLS = l.requireTLS
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

@@ -66,11 +66,13 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 
 	primary := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Id: primaryID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -123,12 +125,14 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Add primary
 	primary := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary.example.com",
+			Id: primaryID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -148,11 +152,13 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Add replica 1 (replicating)
 	replica1 := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replica1ID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -170,11 +176,13 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Add replica 2 (lagging)
 	replica2 := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replica2ID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -225,11 +233,13 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Add primary
 	primary := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Id: primaryID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -245,11 +255,13 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Add replica
 	replica := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -293,10 +305,12 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 				Cell:      "cell1",
 				Name:      "tg1-primary",
 			},
-			Database:   "testdb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "tg1",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -314,10 +328,12 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 				Cell:      "cell1",
 				Name:      "tg2-primary",
 			},
-			Database:   "testdb",
-			TableGroup: "tg2",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "tg2",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -358,9 +374,11 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "valid",
 			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
 		},
 		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
@@ -388,9 +406,11 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
 		},
 		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
@@ -425,9 +445,11 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
 		},
 		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
@@ -444,9 +466,11 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
 		},
 		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
@@ -482,10 +506,12 @@ func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "shard1",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
@@ -508,11 +534,13 @@ func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
 		}
 		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         formerPrimaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Type:       clustermetadatapb.PoolerType_PRIMARY, // etcd updated when promoted
+				Id: formerPrimaryID,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Type: clustermetadatapb.PoolerType_PRIMARY, // etcd updated when promoted
 			},
 			IsLastCheckValid: true,
 			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
@@ -545,11 +573,13 @@ func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
 		}
 		ps.Set("multipooler-cell1-former-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         formerPrimaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Type:       clustermetadatapb.PoolerType_REPLICA, // stale etcd: never updated
+				Id: formerPrimaryID,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Type: clustermetadatapb.PoolerType_REPLICA, // stale etcd: never updated
 			},
 			IsLastCheckValid: true,
 			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
@@ -669,11 +699,13 @@ func TestIsInStandbyList(t *testing.T) {
 			// Set up pooler store with primary
 			ps.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
 				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:         primaryID,
-					Database:   "testdb",
-					TableGroup: "testtg",
-					Shard:      "0",
-					Type:       clustermetadatapb.PoolerType_PRIMARY,
+					Id: primaryID,
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "testdb",
+						TableGroup: "testtg",
+						Shard:      "0",
+					},
+					Type: clustermetadatapb.PoolerType_PRIMARY,
 				},
 				IsLastCheckValid: true,
 				IsUpToDate:       true,
@@ -712,11 +744,13 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid:      true,
 			LastPostgresReadyTime: timestamppb.New(respondedAt),
@@ -733,9 +767,11 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -768,11 +804,13 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: false, // Pooler unreachable
 			Status: &multipoolermanagerdatapb.Status{
@@ -788,9 +826,11 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -823,11 +863,13 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: false, // Primary pooler is down
 			Status: &multipoolermanagerdatapb.Status{
@@ -846,9 +888,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -873,9 +917,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica2",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -913,11 +959,13 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: false,
 			Status: &multipoolermanagerdatapb.Status{
@@ -934,9 +982,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -961,9 +1011,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica2",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -994,11 +1046,13 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: false,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1015,9 +1069,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: false, // Replica unreachable
 			Status: &multipoolermanagerdatapb.Status{
@@ -1045,11 +1101,13 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1079,11 +1137,13 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			IsLastCheckValid: false,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1100,9 +1160,11 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1134,12 +1196,14 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -1149,10 +1213,12 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		for _, status := range []string{"", "starting", "waiting", "stopping"} {
 			ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-					Database:   "db1",
-					TableGroup: "tg1",
-					Shard:      "shard1",
+					Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+					ShardKey: &clustermetadatapb.ShardKey{
+						Database:   "db1",
+						TableGroup: "tg1",
+						Shard:      "shard1",
+					},
 				},
 				IsLastCheckValid: true,
 				Status: &multipoolermanagerdatapb.Status{
@@ -1185,12 +1251,14 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -1202,10 +1270,12 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1240,12 +1310,14 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -1259,10 +1331,12 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1298,12 +1372,14 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -1319,10 +1395,12 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1360,12 +1438,14 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
-				Hostname:   "primary-host",
-				PortMap:    map[string]int32{"postgres": 5432},
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -1374,10 +1454,12 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "shard1",
+				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "db1",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
 			},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
@@ -1426,11 +1508,13 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	// Add primary with replica1 in standby list
 	ps.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Id: primaryID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1451,11 +1535,13 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	// Add replica1 (in standby list)
 	ps.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replica1ID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1472,11 +1558,13 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	// Add replica2 (not in standby list)
 	ps.Set("multipooler-cell2-replica-2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "testdb",
-			TableGroup: "testtg",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Id: replica2ID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "testtg",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1534,8 +1622,9 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	shardConfig := func(id *clustermetadatapb.ID) *clustermetadatapb.MultiPooler {
 		return &clustermetadatapb.MultiPooler{
-			Id: id, Database: "testdb", TableGroup: "default", Shard: "0",
-			Type: clustermetadatapb.PoolerType_PRIMARY,
+			Id:       id,
+			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		}
 	}
 
@@ -1584,8 +1673,9 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 	// Replica.
 	ps.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: replicaID, Database: "testdb", TableGroup: "default", Shard: "0",
-			Type: clustermetadatapb.PoolerType_REPLICA,
+			Id:       replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
+			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
@@ -1812,12 +1902,14 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 		}
 		poolerState := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         id,
-				Database:   "testdb",
-				TableGroup: "default",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "localhost",
+				Id: id,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   "testdb",
+					TableGroup: "default",
+					Shard:      "0",
+				},
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "localhost",
 			},
 			IsLastCheckValid: p.reachable,
 			IsUpToDate:       true,
@@ -1847,11 +1939,9 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 	makePooler := func(name, db, tg, shard string, typ clustermetadatapb.PoolerType) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: name},
-				Database:   db,
-				TableGroup: tg,
-				Shard:      shard,
-				Type:       typ,
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: name},
+				ShardKey: &clustermetadatapb.ShardKey{Database: db, TableGroup: tg, Shard: shard},
+				Type:     typ,
 			},
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: typ,
@@ -1892,8 +1982,12 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 
 	ps.Set("multipooler-c1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "primary"},
-			Database: "db", TableGroup: "tg", Shard: "0",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "primary"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db",
+				TableGroup: "tg",
+				Shard:      "0",
+			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		Status: &multipoolermanagerdatapb.Status{
@@ -1902,8 +1996,12 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 	})
 	ps.Set("multipooler-c1-replica", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "replica"},
-			Database: "db", TableGroup: "tg", Shard: "0",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "replica"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db",
+				TableGroup: "tg",
+				Shard:      "0",
+			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		Status: &multipoolermanagerdatapb.Status{

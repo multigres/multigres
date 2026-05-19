@@ -41,11 +41,13 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	}
 
 	pooler := &clustermetadatapb.MultiPooler{
-		Id:         poolerID,
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
-		Hostname:   "localhost",
+		Id: poolerID,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Hostname: "localhost",
 		PortMap: map[string]int32{
 			"grpc": 9000,
 		},

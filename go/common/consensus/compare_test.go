@@ -56,6 +56,153 @@ func TestCompareRuleNumbers(t *testing.T) {
 	}
 }
 
+func TestMostAdvancedPosition(t *testing.T) {
+	mkID := func(name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      name,
+		}
+	}
+	status := func(name string, p *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{Id: mkID(name), CurrentPosition: p}
+	}
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		got := MostAdvancedPosition(nil)
+		assert.Nil(t, got)
+	})
+
+	t.Run("all statuses have unparsable LSN: returns nil", func(t *testing.T) {
+		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+			status("a", pos(3, "")),
+			status("b", pos(3, "bad-lsn")),
+		})
+		assert.Nil(t, got)
+	})
+
+	t.Run("highest rule wins regardless of LSN", func(t *testing.T) {
+		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+			status("a", pos(2, "0/9000000")),
+			status("b", pos(4, "0/100")),
+			status("c", pos(3, "0/500000")),
+		})
+		assert.Equal(t, int64(4), got.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, "0/100", got.GetLsn())
+	})
+
+	t.Run("same rule highest LSN wins", func(t *testing.T) {
+		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+			status("a", pos(3, "0/100")),
+			status("b", pos(3, "0/300")),
+			status("c", pos(3, "0/200")),
+		})
+		assert.Equal(t, "0/300", got.GetLsn())
+	})
+
+	t.Run("skips statuses with unparsable LSN", func(t *testing.T) {
+		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+			status("a", pos(5, "bad-lsn")),
+			status("b", pos(3, "0/100")),
+		})
+		// pooler-a's rule is higher (5) but its LSN is unparsable, so it's
+		// filtered out and pooler-b wins despite the lower rule.
+		assert.Equal(t, int64(3), got.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, "0/100", got.GetLsn())
+	})
+}
+
+func TestReplicationPrimaryMatches(t *testing.T) {
+	mkID := func(name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      name,
+		}
+	}
+	mkAddr := func(name, host string, pgPort int32) *clustermetadatapb.PoolerAddress {
+		return &clustermetadatapb.PoolerAddress{
+			Id:           mkID(name),
+			Host:         host,
+			PostgresPort: pgPort,
+		}
+	}
+	mkRule := func(term int64) *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}
+	}
+	mkRP := func(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{Rule: rule, Primary: primary}
+	}
+
+	target := mkAddr("primary-1", "host-a", 5432)
+	targetRule := mkRule(3)
+
+	t.Run("nil rp returns false", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryMatches(nil, target, targetRule))
+	})
+
+	t.Run("nil target returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, target)
+		assert.False(t, ReplicationPrimaryMatches(rp, nil, targetRule))
+	})
+
+	t.Run("nil targetRule returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, target)
+		assert.False(t, ReplicationPrimaryMatches(rp, target, nil))
+	})
+
+	t.Run("published rule older than targetRule returns false", func(t *testing.T) {
+		rp := mkRP(mkRule(2), target)
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("published primary missing returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, nil)
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("primary id mismatch returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, mkAddr("primary-2", "host-a", 5432))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("primary id different cell returns false", func(t *testing.T) {
+		other := mkAddr("primary-1", "host-a", 5432)
+		other.Id.Cell = "zone2"
+		rp := mkRP(targetRule, other)
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("primary id different component returns false", func(t *testing.T) {
+		other := mkAddr("primary-1", "host-a", 5432)
+		other.Id.Component = clustermetadatapb.ID_MULTIGATEWAY
+		rp := mkRP(targetRule, other)
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("primary hostname mismatch returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, mkAddr("primary-1", "host-b", 5432))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("primary port mismatch returns false", func(t *testing.T) {
+		rp := mkRP(targetRule, mkAddr("primary-1", "host-a", 5433))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("exact match returns true", func(t *testing.T) {
+		rp := mkRP(targetRule, target)
+		assert.True(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+
+	t.Run("published rule newer than targetRule still matches", func(t *testing.T) {
+		// Coordinator's targetRule may lag the pooler's published rule —
+		// "no older than" means published >= target.
+		rp := mkRP(mkRule(5), target)
+		assert.True(t, ReplicationPrimaryMatches(rp, target, targetRule))
+	})
+}
+
 func TestComparePosition(t *testing.T) {
 	tests := []struct {
 		name string

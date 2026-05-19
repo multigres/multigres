@@ -48,6 +48,9 @@ type PoolManager interface {
 	// PgUser returns the configured PostgreSQL user for system queries.
 	PgUser() string
 
+	// PgPassword returns the configured PostgreSQL password for system queries.
+	PgPassword() string
+
 	// --- Admin Pool Operations ---
 
 	// GetAdminConn acquires an admin connection from the pool.

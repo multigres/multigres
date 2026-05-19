@@ -163,8 +163,8 @@ func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb
 
 // buildCert returns the ExternallyCertifiedRevocation to forward. For an
 // explicit cert this is a clone of the caller's input. For unsafe_derive_cert
-// it probes the proposed cohort and computes outgoing_rule_number and
-// frozen_lsn from the most-advanced response.
+// it probes the proposed cohort and computes term_revocation.outgoing_rule
+// and frozen_lsn from the most-advanced response.
 func (s *MultiAdminServer) buildCert(
 	ctx context.Context,
 	req *multiadminpb.ApplyCertifiedRuleChangeRequest,
@@ -183,8 +183,10 @@ func (s *MultiAdminServer) buildCert(
 			return nil, err
 		}
 		return &clustermetadatapb.ExternallyCertifiedRevocation{
-			OutgoingRuleNumber: outgoingRule,
-			FrozenLsn:          frozenLSN,
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				OutgoingRule: outgoingRule,
+			},
+			FrozenLsn: frozenLSN,
 		}, nil
 
 	default:
@@ -323,7 +325,7 @@ func fillIdentityFields(
 		rev.CoordinatorInitiatedAt = now
 	}
 	if rev.GetRevokedBelowTerm() == 0 {
-		rev.RevokedBelowTerm = cert.GetOutgoingRuleNumber().GetCoordinatorTerm() + 1
+		rev.RevokedBelowTerm = rev.GetOutgoingRule().GetCoordinatorTerm() + 1
 	}
 
 	if proposedRule.GetRuleNumber() == nil {

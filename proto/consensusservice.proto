@@ -51,9 +51,11 @@ service MultiPoolerConsensus {
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
 
-  // UpdateConsensusRule updates the synchronous standby list (quorum membership)
-  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
-    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
+  // UpdateConsensusRule applies a cohort-membership change (add/remove). The
+  // primary handler updates synchronous_standby_names and records the cohort
+  // change in rule_history.
+  rpc UpdateConsensusRule(multipoolermanagerdata.UpdateConsensusRuleRequest)
+    returns (multipoolermanagerdata.UpdateConsensusRuleResponse);
 
   // Replication Configuration
   
@@ -75,7 +77,7 @@ service MultiPoolerConsensus {
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
     returns (multipoolermanagerdata.RewindToSourceResponse);
 
-  // New Recruit → Propose → Inform appointment protocol.
+  // New Recruit → Propose → SetTermPrimary appointment protocol.
   // These RPCs replace BeginTerm + Promote + SetPrimaryConnInfo and will be
   // wired up to handlers in subsequent PRs.
 
@@ -88,6 +90,8 @@ service MultiPoolerConsensus {
   // the new primary.
   rpc Propose(consensusdata.ProposeRequest) returns (consensusdata.ProposeResponse);
 
-  // Inform broadcasts a decided, durable rule.
-  rpc Inform(consensusdata.InformRequest) returns (consensusdata.InformResponse);
+  // SetTermPrimary tells a pooler which postgres primary to follow at a given
+  // consensus term. Used both to endorse in-flight proposals and to catch
+  // followers up to durable decisions.
+  rpc SetTermPrimary(consensusdata.SetTermPrimaryRequest) returns (consensusdata.SetTermPrimaryResponse);
 }

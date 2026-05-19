@@ -186,8 +186,8 @@ func NewPoolerConnection(
 
 	// Initialize health state to NOT_SERVING until health stream provides data.
 	initialTarget := &query.Target{
-		TableGroup: pooler.GetTableGroup(),
-		Shard:      pooler.GetShard(),
+		TableGroup: pooler.GetShardKey().GetTableGroup(),
+		Shard:      pooler.GetShardKey().GetShard(),
 		PoolerType: pooler.Type,
 	}
 

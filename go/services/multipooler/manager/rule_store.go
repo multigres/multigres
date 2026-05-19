@@ -36,13 +36,13 @@ import (
 // *ruleStore implements this; tests use fakeRuleStore.
 type ruleStorer interface {
 	// observePosition reads the current rule and WAL LSN from postgres.
-	// Always returns a non-nil position when err is nil (the sentinel row guarantees a row exists).
+	// Always returns a non-nil position when err is nil (the initial row guarantees a row exists).
 	observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
 	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
 	// createRuleTables creates multigres.current_rule and multigres.rule_history
-	// if they do not already exist, and inserts the zero-state sentinel row for
-	// the default shard initialized with the given durability policy. It is
-	// idempotent and safe to call multiple times.
+	// if they do not already exist, and inserts the initial row for the default
+	// shard, populated with the given durability policy. It is idempotent and
+	// safe to call multiple times.
 	createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error
 	// cachedPosition returns the most recently observed or written PoolerPosition
 	// from memory, without querying postgres. Returns nil if no position has been
@@ -184,15 +184,15 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int6
 // ----------------------------------------------------------------------------
 
 // createRuleTables creates multigres.current_rule and multigres.rule_history if
-// they do not already exist, then inserts the zero-state sentinel row for the
-// default shard. It is idempotent and safe to call multiple times.
+// they do not already exist, then inserts the initial row for the default
+// shard. It is idempotent and safe to call multiple times.
 //
 // current_rule holds a single row per shard representing the current cluster rule.
 // It is used as a locking target (SELECT FOR UPDATE) to serialise concurrent
 // writes; rule_history provides the append-only audit log.
 //
-// coordinator_term=0 in the sentinel row means no rule has been applied yet.
-// policy is written into the sentinel row so all subsequent rule reads have a
+// coordinator_term=0 in the initial row means no rule has been applied yet.
+// policy is written into the initial row so all subsequent rule reads have a
 // non-nil DurabilityPolicy; operations that do not change the policy (e.g.
 // Promote) carry it forward via COALESCE in updateRule.
 func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
@@ -267,7 +267,7 @@ var errRuleConflict = errors.New("rule conflict: current rule version mismatch")
 
 // observePosition reads the current rule and WAL LSN from postgres.
 // Always returns a non-nil position when err is nil.
-// Returns an error if postgres is unreachable or the sentinel row is missing.
+// Returns an error if postgres is unreachable or the initial row is missing.
 func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -287,7 +287,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 		return nil, mterrors.Wrap(err, "failed to query current position")
 	}
 	if len(result.Rows) == 0 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule sentinel row missing for shard 0: tables may not be initialized")
+		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule initial row missing for shard 0: tables may not be initialized")
 	}
 
 	var coordinatorTerm, leaderSubterm int64
@@ -693,11 +693,17 @@ func buildPoolerPosition(
 	}
 
 	if coordinatorIDStr != "" {
-		id, err := parseApplicationName(coordinatorIDStr)
+		// Coordinator IDs are multiorch, not multipooler — parseApplicationName
+		// is pooler-specific, so decode the cell_name encoding directly.
+		cell, name, err := splitCellName(coordinatorIDStr)
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse coordinator_id %q", coordinatorIDStr)
 		}
-		rule.CoordinatorId = id
+		rule.CoordinatorId = &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIORCH,
+			Cell:      cell,
+			Name:      name,
+		}
 	}
 
 	cohortIDs, err := appNamesToIDs(cohortNames)

@@ -60,6 +60,9 @@ const (
 	ReservationReason_RESERVATION_REASON_COPY ReservationReason = 8 // 0b1000
 	// Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
 	ReservationReason_RESERVATION_REASON_LISTEN ReservationReason = 16 // 0b10000
+	// Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+	// START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+	ReservationReason_RESERVATION_REASON_LOGICAL_REPLICATION ReservationReason = 32 // 0b100000
 )
 
 // Enum value maps for ReservationReason.
@@ -71,14 +74,16 @@ var (
 		4:  "RESERVATION_REASON_PORTAL",
 		8:  "RESERVATION_REASON_COPY",
 		16: "RESERVATION_REASON_LISTEN",
+		32: "RESERVATION_REASON_LOGICAL_REPLICATION",
 	}
 	ReservationReason_value = map[string]int32{
-		"RESERVATION_REASON_UNSPECIFIED": 0,
-		"RESERVATION_REASON_TRANSACTION": 1,
-		"RESERVATION_REASON_TEMP_TABLE":  2,
-		"RESERVATION_REASON_PORTAL":      4,
-		"RESERVATION_REASON_COPY":        8,
-		"RESERVATION_REASON_LISTEN":      16,
+		"RESERVATION_REASON_UNSPECIFIED":         0,
+		"RESERVATION_REASON_TRANSACTION":         1,
+		"RESERVATION_REASON_TEMP_TABLE":          2,
+		"RESERVATION_REASON_PORTAL":              4,
+		"RESERVATION_REASON_COPY":                8,
+		"RESERVATION_REASON_LISTEN":              16,
+		"RESERVATION_REASON_LOGICAL_REPLICATION": 32,
 	}
 )
 
@@ -936,9 +941,14 @@ type GetAuthCredentialsResponse struct {
 	// scram_hash is the stored SCRAM-SHA-256 password hash from pg_authid.
 	// Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
 	// Empty if user exists but has no password set.
-	ScramHash     string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ScramHash string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
+	// is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+	// this attribute (or rolsuper) for any connection started with the
+	// replication=true / replication=database startup parameter. The gateway
+	// enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+	IsReplicationRole bool `protobuf:"varint,2,opt,name=is_replication_role,json=isReplicationRole,proto3" json:"is_replication_role,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetAuthCredentialsResponse) Reset() {
@@ -976,6 +986,13 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 		return x.ScramHash
 	}
 	return ""
+}
+
+func (x *GetAuthCredentialsResponse) GetIsReplicationRole() bool {
+	if x != nil {
+		return x.IsReplicationRole
+	}
+	return false
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -1889,10 +1906,11 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\vdescription\x18\x01 \x01(\v2\x1b.query.StatementDescriptionR\vdescription\"S\n" +
 	"\x19GetAuthCredentialsRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\";\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"k\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
-	"scram_hash\x18\x01 \x01(\tR\tscramHash\"\xb6\x03\n" +
+	"scram_hash\x18\x01 \x01(\tR\tscramHash\x12.\n" +
+	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\"\xb6\x03\n" +
 	"\x16CopyBidiExecuteRequest\x12F\n" +
 	"\x05phase\x18\x01 \x01(\x0e20.multipoolerservice.CopyBidiExecuteRequest.PhaseR\x05phase\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12%\n" +
@@ -1960,14 +1978,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12\x1a\n" +
 	"\bchannels\x18\x02 \x03(\tR\bchannels\"X\n" +
 	"\x1bStreamNotificationsResponse\x129\n" +
-	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification*\xd9\x01\n" +
+	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification*\x85\x02\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +
 	"\x1dRESERVATION_REASON_TEMP_TABLE\x10\x02\x12\x1d\n" +
 	"\x19RESERVATION_REASON_PORTAL\x10\x04\x12\x1b\n" +
 	"\x17RESERVATION_REASON_COPY\x10\b\x12\x1d\n" +
-	"\x19RESERVATION_REASON_LISTEN\x10\x10*\x87\x01\n" +
+	"\x19RESERVATION_REASON_LISTEN\x10\x10\x12*\n" +
+	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 *\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +

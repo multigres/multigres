@@ -37,6 +37,10 @@ import (
 )
 
 // makePoolerState creates a PoolerHealthState with the given cell/name.
+// A minimal ConsensusStatus carrying a zero-valued recorded rule is attached
+// so the state is suitable as a cohort member: NewTermRevocation requires
+// at least one cohort member to report a recorded rule. Tests that need
+// richer status state overwrite the field after construction.
 func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -50,7 +54,32 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 			PortMap:  map[string]int32{"postgres": 5432, "grpc": 9000},
 		},
 		IsLastCheckValid: true,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{},
+				},
+			},
+		},
 	}
+}
+
+// newTestRevocation builds a TermRevocation suitable for rule_change.Run from
+// the given cohort. Tests that don't care about specific revocation contents
+// (term, outgoing_rule, etc.) use this to satisfy Run's "revocation is required"
+// contract; tests that need richer state construct their own.
+func newTestRevocation(t *testing.T, coord *Coordinator, cohort []*multiorchdatapb.PoolerHealthState) *clustermetadatapb.TermRevocation {
+	t.Helper()
+	var statuses []*clustermetadatapb.ConsensusStatus
+	for _, p := range cohort {
+		if cs := p.GetConsensusStatus(); cs != nil {
+			statuses = append(statuses, cs)
+		}
+	}
+	rev, err := commonconsensus.NewTermRevocation(statuses, coord.coordinatorID)
+	require.NoError(t, err)
+	return rev
 }
 
 // setRecruitOK configures the fake client to return a successful Recruit response
@@ -99,9 +128,6 @@ func nopCheckProposalPossible(_ *clustermetadatapb.TermRevocation, _ []*clusterm
 // ---- TestBuildFailoverProposal ----
 
 func TestBuildFailoverProposal(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-
 	makeID := func(name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -118,31 +144,6 @@ func TestBuildFailoverProposal(t *testing.T) {
 	}
 	makeCS := func(name string) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{Id: makeID(name)}
-	}
-	makeHealth := func(name string) *multiorchdatapb.PoolerHealthState {
-		return &multiorchdatapb.PoolerHealthState{MultiPooler: makeMP(name)}
-	}
-	makeResignedHealth := func(name string, primaryTerm int64) *multiorchdatapb.PoolerHealthState {
-		return &multiorchdatapb.PoolerHealthState{
-			MultiPooler: makeMP(name),
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id: makeID(name),
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
-						LeaderId: makeID(name),
-						RuleNumber: &clustermetadatapb.RuleNumber{
-							CoordinatorTerm: primaryTerm,
-						},
-					},
-				},
-			},
-			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
-				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
-					Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-					LeaderTerm: primaryTerm,
-				},
-			},
-		}
 	}
 
 	outgoingRule := &clustermetadatapb.ShardRule{
@@ -166,49 +167,13 @@ func TestBuildFailoverProposal(t *testing.T) {
 			OutgoingRule:    outgoingRule,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeHealth("mp1"),
-			"zone1_mp2": makeHealth("mp2"),
-		}
 
-		proposal, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
+		proposal, err := buildFailoverProposal(result, poolerByID)
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
 		assert.Len(t, proposal.GetProposedRule().GetCohortMembers(), 3)
 		assert.Equal(t, "mp1", proposal.GetProposedRule().GetLeaderId().GetName())
-	})
-
-	t.Run("skips resigned primary, picks next eligible leader", func(t *testing.T) {
-		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
-		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeResignedHealth("mp1", 4),
-			"zone1_mp2": makeHealth("mp2"),
-		}
-
-		proposal, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
-		require.NoError(t, err)
-		assert.Equal(t, "mp2", proposal.GetProposalLeader().GetId().GetName())
-	})
-
-	t.Run("all eligible leaders resigned returns error", func(t *testing.T) {
-		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
-		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeResignedHealth("mp1", 4),
-			"zone1_mp2": makeResignedHealth("mp2", 4),
-		}
-
-		_, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "all eligible leaders have resigned")
 	})
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
@@ -217,13 +182,22 @@ func TestBuildFailoverProposal(t *testing.T) {
 			OutgoingRule:    nil,
 			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
 		}
-		healthByID := map[string]*multiorchdatapb.PoolerHealthState{
-			"zone1_mp1": makeHealth("mp1"),
-		}
 
-		_, err := buildFailoverProposal(ctx, logger, result, poolerByID, healthByID)
+		_, err := buildFailoverProposal(result, poolerByID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no committed rule found")
+	})
+
+	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
+		result := commonconsensus.RecruitmentResult{
+			TermRevocation:  rev,
+			OutgoingRule:    outgoingRule,
+			EligibleLeaders: nil,
+		}
+
+		_, err := buildFailoverProposal(result, poolerByID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no eligible leaders")
 	})
 }
 
@@ -244,7 +218,7 @@ func TestRun_Success(t *testing.T) {
 	leaderID := mp1.MultiPooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,
@@ -263,14 +237,14 @@ func TestRun_Success(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
-	require.NoError(t, err)
+	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// Both nodes should have received a Propose request.
+	// mp1 (leader) receives Propose; mp2 (follower) receives SetTermPrimary.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key])
-	assert.NotNil(t, fc.ProposeRequests[mp2Key])
+	assert.NotNil(t, fc.ProposeRequests[mp1Key], "leader should receive Propose")
+	assert.Nil(t, fc.ProposeRequests[mp2Key], "follower should not receive Propose")
+	assert.NotNil(t, fc.SetTermPrimaryRequests[mp2Key], "follower should receive SetTermPrimary")
 }
 
 func TestRun_EarlyExit(t *testing.T) {
@@ -298,7 +272,7 @@ func TestRun_EarlyExit(t *testing.T) {
 		mp := poolerByID[topoclient.ClusterIDString(leader.GetId())]
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-			ProposalLeader: &consensusdatapb.ProposalLeader{
+			ProposalLeader: &clustermetadatapb.PoolerAddress{
 				Id:           leader.GetId(),
 				Host:         mp.GetHostname(),
 				PostgresPort: mp.GetPortMap()["postgres"],
@@ -315,8 +289,7 @@ func TestRun_EarlyExit(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
-	require.NoError(t, err)
+	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 }
 
 func TestRun_InsufficientRecruitment(t *testing.T) {
@@ -336,7 +309,7 @@ func TestRun_InsufficientRecruitment(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
+	err := rc.Run(ctx, cohort, newTestRevocation(t, c, cohort))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recruitment failed")
 }
@@ -348,16 +321,14 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 	c := newRuleChangeCoordinator(t, fc)
 
 	mp1 := makePoolerState("zone1", "mp1")
-	mp1.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
-		TermRevocation: &clustermetadatapb.TermRevocation{
-			RevokedBelowTerm:       5,
-			CoordinatorInitiatedAt: timestamppb.New(time.Now().Add(-500 * time.Millisecond)),
-		},
+	mp1.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		CoordinatorInitiatedAt: timestamppb.New(time.Now().Add(-500 * time.Millisecond)),
 	}
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
+	err := rc.Run(ctx, cohort, newTestRevocation(t, c, cohort))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "another coordinator started recruiting recently")
 	assert.Empty(t, fc.GetCallLog(), "no RPCs should be made when backing off for recent acceptance")
@@ -380,7 +351,7 @@ func TestRun_PreValidateFails(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(1, &consensusdatapb.CoordinatorProposal{}), checkProposalPossible)
-	_, err := rc.Run(ctx, cohort)
+	err := rc.Run(ctx, cohort, newTestRevocation(t, c, cohort))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre-vote failed")
 	assert.Contains(t, err.Error(), preValidateErr.Error())
@@ -406,7 +377,7 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,
@@ -438,7 +409,7 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	}
 
 	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
+	err := rc.Run(ctx, cohort, newTestRevocation(t, c, cohort))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to accept proposal")
 }
@@ -459,7 +430,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 	leaderID := mp1.MultiPooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,
@@ -491,8 +462,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
-	_, err := rc.Run(ctx, cohort)
-	require.NoError(t, err)
+	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
 	// Leader (mp1) received Propose.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)

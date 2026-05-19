@@ -236,7 +236,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			EnvVars:  []string{"MT_LEADER_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
 		useNewConsensusFlow: viperutil.Configure(reg, "use-new-consensus-flow", viperutil.Options[bool]{
-			Default:  false,
+			Default:  true,
 			FlagName: "use-new-consensus-flow",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_USE_NEW_CONSENSUS_FLOW"},
@@ -395,6 +395,13 @@ func NewTestConfig(opts ...func(*Config)) *Config {
 func WithCell(cell string) func(*Config) {
 	return func(cfg *Config) {
 		cfg.cell.Set(cell)
+	}
+}
+
+// WithUseNewConsensusFlow toggles the Recruit/Propose/SetTermPrimary consensus flow.
+func WithUseNewConsensusFlow(enabled bool) func(*Config) {
+	return func(cfg *Config) {
+		cfg.useNewConsensusFlow.Set(enabled)
 	}
 }
 

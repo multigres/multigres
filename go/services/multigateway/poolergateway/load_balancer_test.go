@@ -43,10 +43,12 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   name + ".example.com",
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Type:       poolerType,
+		Hostname: name + ".example.com",
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		Type: poolerType,
 		PortMap: map[string]int32{
 			"grpc": 50051,
 		},
@@ -251,8 +253,8 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 	info := conn.PoolerInfo()
 	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
 		Target: &query.Target{
-			TableGroup: info.GetTableGroup(),
-			Shard:      info.GetShard(),
+			TableGroup: info.GetShardKey().GetTableGroup(),
+			Shard:      info.GetShardKey().GetShard(),
 			PoolerType: info.Type,
 		},
 		PoolerId:          info.Id,

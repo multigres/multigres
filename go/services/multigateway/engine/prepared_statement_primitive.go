@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -124,11 +125,19 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 }
 
 // executePrepare delegates to HandleParse to register the statement in the consolidator.
+//
+// Unlike the extended Parse message, SQL-level PREPARE must reject a name that is
+// already in use on this session. HandleParse silently replaces existing entries
+// (to tolerate Parse retries after a failed Describe), so we check for the name
+// here before delegating.
 func (p *PreparedStatementPrimitive) executePrepare(
 	ctx context.Context,
 	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	if conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName) != nil {
+		return mterrors.NewDuplicatePreparedStatementError(p.stmtName)
+	}
 	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, p.paramTypes); err != nil {
 		return err
 	}

@@ -131,17 +131,6 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
 
-	// Warn operators when running with an empty admin password. The shipped
-	// pg_hba template retains trust on the local socket only for the configured
-	// admin user, so this path continues to work during the bootstrap window.
-	// Once that trust exception is closed (tracked as a TODO in the template),
-	// an empty password will cause admin dials to fail.
-	if m.config.PgPassword() == "" {
-		m.logger.WarnContext(ctx, "admin password is empty; multipooler relies on the local-socket trust exception in pg_hba.conf. Configure CONNPOOL_ADMIN_PASSWORD (or POSTGRES_PASSWORD) before the trust line is removed.",
-			"pg_user", m.config.PgUser(),
-		)
-	}
-
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
@@ -221,7 +210,19 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // only succeeds against a pg_hba.conf that still trusts the local socket for
 // the dialing user — the template's narrow admin-user trust exception.
 func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte) *client.Config {
-	cfg := m.buildClientConfig(user, "")
+	// If SCRAM passthrough keys are present, use them — no password needed.
+	// Otherwise we need a password to authenticate. When the requested user
+	// matches the configured admin user, fall back to the admin password
+	// (this covers internal queries like heartbeat reads that don't carry a
+	// SCRAM session). For any other user without keys, return an empty
+	// password and let the dial fail with a clear auth error.
+	password := ""
+	if len(clientKey) == 0 || len(serverKey) == 0 {
+		if user == m.config.PgUser() {
+			password = m.config.PgPassword()
+		}
+	}
+	cfg := m.buildClientConfig(user, password)
 	if len(clientKey) > 0 && len(serverKey) > 0 {
 		cfg.ScramClientKey = clientKey
 		cfg.ScramServerKey = serverKey
@@ -398,6 +399,11 @@ func (m *Manager) PgUser() string {
 	return m.config.PgUser()
 }
 
+// PgPassword returns the configured PostgreSQL password for system queries.
+func (m *Manager) PgPassword() string {
+	return m.config.PgPassword()
+}
+
 // --- Admin Pool Operations ---
 
 // GetAdminConn acquires an admin connection from the shared pool.
@@ -458,6 +464,16 @@ func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]strin
 	s := m.settingsCache.GetOrCreate(settings)
 	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewReservedConn(ctx, s, opts...)
+	})
+}
+
+// NewLogicalReplicationConn returns a Postgres connection opened in
+// replication mode (replication=database) and tagged with
+// ReasonLogicalReplication, on the specified user's reserved pool. SCRAM
+// passthrough key semantics match NewReservedConn.
+func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
+	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+		return pool.NewLogicalReplicationConn(ctx)
 	})
 }
 
