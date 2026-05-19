@@ -102,7 +102,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
-	if sa.ReplicasConnectedToLeader && !sa.LeaderHasResigned {
+	if sa.ReplicasConnectedToLeader {
 		threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 		lastReadyTime := sa.LeaderLastPostgresReadyTime
 		primaryPostgresUnresponsive := !sa.LeaderPostgresReady &&
