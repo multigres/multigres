@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -93,6 +94,16 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 }
 
 func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
+	// Under the new consensus flow the demote goes through SetTermPrimary, which is
+	// position-fenced: a leader that's only momentarily-stale would see its
+	// own rule >= the incoming rule and no-op without touching postgres.
+	// A spurious detection costs an RPC, not a wrongful demote, so the
+	// grace period that guarded the old destructive DemoteStalePrimary RPC
+	// is no longer needed. Skipping it lets recovery converge much faster
+	// across sequential failovers.
+	if a.config.GetUseNewConsensusFlow() {
+		return nil
+	}
 	return &types.GracePeriodConfig{
 		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
 		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),
@@ -146,25 +157,39 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		}
 	}()
 
-	// Call DemoteStalePrimary RPC - this will:
+	// Demote the stale leader. Under the new consensus flow, route through
+	// SetTermPrimary .
+	//
+	// Both RPCs do the same work on the pooler side:
 	// 1. Stop postgres
 	// 2. Run pg_rewind to sync with the correct leader's postgres
 	// 3. Restart as standby
 	// 4. Clear sync replication config
 	// 5. Update topology to REPLICA
-	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
-		Source:        correctLeader.MultiPooler,
-		ConsensusTerm: correctLeaderTerm,
-		Force:         false,
-	})
-	if err != nil {
-		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
+	if a.config.GetUseNewConsensusFlow() {
+		informReq := &consensusdatapb.SetTermPrimaryRequest{
+			Leader: poolerAddressFor(correctLeader.MultiPooler),
+			Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
+		}
+		if _, err := a.rpcClient.SetTermPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {
+			return mterrors.Wrap(err, "SetTermPrimary RPC failed")
+		}
+		a.logger.InfoContext(ctx, "stale leader demoted successfully via SetTermPrimary",
+			"stale_leader", poolerIDStr)
+	} else {
+		demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
+			Source:        correctLeader.MultiPooler,
+			ConsensusTerm: correctLeaderTerm,
+			Force:         false,
+		})
+		if err != nil {
+			return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
+		}
+		a.logger.InfoContext(ctx, "stale leader demoted successfully",
+			"stale_leader", poolerIDStr,
+			"rewind_performed", demoteResp.RewindPerformed,
+			"lsn_position", demoteResp.LsnPosition)
 	}
-
-	a.logger.InfoContext(ctx, "stale leader demoted successfully",
-		"stale_leader", poolerIDStr,
-		"rewind_performed", demoteResp.RewindPerformed,
-		"lsn_position", demoteResp.LsnPosition)
 
 	a.logger.InfoContext(ctx, "demote stale leader action completed",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),

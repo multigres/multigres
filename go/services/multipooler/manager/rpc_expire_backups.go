@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/backup"
-	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -85,7 +84,7 @@ func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides
 
 	args = backup.ApplyPgBackRestOverrides(args, overrides)
 
-	cmd := executil.Command(ctx, "pgbackrest", args...)
+	cmd := pm.pgbackrestCmd(ctx, args...)
 
 	var output []byte
 	err = telemetry.WithSpan(ctx, "expire-backups", func(ctx context.Context) error {

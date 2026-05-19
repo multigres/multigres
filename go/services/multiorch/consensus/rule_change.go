@@ -56,20 +56,34 @@ func (c *Coordinator) newRuleChange(
 	}
 }
 
-// Run executes the rule change: derive term, pre-validate, recruit all nodes
-// concurrently, and propose as soon as a viable proposal can be assembled.
-// Each node receives its Propose immediately once it has been recruited and
-// the proposal is ready — there is no unnecessary waiting between the two.
-func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) error {
-	// Extract cached consensus statuses to derive the revocation term.
+// Run executes the rule change: pre-validate, recruit all nodes concurrently,
+// and propose as soon as a viable proposal can be assembled. Each node
+// receives its Propose immediately once it has been recruited and the
+// proposal is ready — there is no unnecessary waiting between the two.
+//
+// revocation is the authoritative term revocation the coordinator is
+// proposing. Callers own its construction:
+//   - For safe coordinator-led transitions (failover), use
+//     commonconsensus.NewTermRevocation to derive it from cohort statuses.
+//   - For externally-certified transitions (bootstrap, operator override),
+//     construct the cert and pass cert.GetTermRevocation() — the agent
+//     defines revoked_below_term and outgoing_rule, not local discovery.
+func (r *coordinatorLedRuleChange) Run(
+	ctx context.Context,
+	cohort []*multiorchdatapb.PoolerHealthState,
+	revocation *clustermetadatapb.TermRevocation,
+) error {
+	if revocation == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Run: revocation is required")
+	}
+
+	// Extract cached consensus statuses for the pre-vote feasibility check.
 	var initialStatuses []*clustermetadatapb.ConsensusStatus
 	for _, p := range cohort {
 		if cs := p.GetConsensusStatus(); cs != nil {
 			initialStatuses = append(initialStatuses, cs)
 		}
 	}
-
-	revocation := commonconsensus.NewTermRevocation(initialStatuses, r.coordinator.coordinatorID)
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
 		"proposed_term", revocation.GetRevokedBelowTerm(),
@@ -113,10 +127,12 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 	}
 	proposeResults := make(chan proposeResult, len(cohort))
 
-	sendPropose := func(p *multiorchdatapb.PoolerHealthState) {
+	// dispatchProposal sends Propose to the designated leader and SetTermPrimary
+	// to every other cohort member. r.propose handles the dispatch internally.
+	dispatchProposal := func(p *multiorchdatapb.PoolerHealthState) {
 		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
 		go func() {
-			err := r.propose(ctx, p, propReq)
+			err := r.propose(ctx, p, propReq, isLeader)
 			proposeResults <- proposeResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
 		}()
 	}
@@ -170,13 +186,13 @@ func (r *coordinatorLedRuleChange) Run(ctx context.Context, cohort []*multiorchd
 		return mterrors.Wrap(err, "recruitment failed")
 	}
 	for _, p := range recruits {
-		sendPropose(p)
+		dispatchProposal(p)
 	}
 
 	// Phase 2: drain remaining recruits, proposing to each as it arrives.
 	for range remaining {
 		if rr := <-recruited; rr.cs != nil {
-			sendPropose(rr.pooler)
+			dispatchProposal(rr.pooler)
 			recruits = append(recruits, rr.pooler)
 		}
 	}
@@ -253,15 +269,29 @@ func (r *coordinatorLedRuleChange) recruit(
 	}
 }
 
-// propose issues a Propose RPC to a single pooler.
+// propose dispatches the rule change to a single pooler. The designated leader
+// receives a Propose RPC (it promotes postgres and writes the new rule); every
+// other cohort member receives SetTermPrimary (it points replication at the
+// new leader). Both RPCs read directly from the CoordinatorProposal —
+// proposal_leader is a PoolerAddress, exactly what SetTermPrimary's leader
+// field wants.
 func (r *coordinatorLedRuleChange) propose(
 	ctx context.Context,
 	p *multiorchdatapb.PoolerHealthState,
 	req *consensusdatapb.ProposeRequest,
+	isLeader bool,
 ) error {
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 	defer cancel()
-	_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+	if isLeader {
+		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+		return err
+	}
+	proposal := req.GetProposal()
+	_, err := r.coordinator.rpcClient.SetTermPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetTermPrimaryRequest{
+		Leader: proposal.GetProposalLeader(),
+		Rule:   proposal.GetProposedRule(),
+	})
 	return err
 }
 
@@ -289,7 +319,7 @@ func buildFailoverProposal(
 
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leader.GetId(),
 			Host:         mp.GetHostname(),
 			PostgresPort: mp.GetPortMap()["postgres"],
@@ -324,7 +354,7 @@ func buildBootstrapProposal(
 	}
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leader.GetId(),
 			Host:         mp.GetHostname(),
 			PostgresPort: mp.GetPortMap()["postgres"],

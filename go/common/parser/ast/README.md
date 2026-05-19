@@ -680,13 +680,13 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 
 ### Replication Nodes (replnodes.h)
 
-- ❌ **IdentifySystemCmd** - IDENTIFY_SYSTEM command (`src/include/nodes/replnodes.h:31`)
+- ✅ **IdentifySystemCmd** - IDENTIFY_SYSTEM command (`src/include/nodes/replnodes.h:31`)
 - ❌ **BaseBackupCmd** - BASE_BACKUP command (`src/include/nodes/replnodes.h:41`)
-- ❌ **CreateReplicationSlotCmd** - CREATE_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:52`)
-- ❌ **DropReplicationSlotCmd** - DROP_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:67`)
-- ❌ **AlterReplicationSlotCmd** - ALTER_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:79`)
-- ❌ **StartReplicationCmd** - START_REPLICATION command (`src/include/nodes/replnodes.h:91`)
-- ❌ **ReadReplicationSlotCmd** - READ_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:106`)
+- ✅ **CreateReplicationSlotCmd** - CREATE_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:52`)
+- ✅ **DropReplicationSlotCmd** - DROP_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:67`)
+- ✅ **AlterReplicationSlotCmd** - ALTER_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:79`)
+- ✅ **StartReplicationCmd** - START_REPLICATION command (`src/include/nodes/replnodes.h:91`)
+- ✅ **ReadReplicationSlotCmd** - READ_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:106`)
 - ❌ **TimeLineHistoryCmd** - TIMELINE_HISTORY command (`src/include/nodes/replnodes.h:117`)
 - ❌ **UploadManifestCmd** - UPLOAD_MANIFEST command (`src/include/nodes/replnodes.h:127`)
 

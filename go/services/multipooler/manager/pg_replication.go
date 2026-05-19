@@ -166,7 +166,6 @@ func poolerIDFromAppName(appName string) (poolerID, error) {
 			appName: appName,
 		}, err
 	}
-	id.Component = clustermetadatapb.ID_MULTIPOOLER
 	return poolerID{id: id, appName: appName}, nil
 }
 
@@ -1155,12 +1154,12 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 }
 
 // ----------------------------------------------------------------------------
-// standbyUpdateOperationName maps a StandbyUpdateOperation enum to a short string for logging/history.
-func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperation) string {
+// standbyUpdateOperationName maps a CohortUpdateOperation enum to a short string for logging/history.
+func standbyUpdateOperationName(op multipoolermanagerdatapb.CohortUpdateOperation) string {
 	switch op {
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
 		return "add"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
 		return "remove"
 	default:
 		return "unknown"

@@ -27,27 +27,95 @@ import (
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
-// NewTermRevocation constructs a TermRevocation for a new coordinator-led rule
-// change. The revocation term is derived from the highest term observed across
-// the provided ConsensusStatus values — the maximum of each node's accepted
-// revocation term and its recorded rule's coordinator term — incremented by
-// one. If no non-zero terms are found (fresh cluster, no prior elections), term
-// 1 is used.
-func NewTermRevocation(statuses []*clustermetadatapb.ConsensusStatus, coordinatorID *clustermetadatapb.ID) *clustermetadatapb.TermRevocation {
+// NewTermRevocation constructs a TermRevocation for a coordinator-led safe
+// transition. Use this for failover-style rule changes where the
+// coordinator's view of the outgoing rule comes from discovery over the
+// cohort. The revocation term is derived from the highest term observed
+// across the provided ConsensusStatus values — the maximum of each node's
+// accepted revocation term and its recorded rule's coordinator term —
+// incremented by one. outgoing_rule is the highest RuleNumber recorded
+// across the cohort.
+//
+// statuses must be non-empty and at least one status must carry a recorded
+// rule. An empty list or a cohort with no recorded rules indicates the
+// caller has nothing meaningful to transition from — that's a fresh-cluster
+// or bootstrap scenario where the agent (e.g. multiorch's
+// AppointInitialLeader) constructs the TermRevocation directly with an
+// explicit outgoing_rule, rather than going through this helper.
+func NewTermRevocation(
+	statuses []*clustermetadatapb.ConsensusStatus,
+	coordinatorID *clustermetadatapb.ID,
+) (*clustermetadatapb.TermRevocation, error) {
+	if len(statuses) == 0 {
+		return nil, errors.New("NewTermRevocation: statuses must be non-empty")
+	}
 	var maxTerm int64
+	var maxRule *clustermetadatapb.RuleNumber
 	for _, cs := range statuses {
 		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
 			maxTerm = t
 		}
-		if t := cs.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm(); t > maxTerm {
+		ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
+		if ruleNum == nil {
+			continue
+		}
+		if t := ruleNum.GetCoordinatorTerm(); t > maxTerm {
 			maxTerm = t
 		}
+		// Capture the first non-nil RuleNumber we see; bump only on strictly
+		// greater. The "first non-nil" path matters when the recorded rule
+		// is the zero RuleNumber — CompareRuleNumbers treats zero == nil, so
+		// without the explicit nil check we'd never lift maxRule above nil.
+		if maxRule == nil || CompareRuleNumbers(ruleNum, maxRule) > 0 {
+			maxRule = ruleNum
+		}
+	}
+	if maxRule == nil {
+		return nil, errors.New("NewTermRevocation: no cohort member reports a recorded rule; agent should construct revocation directly with explicit outgoing_rule")
 	}
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
 		AcceptedCoordinatorId:  coordinatorID,
 		CoordinatorInitiatedAt: timestamppb.Now(),
+		OutgoingRule:           maxRule,
+	}, nil
+}
+
+// IsRuleRevoked reports whether the pooler's recorded revocation forbids
+// applying a rule (e.g. one delivered by a follower-side rule-propagation
+// RPC such as SetTermPrimary). The rule represents durable WAL state the
+// cohort has reached; the revocation is this pooler's promise to refuse
+// work below a given coordinator term. The predicate is a pure function of
+// the two consensus messages; callers handle storage I/O, locking, and any
+// logging.
+//
+// A rule is revoked when:
+//   - revocation.revoked_below_term is non-zero and exceeds the rule's
+//     coordinator_term, AND
+//   - the rule does not strictly exceed revocation.outgoing_rule.
+//
+// The second clause is the runaway-recruit override: if durable WAL exists
+// for a rule strictly newer than outgoing_rule, the cohort has demonstrably
+// moved past the rule the revocation was authored to transition away from,
+// so the promise is moot. See the TermRevocation proto for the full safety
+// argument.
+//
+// revocation may be nil (treated as no revocation). outgoing_rule may be nil
+// on revocations written by older code that predates the field; nil means
+// "no override available" and the override branch cannot fire.
+func IsRuleRevoked(rule *clustermetadatapb.ShardRule, revocation *clustermetadatapb.TermRevocation) bool {
+	revokedBelow := revocation.GetRevokedBelowTerm()
+	if revokedBelow == 0 {
+		return false
 	}
+	if rule.GetRuleNumber().GetCoordinatorTerm() >= revokedBelow {
+		return false
+	}
+	outgoing := revocation.GetOutgoingRule()
+	if outgoing != nil && CompareRuleNumbers(rule.GetRuleNumber(), outgoing) > 0 {
+		return false
+	}
+	return true
 }
 
 // ValidateRevocation reports whether the given revocation is safe for a node
@@ -89,7 +157,22 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	if revocation.GetCoordinatorInitiatedAt() == nil {
 		return errors.New("cannot accept revocation: coordinator_initiated_at is required")
 	}
+	if revocation.GetOutgoingRule() == nil {
+		return errors.New("cannot accept revocation: outgoing_rule is required")
+	}
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
+	// Invariant: outgoing_rule represents the rule the coordinator is
+	// transitioning from. Its coordinator_term must be strictly less than
+	// revoked_below_term — the new term is by construction max(observed) + 1,
+	// so outgoing_rule.coordinator_term <= max(observed) < revoked_below_term.
+	// A violation indicates a malformed revocation (or future code paths
+	// constructing revocations by hand without using NewTermRevocation).
+	if outTerm := revocation.GetOutgoingRule().GetCoordinatorTerm(); outTerm >= revokedBelowTerm {
+		return fmt.Errorf(
+			"cannot accept revocation: outgoing_rule coordinator_term %d >= revoked_below_term %d",
+			outTerm, revokedBelowTerm,
+		)
+	}
 
 	// Condition 1: WAL position safety.
 	pos := status.GetCurrentPosition()
@@ -106,6 +189,9 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			ruleCoordTerm, revokedBelowTerm,
 		)
 	}
+	// TODO: reject revocations whose outgoing_rule is known to be obsolete.
+	// This may require us to first have more clarity about what's a proposal vs
+	// what's a decision.
 
 	// Conditions 2 and 3: stored-revocation consistency.
 	stored := status.GetTermRevocation()

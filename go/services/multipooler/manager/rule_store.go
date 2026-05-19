@@ -862,11 +862,17 @@ func buildPoolerPosition(
 	}
 
 	if coordinatorIDStr != "" {
-		id, err := parseApplicationName(coordinatorIDStr)
+		// Coordinator IDs are multiorch, not multipooler — parseApplicationName
+		// is pooler-specific, so decode the cell_name encoding directly.
+		cell, name, err := splitCellName(coordinatorIDStr)
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse coordinator_id %q", coordinatorIDStr)
 		}
-		rule.CoordinatorId = id
+		rule.CoordinatorId = &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIORCH,
+			Cell:      cell,
+			Name:      name,
+		}
 	}
 
 	cohortIDs, err := appNamesToIDs(cohortNames)

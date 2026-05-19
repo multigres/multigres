@@ -201,8 +201,13 @@ func TestBootstrapInitialization(t *testing.T) {
 		}
 	})
 
-	t.Run("verify consensus term", func(t *testing.T) {
-		// All nodes should eventually be initialized with consensus term = 1
+	t.Run("verify all nodes initialized", func(t *testing.T) {
+		// All nodes should eventually be marked initialized after bootstrap.
+		// We deliberately don't assert ConsensusStatus.TermRevocation.RevokedBelowTerm
+		// here: under the Recruit/Propose/SetTermPrimary model that field is a per-pooler
+		// revocation promise set by Recruit, and bootstrap only requires a Recruit
+		// quorum (e.g. 2 of 3) — non-recruited members legitimately stay at term 0
+		// while still being healthy cohort participants once SetTermPrimary brings them in.
 		var allInstances []*shardsetup.MultipoolerInstance
 		for _, inst := range setup.Multipoolers {
 			allInstances = append(allInstances, inst)
@@ -212,13 +217,9 @@ func TestBootstrapInitialization(t *testing.T) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
 				}
-				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-				if termNum != 1 {
-					return false, fmt.Sprintf("consensus term is %d, expected 1", termNum)
-				}
 				return true, ""
 			},
-			"All nodes should be initialized with consensus term 1",
+			"All nodes should be initialized after bootstrap",
 		)
 	})
 
@@ -349,7 +350,11 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Wait for multipooler to be ready
 		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
 
-		// Wait for auto-restore to complete
+		// Wait for auto-restore to complete. We don't assert
+		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a
+		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
+		// makes a revocation promise (Recruit isn't called on join), so term=0
+		// is the expected steady state for it.
 		shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
 			func(r shardsetup.PoolerStatusResult) (bool, string) {
 				if !r.Status.IsInitialized {
@@ -357,9 +362,6 @@ func TestBootstrapInitialization(t *testing.T) {
 				}
 				if !r.Status.PostgresReady {
 					return false, "postgres not running"
-				}
-				if r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm() == 0 {
-					return false, "consensus term not yet assigned"
 				}
 				return true, ""
 			},

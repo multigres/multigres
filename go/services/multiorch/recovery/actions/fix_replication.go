@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -47,7 +48,6 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 //
 // This action addresses the following problem codes:
 //   - ProblemReplicaNotReplicating: Replication is not configured at all
-//   - ProblemReplicaNotInStandbyList: Replica is replicating but not in standby list
 //
 // Future problem codes (TODO):
 //   - ProblemReplicaWrongPrimary: Replica is pointing to a stale/wrong primary
@@ -57,15 +57,17 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 //   - Re-verifies the problem still exists (fresh RPC calls)
 //   - Identifies the current primary from topology
 //   - Configures the replica's primary_conninfo to point to the primary
-//   - Adds the replica to the primary's synchronous standby list
 //   - Verifies replication is streaming
+//
+// Cohort membership (adding/removing the replica to the primary's
+// synchronous standby list) is managed separately by ReconcileCohortAction.
 //
 // Idempotency:
 // This action is fully idempotent. If multiple multiorch instances race to fix
-// the same problem, the end result will be identical. The underlying RPC operations
-// (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
-// operations at the pooler level and serialized by action locks on the poolers,
-// so concurrent calls are safe and produce the same final state.
+// the same problem, the end result will be identical. The underlying RPC
+// operations (SetPrimaryConnInfo) are implemented as idempotent operations
+// at the pooler level and serialized by action locks on the poolers, so
+// concurrent calls are safe and produce the same final state.
 
 // Default polling parameters for verifyReplicationStarted.
 const (
@@ -155,7 +157,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
-	case types.ProblemReplicaNotReplicating, types.ProblemReplicaNotInStandbyList:
+	case types.ProblemReplicaNotReplicating:
 		return a.fixNotReplicating(ctx, replica, primary)
 
 	// TODO: Future problem codes to handle
@@ -214,22 +216,31 @@ func (a *FixReplicationAction) fixNotReplicating(
 	replicaTerm := replica.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	consensusTerm := max(primaryTerm, replicaTerm)
 
-	// Configure primary_conninfo on the replica
-	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               primary.MultiPooler,
-		StopReplicationBefore: true,
-		StartReplicationAfter: true,
-		CurrentTerm:           consensusTerm,
-		Force:                 false,
-	}
+	// Configure primary_conninfo on the replica.
+	if a.config.GetUseNewConsensusFlow() {
+		informReq := &consensusdatapb.SetTermPrimaryRequest{
+			Leader: poolerAddressFor(primary.MultiPooler),
+			Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
+		}
+		if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {
+			return mterrors.Wrap(err, "failed to inform replica of primary")
+		}
+	} else {
+		req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Primary:               primary.MultiPooler,
+			StopReplicationBefore: true,
+			StartReplicationAfter: true,
+			CurrentTerm:           consensusTerm,
+			Force:                 false,
+		}
 
-	_, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to set primary connection info")
+		if _, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req); err != nil {
+			return mterrors.Wrap(err, "failed to set primary connection info")
+		}
 	}
 
 	// Verify replication started
-	err = a.verifyReplicationStarted(ctx, replica)
+	err := a.verifyReplicationStarted(ctx, replica)
 	if err != nil {
 		a.logger.WarnContext(ctx, "replication did not start after configuration",
 			"replica", replica.MultiPooler.Id.Name,
@@ -261,21 +272,10 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}
 
-	// Add replica to the primary's synchronous standby list if it's a REPLICA type
-	if replica.MultiPooler.Type == clustermetadatapb.PoolerType_REPLICA {
-		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:    []*clustermetadatapb.ID{replica.MultiPooler.Id},
-			ReloadConfig:  true,
-			ConsensusTerm: consensusTerm,
-			Force:         false,
-		}
-
-		_, err = a.rpcClient.UpdateConsensusRule(ctx, primary.MultiPooler, updateReq)
-		if err != nil {
-			return mterrors.Wrap(err, "failed to add replica to synchronous standby list")
-		}
-	}
+	// Cohort membership (adding the replica to synchronous_standby_names) is
+	// managed by ReconcileCohortAction separately. By the time this action
+	// returns, the replica is replicating; the cohort analyzer will pick it up
+	// on the next cycle and propose adding it to the cohort.
 
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
 		"replica", replica.MultiPooler.Id.Name,
@@ -346,9 +346,6 @@ func (a *FixReplicationAction) verifyProblemExists(
 	case types.ProblemReplicaNotReplicating:
 		return a.verifyReplicaNotReplicating(ctx, replica, primary)
 
-	case types.ProblemReplicaNotInStandbyList:
-		return a.verifyReplicaNotInStandbyList(ctx, replica, primary)
-
 	default:
 		return false, nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported problem code for verifyProblemExists: %s", problemCode)
@@ -409,35 +406,6 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 	return false, status, nil
 }
 
-// verifyReplicaNotInStandbyList checks if the replica is still not in the standby list.
-func (a *FixReplicationAction) verifyReplicaNotInStandbyList(
-	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
-	primary *multiorchdatapb.PoolerHealthState,
-) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	status, err := a.getReplicationStatus(ctx, replica)
-	if err != nil {
-		return false, nil, err
-	}
-
-	inList, err := a.isReplicaInStandbyList(ctx, replica, primary)
-	if err != nil {
-		return false, nil, mterrors.Wrap(err, "failed to check standby list")
-	}
-	if !inList {
-		a.logger.InfoContext(ctx, "replica not in primary's standby list",
-			"replica", replica.MultiPooler.Id.Name,
-			"primary", primary.MultiPooler.Id.Name)
-		return true, status, nil
-	}
-
-	a.logger.InfoContext(ctx, "replica already in standby list",
-		"replica", replica.MultiPooler.Id.Name,
-		"primary", primary.MultiPooler.Id.Name)
-
-	return false, status, nil
-}
-
 // getReplicationStatus gets the current replication status from the replica.
 func (a *FixReplicationAction) getReplicationStatus(
 	ctx context.Context,
@@ -451,35 +419,6 @@ func (a *FixReplicationAction) getReplicationStatus(
 		return nil, nil
 	}
 	return statusResp.Status.ReplicationStatus, nil
-}
-
-// isReplicaInStandbyList checks if the replica is in the primary's synchronous standby list.
-func (a *FixReplicationAction) isReplicaInStandbyList(
-	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
-	primary *multiorchdatapb.PoolerHealthState,
-) (bool, error) {
-	primaryStatusResp, err := a.rpcClient.Status(ctx, primary.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return false, mterrors.Wrap(err, "failed to get primary status")
-	}
-
-	if primaryStatusResp.Status == nil ||
-		primaryStatusResp.Status.PrimaryStatus == nil ||
-		primaryStatusResp.Status.PrimaryStatus.SyncReplicationConfig == nil {
-		// No sync replication config means no standby list
-		return false, nil
-	}
-
-	// Check if replica is in the standby list
-	replicaID := replica.MultiPooler.Id
-	for _, standbyID := range primaryStatusResp.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
-		if standbyID.Cell == replicaID.Cell && standbyID.Name == replicaID.Name {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 // verifyReplicationStarted checks that replication is actively streaming.

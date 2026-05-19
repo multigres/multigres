@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -65,6 +66,7 @@ type fakeRuleStore struct {
 	posSequence        []*clustermetadatapb.PoolerPosition
 	observeErr         error
 	updateErr          error
+	updateErrAfterHook error
 	updates            []*ruleUpdateBuilder
 	inconsistentGUC    bool
 	reconcileGUCCalled bool
@@ -102,16 +104,27 @@ func (f *fakeRuleStore) updateRule(ctx context.Context, update *ruleUpdateBuilde
 	f.mu.Lock()
 	f.updates = append(f.updates, update)
 	updateErr := f.updateErr
+	updateErrAfterHook := f.updateErrAfterHook
 	pos := f.pos
 	f.mu.Unlock()
 
 	if updateErr != nil {
 		return nil, updateErr
 	}
+	// Mirror the real rule store's pre-hook durability policy validation.
+	if dp := update.durabilityPolicy; dp != nil {
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, fmt.Errorf("durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+	}
 	if update.promotionHook != nil {
 		if err := update.promotionHook(ctx); err != nil {
 			return nil, err
 		}
+	}
+	if updateErrAfterHook != nil {
+		return nil, updateErrAfterHook
 	}
 	return pos, nil
 }

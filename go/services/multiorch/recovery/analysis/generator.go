@@ -236,6 +236,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	// Store consensus status.
 	analysis.ConsensusTerm = pooler.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	analysis.ConsensusStatus = pooler.GetConsensusStatus()
+	analysis.AvailabilityStatus = pooler.GetAvailabilityStatus()
 
 	// If this is a REPLICA, populate replica-specific fields
 	if !analysis.IsLeader {

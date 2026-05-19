@@ -528,8 +528,15 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
-// and rejoin the cluster as a standby replica. It verifies the node is on the correct term,
+// and rejoin the cluster as a standby replica. It verifies the node is REPLICA,
 // streaming replication, and that the primary has added it back to its standby list.
+//
+// Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
+// Recruit/Propose/SetTermPrimary model that field is a per-pooler revocation promise
+// (set by Recruit on cohort members). A pooler that was momentarily unavailable
+// when the coordinator ran Recruit at the new term legitimately has the older
+// term but is otherwise healthy. expectedPrimaryName/expectedTerm are kept in
+// the signature for log readability.
 func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, expectedPrimaryName string, expectedTerm int64, timeout time.Duration) {
 	t.Helper()
 	t.Logf("Waiting for multiorch to restart %s and rejoin as standby (expected primary: %s, term: %d)...",
@@ -556,10 +563,6 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 				if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
 					return false, "replication not configured"
 				}
-				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-				if termNum != expectedTerm {
-					return false, fmt.Sprintf("wrong term %d, expected %d", termNum, expectedTerm)
-				}
 				if s.ReplicationStatus.WalReceiverStatus != "streaming" {
 					return false, fmt.Sprintf("not streaming (wal_receiver=%s)", s.ReplicationStatus.WalReceiverStatus)
 				}
@@ -583,7 +586,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 		},
 		"multipooler %s did not rejoin as standby within %v", multipoolerName, timeout,
 	)
-	t.Logf("%s successfully rejoined (term=%d, in %s's standby list)", multipoolerName, expectedTerm, expectedPrimaryName)
+	t.Logf("%s successfully rejoined as standby of %s", multipoolerName, expectedPrimaryName)
 }
 
 // TestPoolerDownNoFailover verifies that multiorch does NOT trigger a failover when the

@@ -306,6 +306,25 @@ func NewPgCtldService(
 	if listenAddresses == "" {
 		return nil, errors.New("listen-addresses needs to be set")
 	}
+	if cfg.Password == "" {
+		return nil, errors.New("POSTGRES_PASSWORD must be set")
+	}
+
+	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
+	// postgres subprocess and inherits this process's environment) can authenticate
+	// against PostgreSQL without exposing the password in the process environment.
+	pgpassDir := filepath.Join(poolerDir, "pgbackrest")
+	if err := os.MkdirAll(pgpassDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create pgbackrest directory: %w", err)
+	}
+	pgpassPath := filepath.Join(pgpassDir, "pgbackrest.pgpass")
+	pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", cfg.User, cfg.Password)
+	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
+	}
+	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
+		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
+	}
 
 	// Create the PostgreSQL config once during service initialization
 	pgConfig, err := pgctld.NewPostgresCtlConfig(
@@ -322,6 +341,7 @@ func NewPgCtldService(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
+	pgConfig.Password = cfg.Password
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {

@@ -194,8 +194,9 @@ func CheckExternallyCertifiedProposalPossible(
 // recruited members, ensuring the new cluster can make durable writes.
 //
 // Two additional checks enforce the cert's guarantees:
-//   - No recruited node may have a rule beyond cert.outgoing_rule_number; if
-//     one does, the outgoing cohort was not actually frozen at the certified point.
+//   - No recruited node may have a rule beyond revocation.outgoing_rule; if
+//     one does, the outgoing cohort was not actually frozen at the certified
+//     point. (Enforced inside buildProposalCore.)
 //   - Only nodes with an LSN at or above cert.frozen_lsn are eligible to be
 //     leader. Nodes below that threshold still count toward quorum — they can
 //     endorse the proposal — but cannot be selected as the new leader.
@@ -224,40 +225,33 @@ func BuildExternallyCertifiedProposal(
 // cert.frozen_lsn as a floor on leader eligibility, then delegates the
 // most-advanced-LSN tie-break to discoverMostAdvancedTimeline.
 //
-// Both outgoing_rule_number and frozen_lsn are required on the cert: without
-// them, the cert provides no real guarantee about what the outgoing cohort
-// was frozen at. Bootstrap callers must set them explicitly (e.g. term 0
-// and "0/0"). The factory also rejects the cert if any of the given nodes
-// has advanced past cert.outgoing_rule_number — the cert is stale or wrong
-// in that case, and the factory surfaces it as a specific error rather than
-// returning a discoverer that would yield "no eligible leaders".
+// frozen_lsn is required on the cert: without it, the cert provides no real
+// guarantee about what the outgoing cohort was frozen at. Bootstrap callers
+// must set it explicitly (e.g. "0/0"). The outgoing rule itself comes from
+// cert.term_revocation.outgoing_rule, and buildProposalCore enforces that no
+// recruit reports a strictly newer rule — surfaced as a specific error rather
+// than returning a discoverer that would yield "no eligible leaders".
 //
 // Safety contract: the cert externally certifies that no durable writes
-// occurred beyond frozen_lsn under cert.outgoing_rule_number. Any node whose
-// LSN ≥ frozen_lsn therefore holds every committed transaction up to that
-// frozen point — which is why buildProposalCore is safe to skip the
+// occurred beyond frozen_lsn under term_revocation.outgoing_rule. Any node
+// whose LSN ≥ frozen_lsn therefore holds every committed transaction up to
+// that frozen point — which is why buildProposalCore is safe to skip the
 // outgoing-cohort quorum check for this discoverer (onlyRequireIncomingQuorum).
 func newExternallyCertifiedDiscoverer(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	nodes []*clustermetadatapb.ConsensusStatus,
 ) (discoverer, error) {
-	certRule := cert.GetOutgoingRuleNumber()
-	if certRule == nil {
-		return nil, errors.New("cert is missing outgoing_rule_number")
+	if cert.GetTermRevocation().GetOutgoingRule() == nil {
+		return nil, errors.New("cert.term_revocation.outgoing_rule is required")
 	}
 	if cert.GetFrozenLsn() == "" {
 		return nil, errors.New("cert is missing frozen_lsn")
 	}
 	for _, cs := range nodes {
-		rule := cs.GetCurrentPosition().GetRule()
-		if rule == nil {
+		if cs.GetCurrentPosition().GetRule() == nil {
 			// Recruited nodes should always carry a rule.
 			return nil, fmt.Errorf("node %s has no recorded rule; consensus state may be uninitialized",
 				topoclient.ClusterIDString(cs.GetId()))
-		}
-		if CompareRuleNumbers(rule.GetRuleNumber(), certRule) > 0 {
-			return nil, fmt.Errorf("node %s is at rule term %d but certified outgoing rule is term %d",
-				topoclient.ClusterIDString(cs.GetId()), rule.GetRuleNumber().GetCoordinatorTerm(), certRule.GetCoordinatorTerm())
 		}
 	}
 	minLSN, err := pgutil.ParseLSN(cert.GetFrozenLsn())
@@ -301,12 +295,31 @@ func buildProposalCore(
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
 	}
 
-	// Find the best recorded rule (highest RuleNumber) across all statuses,
-	// from their WAL-backed current_position.rule.
+	// The revocation's outgoing_rule is the rule the coordinator committed to
+	// transitioning from when it authored the revocation. Bind this proposal
+	// to that view: no recruit may report a strictly newer rule, and we look
+	// up the full ShardRule (cohort_members + durability_policy) by matching
+	// a recruit whose rule number equals it.
+	expectedOutgoing := revocation.GetOutgoingRule()
+	if expectedOutgoing == nil {
+		return nil, errors.New("revocation.outgoing_rule is required (use NewTermRevocation to construct revocations)")
+	}
 	var outgoingRule *clustermetadatapb.ShardRule
 	for _, cs := range recruitedStatuses {
 		rule := cs.GetCurrentPosition().GetRule()
-		if rule != nil && (outgoingRule == nil || CompareRuleNumbers(rule.GetRuleNumber(), outgoingRule.GetRuleNumber()) > 0) {
+		if rule == nil {
+			continue
+		}
+		cmp := CompareRuleNumbers(rule.GetRuleNumber(), expectedOutgoing)
+		if cmp > 0 {
+			return nil, fmt.Errorf(
+				"recruit %s reports rule %v strictly greater than revocation.outgoing_rule %v; coordinator view is stale, re-discover",
+				topoclient.ClusterIDString(cs.GetId()),
+				rule.GetRuleNumber(),
+				expectedOutgoing,
+			)
+		}
+		if cmp == 0 && outgoingRule == nil {
 			outgoingRule = rule
 		}
 	}
@@ -315,9 +328,14 @@ func buildProposalCore(
 	case requireTransitionQuorum:
 		// Validate revocation of the outgoing cohort: no parallel quorum can still
 		// form among the non-recruited nodes. outgoingRule must be known to identify
-		// the cohort.
+		// the cohort. A nil here means no recruit reported a rule matching the
+		// coordinator's expected outgoing rule — the cohort has progressed past
+		// our view (or never reached it), and we need to re-discover.
 		if outgoingRule == nil {
-			return nil, errors.New("no recorded rule found among recruited nodes; cannot determine cohort for quorum check")
+			return nil, fmt.Errorf(
+				"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
+				expectedOutgoing,
+			)
 		}
 		outgoingPolicy, err := NewPolicyFromProto(outgoingRule.GetDurabilityPolicy())
 		if err != nil {
@@ -531,7 +549,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			continue
 		}
 		key := topoclient.ClusterIDString(cs.GetId())
-		if prev, exists := best[key]; !exists || comparePosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
+		if prev, exists := best[key]; !exists || ComparePosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
 			best[key] = cs
 		}
 	}

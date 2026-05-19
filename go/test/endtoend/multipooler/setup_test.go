@@ -227,6 +227,19 @@ func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiP
 	return statusResp.Status.PrimaryStatus
 }
 
+// currentRuleNumberFromClient reads the pooler's current ShardRule number via
+// Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
+func currentRuleNumberFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, rn, "primary must have a current rule number")
+	return rn
+}
+
 // Helper function to wait for synchronous replication config to converge to expected value.
 func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
