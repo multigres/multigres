@@ -1006,14 +1006,13 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// election without waiting for a heartbeat timeout. Use this node's own
 	// primary_term (not the incoming consensusTerm) so the coordinator can
 	// correlate the signal with the term at which this node was elected.
+	// setResignedLeaderAtTerm broadcasts internally on a change so multiorch
+	// sees leadership_status.REQUESTING_DEMOTION before the next periodic
+	// health stream interval fires.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
 		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set resigned primary term")
 		}
-		// Broadcast immediately so multiorch sees leadership_status.REQUESTING_DEMOTION
-		// before the next periodic health stream interval fires, allowing PrimaryIsDead
-		// detection without waiting up to 5s for the next scheduled broadcast.
-		pm.broadcastHealth()
 	}
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps

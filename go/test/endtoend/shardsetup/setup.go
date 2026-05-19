@@ -845,6 +845,72 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
 }
 
+// WaitForHealthStreamsEstablished blocks until the named multiorch instance
+// reports `Reachable=true` for every pooler in this shard, indicating it has
+// received at least one snapshot from each pooler over the ManagerHealthStream
+// — i.e. the stream is dialled, handshaked, and exchanging data.
+//
+// Tests should call this after StartMultiOrchs (and RequireRecovery, if used)
+// but before any test action that depends on the orchestrator observing a
+// pooler-side event (notably SIGTERM-triggered failover, which only fires
+// quickly when the orchestrator is already subscribed to receive the
+// REQUESTING_DEMOTION snapshot). RequireRecovery's "no problems" condition
+// can be satisfied by topology state alone — before any health stream is up
+// — and that gap is the source of the stream-establishment flake under
+// CPU-overhead conditions (subprocess-coverage CI, busy runners).
+func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
+	t.Helper()
+
+	conn := s.connectToMultiOrch(t, orchName)
+	defer conn.Close()
+	client := multiorchpb.NewMultiOrchServiceClient(conn)
+
+	expected := len(s.Multipoolers)
+	require.NotZero(t, expected, "WaitForHealthStreamsEstablished: no multipoolers registered")
+
+	t.Logf("Waiting for multiorch '%s' to establish health streams to all %d poolers (timeout=%s)",
+		orchName, expected, timeout)
+
+	deadline := time.Now().Add(timeout)
+	var lastSummary string
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+		})
+		cancel()
+
+		if err == nil {
+			reachable := 0
+			missing := make([]string, 0, expected)
+			for _, ph := range resp.PoolerHealths {
+				if ph.Reachable {
+					reachable++
+					continue
+				}
+				missing = append(missing, ph.PoolerId.GetName())
+			}
+			if reachable == expected {
+				t.Logf("All %d health streams established on '%s'", expected, orchName)
+				return
+			}
+			lastSummary = fmt.Sprintf("%d/%d reachable, missing: %v", reachable, expected, missing)
+		} else {
+			lastSummary = fmt.Sprintf("GetShardStatus failed: %v", err)
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("WaitForHealthStreamsEstablished: streams not established within %s (last status: %s)",
+				timeout, lastSummary)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // connectToMultiOrch creates a gRPC client connection to the named multiorch instance.
 // Fails the test if the instance is not found or the connection cannot be established.
 func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.ClientConn {

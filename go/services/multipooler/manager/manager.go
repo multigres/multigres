@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -116,6 +117,15 @@ type MultiPoolerManager struct {
 	cancel         context.CancelFunc
 	loadTimeout    time.Duration
 
+	// shutdownCtx is cancelled at the end of GracefulShutdown to signal
+	// long-lived subscribers (currently the health-stream gRPC handlers via
+	// SubscribeHealth) that they should disconnect immediately rather than
+	// wait for their own context to be cancelled. This unblocks
+	// grpcServer.GracefulStop, which would otherwise wait for the stream
+	// handlers to return on their own.
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+
 	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
 	// Unbuffered is safe here because we only close() the channel (which never blocks
 	// and broadcasts to all receivers) rather than sending to it.
@@ -143,9 +153,10 @@ type MultiPoolerManager struct {
 	initialized bool
 
 	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
-	// (via EmergencyDemote). The value is the consensus term at which the primary
-	// resigned. A non-zero value signals the coordinator to trigger an immediate
-	// election. Protected by mu. Cleared when this node is elected primary again.
+	// (via EmergencyDemote or graceful shutdown). The value is the consensus
+	// term at which the primary resigned. A non-zero value signals the
+	// coordinator to trigger an immediate election. Protected by mu. Cleared
+	// when this node is elected primary again.
 	resignedLeaderAtTerm int64
 
 	// cohortEligibility is this node's self-reported willingness to be a member
@@ -293,6 +304,13 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// shutdownCtx is independent of ctx: ctx is recreated on every Open(),
+	// while shutdownCtx exists for the lifetime of the manager and is
+	// cancelled exactly once, by GracefulShutdown. Background root is
+	// intentional: this ctx must outlive any Open()/Close() cycle so
+	// long-lived stream subscribers can keep watching it.
+	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(ctxutil.Detach(ctx))
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
@@ -1539,6 +1557,13 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	pm.Open()
+
+	// Register the SIGTERM-driven graceful shutdown sequence. Runs as an
+	// OnTermSync hook so it is bounded by the lameduck window and completes
+	// before OnClose hooks (topology unregister) fire.
+	senv.OnTermSync(func() {
+		pm.GracefulShutdown(pm.ctx)
+	})
 
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()

@@ -154,6 +154,11 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 		"--hostname", "localhost",
 		"--log-output", p.LogFile,
 		"--log-level", p.logLevelOrDefault(),
+		// Allow OnTermSync hooks (notably the graceful-shutdown sequence) to
+		// run to completion. The default 10s is shorter than the graceful
+		// shutdown total deadline; without this the hook is cut off mid-flight
+		// on SIGTERM.
+		"--onterm-timeout", "80s",
 	}
 	if p.SocketFile != "" {
 		args = append(args, "--socket-file", p.SocketFile)

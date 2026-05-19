@@ -357,6 +357,16 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
 					func(mp *clustermetadatapb.MultiPooler) error {
 						mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+						// Set PoolerType to DRAINED so administrative views
+						// (e.g. `multigres getpoolers`) reflect that this pooler
+						// has gone away rather than continuing to display its
+						// last live role (often PRIMARY for a node that just
+						// failed over). This is purely cosmetic: failover keys
+						// off LeadershipStatus.REQUESTING_DEMOTION on the
+						// health stream, not off PoolerType. On restart the
+						// pooler re-registers with PoolerType_REPLICA and the
+						// orchestrator promotes as usual.
+						mp.Type = clustermetadatapb.PoolerType_DRAINED
 						return nil
 					})
 				return err

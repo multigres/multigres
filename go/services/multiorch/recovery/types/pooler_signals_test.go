@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 func TestPoolerIsCohortIneligible(t *testing.T) {
@@ -71,4 +72,77 @@ func TestPoolerIsCohortIneligible(t *testing.T) {
 			assert.Equal(t, tc.want, PoolerIsCohortIneligible(tc.av))
 		})
 	}
+}
+
+// poolerWithLeaderTerm builds a PoolerHealthState whose ConsensusStatus has
+// the given primary term. Used to construct fixtures that exercise the
+// staleness check on REQUESTING_DEMOTION.
+func poolerWithLeaderTerm(t *testing.T, primaryTerm int64) *multiorchdatapb.PoolerHealthState {
+	t.Helper()
+	id := &clustermetadatapb.ID{Name: "mp1"}
+	return &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{Id: id},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					LeaderId: id,
+					RuleNumber: &clustermetadatapb.RuleNumber{
+						CoordinatorTerm: primaryTerm,
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestLeaderNeedsReplacement(t *testing.T) {
+	t.Run("nil PoolerHealthState returns false", func(t *testing.T) {
+		assert.False(t, LeaderNeedsReplacement(nil))
+	})
+
+	t.Run("no AvailabilityStatus returns false", func(t *testing.T) {
+		p := poolerWithLeaderTerm(t, 5)
+		assert.False(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("AvailabilityStatus with no signals returns false", func(t *testing.T) {
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{}
+		assert.False(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("REQUESTING_DEMOTION with matching term returns true", func(t *testing.T) {
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				LeaderTerm: 5,
+				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			},
+		}
+		assert.True(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("REQUESTING_DEMOTION with stale term returns false", func(t *testing.T) {
+		// Signal carries term 3 but node's current primary term is 5 — stale.
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				LeaderTerm: 3,
+				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			},
+		}
+		assert.False(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("LeadershipSignal_ACTIVE returns false even at matching term", func(t *testing.T) {
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				LeaderTerm: 5,
+				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE,
+			},
+		}
+		assert.False(t, LeaderNeedsReplacement(p))
+	})
 }
