@@ -503,6 +503,13 @@ func (e *Executor) streamExecuteOnReservedConn(
 	// the DECLARE itself. Done up-front so that if the DECLARE fails on
 	// the backend the caller can still rely on the pin bitmask to keep
 	// the conn until ROLLBACK / session-end cleanup runs.
+	//
+	// The gateway-side bookkeeping is asymmetric: HoldCursorRoute only
+	// records the cursor in OpenHoldCursors on DECLARE success, while the
+	// multipooler side pins eagerly. This is intentional — a failed
+	// DECLARE leaves the txn in an error state and the subsequent
+	// (explicit or implicit) ROLLBACK calls ReleaseAllPortals on this
+	// connection, draining any pin that the gateway never recorded.
 	for _, name := range reservationOptions.GetPinPortalNames() {
 		rc.ReserveForPortal(name)
 	}

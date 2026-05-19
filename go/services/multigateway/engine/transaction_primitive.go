@@ -154,17 +154,42 @@ func (t *TransactionPrimitive) executeCommit(
 	state.PendingBeginQuery = ""
 	// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
 	// failed state, so SET / RESET issued before the failure must revert
-	// rather than persist. For a healthy COMMIT, drop the savepoint stack and
-	// clear SET LOCAL overrides — current values of non-LOCAL SETs become
-	// persistent session state.
-	if conn.TxnStatus() == protocol.TxnStatusFailed {
+	// rather than persist, every open cursor (including WITH HOLD) is closed,
+	// and the wire-level command tag returned to the client is `ROLLBACK`
+	// rather than `COMMIT`. For a healthy COMMIT, drop the savepoint stack
+	// and clear SET LOCAL overrides — current values of non-LOCAL SETs
+	// become persistent session state.
+	implicitRollback := conn.TxnStatus() == protocol.TxnStatusFailed
+	if implicitRollback {
 		state.RollbackTransaction()
+		// PG closed every cursor at the failure boundary; drop the gateway's
+		// HOLD-cursor bookkeeping so a follow-up CLOSE / FETCH does not
+		// think a now-gone cursor is still open. The multipooler-side pin
+		// set is dropped inside ConcludeTransaction's ROLLBACK path below.
+		state.ClearOpenHoldCursors()
 	} else {
 		state.CommitTransaction()
 	}
 
-	// Record transaction metrics before clearing state.
-	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
+	// Record transaction metrics before clearing state. Outcome is bucketed
+	// by the wire-level command tag we'll send to the client, so an implicit
+	// ROLLBACK is reported as such (not as a successful commit).
+	outcome := TxnOutcomeCommit
+	if implicitRollback {
+		outcome = TxnOutcomeRollback
+	}
+	t.recordTxnMetrics(ctx, conn, state, outcome)
+
+	// Choose the conclusion + synthetic command tag based on whether PG will
+	// honour or rewrite this COMMIT. Implicit ROLLBACK uses the multipooler's
+	// ROLLBACK path so ReleaseAllPortals fires and any pinned HOLD cursors
+	// are unpinned alongside the txn reason.
+	conclusion := multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT
+	commandTag := "COMMIT"
+	if implicitRollback {
+		conclusion = multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK
+		commandTag = "ROLLBACK"
+	}
 
 	// If no reserved connections, or if the reserved connections don't have
 	// an active transaction (e.g., temp-table-reserved session where BEGIN
@@ -180,28 +205,31 @@ func (t *TransactionPrimitive) executeCommit(
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 		syncPendingSubscriptions(conn, state)
 		return callback(ctx, &sqltypes.Result{
-			CommandTag: "COMMIT",
+			CommandTag: commandTag,
 		})
 	}
 
-	// Wrap the callback to sync subscriptions after the backend confirms COMMIT
-	// but before the CommandComplete is sent to the client.
+	// Wrap the callback to sync subscriptions after the backend confirms the
+	// conclusion but before the CommandComplete is sent to the client.
 	commitCallback := callback
-	if state.HasPendingListens() {
+	if !implicitRollback && state.HasPendingListens() {
 		commitCallback = func(cbCtx context.Context, result *sqltypes.Result) error {
 			if result != nil && result.CommandTag != "" {
 				syncPendingSubscriptions(conn, state)
 			}
 			return callback(cbCtx, result)
 		}
+	} else if implicitRollback {
+		// Implicit ROLLBACK invalidates any pending LISTEN/UNLISTEN — drop
+		// them silently so they don't leak into the next transaction.
+		state.DiscardPendingListens()
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
 	// ConcludeTransaction clears shard state entries where the connection was
 	// fully released (remainingReasons == 0) and keeps entries where the
 	// connection is still reserved for other reasons (e.g., temp tables).
-	err := exec.ConcludeTransaction(ctx, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, commitCallback)
+	err := exec.ConcludeTransaction(ctx, conn, state, conclusion, commitCallback)
 
 	// Reset transaction state regardless of error.
 	conn.SetTxnStatus(protocol.TxnStatusIdle)

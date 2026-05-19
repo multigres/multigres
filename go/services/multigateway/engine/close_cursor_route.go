@@ -33,9 +33,11 @@ import (
 // multipooler returns a zero ReservedState and ScatterConn drops the
 // reservation locally.
 //
-// CLOSE ALL is materialised at planning time into the snapshot of currently
-// open HOLD cursors. Non-HOLD cursors are unaffected — they die at COMMIT
-// alongside ReasonTransaction and never appear in the portal set.
+// CLOSE ALL captures the set of tracked HOLD cursors at execution time
+// (inside StreamExecute), not at plan time — so a cursor declared after the
+// plan was built but before execution is still released. Non-HOLD cursors
+// are unaffected: they die at COMMIT alongside ReasonTransaction and never
+// appear in the portal set.
 //
 // If the named cursor is not a tracked HOLD cursor, the statement is still
 // forwarded to PostgreSQL (so the server-side cursor — including
@@ -78,6 +80,13 @@ func NewCloseAllCursorRoute(tableGroup, shard, sql string) *CloseCursorRoute {
 // StreamExecute schedules portal releases for any HOLD cursors that match the
 // CLOSE target, runs the CLOSE on the backend, and on success drops the
 // gateway's HOLD-cursor bookkeeping.
+//
+// Release lifecycle on failure: ScatterConn consumes (and nils)
+// PendingReleasePortals when it issues the RPC, and the multipooler applies
+// portal releases only after the query succeeds (see
+// streamExecuteOnReservedConn). A CLOSE error therefore leaves the
+// gateway's pending slot already cleared and the multipooler's pin set
+// untouched, so no extra cleanup is required on the gateway side.
 func (c *CloseCursorRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -89,12 +98,6 @@ func (c *CloseCursorRoute) StreamExecute(
 	targets := c.targets(state)
 	state.PendingReleasePortals = append(state.PendingReleasePortals, targets...)
 	if err := exec.StreamExecute(ctx, conn, c.TableGroup, c.Shard, c.Query, nil, state, callback); err != nil {
-		// CLOSE failed on the backend; drop scheduled releases so a
-		// follow-up query doesn't unpin cursors that PG still believes
-		// are open.
-		for _, name := range targets {
-			state.PendingReleasePortals = dropName(state.PendingReleasePortals, name)
-		}
 		return err
 	}
 	for _, name := range targets {

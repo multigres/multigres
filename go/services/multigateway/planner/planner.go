@@ -206,7 +206,9 @@ func (p *Planner) planHoldCursorDeclare(sql string, stmt *ast.DeclareCursorStmt)
 	p.logger.Debug("planning DECLARE WITH HOLD cursor",
 		"cursor", stmt.PortalName, "sql", sql)
 	route := engine.NewHoldCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
-	return engine.NewPlan(sql, route), nil
+	plan := engine.NewPlan(sql, route)
+	plan.Type = engine.PlanTypeHoldCursorRoute
+	return plan, nil
 }
 
 // planClosePortalStmt creates a plan for `CLOSE <name>` / `CLOSE ALL`. The
@@ -323,6 +325,21 @@ func (p *Planner) PlanPortal(
 		// primitive — executing them as a normal portal on a pooled backend
 		// connection leaks open (or aborted) transactions across clients when
 		// the connection is recycled.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
+	case ast.T_DeclareCursorStmt:
+		// DECLARE … WITH HOLD must go through HoldCursorRoute so the cursor
+		// name is pinned on the reserved backend (ReasonPortal). Without
+		// this case, an extended-protocol DECLARE WITH HOLD would land on a
+		// pooled connection and the cursor would be lost on COMMIT.
+		// Non-HOLD DECLARE is delegated through Plan too so the parser-driven
+		// dispatch decides — non-HOLD falls through to planDefault there.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
+	case ast.T_ClosePortalStmt:
+		// CLOSE / CLOSE ALL must go through CloseCursorRoute so HOLD-cursor
+		// pin bookkeeping on the multipooler stays in sync — otherwise the
+		// reserved backend would leak with a stale ReasonPortal.
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
 	default:
