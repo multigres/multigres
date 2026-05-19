@@ -76,6 +76,12 @@ func TestRunStart(t *testing.T) {
 
 			tt.setupDataDir(baseDir)
 
+			// runStart now resolves the postgres password via
+			// GetPostgresPassword, which errors when no source is configured.
+			// Set POSTGRES_PASSWORD so the test exercises the start path
+			// rather than the missing-credential error.
+			t.Setenv(constants.PgPasswordEnvVar, "test-password")
+
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
@@ -216,8 +222,9 @@ func TestInitializeDataDir(t *testing.T) {
 
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:     constants.DefaultPostgresUser,
-			Password: shardsetup.TestPostgresPassword,
+			User:           constants.DefaultPostgresUser,
+			Password:       shardsetup.TestPostgresPassword,
+			PasswordSource: PasswordSourceEnv,
 		}
 		err := initializeDataDir(logger, cfg)
 		require.NoError(t, err)
@@ -238,15 +245,20 @@ func TestInitializeDataDir(t *testing.T) {
 		t.Setenv(constants.PgDataDirEnvVar, "/root/impossible_dir")
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:     constants.DefaultPostgresUser,
-			Password: shardsetup.TestPostgresPassword,
+			User:           constants.DefaultPostgresUser,
+			Password:       shardsetup.TestPostgresPassword,
+			PasswordSource: PasswordSourceEnv,
 		}
 		err := initializeDataDir(logger, cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
 	})
 
-	t.Run("fails when password is empty", func(t *testing.T) {
+	t.Run("panics when PasswordSource is unset", func(t *testing.T) {
+		// Validates the programmer-error guard in initializeDataDir. Production
+		// callers populate PasswordSource via PgCtlCommand.GetPostgresPassword,
+		// which errors out when no source is configured; reaching this code
+		// with an unset source means a caller bypassed the resolver.
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_nopw_test")
 		defer cleanup()
 		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
@@ -254,11 +266,10 @@ func TestInitializeDataDir(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
 			User: constants.DefaultPostgresUser,
-			// Password intentionally left empty.
+			// PasswordSource intentionally unset.
 		}
-		err := initializeDataDir(logger, cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "POSTGRES_PASSWORD must be set")
+		assert.Panics(t, func() { _ = initializeDataDir(logger, cfg) },
+			"unset PasswordSource should panic — production callers must go through GetPostgresPassword")
 	})
 
 	t.Run("extra initdb args are forwarded to initdb", func(t *testing.T) {
@@ -283,9 +294,10 @@ touch "$2/pg_hba.conf"
 
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:       constants.DefaultPostgresUser,
-			Password:   "test-password",
-			InitdbArgs: "--locale-provider=icu --icu-locale=en_US.UTF-8",
+			User:           constants.DefaultPostgresUser,
+			Password:       "test-password",
+			PasswordSource: PasswordSourceEnv,
+			InitdbArgs:     "--locale-provider=icu --icu-locale=en_US.UTF-8",
 		}
 		err := initializeDataDir(logger, cfg)
 		require.NoError(t, err)

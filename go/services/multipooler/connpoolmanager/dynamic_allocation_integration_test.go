@@ -70,6 +70,8 @@ func newTestManagerWithConfig(t *testing.T, server *fakepgserver.Server, testCfg
 		}
 	}
 
+	resolveTestPgPassword(t, config)
+
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{
 		SocketFile: server.ClientConfig().SocketFile,

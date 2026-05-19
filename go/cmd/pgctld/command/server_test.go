@@ -38,10 +38,11 @@ import (
 
 // testServiceConfig is the standard PgCtldServiceConfig used across service tests.
 var testServiceConfig = PgCtldServiceConfig{
-	Port:     5432,
-	User:     constants.DefaultPostgresUser,
-	Database: constants.DefaultPostgresDatabase,
-	Password: shardsetup.TestPostgresPassword,
+	Port:           5432,
+	User:           constants.DefaultPostgresUser,
+	Database:       constants.DefaultPostgresDatabase,
+	Password:       shardsetup.TestPostgresPassword,
+	PasswordSource: PasswordSourceEnv,
 }
 
 func TestIntToInt32(t *testing.T) {

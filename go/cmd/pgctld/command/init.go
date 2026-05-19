@@ -15,7 +15,6 @@
 package command
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -171,11 +170,17 @@ func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
+	password, passwordSource, passwordFile, err := i.pgCtlCmd.GetPostgresPassword()
+	if err != nil {
+		return err
+	}
 	cfg := PgCtldServiceConfig{
 		Port:                 i.pgCtlCmd.pgPort.Get(),
 		User:                 i.pgCtlCmd.pgUser.Get(),
 		Database:             i.pgCtlCmd.pgDatabase.Get(),
-		Password:             i.pgCtlCmd.pgPassword.Get(),
+		Password:             password,
+		PasswordSource:       passwordSource,
+		PasswordFile:         passwordFile,
 		InitdbSQLFiles:       i.pgCtlCmd.pgInitdbSQLFiles.Get(),
 		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
@@ -227,6 +232,55 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 	return nil
 }
 
+// resolveInitdbPwFile returns a filesystem path suitable for initdb's --pwfile
+// flag along with a cleanup function the caller must defer.
+//
+// The primary path is the operator-supplied password file (POSTGRES_PASSWORD_FILE
+// / --pg-password-file). In that case the returned path *is* that file
+// and no plaintext is ever copied — initdb reads it directly. The cleanup is a
+// no-op.
+//
+// The fallback path is the legacy POSTGRES_PASSWORD environment variable, which
+// is being phased out. There is no file on disk yet, so we have to stage the
+// password into a randomly named temp file long enough for initdb to read it.
+// The cleanup unlinks that temp file. This branch exists only to keep operators
+// who have not yet migrated to file-based secrets working; new deployments
+// should always hit the primary path.
+//
+// Note on first-line semantics: initdb --pwfile reads only the first line of
+// the file. pgsecret.ReadPasswordFile returns the whole content (minus
+// trailing CR/LF). The two parsers agree for any single-line password (with
+// or without a trailing newline) — which is every realistic Kubernetes Secret.
+// A multi-line file would silently diverge: the cluster would be initialized
+// with line 1, but the admin pool / replication would try to authenticate with
+// the whole content. Password files MUST be single-line.
+func resolveInitdbPwFile(cfg PgCtldServiceConfig) (path string, cleanup func(), err error) {
+	if cfg.PasswordSource == PasswordSourceFile {
+		return cfg.PasswordFile, func() {}, nil
+	}
+	// Fallback: POSTGRES_PASSWORD env. Stage the plaintext to a randomly named
+	// file in /tmp. Removed unconditionally on return so the plaintext window
+	// is bounded by the initdb exec. The filename has no prefix so its purpose
+	// isn't advertised in /tmp listings.
+	tmpFile, err := os.CreateTemp("", "*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to create temporary password file: %w", err)
+	}
+	tempPwFile := tmpFile.Name()
+	cleanup = func() { _ = os.Remove(tempPwFile) }
+
+	if _, err := tmpFile.WriteString(cfg.Password); err != nil {
+		tmpFile.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("failed to write password to temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("failed to close temporary password file: %w", err)
+	}
+	return tempPwFile, cleanup, nil
+}
+
 func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// Derive dataDir from poolerDir using the standard convention
 	dataDir := pgctld.PostgresDataDir()
@@ -241,34 +295,28 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// the backup.
 	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", cfg.User}
 
-	// Password is required: pg_hba.conf uses scram-sha-256 for all connections,
-	// including the local socket, so initdb must set a password.
-	if cfg.Password == "" {
-		return errors.New("POSTGRES_PASSWORD must be set before initializing data directory")
+	// Invariant: production callers (runInit, the InitDataDir gRPC handler)
+	// populate Password, PasswordSource (and PasswordFile when source==File)
+	// via PgCtlCommand.GetPostgresPassword, which errors when no source is
+	// configured. Reaching here with a missing source means a caller — almost
+	// certainly a test — built PgCtldServiceConfig by hand without going
+	// through the resolver. Panic rather than guess a source that would
+	// mislabel the log line below.
+	if cfg.PasswordSource == "" || cfg.PasswordSource == PasswordSourceNone {
+		panic(fmt.Sprintf("initializeDataDir: PasswordSource=%q — callers must populate it via PgCtlCommand.GetPostgresPassword", cfg.PasswordSource))
+	}
+	if cfg.PasswordSource == PasswordSourceFile && cfg.PasswordFile == "" {
+		panic("initializeDataDir: PasswordSource=POSTGRES_PASSWORD_FILE but PasswordFile is empty — callers must populate PasswordFile (use PgCtlCommand.GetPostgresPassword)")
 	}
 
-	// Write the password to a temporary file for initdb --pwfile. The filename
-	// uses a random pattern with no prefix so the file's purpose isn't
-	// advertised in /tmp listings. This is the only way to set the password
-	// during initdb without exposing it in process arguments or environment
-	// variables, and the file is removed immediately after initdb completes.
-	tmpFile, err := os.CreateTemp("", "*")
+	pwFile, cleanup, err := resolveInitdbPwFile(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create temporary password file: %w", err)
+		return err
 	}
-	tempPwFile := tmpFile.Name()
-	defer os.Remove(tempPwFile)
+	defer cleanup()
 
-	if _, err := tmpFile.WriteString(cfg.Password); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write password to temporary file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temporary password file: %w", err)
-	}
-
-	args = append(args, "--pwfile="+tempPwFile)
-	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
+	args = append(args, "--pwfile="+pwFile)
+	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	if cfg.InitdbArgs != "" {
 		args = append(args, strings.Fields(cfg.InitdbArgs)...)
@@ -283,7 +331,7 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-	logger.Info("User password set successfully", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
+	logger.Info("User password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	return nil
 }
