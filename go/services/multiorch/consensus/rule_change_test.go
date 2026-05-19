@@ -218,7 +218,7 @@ func TestRun_Success(t *testing.T) {
 	leaderID := mp1.MultiPooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,
@@ -239,11 +239,12 @@ func TestRun_Success(t *testing.T) {
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// Both nodes should have received a Propose request.
+	// mp1 (leader) receives Propose; mp2 (follower) receives SetTermPrimary.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key])
-	assert.NotNil(t, fc.ProposeRequests[mp2Key])
+	assert.NotNil(t, fc.ProposeRequests[mp1Key], "leader should receive Propose")
+	assert.Nil(t, fc.ProposeRequests[mp2Key], "follower should not receive Propose")
+	assert.NotNil(t, fc.SetTermPrimaryRequests[mp2Key], "follower should receive SetTermPrimary")
 }
 
 func TestRun_EarlyExit(t *testing.T) {
@@ -271,7 +272,7 @@ func TestRun_EarlyExit(t *testing.T) {
 		mp := poolerByID[topoclient.ClusterIDString(leader.GetId())]
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-			ProposalLeader: &consensusdatapb.ProposalLeader{
+			ProposalLeader: &clustermetadatapb.PoolerAddress{
 				Id:           leader.GetId(),
 				Host:         mp.GetHostname(),
 				PostgresPort: mp.GetPortMap()["postgres"],
@@ -376,7 +377,7 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,
@@ -429,7 +430,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 	leaderID := mp1.MultiPooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leaderID,
 			Host:         "localhost",
 			PostgresPort: 5432,

@@ -398,6 +398,13 @@ func WithCell(cell string) func(*Config) {
 	}
 }
 
+// WithUseNewConsensusFlow toggles the Recruit/Propose/SetTermPrimary consensus flow.
+func WithUseNewConsensusFlow(enabled bool) func(*Config) {
+	return func(cfg *Config) {
+		cfg.useNewConsensusFlow.Set(enabled)
+	}
+}
+
 // WithBookkeepingInterval sets the bookkeeping interval for testing.
 func WithBookkeepingInterval(d time.Duration) func(*Config) {
 	return func(cfg *Config) {

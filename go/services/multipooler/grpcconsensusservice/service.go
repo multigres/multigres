@@ -149,6 +149,16 @@ func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoo
 	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
+// SetTermPrimary updates this pooler's replication settings to point at the supplied
+// primary, gated on a position comparison. See manager.SetTermPrimary for details.
+func (s *consensusService) SetTermPrimary(ctx context.Context, req *consensusdata.SetTermPrimaryRequest) (*consensusdata.SetTermPrimaryResponse, error) {
+	resp, err := s.manager.SetTermPrimary(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *consensusService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	resp, err := s.manager.RewindToSource(ctx, req.Source)

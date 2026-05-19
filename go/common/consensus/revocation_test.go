@@ -369,3 +369,92 @@ func TestNewTermRevocation(t *testing.T) {
 		require.Equal(t, int64(5), got.GetLeaderSubterm())
 	})
 }
+
+func TestIsRuleRevoked(t *testing.T) {
+	ruleAt := func(term, subterm int64) *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm},
+		}
+	}
+	revocation := func(revokedBelow int64, outgoing *clustermetadatapb.RuleNumber) *clustermetadatapb.TermRevocation {
+		return &clustermetadatapb.TermRevocation{RevokedBelowTerm: revokedBelow, OutgoingRule: outgoing}
+	}
+	ruleNum := func(term, subterm int64) *clustermetadatapb.RuleNumber {
+		return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm}
+	}
+
+	tests := []struct {
+		name       string
+		rule       *clustermetadatapb.ShardRule
+		revocation *clustermetadatapb.TermRevocation
+		want       bool
+	}{
+		{
+			name:       "NilRevocation_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: nil,
+			want:       false,
+		},
+		{
+			name:       "ZeroRevokedBelow_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(0, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleTermAboveRevokedBelow_NotRevoked",
+			rule:       ruleAt(5, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleTermEqualsRevokedBelow_NotRevoked",
+			rule:       ruleAt(3, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndOverridesOutgoing_NotRevoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(1, 0)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndOverridesOutgoingBySubterm_NotRevoked",
+			rule:       ruleAt(2, 5),
+			revocation: revocation(3, ruleNum(2, 4)),
+			want:       false,
+		},
+		{
+			name:       "RuleBelowRevokedAndEqualsOutgoing_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(2, 0)),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndBelowOutgoing_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, ruleNum(2, 5)),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndOutgoingNil_Revoked",
+			rule:       ruleAt(2, 0),
+			revocation: revocation(3, nil),
+			want:       true,
+		},
+		{
+			name:       "RuleBelowRevokedAndOutgoingZero_Revoked",
+			rule:       ruleAt(0, 0),
+			revocation: revocation(3, &clustermetadatapb.RuleNumber{}),
+			want:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsRuleRevoked(tt.rule, tt.revocation)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

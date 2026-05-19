@@ -170,17 +170,24 @@ type MultiPoolerManager struct {
 	// False by default (restarts enabled); tests and demos set it during controlled failovers.
 	postgresRestartsDisabled atomic.Bool
 
+	// walReceiverManuallyStopped is set by StopReplication when it clears
+	// primary_conninfo (RECEIVER_ONLY / REPLAY_AND_RECEIVER modes). It tells
+	// the postgres monitor not to "self-heal" the cleared conninfo back to
+	// the recorded primary — the admin/test explicitly asked replication to
+	// stop. While set, this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE
+	// in its status so the coordinator does not try to include it in the
+	// cohort. Cleared by SetTermPrimary, SetPrimaryConnInfo, and
+	// demoteStalePrimaryLocked — anything that re-establishes a primary
+	// link is interpreted as the admin signal expiring. Not persisted; a
+	// process restart implicitly clears it.
+	walReceiverManuallyStopped atomic.Bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
 	// servingState coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
 	servingState *StateManager
-
-	// The following three variables are for pgbackrest.
-	primaryPoolerID *clustermetadatapb.ID
-	primaryHost     string
-	primaryPort     int32
 
 	// metrics holds OTel gauges for pgBackRest server health.
 	metrics *Metrics
@@ -1133,6 +1140,16 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 
 // restartPostgresAsStandby restarts PostgreSQL as a standby server
 // This creates standby.signal and restarts PostgreSQL via pgctld
+//
+// TODO: require callers to declare whether this restart is a "clean" or
+// "unexpected" demote. A clean demote (graceful failover handoff, known
+// consistent WAL) should leave rewindPending=false. An unexpected demote
+// (crash, external pg_demote, monitor-driven restart after an unknown
+// shutdown) should set rewindPending=true so that the next standby-side
+// operation (SetTermPrimary's standby branch, remedialActionFixPrimaryConnInfo,
+// or self-rewind detection) routes through pg_rewind dry-run before
+// trusting local WAL. Today the only setter is emergencyDemoteLocked,
+// which leaves several transition paths under-defended.
 func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
 		pm.logger.InfoContext(ctx, "PostgreSQL already running as standby, skipping")
@@ -1616,6 +1633,13 @@ const (
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
 	remedialActionCreateFirstBackup
+	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
+	// topology says REPLICA, but primary_conninfo doesn't match the primary
+	// recorded in ConsensusState.ReplicationPrimary (the most recent
+	// SetTermPrimary/Propose). Reconciles the GUC so this replica points at the right
+	// primary regardless of how it got out of sync (failed SetTermPrimary apply,
+	// hand edit, snapshot restore, etc.).
+	remedialActionFixPrimaryConnInfo
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1787,6 +1811,77 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
+// primaryConnInfoDiffersFromRecorded returns true when this pooler has been
+// informed about a primary (via SetTermPrimary or Propose) and the live primary_conninfo
+// in postgres doesn't match the recorded primary's contact info. Returns false
+// when there's nothing to compare against, when we couldn't read the GUC, or
+// when the recorded primary names this pooler itself.
+//
+// Returns false when the recorded primary's rule is revoked by our recorded
+// revocation: a Recruit that's already advanced revoked_below_term has
+// deliberately cleared primary_conninfo, and the cached "recorded primary" is
+// stale until the next SetTermPrimary/Propose updates it. Without this gate, the
+// monitor would race the Recruit/Propose flow by restoring conninfo to the
+// just-revoked primary, which then causes Propose to refuse with
+// "primary_conninfo is set".
+//
+// Used by the postgres monitor to decide whether to trigger
+// remedialActionFixPrimaryConnInfo on each tick.
+func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState) bool {
+	// Don't detect drift we can't fix: when StopReplication has set the
+	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
+	// rewrite until StartReplication clears it. Detecting drift anyway would
+	// fire the reconciliation action on every tick and log a noisy
+	// FAILED_PRECONDITION error each time.
+	if pm.walReceiverManuallyStopped.Load() {
+		return false
+	}
+	rp := pm.consensusState.GetReplicationPrimary()
+	if rp == nil {
+		return false
+	}
+	target := rp.GetPrimary()
+	if target == nil {
+		return false
+	}
+	// Skip if the recorded rule names this pooler as the leader — that's the
+	// primary-side case, out of scope for replica-conninfo reconciliation.
+	if leader := rp.GetRule().GetLeaderId(); leader != nil &&
+		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return false
+	}
+	// Skip if the recorded rule is revoked. The cached primary is from before
+	// the current revocation took effect; restoring conninfo to it would race
+	// the Recruit/Propose flow that's mid-flight (see function doc).
+	rev, err := pm.consensusState.GetInconsistentRevocation()
+	if err != nil || commonconsensus.IsRuleRevoked(rp.GetRule(), rev) {
+		return false
+	}
+	targetHost := target.GetHost()
+	targetPort := target.GetPostgresPort()
+	if targetHost == "" || targetPort == 0 {
+		return false
+	}
+
+	// Use a short deadline so a slow query never blocks the monitor tick.
+	ctx, cancel := context.WithTimeout(pm.ctx, 500*time.Millisecond)
+	defer cancel()
+	connInfoStr, err := pm.readPrimaryConnInfo(ctx)
+	if err != nil {
+		// Conservative: don't trigger reconciliation we can't verify.
+		return false
+	}
+	if connInfoStr == "" {
+		return true
+	}
+	parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
+	if err != nil || parsed == nil {
+		// Unparsable conninfo is itself drift worth fixing.
+		return true
+	}
+	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
+}
+
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
 func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
@@ -1813,6 +1908,25 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			if currentState.primaryTerm != 0 && resigned == 0 {
 				return remedialActionAdjustTypeToReplica
 			}
+			// Drift check: replica is otherwise healthy but its primary_conninfo
+			// may not match what we've been told via SetTermPrimary/Propose. Reconcile
+			// to the recorded ReplicationPrimary if there's a mismatch.
+			if pm.primaryConnInfoDiffersFromRecorded(currentState) {
+				return remedialActionFixPrimaryConnInfo
+			}
+			// TODO: self-rewind detection. A replica may need pg_rewind even
+			// when it was never primary — phantom transactions can leak in
+			// (e.g. via a brief sync-replication ack that got rolled back on
+			// the primary). The old consensus flow let orch re-issue an
+			// explicit rewind whenever it suspected one; the new flow's
+			// SetTermPrimary is idempotent and won't repeat work, so the monitor
+			// needs to self-detect stuck replication. Check
+			// pg_stat_wal_receiver.status: if not "streaming" for
+			// >stuckThreshold AND we have a recorded primary, treat as
+			// suspected divergence — set rewindPending=true so the next
+			// remedialActionFixPrimaryConnInfo iteration runs
+			// pg_rewind dry-run before re-establishing replication. Cheap
+			// when no divergence, conclusive when there is.
 		}
 		return remedialActionNone // Pooler type already matches
 	}
@@ -1884,6 +1998,28 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
 		}
 
+	case remedialActionFixPrimaryConnInfo:
+		rp := pm.consensusState.GetReplicationPrimary()
+		target := rp.GetPrimary()
+		targetHost := target.GetHost()
+		targetPort := target.GetPostgresPort()
+		pm.logger.InfoContext(ctx, "MonitorPostgres: primary_conninfo drift detected; rewriting to recorded primary",
+			"target_primary", target.GetId().GetName(),
+			"target_host", targetHost,
+			"target_port", targetPort)
+		// TODO: when rewindPending=true (an unexpected demotion happened
+		// without a follow-up pg_rewind), just setting primary_conninfo is
+		// not enough — the WAL receiver will fail to start due to timeline
+		// divergence. Route through demoteStalePrimaryLocked instead, which
+		// runs pg_rewind dry-run (cheap when there's no divergence) before
+		// re-establishing replication. This would let the monitor self-heal
+		// a stuck-replica scenario without waiting for orch's
+		// FixReplicationAction to issue a RewindToSource RPC.
+		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort,
+			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile primary_conninfo", "error", err)
+		}
+
 	case remedialActionStartPostgres:
 		// Honour the in-memory flag set by tests and demos to suppress auto-restart
 		// during controlled failovers.
@@ -1951,6 +2087,22 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 }
 
 // startPostgres starts PostgreSQL via pgctld
+//
+// TODO: preemptive-rewind safety. A monitor-driven restart can't know what
+// happened between the previous run and now — postgres may have crashed
+// mid-write as primary, or may have been killed externally. The safe default
+// is to come back as a standby with rewindPending=true so that the next
+// SetTermPrimary/Propose/standby-conninfo path routes through demoteStalePrimaryLocked
+// (which runs pg_rewind dry-run; cheap when there's no divergence) before
+// trusting local WAL. This bears on the broader self-rewind plan:
+//   - replicas with phantom transactions: orch sends an explicit
+//     RewindToSource RPC today; a future change should let the local monitor
+//     detect stuck replication and self-heal without needing orch in the loop.
+//   - primaries demoted unexpectedly (crash, SIGKILL, external pg_demote):
+//     the restart-as-standby helper should require callers to declare
+//     "clean" vs "unexpected" so an unexpected transition can set
+//     rewindPending up front, increasing the odds of fast convergence once
+//     a new leader is announced.
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
 	if pm.pgctldClient == nil {

@@ -78,20 +78,17 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 
 // ReplicationPrimaryMatches reports whether a pooler's published
 // ReplicationPrimary already names target as its primary at a rule no older
-// than targetRule. Coordinators use this to skip Inform RPCs that wouldn't
-// change anything on the pooler.
+// than targetRule. Coordinators use this to skip SetTermPrimary RPCs that
+// wouldn't change anything on the pooler.
 //
 // Returns false when:
 //   - rp is nil
 //   - the published rule is strictly older than targetRule
 //   - the published primary is missing
-//   - the published primary's (id, hostname, postgres port) differs from
-//     target's
+//   - the published primary's (id, host, postgres port) differs from target's
 //
 // target and targetRule are required; passing nil for either returns false.
-// Only the contact-info fields of MultiPooler are compared — pooler type,
-// serving status, and other operational state are ignored.
-func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target *clustermetadatapb.MultiPooler, targetRule *clustermetadatapb.ShardRule) bool {
+func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target *clustermetadatapb.PoolerAddress, targetRule *clustermetadatapb.ShardRule) bool {
 	if rp == nil || target == nil || targetRule == nil {
 		return false
 	}
@@ -105,10 +102,10 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 	if !idsEqual(rpPrimary.GetId(), target.GetId()) {
 		return false
 	}
-	if rpPrimary.GetHostname() != target.GetHostname() {
+	if rpPrimary.GetHost() != target.GetHost() {
 		return false
 	}
-	if rpPrimary.GetPortMap()["postgres"] != target.GetPortMap()["postgres"] {
+	if rpPrimary.GetPostgresPort() != target.GetPostgresPort() {
 		return false
 	}
 	return true

@@ -873,12 +873,15 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 		return []string{}, nil
 	}
 
-	// Replica poolers MUST have primary info to backup from primary
-	pm.mu.Lock()
-	primaryHost := pm.primaryHost
-	primaryPort := pm.primaryPort
-	primaryPoolerID := pm.primaryPoolerID
-	pm.mu.Unlock()
+	// Replica poolers MUST have primary info to backup from primary. The
+	// canonical source is consensusState.ReplicationPrimary, populated by
+	// every RPC that informs this pooler of a primary (SetTermPrimary, the
+	// legacy SetPrimaryConnInfo / DemoteStalePrimary, and Propose's leader
+	// path for the rare self-as-primary case).
+	primary := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	primaryHost := primary.GetHost()
+	primaryPort := primary.GetPostgresPort()
+	primaryPoolerID := primary.GetId()
 
 	if primaryHost == "" || primaryPort == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,

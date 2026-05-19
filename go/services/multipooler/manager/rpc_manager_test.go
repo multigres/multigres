@@ -1261,15 +1261,14 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "user="+testSuperuser,
 		"primary_conninfo must contain user=%s, got: %s", testSuperuser, capturedConnInfoSQL)
 
-	// Verify the primaryPoolerID is stored in the manager as a *clustermetadatapb.ID
-	pm.mu.Lock()
-	storedPrimaryPoolerID := pm.primaryPoolerID
-	pm.mu.Unlock()
-
-	require.NotNil(t, storedPrimaryPoolerID, "primaryPoolerID should be stored")
-	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primaryPoolerID component should match")
-	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primaryPoolerID cell should match")
-	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primaryPoolerID name should match")
+	// Verify the primary's id is recorded in the canonical ReplicationPrimary.
+	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	require.NotNil(t, recorded, "primary should be recorded")
+	storedPrimaryPoolerID := recorded.GetId()
+	require.NotNil(t, storedPrimaryPoolerID, "primary id should be recorded")
+	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primary id component should match")
+	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primary id cell should match")
+	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primary id name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {

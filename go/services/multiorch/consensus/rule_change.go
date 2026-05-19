@@ -127,10 +127,12 @@ func (r *coordinatorLedRuleChange) Run(
 	}
 	proposeResults := make(chan proposeResult, len(cohort))
 
-	sendPropose := func(p *multiorchdatapb.PoolerHealthState) {
+	// dispatchProposal sends Propose to the designated leader and SetTermPrimary
+	// to every other cohort member. r.propose handles the dispatch internally.
+	dispatchProposal := func(p *multiorchdatapb.PoolerHealthState) {
 		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
 		go func() {
-			err := r.propose(ctx, p, propReq)
+			err := r.propose(ctx, p, propReq, isLeader)
 			proposeResults <- proposeResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
 		}()
 	}
@@ -184,13 +186,13 @@ func (r *coordinatorLedRuleChange) Run(
 		return mterrors.Wrap(err, "recruitment failed")
 	}
 	for _, p := range recruits {
-		sendPropose(p)
+		dispatchProposal(p)
 	}
 
 	// Phase 2: drain remaining recruits, proposing to each as it arrives.
 	for range remaining {
 		if rr := <-recruited; rr.cs != nil {
-			sendPropose(rr.pooler)
+			dispatchProposal(rr.pooler)
 			recruits = append(recruits, rr.pooler)
 		}
 	}
@@ -267,15 +269,29 @@ func (r *coordinatorLedRuleChange) recruit(
 	}
 }
 
-// propose issues a Propose RPC to a single pooler.
+// propose dispatches the rule change to a single pooler. The designated leader
+// receives a Propose RPC (it promotes postgres and writes the new rule); every
+// other cohort member receives SetTermPrimary (it points replication at the
+// new leader). Both RPCs read directly from the CoordinatorProposal —
+// proposal_leader is a PoolerAddress, exactly what SetTermPrimary's leader
+// field wants.
 func (r *coordinatorLedRuleChange) propose(
 	ctx context.Context,
 	p *multiorchdatapb.PoolerHealthState,
 	req *consensusdatapb.ProposeRequest,
+	isLeader bool,
 ) error {
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 	defer cancel()
-	_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+	if isLeader {
+		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+		return err
+	}
+	proposal := req.GetProposal()
+	_, err := r.coordinator.rpcClient.SetTermPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetTermPrimaryRequest{
+		Leader: proposal.GetProposalLeader(),
+		Rule:   proposal.GetProposedRule(),
+	})
 	return err
 }
 
@@ -303,7 +319,7 @@ func buildFailoverProposal(
 
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leader.GetId(),
 			Host:         mp.GetHostname(),
 			PostgresPort: mp.GetPortMap()["postgres"],
@@ -338,7 +354,7 @@ func buildBootstrapProposal(
 	}
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
-		ProposalLeader: &consensusdatapb.ProposalLeader{
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
 			Id:           leader.GetId(),
 			Host:         mp.GetHostname(),
 			PostgresPort: mp.GetPortMap()["postgres"],

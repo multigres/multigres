@@ -81,6 +81,43 @@ func NewTermRevocation(
 	}, nil
 }
 
+// IsRuleRevoked reports whether the pooler's recorded revocation forbids
+// applying a rule (e.g. one delivered by a follower-side rule-propagation
+// RPC such as SetTermPrimary). The rule represents durable WAL state the
+// cohort has reached; the revocation is this pooler's promise to refuse
+// work below a given coordinator term. The predicate is a pure function of
+// the two consensus messages; callers handle storage I/O, locking, and any
+// logging.
+//
+// A rule is revoked when:
+//   - revocation.revoked_below_term is non-zero and exceeds the rule's
+//     coordinator_term, AND
+//   - the rule does not strictly exceed revocation.outgoing_rule.
+//
+// The second clause is the runaway-recruit override: if durable WAL exists
+// for a rule strictly newer than outgoing_rule, the cohort has demonstrably
+// moved past the rule the revocation was authored to transition away from,
+// so the promise is moot. See the TermRevocation proto for the full safety
+// argument.
+//
+// revocation may be nil (treated as no revocation). outgoing_rule may be nil
+// on revocations written by older code that predates the field; nil means
+// "no override available" and the override branch cannot fire.
+func IsRuleRevoked(rule *clustermetadatapb.ShardRule, revocation *clustermetadatapb.TermRevocation) bool {
+	revokedBelow := revocation.GetRevokedBelowTerm()
+	if revokedBelow == 0 {
+		return false
+	}
+	if rule.GetRuleNumber().GetCoordinatorTerm() >= revokedBelow {
+		return false
+	}
+	outgoing := revocation.GetOutgoingRule()
+	if outgoing != nil && CompareRuleNumbers(rule.GetRuleNumber(), outgoing) > 0 {
+		return false
+	}
+	return true
+}
+
 // ValidateRevocation reports whether the given revocation is safe for a node
 // with the provided status to honor. It returns nil if the revocation should be
 // accepted, or a descriptive error explaining why it was refused.
