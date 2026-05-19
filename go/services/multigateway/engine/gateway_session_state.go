@@ -43,6 +43,7 @@ type GatewaySessionState struct {
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
 	statementTimeout time.Duration
+	applicationName  string
 
 	// The (isReset, isLocal) flags map to the four user-visible variants:
 	//
@@ -71,6 +72,19 @@ func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal 
 		variable:         "statement_timeout",
 		statementTimeout: statementTimeout,
 		isLocal:          isLocal,
+	}
+}
+
+// NewApplicationNameSet creates a primitive that SETs `application_name`.
+// The value is stored verbatim (no parsing needed). When isLocal is true, the
+// value is treated as a transaction-local override (SET LOCAL), cleared on
+// COMMIT/ROLLBACK.
+func NewApplicationNameSet(sql string, applicationName string, isLocal bool) *GatewaySessionState {
+	return &GatewaySessionState{
+		sql:             sql,
+		variable:        "application_name",
+		applicationName: applicationName,
+		isLocal:         isLocal,
 	}
 }
 
@@ -146,6 +160,17 @@ func (g *GatewaySessionState) StreamExecute(
 			state.SetLocalStatementTimeout(g.statementTimeout)
 		default:
 			state.SetStatementTimeout(g.statementTimeout)
+		}
+	case "application_name":
+		switch {
+		case g.isReset && g.isLocal:
+			state.SetLocalApplicationNameToDefault()
+		case g.isReset:
+			state.ResetApplicationName()
+		case g.isLocal:
+			state.SetLocalApplicationName(g.applicationName)
+		default:
+			state.SetApplicationName(g.applicationName)
 		}
 	default:
 		// Unreachable: the planner validates the variable name before creating

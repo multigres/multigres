@@ -167,6 +167,7 @@ func (s *ApplySessionState) executeReset(
 		state.ResetAllSessionVariables()
 		// Also reset gateway-managed variables that live outside SessionSettings.
 		state.ResetStatementTimeout()
+		state.ResetApplicationName()
 	default:
 		return mterrors.NewFeatureNotSupported(fmt.Sprintf("RESET kind %d is not supported", s.VariableStmt.Kind))
 	}

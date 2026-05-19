@@ -57,6 +57,8 @@ func (g *GatewayShowVariable) StreamExecute(
 	switch g.variable {
 	case "statement_timeout":
 		value = state.ShowStatementTimeout()
+	case "application_name":
+		value = state.ShowApplicationName()
 	default:
 		// Unreachable: the planner validates the variable name before creating
 		// this primitive. If we get here, there's a code bug (new variable added
