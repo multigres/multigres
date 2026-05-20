@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
@@ -179,12 +181,26 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
 	}
 
+	// Time the full credential-query path (admin acquire + pg_authid
+	// lookup + decode) for mg.pooler.auth.credential_query.duration so
+	// admin-pool contention shows up before it cascades into
+	// gateway-visible auth latency. The duration is recorded on every
+	// exit, error or not; the error counter only fires on failures so
+	// the success rate is implicit.
+	metrics := poolManager.Metrics()
+	start := time.Now()
+	var errorType string
+	defer func() {
+		metrics.RecordCredentialQuery(ctx, time.Since(start), errorType)
+	}()
+
 	// An admin connection:
 	// - has permission to read password hashes
 	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
 	//   to figure out if the caller should have access to that role-specific connection.
 	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
+		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
 		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
 	}
 	defer conn.Recycle()
@@ -195,6 +211,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
+			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 		case errors.Is(err, admin.ErrLoginDisabled):
 			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the

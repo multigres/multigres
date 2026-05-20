@@ -52,7 +52,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 				IsReplicationRole: true,
 			},
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		creds, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 				IsReplicationRole: false,
 			},
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		creds, err := provider.GetCredentials(context.Background(), "regular", "testdb")
 		require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.NotFound, "user not found")),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "nonexistent", "testdb")
 		require.Error(t, err)
@@ -101,7 +101,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "nologin_user", "testdb")
 		require.Error(t, err)
@@ -117,7 +117,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(mterrors.ToGRPC(diag)),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "expired_user", "testdb")
 		require.Error(t, err)
@@ -131,7 +131,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.PermissionDenied, "authz: caller not in role")),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "alice", "testdb")
 		require.Error(t, err)
@@ -147,7 +147,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: mterrors.FromGRPC(status.Error(codes.Unauthenticated, "mTLS: bad client cert")),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "alice", "testdb")
 		require.Error(t, err)
@@ -162,7 +162,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 				ScramHash: "", // No password set
 			},
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "nopassword", "testdb")
 		require.Error(t, err)
@@ -173,7 +173,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: errors.New("connection refused"),
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.Error(t, err)
@@ -186,7 +186,7 @@ func TestPoolerCredentialProvider_GetCredentials(t *testing.T) {
 				ScramHash: "invalid-hash-format",
 			},
 		}
-		provider := NewPoolerCredentialProvider(client)
+		provider := NewPoolerCredentialProvider(client, nil)
 
 		_, err := provider.GetCredentials(context.Background(), "testuser", "testdb")
 		require.Error(t, err)

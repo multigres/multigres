@@ -105,6 +105,13 @@ type PoolManager interface {
 
 	// Stats returns statistics for all pools.
 	Stats() ManagerStats
+
+	// Metrics returns the manager's OTel metrics handle for ad-hoc
+	// recording (e.g. auth-path observations in the gRPC service).
+	// May return nil when the manager is unopened or metric init failed;
+	// callers should treat nil as the noop sink — the *Metrics methods
+	// are nil-safe.
+	Metrics() *Metrics
 }
 
 // Compile-time check that Manager implements PoolManager.

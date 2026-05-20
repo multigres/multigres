@@ -105,6 +105,18 @@ type Manager struct {
 	zeroCh    chan struct{}
 }
 
+// Metrics returns the manager's OTel metrics handle. Safe to call when the
+// manager is unopened or metric init failed — the caller treats a nil
+// return as the noop sink. Used by the gRPC service to record auth-path
+// observations without taking a hard dependency on the manager's
+// initialization order.
+func (m *Manager) Metrics() *Metrics {
+	if m == nil {
+		return nil
+	}
+	return m.metrics
+}
+
 // Open initializes the manager and creates the shared admin pool.
 // User pools are created lazily on first connection request.
 //
