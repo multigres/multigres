@@ -235,6 +235,11 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 				"",
 			))
 		default:
+			// Genuine DB-level failure (SQL error, unexpected result shape,
+			// connection drop mid-query). Tagged db_error so operators can
+			// alert on it without false positives from the user_not_found
+			// baseline.
+			errorType = connpoolmanager.CredentialQueryErrorDB
 			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
 	}

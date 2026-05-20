@@ -700,15 +700,13 @@ func (c *Conn) sendReplicationRoleError() error {
 // Returns the outcome label for mg.gateway.auth.attempts alongside the
 // error. The label survives the errAuthRejected wrapping that
 // sendAuthError-style helpers apply, so the caller does not have to
-// reverse-engineer the cause from the returned error. The full SCRAM
-// handshake duration (client-first to server-final) is recorded on every
-// exit path tagged with the same outcome.
+// reverse-engineer the cause from the returned error. The SCRAM handshake
+// duration (client-first to server-final) is recorded only on paths that
+// actually exchange SASL frames; credential-lookup failures exit before
+// any frame is emitted and are observed via the separate
+// mg.gateway.auth.credential_lookup.duration metric.
 func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 	c.logger.Debug("authenticating client", "method", "scram-sha-256")
-	scramStart := time.Now()
-	defer func() {
-		c.metrics().RecordSCRAMDuration(c.ctx, outcome, time.Since(scramStart))
-	}()
 
 	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
 	if err != nil {
@@ -738,6 +736,14 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 		return AuthOutcomeLookupError, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 	}
 	c.credentials = creds
+
+	// Start the SCRAM handshake timer here so the histogram captures only
+	// the SASL exchange (client-first → server-final), not the upstream
+	// credential lookup which has its own metric.
+	scramStart := time.Now()
+	defer func() {
+		c.metrics().RecordSCRAMDuration(c.ctx, outcome, time.Since(scramStart))
+	}()
 
 	// Create the SCRAM authenticator with the pre-fetched hash.
 	auth := scram.NewScramAuthenticator(creds.Hash, c.database)
