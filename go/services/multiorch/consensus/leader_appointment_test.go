@@ -1679,17 +1679,29 @@ func TestAppointLeader_NewFlow(t *testing.T) {
 
 	require.NoError(t, c.AppointLeader(ctx, "shard0", cohort, "testdb", "test_new_flow"))
 
-	// Every node should have received a Propose carrying the same proposal.
-	for _, id := range cohortIDs {
+	// The designated leader (mp1) should receive a Propose with the full
+	// CoordinatorProposal.
+	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	propReq, ok := fakeClient.ProposeRequests[leaderKey]
+	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "test_new_flow", propReq.GetReason())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+		"new flow should pick mp1 (highest LSN) as leader")
+	require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should be max prior term (5) + 1")
+
+	// Followers should receive SetTermPrimary carrying the same leader + rule
+	// (no Propose).
+	for _, id := range cohortIDs[1:] {
 		key := topoclient.MultiPoolerIDString(id)
-		propReq, ok := fakeClient.ProposeRequests[key]
-		require.True(t, ok, "Propose should be sent to %s", id.Name)
-		require.NotNil(t, propReq.GetProposal())
-		require.Equal(t, "test_new_flow", propReq.GetReason())
-		require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
-			"new flow should pick mp1 (highest LSN) as leader")
-		require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
-			"revocation term should be max prior term (5) + 1")
+		_, isPropose := fakeClient.ProposeRequests[key]
+		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetTermPrimaryRequests[key]
+		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+			"follower %s should be informed of mp1 as leader", id.Name)
+		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 
 	// Legacy promotion path must not have been invoked.
@@ -1813,4 +1825,111 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "pre-vote failed")
 	})
+}
+
+func TestAppointInitialLeader_NewFlow(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	require.NoError(t, ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+		Name:                      "testdb",
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(3),
+	}))
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger, true /* useNewFlow */)
+
+	// AT_LEAST_3 forces tryBuild to wait for all three recruits before
+	// quorum forms, making leader selection deterministic regardless of
+	// recruit-RPC completion order.
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+	}
+	// mp1 has the highest LSN; bootstrap should pick it as leader. Each node
+	// carries the zero-state sentinel rule that createSidecarSchema writes
+	// during db init: term/subterm 0, empty cohort, but a real durability
+	// policy. AppointInitialLeader requires a rule to derive the cert from.
+	sentinelRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{},
+		DurabilityPolicy: topoclient.AtLeastN(3),
+	}
+	walPositions := []string{"0/2000000", "0/1500000", "0/1000000"}
+	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
+	for i, id := range cohortIDs {
+		mp := createMockNode(fakeClient, id.Name, 0, walPositions[i], true, sentinelRule)
+		mp.Status.IsInitialized = true
+		mp.Status.PostgresReady = true
+		mp.Status.PostgresRunning = true
+		// Cached cohort statuses populate Id and CurrentPosition (with sentinel
+		// rule) so MostAdvancedPosition can derive the cert and pre-vote can
+		// run on real positions. Fresh nodes carry no prior term revocation.
+		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Lsn:  walPositions[i],
+				Rule: sentinelRule,
+			},
+		}
+		key := topoclient.MultiPoolerIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:  walPositions[i],
+					Rule: sentinelRule,
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		cohort = append(cohort, mp)
+	}
+
+	require.NoError(t, c.AppointInitialLeader(ctx, "shard0", cohort, "testdb"))
+
+	// The designated leader (mp1) should receive a Propose carrying the
+	// bootstrap proposal.
+	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	propReq, ok := fakeClient.ProposeRequests[leaderKey]
+	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "ShardInit", propReq.GetReason())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+		"bootstrap should pick mp1 (highest LSN) as leader")
+	// Fresh cluster: max prior term is 0, so the new revocation is term 1.
+	require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"bootstrap revocation term should be 1")
+	// Proposed rule carries the bootstrap policy and the full cohort.
+	propRule := propReq.GetProposal().GetProposedRule()
+	require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
+	require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
+	require.Len(t, propRule.GetCohortMembers(), 3)
+
+	// Followers should receive SetTermPrimary carrying the same leader + rule.
+	for _, id := range cohortIDs[1:] {
+		key := topoclient.MultiPoolerIDString(id)
+		_, isPropose := fakeClient.ProposeRequests[key]
+		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetTermPrimaryRequests[key]
+		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+			"follower %s should be informed of mp1 as leader", id.Name)
+		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+	}
+
+	// Legacy promotion path must not have been invoked.
+	for _, id := range cohortIDs {
+		key := topoclient.MultiPoolerIDString(id)
+		_, called := fakeClient.PromoteRequests[key]
+		require.False(t, called, "Promote should not be called in new flow for %s", id.Name)
+	}
 }

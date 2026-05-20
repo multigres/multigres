@@ -50,10 +50,29 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
+	// reachableLeader is the PoolerAnalysis for a healthy primary that has
+	// already observed its own rule — the precondition the analyzer needs
+	// before it generates a ReplicaNotReplicating problem.
+	reachableLeader := func() *PoolerAnalysis {
+		return &PoolerAnalysis{
+			PoolerID: primaryID,
+			ShardKey: shardKey,
+			IsLeader: true,
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					},
+				},
+			},
+		}
+	}
+
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                      shardKey,
 			HighestTermDiscoveredLeaderID: primaryID,
+			HighestTermReachableLeader:    reachableLeader(),
 			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
@@ -78,6 +97,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                      shardKey,
 			HighestTermDiscoveredLeaderID: primaryID,
+			HighestTermReachableLeader:    reachableLeader(),
 			LeaderReachable:               true,
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
@@ -93,6 +113,30 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
+	})
+
+	// Skip the problem when there's no usable primary yet.
+	// HighestTermReachableLeader is nil whenever the leader's rule hasn't
+	// been observed (findHighestTermLeader filters those out), so we have no
+	// rule to put in SetTermPrimaryRequest. Waiting one cycle is cheap; the next
+	// health snapshot will repopulate the field.
+	t.Run("skips when no usable primary is known", func(t *testing.T) {
+		sa := &ShardAnalysis{
+			ShardKey:                      shardKey,
+			HighestTermDiscoveredLeaderID: primaryID,
+			HighestTermReachableLeader:    nil, // rule not yet observed
+			LeaderReachable:               true,
+			Analyses: []*PoolerAnalysis{{
+				PoolerID:            replicaID,
+				ShardKey:            shardKey,
+				IsLeader:            false,
+				IsInitialized:       true,
+				PrimaryConnInfoHost: "",
+			}},
+		}
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems)
 	})
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -143,6 +144,12 @@ type Conn struct {
 	// client. Tracking this explicitly (rather than type-asserting c.conn)
 	// keeps the check robust if c.conn is ever wrapped in instrumentation.
 	tlsHandshakeComplete bool
+
+	// tlsServerCert is the parsed leaf certificate offered to the client
+	// during the TLS handshake. Captured once at handshake completion and
+	// used to compute the tls-server-end-point channel binding hash for
+	// SCRAM-SHA-256-PLUS. Nil for plaintext connections.
+	tlsServerCert *x509.Certificate
 
 	// gssDone indicates that a GSSENCRequest has already been handled
 	// for this connection. Prevents double negotiation.
@@ -337,6 +344,13 @@ func (c *Conn) User() string {
 // Database returns the database name.
 func (c *Conn) Database() string {
 	return c.database
+}
+
+// ReplicationMode returns the parsed `replication` startup parameter for this
+// connection. ReplicationOff means the client did not request a replication
+// connection (or sent replication=false).
+func (c *Conn) ReplicationMode() ReplicationMode {
+	return c.replicationMode
 }
 
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the

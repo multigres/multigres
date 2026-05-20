@@ -15,6 +15,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -53,13 +54,17 @@ type pgInstance struct {
 	socketDir string // private temp dir owned by this instance
 	port      int
 	user      string
+	password  string // passed as PGPASSWORD to psql subprocesses
 	logger    *slog.Logger
 }
 
 // newPgInstance starts a transient PostgreSQL server on a private temporary
 // socket directory and blocks until it is ready to accept connections.
 // The caller must call stop() when done (typically via defer pg.stop()).
-func newPgInstance(logger *slog.Logger, dataDir, configFile string, port int, user string) (*pgInstance, error) {
+func newPgInstance(logger *slog.Logger, dataDir, configFile string, cfg PgCtldServiceConfig) (*pgInstance, error) {
+	if cfg.Password == "" {
+		return nil, errors.New("pgInstance requires a non-empty password")
+	}
 	socketDir, err := os.MkdirTemp("", "pgctld-setup-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary socket directory: %w", err)
@@ -68,8 +73,9 @@ func newPgInstance(logger *slog.Logger, dataDir, configFile string, port int, us
 	pg := &pgInstance{
 		dataDir:   dataDir,
 		socketDir: socketDir,
-		port:      port,
-		user:      user,
+		port:      cfg.Port,
+		user:      cfg.User,
+		password:  cfg.Password,
 		logger:    logger,
 	}
 
@@ -145,5 +151,11 @@ func (p *pgInstance) psql(database string, args ...string) ([]byte, error) {
 		"-U", p.user,
 		"-d", database,
 	}
-	return exec.Command("psql", append(baseArgs, args...)...).CombinedOutput()
+	cmd := exec.Command("psql", append(baseArgs, args...)...)
+	// pg_hba.conf requires scram-sha-256 for every connection including the
+	// local socket, so psql needs the password and we pass it via PGPASSWORD.
+	// Embedding it in a connection URI would expose it via /proc/<pid>/cmdline.
+	// The password is guaranteed non-empty by newPgInstance.
+	cmd.Env = append(os.Environ(), "PGPASSWORD="+p.password)
+	return cmd.CombinedOutput()
 }

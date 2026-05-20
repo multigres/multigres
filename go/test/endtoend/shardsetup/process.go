@@ -109,6 +109,15 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
+
+	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
+	// PostgreSQL backends get tagged with `multigres_vpid:<id>` in
+	// application_name. Required by the isolation-test harness shim
+	// (public.multigres_test_session_is_blocked) to resolve a multigateway
+	// virtual PID back to its real backend PID via pg_stat_activity. Default
+	// false matches the multipooler's production default; only the pgregress
+	// isolation suite flips it on via shardsetup.WithVpidStamping.
+	VpidStampEnabled bool
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -118,6 +127,62 @@ func (p *ProcessInstance) logLevelOrDefault() string {
 		return "debug"
 	}
 	return p.LogLevel
+}
+
+// multipoolerArgs returns the multipooler command-line arguments derived
+// from this ProcessInstance. Extracted from startMultipooler so the arg
+// construction is unit-testable without spawning a real process.
+//
+// p.SocketFile defaults to the standard Unix socket path during instance
+// creation; tests that need to exercise the TCP path (e.g. PG TLS) clear
+// it before Start to omit --socket-file and force a TCP dial.
+func (p *ProcessInstance) multipoolerArgs() []string {
+	args := []string{
+		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
+		"--database", "postgres", // Required parameter
+		"--table-group", "default", // Required parameter (MVP only supports "default")
+		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
+		"--pgctld-addr", p.PgctldAddr,
+		"--pooler-dir", p.PoolerDir, // Use the same pooler dir as pgctld
+		"--pg-port", strconv.Itoa(p.PgPort),
+		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
+		"--topo-global-server-addresses", p.EtcdAddr,
+		"--topo-global-root", "/multigres/global",
+		"--cell", p.Cell,
+		"--service-id", p.Name,
+		"--hostname", "localhost",
+		"--log-output", p.LogFile,
+		"--log-level", p.logLevelOrDefault(),
+		// Allow OnTermSync hooks (notably the graceful-shutdown sequence) to
+		// run to completion. The default 10s is shorter than the graceful
+		// shutdown total deadline; without this the hook is cut off mid-flight
+		// on SIGTERM.
+		"--onterm-timeout", "80s",
+	}
+	if p.SocketFile != "" {
+		args = append(args, "--socket-file", p.SocketFile)
+	}
+	if p.PgClientSSLMode != "" {
+		args = append(args, "--pg-client-sslmode", p.PgClientSSLMode)
+	}
+	if p.PgClientSSLRootCert != "" {
+		args = append(args, "--pg-client-sslrootcert", p.PgClientSSLRootCert)
+	}
+	if p.PgBackRestCertPaths != nil {
+		args = append(args,
+			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
+			"--pgbackrest-key-file", p.PgBackRestCertPaths.ServerKeyFile,
+			"--pgbackrest-ca-file", p.PgBackRestCertPaths.CACertFile,
+		)
+	}
+	if p.PgBackRestPort > 0 {
+		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
+	}
+	if p.VpidStampEnabled {
+		args = append(args, "--vpid-stamp-enabled=true")
+	}
+	return args
 }
 
 // Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
@@ -134,6 +199,8 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 		return p.startMultiOrch(ctx, t)
 	case "multigateway":
 		return p.startMultigateway(ctx, t)
+	case "multiadmin":
+		return p.startMultiadmin(ctx, t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
@@ -201,49 +268,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, cell %s", p.Name, p.Binary, p.GrpcPort, p.Cell)
 
-	// Build command arguments. p.SocketFile defaults to the standard Unix
-	// socket path during instance creation; tests that need to exercise the
-	// TCP path (e.g. PG TLS) clear it before Start to omit --socket-file and
-	// force a TCP dial.
-	args := []string{
-		"--grpc-port", strconv.Itoa(p.GrpcPort),
-		"--http-port", strconv.Itoa(p.HttpPort),
-		"--database", "postgres", // Required parameter
-		"--table-group", "default", // Required parameter (MVP only supports "default")
-		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
-		"--pgctld-addr", p.PgctldAddr,
-		"--pooler-dir", p.PoolerDir, // Use the same pooler dir as pgctld
-		"--pg-port", strconv.Itoa(p.PgPort),
-		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
-		"--topo-global-server-addresses", p.EtcdAddr,
-		"--topo-global-root", "/multigres/global",
-		"--cell", p.Cell,
-		"--service-id", p.Name,
-		"--hostname", "localhost",
-		"--log-output", p.LogFile,
-		"--log-level", p.logLevelOrDefault(),
-	}
-	if p.SocketFile != "" {
-		args = append(args, "--socket-file", p.SocketFile)
-	}
-	if p.PgClientSSLMode != "" {
-		args = append(args, "--pg-client-sslmode", p.PgClientSSLMode)
-	}
-	if p.PgClientSSLRootCert != "" {
-		args = append(args, "--pg-client-sslrootcert", p.PgClientSSLRootCert)
-	}
-
-	// Add pgBackRest certificate paths and port if configured
-	if p.PgBackRestCertPaths != nil {
-		args = append(args,
-			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
-			"--pgbackrest-key-file", p.PgBackRestCertPaths.ServerKeyFile,
-			"--pgbackrest-ca-file", p.PgBackRestCertPaths.CACertFile,
-		)
-	}
-	if p.PgBackRestPort > 0 {
-		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
-	}
+	args := p.multipoolerArgs()
 
 	// Start the multipooler server
 	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
@@ -390,6 +415,53 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 	}
 	t.Logf("Multigateway is ready")
 
+	return nil
+}
+
+// startMultiadmin starts a multiadmin instance pointed at the harness's etcd.
+// The HTTP port serves both the JSON API used by the Next.js web UI in
+// web/multiadmin/ and the gRPC-gateway endpoints; the gRPC port is used by
+// the multigres CLI (admin-server flag).
+func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) error {
+	t.Helper()
+
+	t.Logf("Starting %s: binary '%s', HTTP port %d, gRPC port %d", p.Name, p.Binary, p.HttpPort, p.GrpcPort)
+
+	args := []string{
+		"--http-port", strconv.Itoa(p.HttpPort),
+		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--topo-global-server-addresses", p.EtcdAddr,
+		"--topo-global-root", p.GlobalRoot,
+		"--service-map", "grpc-multiadmin",
+		"--hostname", "localhost",
+		"--log-level", p.logLevelOrDefault(),
+	}
+
+	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
+
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+
+	if p.LogFile != "" {
+		logF, err := os.Create(p.LogFile)
+		if err != nil {
+			return fmt.Errorf("failed to create log file: %w", err)
+		}
+		p.Process.SetStdout(logF)
+		p.Process.SetStderr(logF)
+	}
+
+	if err := p.Process.Start(); err != nil {
+		return fmt.Errorf("failed to start multiadmin: %w", err)
+	}
+	t.Logf("Started multiadmin (pid: %d, http: %d, grpc: %d, log: %s)",
+		p.Process.Process.Pid, p.HttpPort, p.GrpcPort, p.LogFile)
+
+	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second); err != nil {
+		return err
+	}
+	t.Logf("Multiadmin is ready")
 	return nil
 }
 

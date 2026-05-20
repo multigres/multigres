@@ -104,16 +104,20 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 3: Connection pooling with settings
 	t.Run("connection pooling with settings", func(t *testing.T) {
-		// Set a distinctive value
-		_, err := db.ExecContext(ctx, "SET application_name = 'test_app_1'")
-		require.NoError(t, err, "failed to SET application_name")
+		// Use search_path here. application_name is reserved for the
+		// multipooler's per-query lock-detection stamp (multigres_vpid:<id>),
+		// so SHOW application_name does not return what the client SET; this
+		// scenario covers session-state persistence across queries on the
+		// same logical connection, and search_path does that just as well.
+		_, err := db.ExecContext(ctx, "SET search_path = 'test_path_1'")
+		require.NoError(t, err, "failed to SET search_path")
 
 		// Execute 100 queries - all should see the same setting
 		for i := range 100 {
-			var appName string
-			err = db.QueryRowContext(ctx, "SHOW application_name").Scan(&appName)
-			require.NoError(t, err, "failed to SHOW application_name on iteration %d", i)
-			require.Equal(t, "test_app_1", appName, "iteration %d: expected consistent app name", i)
+			var searchPath string
+			err = db.QueryRowContext(ctx, "SHOW search_path").Scan(&searchPath)
+			require.NoError(t, err, "failed to SHOW search_path on iteration %d", i)
+			require.Equal(t, "test_path_1", searchPath, "iteration %d: expected consistent search_path", i)
 
 			// Interleave with other queries
 			var one int
@@ -151,21 +155,23 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 5: RESET ALL clears all variables
 	t.Run("RESET ALL clears all variables", func(t *testing.T) {
-		// Set multiple variables
+		// Set multiple variables. application_name is reserved for the
+		// multipooler's per-query stamp (multigres_vpid:<id>) so we use
+		// only client-settable GUCs here.
 		_, err := db.ExecContext(ctx, "SET work_mem = '512MB'")
 		require.NoError(t, err, "failed to SET work_mem")
 
 		_, err = db.ExecContext(ctx, "SET search_path = 'myschema'")
 		require.NoError(t, err, "failed to SET search_path")
 
-		_, err = db.ExecContext(ctx, "SET application_name = 'test_app'")
-		require.NoError(t, err, "failed to SET application_name")
+		_, err = db.ExecContext(ctx, "SET client_min_messages = 'warning'")
+		require.NoError(t, err, "failed to SET client_min_messages")
 
 		// Verify custom values are set
-		var appName string
-		err = db.QueryRowContext(ctx, "SHOW application_name").Scan(&appName)
-		require.NoError(t, err, "failed to SHOW application_name")
-		assert.Equal(t, "test_app", appName, "should show custom application_name before RESET ALL")
+		var clientMin string
+		err = db.QueryRowContext(ctx, "SHOW client_min_messages").Scan(&clientMin)
+		require.NoError(t, err, "failed to SHOW client_min_messages")
+		assert.Equal(t, "warning", clientMin, "should show custom client_min_messages before RESET ALL")
 
 		// Execute RESET ALL
 		_, err = db.ExecContext(ctx, "RESET ALL")
@@ -177,10 +183,10 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 		require.NoError(t, err, "failed to SHOW search_path after RESET ALL")
 		assert.NotEqual(t, "myschema", searchPath, "search_path should not be custom value after RESET ALL")
 
-		// Application name should be reset to empty or default
-		err = db.QueryRowContext(ctx, "SHOW application_name").Scan(&appName)
-		require.NoError(t, err, "failed to SHOW application_name after RESET ALL")
-		assert.NotEqual(t, "test_app", appName, "application_name should not be custom value after RESET ALL")
+		// client_min_messages should revert to its default (notice).
+		err = db.QueryRowContext(ctx, "SHOW client_min_messages").Scan(&clientMin)
+		require.NoError(t, err, "failed to SHOW client_min_messages after RESET ALL")
+		assert.NotEqual(t, "warning", clientMin, "client_min_messages should not be custom value after RESET ALL")
 	})
 
 	// Test 6: Different value types
@@ -252,40 +258,44 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 		_, err = db2.ExecContext(ctx, "RESET ALL")
 		require.NoError(t, err, "failed to RESET ALL in db2")
 
-		// Set value in connection 1
-		_, err = db1.ExecContext(ctx, "SET application_name = 'conn1_app'")
+		// Set value in connection 1. Use search_path here:
+		// application_name is reserved for the multipooler's lock-detection
+		// stamp (multigres_vpid:<id>) so SHOW application_name does not
+		// reflect what the client SET. The cross-connection isolation
+		// invariant we want to verify is identical for any other GUC.
+		_, err = db1.ExecContext(ctx, "SET search_path = 'conn1_path'")
 		require.NoError(t, err, "failed to SET in db1")
 
 		// Verify connection 1 sees it multiple times (ensures consistent bucket routing)
 		for i := range 100 {
-			var app1 string
-			err = db1.QueryRowContext(ctx, "SHOW application_name").Scan(&app1)
+			var path1 string
+			err = db1.QueryRowContext(ctx, "SHOW search_path").Scan(&path1)
 			require.NoError(t, err, "failed to SHOW in db1 iteration %d", i)
-			require.Equal(t, "conn1_app", app1, "db1 should see conn1_app on iteration %d", i)
+			require.Equal(t, "conn1_path", path1, "db1 should see conn1_path on iteration %d", i)
 		}
 
 		// Set different value in connection 2
-		_, err = db2.ExecContext(ctx, "SET application_name = 'conn2_app'")
+		_, err = db2.ExecContext(ctx, "SET search_path = 'conn2_path'")
 		require.NoError(t, err, "failed to SET in db2")
 
 		// Verify connection 2 sees its own value
 		for i := range 100 {
-			var app2 string
-			err = db2.QueryRowContext(ctx, "SHOW application_name").Scan(&app2)
+			var path2 string
+			err = db2.QueryRowContext(ctx, "SHOW search_path").Scan(&path2)
 			require.NoError(t, err, "failed to SHOW in db2 iteration %d", i)
-			require.Equal(t, "conn2_app", app2, "db2 should see conn2_app on iteration %d", i)
+			require.Equal(t, "conn2_path", path2, "db2 should see conn2_path on iteration %d", i)
 		}
 
 		// Verify both connections STILL have their independent values after cross-execution
-		var app1Final string
-		err = db1.QueryRowContext(ctx, "SHOW application_name").Scan(&app1Final)
+		var path1Final string
+		err = db1.QueryRowContext(ctx, "SHOW search_path").Scan(&path1Final)
 		require.NoError(t, err, "failed to SHOW in db1 after all operations")
-		require.Equal(t, "conn1_app", app1Final, "db1 should still see conn1_app after all operations")
+		require.Equal(t, "conn1_path", path1Final, "db1 should still see conn1_path after all operations")
 
-		var app2Final string
-		err = db2.QueryRowContext(ctx, "SHOW application_name").Scan(&app2Final)
+		var path2Final string
+		err = db2.QueryRowContext(ctx, "SHOW search_path").Scan(&path2Final)
 		require.NoError(t, err, "failed to SHOW in db2 after all operations")
-		require.Equal(t, "conn2_app", app2Final, "db2 should still see conn2_app after all operations")
+		require.Equal(t, "conn2_path", path2Final, "db2 should still see conn2_path after all operations")
 	})
 
 	// Test 8: Extended query protocol with pgx

@@ -139,7 +139,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// verification. Operates on the regress build directory, where
 			// pg_regress wrote expected/ and results/ files.
 			regressDir := filepath.Join(builder.BuildDir, "src", "test", "regress")
-			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir); verr != nil {
+			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir, builder.OutputDir); verr != nil {
 				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 
@@ -181,7 +181,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Run("isolation", func(t *testing.T) {
 			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 			defer cancel()
-			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			// The isolation harness installs a lock-detection shim on the
+			// primary's PostgreSQL directly, bypassing multigateway, so it
+			// needs the primary's direct PG port too.
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Isolation test harness failed to execute: %v", err)

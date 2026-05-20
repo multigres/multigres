@@ -193,7 +193,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	args = append(args, "backup")
 
-	cmd := executil.Command(ctx, "pgbackrest", args...)
+	cmd := pm.pgbackrestCmd(ctx, args...)
 
 	// Execute backup with progress logging
 	var output []byte
@@ -225,7 +225,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, backup.VerifyTimeout)
 	defer verifyCancel()
 
-	verifyCmd := executil.Command(verifyCtx, "pgbackrest",
+	verifyCmd := pm.pgbackrestCmd(verifyCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--set="+foundBackupID,
@@ -407,7 +407,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 
 	args = append(args, "restore")
 
-	cmd := executil.Command(restoreCtx, "pgbackrest", args...)
+	cmd := pm.pgbackrestCmd(restoreCtx, args...)
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
@@ -507,7 +507,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	queryCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := executil.Command(queryCtx, "pgbackrest",
+	cmd := pm.pgbackrestCmd(queryCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -761,7 +761,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	infoCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := executil.Command(infoCtx, "pgbackrest",
+	cmd := pm.pgbackrestCmd(infoCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -873,12 +873,15 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 		return []string{}, nil
 	}
 
-	// Replica poolers MUST have primary info to backup from primary
-	pm.mu.Lock()
-	primaryHost := pm.primaryHost
-	primaryPort := pm.primaryPort
-	primaryPoolerID := pm.primaryPoolerID
-	pm.mu.Unlock()
+	// Replica poolers MUST have primary info to backup from primary. The
+	// canonical source is consensusState.ReplicationPrimary, populated by
+	// every RPC that informs this pooler of a primary (SetTermPrimary, the
+	// legacy SetPrimaryConnInfo / DemoteStalePrimary, and Propose's leader
+	// path for the rare self-as-primary case).
+	primary := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	primaryHost := primary.GetHost()
+	primaryPort := primary.GetPostgresPort()
+	primaryPoolerID := primary.GetId()
 
 	if primaryHost == "" || primaryPort == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,

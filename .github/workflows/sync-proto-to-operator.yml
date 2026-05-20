@@ -9,7 +9,9 @@ permissions: {}
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    environment: ci
+    environment:
+      name: ci
+      deployment: false
     steps:
       - name: Generate GitHub App token for creating a PR
         id: app-token

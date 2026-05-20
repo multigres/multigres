@@ -244,6 +244,17 @@ func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Sett
 	return p.reservedPool.NewConn(ctx, settings, opts...)
 }
 
+// NewLogicalReplicationConn returns a Postgres connection opened with
+// replication=database in startup parameters and tagged with
+// ReasonLogicalReplication. The connection is checked out from this user's
+// reserved pool and authenticates as this user — required because the
+// replication=database startup parameter is rejected for roles without the
+// REPLICATION attribute.
+func (p *UserPool) NewLogicalReplicationConn(ctx context.Context) (*reserved.Conn, error) {
+	p.touchActivity()
+	return p.reservedPool.NewLogicalReplicationConn(ctx)
+}
+
 // GetReservedConn retrieves an existing reserved connection by ID.
 // Returns nil, false if the connection is not found or has timed out.
 func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {

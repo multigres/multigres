@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
@@ -361,6 +362,14 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		rc.pooled.Taint()
 	}
 
+	// Replication conns cannot be returned to the pool: their socket has
+	// replication=database in its startup packet and is bound to a walsender
+	// backend that may own a slot. Taint regardless of release reason so the
+	// upcoming Recycle frees the cap slot AND closes the socket.
+	if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
+		rc.pooled.Taint()
+	}
+
 	// Return the underlying connection to the pool.
 	// If the connection is in a bad state, the caller should have tainted it.
 	rc.pooled.Recycle()
@@ -406,17 +415,24 @@ func (p *Pool) Close() {
 func (p *Pool) Stats() PoolStats {
 	p.mu.Lock()
 	active := len(p.active)
+	var replActive int
+	for _, rc := range p.active {
+		if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
+			replActive++
+		}
+	}
 	p.mu.Unlock()
 
 	return PoolStats{
-		Active:          active,
-		ReserveCount:    p.reserveCount.Load(),
-		ReleaseCount:    p.releaseCount.Load(),
-		KillCount:       p.killCount.Load(),
-		TimeoutCount:    p.timeoutCount.Load(),
-		TxCommitCount:   p.txCommitCount.Load(),
-		TxRollbackCount: p.txRollbackCount.Load(),
-		RegularPool:     p.conns.Stats(),
+		Active:                   active,
+		LogicalReplicationActive: replActive,
+		ReserveCount:             p.reserveCount.Load(),
+		ReleaseCount:             p.releaseCount.Load(),
+		KillCount:                p.killCount.Load(),
+		TimeoutCount:             p.timeoutCount.Load(),
+		TxCommitCount:            p.txCommitCount.Load(),
+		TxRollbackCount:          p.txRollbackCount.Load(),
+		RegularPool:              p.conns.Stats(),
 	}
 }
 
@@ -457,6 +473,10 @@ func (p *Pool) GetCount() int64 {
 type PoolStats struct {
 	// Active is the number of currently reserved connections.
 	Active int
+
+	// LogicalReplicationActive is the number of active reserved conns that
+	// have ReasonLogicalReplication set. Sub-count of Active.
+	LogicalReplicationActive int
 
 	// ReserveCount is the total number of reservations.
 	ReserveCount int64

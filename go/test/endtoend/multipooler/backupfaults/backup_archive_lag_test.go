@@ -305,7 +305,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	newPrimaryTerm := newPrimaryStatus.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 	t.Logf("New primary %s on term %d — verifying rejoined old primary", newPrimaryName, newPrimaryTerm)
 
-	verifyReplicasStreamingOnTerm(t, setup, newPrimaryName, newPrimaryTerm, 60*time.Second)
+	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
 	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 30*time.Second)
 
 	// --- Provision a fresh standby (pooler-4) and let it bootstrap itself from
@@ -330,11 +330,11 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// pooler-4's replication to the current primary on the current term.
 	setup.RequireRecovery(t, "multiorch", 60*time.Second)
 
-	// --- Verify the freshly-provisioned pooler-4 streams on the new primary's
-	// term AND has every committed id. The previous block already proved the
+	// --- Verify the freshly-provisioned pooler-4 streams from the new primary
+	// AND has every committed id. The previous block already proved the
 	// other two replicas are healthy; running the same checks now covers
 	// pooler-4's catch-up.
-	verifyReplicasStreamingOnTerm(t, setup, newPrimaryName, newPrimaryTerm, 60*time.Second)
+	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
 	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 60*time.Second)
 
 	// --- Sanity: timeline incremented. Cheap evidence that failover actually
@@ -390,10 +390,16 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 }
 
 // verifyReplicasStreamingOnTerm waits until every multipooler other than
-// excludePrimaryName reports REPLICA + PostgresReady + streaming wal_receiver +
-// the expected term. Used after each recovery step to confirm the cohort is
-// healthy before the next assertion.
-func verifyReplicasStreamingOnTerm(t *testing.T, setup *shardsetup.ShardSetup, excludePrimaryName string, expectedTerm int64, timeout time.Duration) {
+// verifyReplicasStreaming asserts that every non-primary pooler reports
+// REPLICA + PostgresReady + a streaming WAL receiver. Used after each recovery
+// step to confirm the cohort is healthy before the next assertion.
+//
+// Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
+// Recruit/Propose/SetTermPrimary model, that field is a per-pooler revocation promise
+// (set by Recruit) — not a cluster-wide "current term" replicas inherit. A
+// freshly-provisioned replica that joined post-failover legitimately reports
+// term 0 even while streaming from the elected primary.
+func verifyReplicasStreaming(t *testing.T, setup *shardsetup.ShardSetup, excludePrimaryName string, timeout time.Duration) {
 	t.Helper()
 
 	var replicas []*shardsetup.MultipoolerInstance
@@ -420,13 +426,9 @@ func verifyReplicasStreamingOnTerm(t *testing.T, setup *shardsetup.ShardSetup, e
 			if s.ReplicationStatus.WalReceiverStatus != "streaming" {
 				return false, fmt.Sprintf("not streaming (wal_receiver=%s)", s.ReplicationStatus.WalReceiverStatus)
 			}
-			termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-			if termNum != expectedTerm {
-				return false, fmt.Sprintf("wrong term %d, expected %d", termNum, expectedTerm)
-			}
 			return true, ""
 		},
-		"replicas did not converge to streaming on term %d", expectedTerm,
+		"replicas did not converge to streaming",
 	)
 }
 

@@ -54,8 +54,9 @@ type fakeConnPoolMgr struct {
 	user string
 }
 
-func (f *fakeConnPoolMgr) PgUser() string { return f.user }
-func (f *fakeConnPoolMgr) Close()         {} // called from MultiPoolerManager.Shutdown
+func (f *fakeConnPoolMgr) PgUser() string     { return f.user }
+func (f *fakeConnPoolMgr) PgPassword() string { return "" }
+func (f *fakeConnPoolMgr) Close()             {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
@@ -342,10 +343,10 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "UpdateSynchronousStandbyList times out when lock is held",
+			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true, nil)
+				return manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, &clustermetadatapb.RuleNumber{}, nil)
 			},
 		},
 	}
@@ -1260,15 +1261,14 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "user="+testSuperuser,
 		"primary_conninfo must contain user=%s, got: %s", testSuperuser, capturedConnInfoSQL)
 
-	// Verify the primaryPoolerID is stored in the manager as a *clustermetadatapb.ID
-	pm.mu.Lock()
-	storedPrimaryPoolerID := pm.primaryPoolerID
-	pm.mu.Unlock()
-
-	require.NotNil(t, storedPrimaryPoolerID, "primaryPoolerID should be stored")
-	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primaryPoolerID component should match")
-	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primaryPoolerID cell should match")
-	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primaryPoolerID name should match")
+	// Verify the primary's id is recorded in the canonical ReplicationPrimary.
+	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	require.NotNil(t, recorded, "primary should be recorded")
+	storedPrimaryPoolerID := recorded.GetId()
+	require.NotNil(t, storedPrimaryPoolerID, "primary id should be recorded")
+	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primary id component should match")
+	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primary id cell should match")
+	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primary id name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {
@@ -1804,9 +1804,9 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 		"If this fails, it means GUC update queries were called despite history insert failure")
 }
 
-func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing.T) {
+func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	// This test verifies that if updateRule fails during
-	// UpdateSynchronousStandbyList, the synchronous_standby_names GUC is NOT updated.
+	// UpdateConsensusRule, the synchronous_standby_names GUC is NOT updated.
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -1893,17 +1893,15 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	// We do NOT add expectations for ALTER SYSTEM SET synchronous_standby_names
 	// If it gets called, ExpectationsWereMet() will fail
 
-	// Call UpdateSynchronousStandbyList to add a new standby
+	// Call UpdateConsensusRule to add a new standby
 	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-3"}
 
-	err = manager.UpdateSynchronousStandbyList(
+	err = manager.UpdateConsensusRule(
 		ctx,
-		multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+		multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 		[]*clustermetadatapb.ID{newStandby},
-		true,  // reloadConfig
-		5,     // consensusTerm
-		false, // force
-		nil,   // coordinatorID
+		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5}, // expectedOutgoingRule
+		nil, // coordinatorID
 	)
 
 	// Verify it failed
