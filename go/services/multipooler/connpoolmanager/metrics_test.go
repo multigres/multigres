@@ -83,6 +83,8 @@ func TestMetrics_RecordCredentialQuery_ErrorCounter(t *testing.T) {
 	m.RecordCredentialQuery(ctx, time.Millisecond, "")
 	m.RecordCredentialQuery(ctx, time.Millisecond, CredentialQueryErrorUserNotFound)
 	m.RecordCredentialQuery(ctx, time.Millisecond, CredentialQueryErrorUserNotFound)
+	m.RecordCredentialQuery(ctx, time.Millisecond, CredentialQueryErrorLoginDisabled)
+	m.RecordCredentialQuery(ctx, time.Millisecond, CredentialQueryErrorPasswordExpired)
 	m.RecordCredentialQuery(ctx, time.Millisecond, CredentialQueryErrorDB)
 
 	agg := collectAggregation(t, reader, "mg.pooler.auth.credential_query.errors")
@@ -96,6 +98,8 @@ func TestMetrics_RecordCredentialQuery_ErrorCounter(t *testing.T) {
 		counts[v.AsString()] = dp.Value
 	}
 	require.Equal(t, int64(2), counts[CredentialQueryErrorUserNotFound])
+	require.Equal(t, int64(1), counts[CredentialQueryErrorLoginDisabled])
+	require.Equal(t, int64(1), counts[CredentialQueryErrorPasswordExpired])
 	require.Equal(t, int64(1), counts[CredentialQueryErrorDB])
 	require.NotContains(t, counts, "", "empty error_type should not produce a counter point")
 }

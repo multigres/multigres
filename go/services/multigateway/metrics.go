@@ -25,6 +25,18 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/services/multigateway/auth"
+)
+
+// Compile-time checks that GatewayMetrics implements the recorder
+// interfaces it is wired into. Catches drift in interface method
+// signatures at build time rather than at the (out-of-test) assignment
+// sites in init.go.
+var (
+	_ server.AuthMetricsRecorder    = (*GatewayMetrics)(nil)
+	_ auth.CredentialLookupRecorder = (*GatewayMetrics)(nil)
 )
 
 // GatewayMetrics holds OTel metrics for the multigateway service.

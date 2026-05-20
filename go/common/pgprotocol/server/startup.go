@@ -1099,15 +1099,18 @@ func (c *Conn) sendParameterStatus(name, value string) error {
 // closed socket) rather than a server-side or crypto failure. Used to split
 // the tls.handshake.duration outcome label so the fleet-validation alert
 // can suppress noise from clients that hang up mid-handshake.
+//
+// Timeouts are intentionally excluded: a deadline-exceeded error during
+// the TLS handshake is ambiguous between a stalled client and the server's
+// own authentication_timeout firing on c.conn. Tagging timeouts as
+// handshake_failure (the default) is more accurate than blaming the
+// client; operators alerting on a sustained handshake_failure rate will
+// still spot stalled-client patterns via the timing distribution.
 func isClientAbortError(err error) bool {
 	if err == nil {
 		return false
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
-		return true
-	}
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
 		return true
 	}
 	return false

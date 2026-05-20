@@ -30,9 +30,15 @@ import (
 
 // Error type labels for mg.pooler.auth.credential_query.errors. Closed set,
 // driven by the failure modes in grpcpoolerservice.GetAuthCredentials so
-// the cardinality stays bounded.
+// the cardinality stays bounded. user_not_found / login_disabled /
+// password_expired are policy outcomes of a successful pg_authid query
+// (baseline traffic); pool_acquire_failed / db_error indicate operator
+// issues. All five are tagged on the counter so the success rate equals
+// duration_count - errors_total.
 const (
 	CredentialQueryErrorUserNotFound      = "user_not_found"
+	CredentialQueryErrorLoginDisabled     = "login_disabled"
+	CredentialQueryErrorPasswordExpired   = "password_expired"
 	CredentialQueryErrorPoolAcquireFailed = "pool_acquire_failed"
 	CredentialQueryErrorDB                = "db_error"
 )

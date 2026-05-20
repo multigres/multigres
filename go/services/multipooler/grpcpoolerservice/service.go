@@ -222,6 +222,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// codes.Unauthenticated for transport failures; keying on code
 			// alone would misclassify an mTLS or authz error as an app-level
 			// "role not permitted to log in" rejection to the end user.
+			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSInvalidAuthSpec,
 				fmt.Sprintf("role %q is not permitted to log in", req.Username),
@@ -231,6 +232,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// SQLSTATE 28P01 matches PG's opaque "password authentication
 			// failed" error for expired passwords. PgDiagnostic detail
 			// survives the gRPC round trip and the gateway matches on it.
+			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSAuthFailed,
 				fmt.Sprintf("password authentication failed for user %q", req.Username),

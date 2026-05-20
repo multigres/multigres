@@ -2692,7 +2692,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Credential-query failures per second, labeled by error_type (user_not_found = baseline traffic, pool_acquire_failed / db_error = operator issues).",
+      "description": "Credential-query failures per second, labeled by error_type. Baseline traffic: user_not_found, login_disabled, password_expired (policy outcomes from a successful pg_authid query). Operator issues: pool_acquire_failed, db_error.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
