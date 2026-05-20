@@ -3052,5 +3052,200 @@
     "comment": "ALTER TABLE OWNER TO quotes role name with spaces",
     "query": "alter table t owner to \"weird role\"",
     "expected": "ALTER TABLE t OWNER TO \"weird role\""
+  },
+  {
+    "comment": "CREATE DATABASE quotes name with spaces",
+    "query": "create database \"weird db\"",
+    "expected": "CREATE DATABASE \"weird db\""
+  },
+  {
+    "comment": "DROP DATABASE quotes name with spaces",
+    "query": "drop database \"weird db\"",
+    "expected": "DROP DATABASE \"weird db\""
+  },
+  {
+    "comment": "ALTER DATABASE RENAME quotes both names",
+    "query": "alter database \"old db\" rename to \"new db\"",
+    "expected": "ALTER DATABASE \"old db\" RENAME TO \"new db\""
+  },
+  {
+    "comment": "ALTER SCHEMA RENAME quotes both names",
+    "query": "alter schema \"old s\" rename to \"new s\"",
+    "expected": "ALTER SCHEMA \"old s\" RENAME TO \"new s\""
+  },
+  {
+    "comment": "ALTER ROLE RENAME quotes both names",
+    "query": "alter role \"old r\" rename to \"new r\"",
+    "expected": "ALTER ROLE \"old r\" RENAME TO \"new r\""
+  },
+  {
+    "comment": "DROP ROLE quotes role list",
+    "query": "drop role \"weird r1\", \"weird r2\"",
+    "expected": "DROP ROLE \"weird r1\", \"weird r2\""
+  },
+  {
+    "comment": "ALTER GROUP ADD USER quotes user list",
+    "query": "alter group testgroup add user \"weird u1\", \"weird u2\"",
+    "expected": "ALTER GROUP testgroup ADD USER \"weird u1\", \"weird u2\""
+  },
+  {
+    "comment": "REVOKE ADMIN OPTION FOR quotes both granted and grantee roles",
+    "query": "revoke admin option for \"weird r1\" from \"weird r2\"",
+    "expected": "REVOKE ADMIN OPTION FOR \"weird r1\" FROM \"weird r2\""
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER quotes trigger and event names",
+    "query": "create event trigger \"weird trig\" on \"weird event\" execute function f()",
+    "expected": "CREATE EVENT TRIGGER \"weird trig\" ON \"weird event\" EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER quotes name",
+    "query": "alter event trigger \"weird trig\" enable",
+    "expected": "ALTER EVENT TRIGGER \"weird trig\" ENABLE"
+  },
+  {
+    "comment": "CREATE TRIGGER quotes name",
+    "query": "create trigger \"weird trig\" before insert on t for each row execute function f()",
+    "expected": "CREATE TRIGGER \"weird trig\" BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE TRIGGER UPDATE OF quotes column list",
+    "query": "create trigger trg before update of \"weird col\" on t for each row execute function f()",
+    "expected": "CREATE TRIGGER trg BEFORE UPDATE OF \"weird col\" ON t FOR EACH ROW EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE TRIGGER REFERENCING transition AS quotes name",
+    "query": "create trigger trg after update on t referencing new table as \"weird t\" for each statement execute function f()",
+    "expected": "CREATE TRIGGER trg AFTER UPDATE ON t REFERENCING NEW TABLE AS \"weird t\" EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE FDW quotes name",
+    "query": "create foreign data wrapper \"weird fdw\"",
+    "expected": "CREATE FOREIGN DATA WRAPPER \"weird fdw\""
+  },
+  {
+    "comment": "ALTER FDW quotes name",
+    "query": "alter foreign data wrapper \"weird fdw\" options (add \"k\" 'v')",
+    "expected": "ALTER FOREIGN DATA WRAPPER \"weird fdw\" OPTIONS (ADD k 'v')"
+  },
+  {
+    "comment": "CREATE SERVER quotes server and FDW names",
+    "query": "create server \"weird srv\" foreign data wrapper \"weird fdw\"",
+    "expected": "CREATE SERVER \"weird srv\" FOREIGN DATA WRAPPER \"weird fdw\""
+  },
+  {
+    "comment": "ALTER SERVER quotes name and emits VERSION as string literal",
+    "query": "alter server \"weird srv\" version '1.0'",
+    "expected": "ALTER SERVER \"weird srv\" VERSION '1.0'"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE SERVER quotes server name",
+    "query": "create foreign table ft (a int) server \"weird srv\"",
+    "expected": "CREATE FOREIGN TABLE ft (a INT) SERVER \"weird srv\""
+  },
+  {
+    "comment": "CREATE USER MAPPING quotes server name",
+    "query": "create user mapping for current_user server \"weird srv\"",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER \"weird srv\""
+  },
+  {
+    "comment": "ALTER USER MAPPING quotes server name",
+    "query": "alter user mapping for current_user server \"weird srv\" options (add \"k\" 'v')",
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER \"weird srv\" OPTIONS (ADD k 'v')"
+  },
+  {
+    "comment": "DROP USER MAPPING quotes server name",
+    "query": "drop user mapping for current_user server \"weird srv\"",
+    "expected": "DROP USER MAPPING FOR CURRENT_USER SERVER \"weird srv\""
+  },
+  {
+    "comment": "CREATE ACCESS METHOD quotes name",
+    "query": "create access method \"weird am\" type index handler my_handler",
+    "expected": "CREATE ACCESS METHOD \"weird am\" TYPE INDEX HANDLER my_handler"
+  },
+  {
+    "comment": "CREATE OPERATOR CLASS quotes access method",
+    "query": "create operator class my_class for type int using \"weird am\" as operator 1 <",
+    "expected": "CREATE OPERATOR CLASS my_class FOR TYPE INT USING \"weird am\" AS OPERATOR 1 <"
+  },
+  {
+    "comment": "CREATE OPERATOR FAMILY quotes access method",
+    "query": "create operator family my_family using \"weird am\"",
+    "expected": "CREATE OPERATOR FAMILY my_family USING \"weird am\""
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY quotes access method",
+    "query": "alter operator family my_family using \"weird am\" add operator 1 <",
+    "expected": "ALTER OPERATOR FAMILY my_family USING \"weird am\" ADD OPERATOR 1 <"
+  },
+  {
+    "comment": "CREATE PUBLICATION quotes name",
+    "query": "create publication \"weird pub\" for all tables",
+    "expected": "CREATE PUBLICATION \"weird pub\" FOR ALL TABLES"
+  },
+  {
+    "comment": "CREATE PUBLICATION FOR TABLES IN SCHEMA quotes schema name",
+    "query": "create publication pub for tables in schema \"weird schema\"",
+    "expected": "CREATE PUBLICATION pub FOR TABLES IN SCHEMA \"weird schema\""
+  },
+  {
+    "comment": "ALTER PUBLICATION quotes name",
+    "query": "alter publication \"weird pub\" add table t",
+    "expected": "ALTER PUBLICATION \"weird pub\" ADD TABLE t"
+  },
+  {
+    "comment": "ALTER PUBLICATION ADD TABLES IN SCHEMA quotes schema name",
+    "query": "alter publication pub add tables in schema \"weird schema\"",
+    "expected": "ALTER PUBLICATION pub ADD TABLES IN SCHEMA \"weird schema\""
+  },
+  {
+    "comment": "CREATE SUBSCRIPTION quotes name and emits CONNECTION as string literal",
+    "query": "create subscription \"weird sub\" connection 'host=h' publication p",
+    "expected": "CREATE SUBSCRIPTION \"weird sub\" CONNECTION 'host=h' PUBLICATION p"
+  },
+  {
+    "comment": "ALTER SUBSCRIPTION quotes name",
+    "query": "alter subscription \"weird sub\" enable",
+    "expected": "ALTER SUBSCRIPTION \"weird sub\" ENABLE"
+  },
+  {
+    "comment": "CREATE TRUSTED LANGUAGE quotes language name",
+    "query": "create trusted language \"weird lang\" handler plpgsql_call_handler",
+    "expected": "CREATE TRUSTED LANGUAGE \"weird lang\" HANDLER plpgsql_call_handler"
+  },
+  {
+    "comment": "ALTER POLICY quotes policy name",
+    "query": "alter policy \"weird policy\" on t to public",
+    "expected": "ALTER POLICY \"weird policy\" ON t TO PUBLIC"
+  },
+  {
+    "comment": "ALTER TABLE SET ACCESS METHOD quotes name",
+    "query": "alter table t set access method \"weird am\"",
+    "expected": "ALTER TABLE t SET ACCESS METHOD \"weird am\""
+  },
+  {
+    "comment": "ALTER TABLE REPLICA IDENTITY USING INDEX quotes name",
+    "query": "alter table t replica identity using index \"weird idx\"",
+    "expected": "ALTER TABLE t REPLICA IDENTITY USING INDEX \"weird idx\""
+  },
+  {
+    "comment": "CREATE FUNCTION quotes parameter name",
+    "query": "create function f(\"weird p\" int) returns int language sql as $$select 1$$",
+    "expected": "CREATE FUNCTION f (\"weird p\" INT) RETURNS INT LANGUAGE sql AS $$select 1$$"
+  },
+  {
+    "comment": "CREATE STATISTICS ON quotes column reference",
+    "query": "create statistics s on \"weird col\" from t",
+    "expected": "CREATE STATISTICS s ON \"weird col\" FROM t"
+  },
+  {
+    "comment": "CREATE TABLE AS USING quotes access method",
+    "query": "create table t using \"weird am\" as select 1",
+    "expected": "CREATE TABLE t USING \"weird am\" AS SELECT 1"
+  },
+  {
+    "comment": "CREATE TABLE quotes TABLESPACE name",
+    "query": "create table t (a int) tablespace \"weird ts\"",
+    "expected": "CREATE TABLE t (a INT) TABLESPACE \"weird ts\""
   }
 ]
