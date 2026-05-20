@@ -786,10 +786,7 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "calcs": ["lastNotNull", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -1782,9 +1779,7 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         },
@@ -2731,10 +2726,7 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": [
-    "multigres",
-    "production"
-  ],
+  "tags": ["multigres", "production"],
   "templating": {
     "list": [
       {
