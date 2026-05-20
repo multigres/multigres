@@ -398,7 +398,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "LeaderIsDead", "reason should indicate leader failure")
+		// The final failover in this test is triggered via BeginTerm REVOKE
+		// (emergency demote), which sets resignedLeaderAtTerm and is detected by
+		// LeaderResignedAnalyzer. Earlier iterations use SIGKILL and fire
+		// LeaderIsDeadAnalyzer. Either reason indicates leader failure.
+		assert.Regexp(t, "LeaderIsDead|LeaderResigned", reason,
+			"reason should indicate leader failure (LeaderIsDead) or resignation (LeaderResigned)")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string

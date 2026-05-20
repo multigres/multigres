@@ -39,6 +39,7 @@ const (
 
 	// Leader problems (catastrophic - block everything else).
 	ProblemLeaderIsDead      ProblemCode = "LeaderIsDead"
+	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
 	ProblemLeaderDiskStalled ProblemCode = "LeaderDiskStalled"
 	ProblemStaleLeader       ProblemCode = "StaleLeader"
 

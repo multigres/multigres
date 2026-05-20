@@ -61,16 +61,10 @@ func ssmTestPolicyWithCohort() commonconsensus.PolicyWithCohort {
 	}
 }
 
-func addReloadExpectations(m *mock.QueryService) {
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00"}}))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01"}}))
-}
-
 func addSetPolicyExpectations(m *mock.QueryService) {
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	addReloadExpectations(m)
+	expectReloadConfig(m)
 }
 
 func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
@@ -137,7 +131,7 @@ func TestClear_ResetsAndInvalidatesCache(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	addReloadExpectations(mockQS)
+	expectReloadConfig(mockQS)
 
 	// Pre-seed cache to verify it gets cleared.
 	ssm.lastSyncCommit = "on"
@@ -187,6 +181,59 @@ func TestClear_ReloadFails(t *testing.T) {
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
+func TestSetPolicy_NoEligibleStandbys(t *testing.T) {
+	// AtLeastNPolicy{N: 1} produces a config with empty SyncStandbyIDs (the leader
+	// is durable on its own). SetPolicy must refuse — callers should use Clear.
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	pc := commonconsensus.PolicyWithCohort{
+		Policy: commonconsensus.AtLeastNPolicy{N: 1},
+		Cohort: ssmTestCohort(),
+	}
+
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	err := ssm.SetPolicy(ctx, pc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no eligible standbys")
+	assert.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestSetPolicy_ComputeGUCFails(t *testing.T) {
+	// AtLeastNPolicy{N: 3} requires 2 standbys, but the cohort only has 1 →
+	// BuildSyncReplicationConfig returns a FAILED_PRECONDITION error.
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	pc := commonconsensus.PolicyWithCohort{
+		Policy: commonconsensus.AtLeastNPolicy{N: 3},
+		Cohort: ssmTestCohort(),
+	}
+
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	err := ssm.SetPolicy(ctx, pc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient cohort members")
+}
+
+func TestSetPolicy_ReloadFails(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
+	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
+	expectReloadConfigFailure(mockQS, errors.New("reload exploded"))
+
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reload exploded")
+	require.NoError(t, mockQS.ExpectationsWereMet())
+
+	// Cache must still be empty: the ALTER SYSTEM writes landed in
+	// postgresql.auto.conf but were never reloaded, so postmaster is still
+	// running the previous GUC values.
+	assert.Empty(t, ssm.lastSyncCommit)
+	assert.Empty(t, ssm.lastStandbyNames)
+}
+
 func TestSetPolicy_StandbyNamesError(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	ssm := newTestSSM(mockQS)
@@ -218,6 +265,18 @@ func TestClear_RecoveryCheckScanError(t *testing.T) {
 	err := ssm.Clear(withTestActionLock(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not scan pg_is_in_recovery")
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestClear_RecoveryCheckFails(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	mockQS.AddQueryPatternOnceWithError("SELECT pg_is_in_recovery", errors.New("connection refused"))
+
+	err := ssm.Clear(withTestActionLock(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not verify recovery mode")
+	assert.Contains(t, err.Error(), "connection refused")
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
@@ -296,6 +355,19 @@ func TestNeedsApply_TrueAndUpdatesCacheOnDrift(t *testing.T) {
 	assert.Equal(t, "on", ssm.lastSyncCommit)
 	assert.Empty(t, ssm.lastStandbyNames)
 	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestNeedsApply_ComputeGUCFails(t *testing.T) {
+	ssm := newTestSSM(mock.NewQueryService())
+	pc := commonconsensus.PolicyWithCohort{
+		Policy: commonconsensus.AtLeastNPolicy{N: 3},
+		Cohort: ssmTestCohort(),
+	}
+
+	needs, err := ssm.NeedsApply(t.Context(), pc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient cohort members")
+	assert.False(t, needs)
 }
 
 func TestNeedsApply_FallsBackToCacheOnQueryError(t *testing.T) {

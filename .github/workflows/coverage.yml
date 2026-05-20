@@ -58,7 +58,12 @@ jobs:
           attempt=1
           max_attempts=3
           while [ $attempt -le $max_attempts ]; do
-            if go test -json -v -skip TestPostgreSQLRegression \
+            # Coverage instrumentation adds ~30-50% overhead to test
+            # execution, so the per-package go-test default of 10m is too
+            # tight for the integration packages (multiorch, multipooler,
+            # queryserving) that spin up real Postgres. 30m matches what
+            # test-integration.yml uses for uninstrumented runs.
+            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression \
                 -cover -covermode=atomic \
                 -coverprofile=coverage-direct.txt \
                 -coverpkg=./... ./... \
@@ -131,7 +136,10 @@ jobs:
             # forces the script to abort if GOCOVERDIR ever ends up
             # empty, so we can never accidentally rm -rf /*.
             rm -rf "${GOCOVERDIR:?}"/*
-            if go test -json -v -skip TestPostgreSQLRegression ./... \
+            # Match the per-package timeout used by the direct-coverage job
+            # and the integration workflow, so a slow package doesn't trip
+            # Go's default 10m timeout under load.
+            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression ./... \
                 | tee coverage-subprocess-test-results.jsonl \
                 | go tool tparse -follow ; then
               break

@@ -723,6 +723,10 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 // the new config is loaded server-side rather than racing with postmaster's
 // signal handler.
 func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.InternalQueryService) error {
+	if qs == nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL, "internal query service not available")
+	}
+
 	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer loadTimeCancel()
 	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")

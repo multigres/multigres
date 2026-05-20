@@ -201,12 +201,19 @@ func (hs *healthStreamer) subscribe() (*poolerserver.HealthState, chan *poolerse
 	return state, ch
 }
 
-// unsubscribe removes a client from health updates.
+// unsubscribe removes a client from health updates and closes the channel so
+// the consumer's receive returns `ok=false`. Idempotent: if the channel was
+// already removed (e.g. by broadcastLocked's buffer-full path, which also
+// closes), the second call is a no-op.
 func (hs *healthStreamer) unsubscribe(ch chan *poolerserver.HealthState) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
+	if _, ok := hs.clients[ch]; !ok {
+		return
+	}
 	delete(hs.clients, ch)
+	close(ch)
 }
 
 // clientCount returns the number of active streaming clients.
@@ -239,9 +246,25 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 
 	state, ch := pm.healthStreamer.subscribe()
 
-	// Start a goroutine to clean up when context is cancelled
+	// Clean up on either:
+	//   - the caller's ctx ending (gRPC stream finished, client disconnected,
+	//     RPC cancelled), or
+	//   - the manager's shutdownCtx firing at the end of GracefulShutdown
+	//     (forces in-flight stream handlers to return so grpcServer.GracefulStop
+	//     can complete without waiting for them).
+	//
+	// shutdownDone is nil for tests that bypass NewMultiPoolerManager; a
+	// receive on a nil channel blocks forever, so the select degrades cleanly
+	// to "wait on caller ctx only."
+	var shutdownDone <-chan struct{}
+	if pm.shutdownCtx != nil {
+		shutdownDone = pm.shutdownCtx.Done()
+	}
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-shutdownDone:
+		}
 		pm.healthStreamer.unsubscribe(ch)
 	}()
 
