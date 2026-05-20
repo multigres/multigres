@@ -72,7 +72,7 @@ func (c *CreateTableSpaceStmt) SqlString() string {
 	}
 
 	// Always include LOCATION clause since it's required in CREATE TABLESPACE syntax
-	parts = append(parts, "LOCATION", fmt.Sprintf("'%s'", c.LocationPath))
+	parts = append(parts, "LOCATION", QuoteStringLiteral(c.LocationPath))
 
 	if c.Options != nil && c.Options.Len() > 0 {
 		optionStrs := make([]string, 0, c.Options.Len())
@@ -717,7 +717,7 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 		}
 	case ALTER_SUBSCRIPTION_CONNECTION:
 		if a.ConnInfo != "" {
-			parts = append(parts, "CONNECTION", fmt.Sprintf("'%s'", a.ConnInfo))
+			parts = append(parts, "CONNECTION", QuoteStringLiteral(a.ConnInfo))
 		}
 	case ALTER_SUBSCRIPTION_REFRESH:
 		parts = append(parts, "REFRESH PUBLICATION")

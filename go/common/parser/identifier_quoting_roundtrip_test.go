@@ -132,6 +132,18 @@ func TestIdentifierQuotingOnDeparse(t *testing.T) {
 			sql:         `create table t (a int) tablespace "weird ts"`,
 			mustContain: `TABLESPACE "weird ts"`,
 		},
+		{
+			// LOCATION takes a filesystem path emitted as a string literal —
+			// embedded apostrophes must be escaped (doubled).
+			name:        "CREATE TABLESPACE LOCATION escapes single quotes",
+			sql:         `create tablespace ts location '/data/o''brien'`,
+			mustContain: `LOCATION '/data/o''brien'`,
+		},
+		{
+			name:        "CREATE TABLESPACE LOCATION plain path",
+			sql:         `create tablespace ts location '/plain/path'`,
+			mustContain: `LOCATION '/plain/path'`,
+		},
 
 		// ----------------------------------------------------------------
 		// ROLE / GRANT / REVOKE / OWNER.
@@ -436,6 +448,23 @@ func TestIdentifierQuotingOnDeparse(t *testing.T) {
 			name:        "ALTER SUBSCRIPTION name",
 			sql:         `alter subscription "weird sub" enable`,
 			mustContain: `ALTER SUBSCRIPTION "weird sub"`,
+		},
+		{
+			// CONNECTION takes a connection string emitted as a string literal —
+			// embedded apostrophes (e.g. in passwords) must be escaped (doubled).
+			name:        "CREATE SUBSCRIPTION CONNECTION escapes single quotes",
+			sql:         `create subscription sub connection 'host=h pwd=o''brien' publication p`,
+			mustContain: `CONNECTION 'host=h pwd=o''brien'`,
+		},
+		{
+			name:        "ALTER SUBSCRIPTION CONNECTION escapes single quotes",
+			sql:         `alter subscription sub connection 'host=h pwd=o''brien'`,
+			mustContain: `CONNECTION 'host=h pwd=o''brien'`,
+		},
+		{
+			name:        "ALTER SUBSCRIPTION CONNECTION plain string",
+			sql:         `alter subscription sub connection 'host=plain'`,
+			mustContain: `CONNECTION 'host=plain'`,
 		},
 
 		// ----------------------------------------------------------------

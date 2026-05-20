@@ -3247,5 +3247,20 @@
     "comment": "CREATE TABLE quotes TABLESPACE name",
     "query": "create table t (a int) tablespace \"weird ts\"",
     "expected": "CREATE TABLE t (a INT) TABLESPACE \"weird ts\""
+  },
+  {
+    "comment": "CREATE TABLESPACE LOCATION escapes embedded apostrophes",
+    "query": "create tablespace ts location '/data/o''brien'",
+    "expected": "CREATE TABLESPACE ts LOCATION '/data/o''brien'"
+  },
+  {
+    "comment": "ALTER SUBSCRIPTION CONNECTION escapes embedded apostrophes",
+    "query": "alter subscription sub connection 'host=h pwd=o''brien'",
+    "expected": "ALTER SUBSCRIPTION sub CONNECTION 'host=h pwd=o''brien'"
+  },
+  {
+    "comment": "CREATE SUBSCRIPTION CONNECTION escapes embedded apostrophes",
+    "query": "create subscription sub connection 'host=h pwd=o''brien' publication p",
+    "expected": "CREATE SUBSCRIPTION sub CONNECTION 'host=h pwd=o''brien' PUBLICATION p"
   }
 ]

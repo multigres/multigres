@@ -1185,7 +1185,7 @@ func (c *ColumnDef) SqlString() string {
 
 	// Add storage clause if specified
 	if c.StorageName != "" {
-		parts = append(parts, "STORAGE", QuoteIdentifier(c.StorageName))
+		parts = append(parts, "STORAGE", c.StorageName)
 	}
 
 	// Add NOT NULL constraint if specified

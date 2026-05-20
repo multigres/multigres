@@ -242,6 +242,9 @@ var nonIdentifierFields = map[string]bool{
 	// keyword; others (DefElem.SqlString) already wrap it in QuoteIdentifier.
 	// The bare emissions are intentional keyword-form, not missed quoting.
 	"DefElem.Defname": true,
+	// ColumnDef.StorageName is a storage mode keyword (PLAIN, EXTERNAL,
+	// EXTENDED, MAIN, DEFAULT), not a user identifier — emitted unquoted.
+	"ColumnDef.StorageName": true,
 	// CreatePolicyStmt.CmdName holds a SQL command keyword (SELECT, INSERT,
 	// UPDATE, DELETE, ALL) — it MUST be emitted as a keyword, not quoted.
 	"CreatePolicyStmt.CmdName": true,
