@@ -232,8 +232,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						restoredTerm = statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 						return statusResp.Status.PostgresReady
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
-					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
-					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
+					t.Logf("Term after restore: %d (expected: %d)", restoredTerm, higherTerm)
+					assert.Equal(t, higherTerm, restoredTerm, "Term revocation should be preserved after restore")
 
 					// Verify primary_term is 0 after restore (never been primary)
 					statusCtx = utils.WithShortDeadline(t)
@@ -247,8 +247,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Primary:               primary,
 						StartReplicationAfter: true,
 						StopReplicationBefore: false,
-						CurrentTerm:           restoredTerm, // Term is 0 after restore; Force allows multiorch to advance it
-						Force:                 true,         // Force reconfiguration after restore
+						CurrentTerm:           restoredTerm,
+						Force:                 true, // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
