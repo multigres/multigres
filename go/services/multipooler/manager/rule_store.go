@@ -773,3 +773,34 @@ func scanRuleHistoryRow(rec *ruleHistoryRecord, leaderIDStr *string, cohortNames
 	rec.AcceptedMembers = accepted
 	return nil
 }
+
+// priorRuleWritesDrainedKey is a context key proving that any in-flight rule
+// writes from a previous action lock holder have been resolved before
+// SyncStandbyManager.SetPolicy is called. This is established in one of two ways:
+//
+//   - Primary path: a SELECT FOR UPDATE on current_rule blocks until any
+//     in-progress transaction from the prior holder commits or rolls back, after
+//     which our row lock prevents new writers from interposing.
+//   - Recovery path (standby before pg_promote): the node is read-only, so no
+//     concurrent writes to current_rule are possible.
+//
+// The action lock (checked separately via AssertActionLockHeld) ensures no
+// concurrent goroutine in this process can also hold this proof.
+type priorRuleWritesDrainedKey struct{}
+
+// withPriorRuleWritesDrained returns a derived context carrying proof that any
+// in-flight rule writes from the previous action lock holder have been resolved.
+// Called by readCurrentRuleLocked; callers must not stamp the context themselves.
+func withPriorRuleWritesDrained(ctx context.Context) context.Context {
+	return context.WithValue(ctx, priorRuleWritesDrainedKey{}, struct{}{})
+}
+
+// assertPriorRuleWritesDrained returns an error if the context does not carry
+// proof that prior rule writes have been drained. Called automatically via
+// readCurrentRuleLocked; callers must not stamp the context themselves.
+func assertPriorRuleWritesDrained(ctx context.Context) error {
+	if _, ok := ctx.Value(priorRuleWritesDrainedKey{}).(struct{}); !ok {
+		return errors.New("SetPolicy requires prior rule writes to be drained (call readCurrentRuleLocked first)")
+	}
+	return nil
+}
