@@ -96,6 +96,13 @@ type ProcessInstance struct {
 	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
 	PgInitdbExtraConfFiles []string
 
+	// PgInitdbArgs is forwarded to pgctld via --pg-initdb-args. Used by the
+	// pgregress harness to pass `--no-locale --encoding=SQL_ASCII` so locale-
+	// sensitive output (char/varchar sort, to_char 'L' currency, etc.) matches
+	// upstream pg_regress fixtures, which initdb the regression cluster in C
+	// locale.
+	PgInitdbArgs string
+
 	// PgHbaTemplate is an alternate pg_hba.conf template path passed to pgctld
 	// via --pg-hba-template. Used by WithMultipoolerPGTLS to relax auth on
 	// 127.0.0.1 so the multipooler's per-user pools can dial over TLS without
@@ -246,6 +253,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 
 	for _, file := range p.PgInitdbExtraConfFiles {
 		args = append(args, "--pg-initdb-extra-conf", file)
+	}
+
+	if p.PgInitdbArgs != "" {
+		args = append(args, "--pg-initdb-args", p.PgInitdbArgs)
 	}
 
 	if p.PgHbaTemplate != "" {
