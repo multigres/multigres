@@ -1539,7 +1539,7 @@ func (r *ReplicaIdentityStmt) SqlString() string {
 	case REPLICA_IDENTITY_DEFAULT:
 		return "REPLICA IDENTITY DEFAULT"
 	case REPLICA_IDENTITY_INDEX:
-		return "REPLICA IDENTITY USING INDEX " + r.Name
+		return "REPLICA IDENTITY USING INDEX " + QuoteIdentifier(r.Name)
 	default:
 		return "REPLICA IDENTITY"
 	}
@@ -2051,7 +2051,7 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		} else if a.Name != "" {
-			parts = append(parts, "REPLICA IDENTITY USING INDEX", a.Name)
+			parts = append(parts, "REPLICA IDENTITY USING INDEX", QuoteIdentifier(a.Name))
 		} else {
 			parts = append(parts, "REPLICA IDENTITY")
 		}
@@ -2114,7 +2114,7 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_SetAccessMethod:
 		parts = append(parts, "SET ACCESS METHOD")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		} else {
 			// When Name is empty, it means DEFAULT was explicitly specified
 			parts = append(parts, "DEFAULT")
@@ -3413,7 +3413,7 @@ func (c *CreateFdwStmt) String() string {
 // SqlString returns the SQL representation of CreateFdwStmt
 func (c *CreateFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", c.FdwName)
+	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", QuoteIdentifier(c.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if c.FuncOptions != nil && c.FuncOptions.Len() > 0 {
@@ -3508,7 +3508,7 @@ func (a *AlterFdwStmt) String() string {
 // SqlString returns the SQL representation of AlterFdwStmt
 func (a *AlterFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", a.FdwName)
+	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", QuoteIdentifier(a.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if a.FuncOptions != nil && a.FuncOptions.Len() > 0 {
@@ -3631,10 +3631,10 @@ func (a *AlterForeignServerStmt) String() string {
 // SqlString returns the SQL representation of AlterForeignServerStmt
 func (a *AlterForeignServerStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER SERVER", a.Servername)
+	parts = append(parts, "ALTER SERVER", QuoteIdentifier(a.Servername))
 
 	if a.HasVersion && a.Version != "" {
-		parts = append(parts, "VERSION", "'"+a.Version+"'")
+		parts = append(parts, "VERSION", QuoteStringLiteral(a.Version))
 	}
 
 	// Add OPTIONS clause
@@ -3706,7 +3706,7 @@ func (a *AlterUserMappingStmt) String() string {
 // SqlString returns the SQL representation of AlterUserMappingStmt
 func (a *AlterUserMappingStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", a.Servername)
+	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", QuoteIdentifier(a.Servername))
 
 	// Add OPTIONS clause
 	if a.Options != nil && a.Options.Len() > 0 {
@@ -3783,7 +3783,7 @@ func (d *DropUserMappingStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", d.Servername)
+	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", QuoteIdentifier(d.Servername))
 
 	return strings.Join(parts, " ")
 }
@@ -3834,7 +3834,7 @@ func (c *CreateEventTrigStmt) String() string {
 // SqlString returns the SQL representation of CreateEventTrigStmt
 func (c *CreateEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE EVENT TRIGGER", c.TrigName, "ON", c.EventName)
+	parts = append(parts, "CREATE EVENT TRIGGER", QuoteIdentifier(c.TrigName), "ON", QuoteIdentifier(c.EventName))
 
 	// Add WHEN clause if present
 	if c.WhenClause != nil && c.WhenClause.Len() > 0 {
@@ -3902,7 +3902,7 @@ func (a *AlterEventTrigStmt) String() string {
 // SqlString returns the SQL representation of AlterEventTrigStmt
 func (a *AlterEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER EVENT TRIGGER", a.TrigName)
+	parts = append(parts, "ALTER EVENT TRIGGER", QuoteIdentifier(a.TrigName))
 
 	switch a.TgEnabled {
 	case TRIGGER_FIRES_ON_ORIGIN:
@@ -3950,7 +3950,7 @@ func (c *CreatedbStmt) String() string {
 // SqlString returns the SQL representation of CreatedbStmt
 func (c *CreatedbStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE DATABASE", c.Dbname)
+	parts = append(parts, "CREATE DATABASE", QuoteIdentifier(c.Dbname))
 
 	// Add options if present
 	if c.Options != nil && c.Options.Len() > 0 {
@@ -4047,7 +4047,7 @@ func (d *DropdbStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Dbname)
+	parts = append(parts, QuoteIdentifier(d.Dbname))
 
 	// Add options if present (e.g., FORCE)
 	if d.Options != nil && d.Options.Len() > 0 {

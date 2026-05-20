@@ -1790,13 +1790,11 @@
   },
   {
     "comment": "create_index - Statement 390",
-    "query": "REINDEX TABLE CONCURRENTLY pg_toast.pg_toast_1260",
-    "expected": "REINDEX TABLE CONCURRENTLY pg_toast_1260"
+    "query": "REINDEX TABLE CONCURRENTLY pg_toast.pg_toast_1260"
   },
   {
     "comment": "create_index - Statement 391",
-    "query": "REINDEX INDEX CONCURRENTLY pg_toast.pg_toast_1260_index",
-    "expected": "REINDEX INDEX CONCURRENTLY pg_toast_1260_index"
+    "query": "REINDEX INDEX CONCURRENTLY pg_toast.pg_toast_1260_index"
   },
   {
     "comment": "create_index - Statement 392",
@@ -2106,13 +2104,11 @@
   },
   {
     "comment": "create_index - Statement 459",
-    "query": "REINDEX TABLE pg_toast.pg_toast_1260",
-    "expected": "REINDEX TABLE pg_toast_1260"
+    "query": "REINDEX TABLE pg_toast.pg_toast_1260"
   },
   {
     "comment": "create_index - Statement 460",
-    "query": "REINDEX INDEX pg_toast.pg_toast_1260_index",
-    "expected": "REINDEX INDEX pg_toast_1260_index"
+    "query": "REINDEX INDEX pg_toast.pg_toast_1260_index"
   },
   {
     "comment": "create_index - Statement 461",

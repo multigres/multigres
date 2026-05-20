@@ -178,7 +178,7 @@ func (c *CreateAmStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE ACCESS METHOD statement
 func (c *CreateAmStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE ACCESS METHOD", c.AmName)
+	parts = append(parts, "CREATE ACCESS METHOD", QuoteIdentifier(c.AmName))
 
 	var typeStr string
 	switch c.AmType {
@@ -368,7 +368,7 @@ func (c *CreatePublicationStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE PUBLICATION statement
 func (c *CreatePublicationStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE PUBLICATION", c.PubName)
+	parts = append(parts, "CREATE PUBLICATION", QuoteIdentifier(c.PubName))
 
 	if c.ForAllTables {
 		parts = append(parts, "FOR ALL TABLES")
@@ -390,7 +390,7 @@ func (c *CreatePublicationStmt) SqlString() string {
 					}
 				case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
 					if pubObj.Name != "" {
-						schemaObjs = append(schemaObjs, pubObj.Name)
+						schemaObjs = append(schemaObjs, QuoteIdentifier(pubObj.Name))
 					}
 				case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
 					schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
@@ -458,7 +458,7 @@ func (a *AlterPublicationStmt) StatementType() string {
 // SqlString returns the SQL representation of ALTER PUBLICATION statement
 func (a *AlterPublicationStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER PUBLICATION", a.PubName)
+	parts = append(parts, "ALTER PUBLICATION", QuoteIdentifier(a.PubName))
 
 	switch a.Action {
 	case AP_SetOptions:
@@ -482,7 +482,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
 						hasTablesInSchema = true
-						schemaNames = append(schemaNames, pubObj.Name)
+						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
 					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
 						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
@@ -509,7 +509,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
 						hasTablesInSchema = true
-						schemaNames = append(schemaNames, pubObj.Name)
+						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
 					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
 						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
@@ -536,7 +536,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
 						hasTablesInSchema = true
-						schemaNames = append(schemaNames, pubObj.Name)
+						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
 					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
 						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
@@ -605,8 +605,8 @@ func (c *CreateSubscriptionStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE SUBSCRIPTION statement
 func (c *CreateSubscriptionStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE SUBSCRIPTION", c.SubName)
-	parts = append(parts, "CONNECTION", fmt.Sprintf("'%s'", c.ConnInfo))
+	parts = append(parts, "CREATE SUBSCRIPTION", QuoteIdentifier(c.SubName))
+	parts = append(parts, "CONNECTION", QuoteStringLiteral(c.ConnInfo))
 
 	if c.Publication != nil && c.Publication.Len() > 0 {
 		pubStrs := make([]string, 0, c.Publication.Len())
@@ -702,7 +702,7 @@ func (a *AlterSubscriptionStmt) StatementType() string {
 // SqlString returns the SQL representation of ALTER SUBSCRIPTION statement
 func (a *AlterSubscriptionStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER SUBSCRIPTION", a.SubName)
+	parts = append(parts, "ALTER SUBSCRIPTION", QuoteIdentifier(a.SubName))
 
 	switch a.Kind {
 	case ALTER_SUBSCRIPTION_OPTIONS:
@@ -845,7 +845,7 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 
-	parts = append(parts, "USING", a.AmName)
+	parts = append(parts, "USING", QuoteIdentifier(a.AmName))
 
 	if a.IsDrop {
 		parts = append(parts, "DROP")

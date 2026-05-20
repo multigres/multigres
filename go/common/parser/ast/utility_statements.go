@@ -186,17 +186,17 @@ func (ts *TransactionStmt) SqlString() string {
 	case TRANS_STMT_SAVEPOINT:
 		parts = append(parts, "SAVEPOINT")
 		if ts.SavepointName != "" {
-			parts = append(parts, ts.SavepointName)
+			parts = append(parts, QuoteIdentifier(ts.SavepointName))
 		}
 	case TRANS_STMT_RELEASE:
 		parts = append(parts, "RELEASE")
 		if ts.SavepointName != "" {
-			parts = append(parts, "SAVEPOINT", ts.SavepointName)
+			parts = append(parts, "SAVEPOINT", QuoteIdentifier(ts.SavepointName))
 		}
 	case TRANS_STMT_ROLLBACK_TO:
 		parts = append(parts, "ROLLBACK", "TO")
 		if ts.SavepointName != "" {
-			parts = append(parts, "SAVEPOINT", ts.SavepointName)
+			parts = append(parts, "SAVEPOINT", QuoteIdentifier(ts.SavepointName))
 		}
 	case TRANS_STMT_PREPARE:
 		parts = append(parts, "PREPARE", "TRANSACTION")
@@ -661,9 +661,9 @@ func (grs *GrantRoleStmt) SqlString() string {
 					var roleNames []string
 					for _, role := range grs.GrantedRoles.Items {
 						if roleSpec, ok := role.(*RoleSpec); ok {
-							roleNames = append(roleNames, roleSpec.Rolename)
+							roleNames = append(roleNames, roleSpec.SqlString())
 						} else if accessPriv, ok := role.(*AccessPriv); ok {
-							roleNames = append(roleNames, accessPriv.PrivName)
+							roleNames = append(roleNames, QuoteIdentifier(accessPriv.PrivName))
 						}
 					}
 					parts = append(parts, strings.Join(roleNames, ", "))
@@ -675,7 +675,7 @@ func (grs *GrantRoleStmt) SqlString() string {
 					var granteeNames []string
 					for _, grantee := range grs.GranteeRoles.Items {
 						if roleSpec, ok := grantee.(*RoleSpec); ok {
-							granteeNames = append(granteeNames, roleSpec.Rolename)
+							granteeNames = append(granteeNames, roleSpec.SqlString())
 						}
 					}
 					parts = append(parts, strings.Join(granteeNames, ", "))
@@ -1176,7 +1176,7 @@ func (ars *AlterRoleStmt) SqlString() string {
 					if nodeList, ok := defElem.Arg.(*NodeList); ok {
 						for _, roleItem := range nodeList.Items {
 							if roleSpec, ok := roleItem.(*RoleSpec); ok {
-								roleNames = append(roleNames, roleSpec.Rolename)
+								roleNames = append(roleNames, roleSpec.SqlString())
 							}
 						}
 					}
@@ -1368,7 +1368,7 @@ func (drs *DropRoleStmt) SqlString() string {
 		var roleNames []string
 		for _, item := range drs.Roles.Items {
 			if roleSpec, ok := item.(*RoleSpec); ok {
-				roleNames = append(roleNames, roleSpec.Rolename)
+				roleNames = append(roleNames, roleSpec.SqlString())
 			}
 		}
 		if len(roleNames) > 0 {
@@ -2022,7 +2022,7 @@ func (ps *PrepareStmt) StatementType() string {
 // SqlString returns the SQL representation of the PREPARE statement
 func (ps *PrepareStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "PREPARE", ps.Name)
+	parts = append(parts, "PREPARE", QuoteIdentifier(ps.Name))
 
 	// Add argument types if present
 	if ps.Argtypes != nil && ps.Argtypes.Len() > 0 {
@@ -2083,7 +2083,7 @@ func (es *ExecuteStmt) StatementType() string {
 // SqlString returns the SQL representation of the EXECUTE statement
 func (es *ExecuteStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "EXECUTE", es.Name)
+	parts = append(parts, "EXECUTE", QuoteIdentifier(es.Name))
 
 	// Add parameters if present
 	if es.Params != nil && es.Params.Len() > 0 {
@@ -2145,7 +2145,7 @@ func (ds *DeallocateStmt) SqlString() string {
 	if ds.IsAll || ds.Name == "" {
 		parts = append(parts, "ALL")
 	} else {
-		parts = append(parts, ds.Name)
+		parts = append(parts, QuoteIdentifier(ds.Name))
 	}
 
 	return strings.Join(parts, " ")
@@ -2674,9 +2674,9 @@ func (rs *ReindexStmt) SqlString() string {
 
 	// Add target name
 	if rs.Relation != nil {
-		parts = append(parts, rs.Relation.RelName)
+		parts = append(parts, rs.Relation.SqlString())
 	} else if rs.Name != "" {
-		parts = append(parts, rs.Name)
+		parts = append(parts, QuoteIdentifier(rs.Name))
 	}
 
 	return strings.Join(parts, " ")
@@ -2884,9 +2884,9 @@ func (ns *NotifyStmt) StatementType() string {
 // SqlString returns the SQL representation of the NOTIFY statement
 func (ns *NotifyStmt) SqlString() string {
 	if ns.Payload != "" {
-		return fmt.Sprintf("NOTIFY %s, '%s'", ns.Conditionname, ns.Payload)
+		return fmt.Sprintf("NOTIFY %s, %s", QuoteIdentifier(ns.Conditionname), QuoteStringLiteral(ns.Payload))
 	}
-	return "NOTIFY " + ns.Conditionname
+	return "NOTIFY " + QuoteIdentifier(ns.Conditionname)
 }
 
 // ListenStmt represents a LISTEN statement.
@@ -2914,7 +2914,7 @@ func (ls *ListenStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the LISTEN statement
 func (ls *ListenStmt) SqlString() string {
-	return "LISTEN " + ls.Conditionname
+	return "LISTEN " + QuoteIdentifier(ls.Conditionname)
 }
 
 // UnlistenStmt represents an UNLISTEN statement.
@@ -2953,7 +2953,7 @@ func (us *UnlistenStmt) SqlString() string {
 	if us.Conditionname == "*" {
 		return "UNLISTEN *"
 	}
-	return "UNLISTEN " + us.Conditionname
+	return "UNLISTEN " + QuoteIdentifier(us.Conditionname)
 }
 
 // ==============================================================================
@@ -2995,21 +2995,18 @@ func (n *ConstraintsSetStmt) String() string {
 		constraintNames := make([]string, 0)
 		for _, constraint := range n.Constraints.Items {
 			if rangeVar, ok := constraint.(*RangeVar); ok {
-				constraintNames = append(constraintNames, rangeVar.RelName)
+				constraintNames = append(constraintNames, FormatFullyQualifiedName(rangeVar.CatalogName, rangeVar.SchemaName, rangeVar.RelName))
 			} else if nodeList, ok := constraint.(*NodeList); ok && len(nodeList.Items) > 0 {
 				// Handle qualified name (schema.constraint)
-				var nameStr strings.Builder
-				for i, item := range nodeList.Items {
-					if i > 0 {
-						nameStr.WriteString(".")
-					}
+				var nameParts []string
+				for _, item := range nodeList.Items {
 					if strNode, ok := item.(*String); ok {
-						nameStr.WriteString(strNode.SVal)
+						nameParts = append(nameParts, QuoteIdentifier(strNode.SVal))
 					} else {
-						nameStr.WriteString(item.String())
+						nameParts = append(nameParts, item.String())
 					}
 				}
-				constraintNames = append(constraintNames, nameStr.String())
+				constraintNames = append(constraintNames, strings.Join(nameParts, "."))
 			} else {
 				constraintNames = append(constraintNames, constraint.String())
 			}

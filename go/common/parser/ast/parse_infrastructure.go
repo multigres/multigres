@@ -1185,7 +1185,7 @@ func (c *ColumnDef) SqlString() string {
 
 	// Add storage clause if specified
 	if c.StorageName != "" {
-		parts = append(parts, "STORAGE", c.StorageName)
+		parts = append(parts, "STORAGE", QuoteIdentifier(c.StorageName))
 	}
 
 	// Add NOT NULL constraint if specified
@@ -1591,7 +1591,7 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 
 	// Add window reference if present
 	if w.Refname != "" {
-		parts = append(parts, w.Refname)
+		parts = append(parts, QuoteIdentifier(w.Refname))
 	}
 
 	// Add PARTITION BY clause
@@ -2031,7 +2031,7 @@ func (p *PartitionElem) SqlString() string {
 	var result string
 
 	if p.Name != "" {
-		result = p.Name
+		result = QuoteIdentifier(p.Name)
 	} else if p.Expr != nil {
 		result = p.Expr.SqlString()
 	} else {

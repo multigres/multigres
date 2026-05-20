@@ -267,7 +267,7 @@ func (n *MergeWhenClause) SqlString() string {
 			// If we have columns specified
 			columns := make([]string, len(n.TargetList))
 			for i, target := range n.TargetList {
-				columns[i] = target.Name
+				columns[i] = QuoteIdentifier(target.Name)
 			}
 			parts = append(parts, "("+strings.Join(columns, ", ")+")")
 		}
@@ -292,9 +292,9 @@ func (n *MergeWhenClause) SqlString() string {
 			for i, target := range n.TargetList {
 				// For UPDATE SET, format as "column = value" not "value AS column"
 				if target.Val != nil {
-					targets[i] = target.Name + " = " + target.Val.SqlString()
+					targets[i] = QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
 				} else {
-					targets[i] = target.Name
+					targets[i] = QuoteIdentifier(target.Name)
 				}
 			}
 			parts = append(parts, strings.Join(targets, ", "))
@@ -672,7 +672,7 @@ func (n *TruncateStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))
@@ -1448,14 +1448,7 @@ func (n *RuleStmt) String() string {
 		parts = append(parts, "OR REPLACE")
 	}
 
-	// Get the proper table name from RangeVar
-	tableName := n.Relation.RelName
-	if n.Relation.SchemaName != "" {
-		tableName = n.Relation.SchemaName + "." + tableName
-	}
-	if n.Relation.CatalogName != "" {
-		tableName = n.Relation.CatalogName + "." + tableName
-	}
+	tableName := FormatFullyQualifiedName(n.Relation.CatalogName, n.Relation.SchemaName, n.Relation.RelName)
 
 	parts = append(parts, "RULE", QuoteIdentifier(n.Rulename), "AS ON", n.Event.String(), "TO", tableName)
 
@@ -1612,7 +1605,7 @@ func (n *LockStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))
