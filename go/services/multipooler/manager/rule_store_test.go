@@ -15,16 +15,50 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"testing"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newMockRuleStore constructs a ruleStore wired to the given mock query service
+// and a no-op SyncStandbyManager. Most tests don't exercise GUC reconciliation
+// directly, so the noop is sufficient.
+func newMockRuleStore(qs *mock.QueryService) *ruleStore {
+	return newRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), qs, noopSyncStandbyManager{})
+}
+
+// errSyncStandbyManager is a SyncStandbyManager test double whose NeedsApply
+// always returns the configured error. Used to exercise hasInconsistentGUC's
+// NeedsApply error path.
+type errSyncStandbyManager struct {
+	noopSyncStandbyManager
+	needsApplyErr error
+}
+
+func (e errSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, e.needsApplyErr
+}
+
+// makePoolerPosition builds a PoolerPosition with the given rule number.
+func makePoolerPosition(coordinatorTerm, leaderSubterm int64) *clustermetadatapb.PoolerPosition {
+	return &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{
+				CoordinatorTerm: coordinatorTerm,
+				LeaderSubterm:   leaderSubterm,
+			},
+		},
+	}
+}
 
 func TestQueryRuleHistory(t *testing.T) {
 	t.Run("returns records ordered newest first", func(t *testing.T) {
@@ -129,4 +163,126 @@ func TestQueryRuleHistory(t *testing.T) {
 		assert.Contains(t, err.Error(), "connection refused")
 		assert.NoError(t, mockQueryService.ExpectationsWereMet())
 	})
+}
+
+func TestCacheRuleObservation_StaleRuleIgnored(t *testing.T) {
+	rs := newMockRuleStore(mock.NewQueryService())
+
+	// Seed cache with rule number (2, 1).
+	rs.cacheRuleObservation(makePoolerPosition(2, 1))
+	require.NotNil(t, rs.cachedPosition())
+	assert.Equal(t, int64(2), rs.cachedPosition().GetRule().GetRuleNumber().GetCoordinatorTerm())
+
+	// Stale observation: rule number (1, 5) is strictly less than (2, 1).
+	rs.cacheRuleObservation(makePoolerPosition(1, 5))
+
+	// Cache must still hold the newer rule.
+	assert.Equal(t, int64(2), rs.cachedPosition().GetRule().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, int64(1), rs.cachedPosition().GetRule().GetRuleNumber().GetLeaderSubterm())
+}
+
+func TestHasInconsistentGUC_FalseWhenCacheCold(t *testing.T) {
+	rs := newMockRuleStore(mock.NewQueryService())
+	// No position observed yet — cachedPosition returns nil, no policy to check.
+	assert.False(t, rs.hasInconsistentGUC(t.Context()))
+}
+
+func TestHasInconsistentGUC_FalseWhenPolicyInvalid(t *testing.T) {
+	rs := newMockRuleStore(mock.NewQueryService())
+	// Pre-seed a position whose durability policy fails NewPolicyFromProto
+	// (UNKNOWN quorum type). hasInconsistentGUC must swallow the error and
+	// return false rather than crash or report drift.
+	rs.lastPos = &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN,
+				RequiredCount: 1,
+			},
+		},
+	}
+	assert.False(t, rs.hasInconsistentGUC(t.Context()))
+}
+
+func TestHasInconsistentGUC_FalseWhenNeedsApplyErrors(t *testing.T) {
+	rs := newRuleStore(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		mock.NewQueryService(),
+		errSyncStandbyManager{needsApplyErr: errors.New("postgres down")},
+	)
+	rs.lastPos = &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			DurabilityPolicy: testBootstrapPolicy(),
+		},
+	}
+	// NeedsApply errors → treat as "no known inconsistency" rather than reporting drift.
+	assert.False(t, rs.hasInconsistentGUC(t.Context()))
+}
+
+func TestAppNamesToIDs_InvalidName(t *testing.T) {
+	_, err := appNamesToIDs([]string{"zone1_valid", "noseparator"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid ID "noseparator"`)
+}
+
+func TestParsePoolerIDStrings(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		ids, err := parsePoolerIDStrings(nil)
+		require.NoError(t, err)
+		assert.Nil(t, ids)
+	})
+
+	t.Run("invalid name surfaces parse error", func(t *testing.T) {
+		_, err := parsePoolerIDStrings([]string{"noseparator"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid cell_name format")
+	})
+}
+
+func TestScanRuleHistoryRow_LeaderIDInvalid(t *testing.T) {
+	bad := "noseparator"
+	rec := &ruleHistoryRecord{}
+	err := scanRuleHistoryRow(rec, &bad, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse leader_id")
+}
+
+func TestScanRuleHistoryRow_CohortInvalid(t *testing.T) {
+	rec := &ruleHistoryRecord{}
+	err := scanRuleHistoryRow(rec, nil, []string{"noseparator"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse cohort_members")
+}
+
+func TestScanRuleHistoryRow_AcceptedInvalid(t *testing.T) {
+	rec := &ruleHistoryRecord{}
+	err := scanRuleHistoryRow(rec, nil, []string{"zone1_valid"}, []string{"noseparator"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse accepted_members")
+}
+
+func TestBuildPoolerPosition_LeaderInvalid(t *testing.T) {
+	bad := "noseparator"
+	_, err := buildPoolerPosition(1, 0, &bad, "", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse leader_id")
+}
+
+func TestBuildPoolerPosition_CoordinatorInvalid(t *testing.T) {
+	_, err := buildPoolerPosition(1, 0, nil, "noseparator", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse coordinator_id")
+}
+
+func TestBuildPoolerPosition_CohortInvalid(t *testing.T) {
+	_, err := buildPoolerPosition(1, 0, nil, "", []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse cohort_members")
+}
+
+func TestBuildPoolerPosition_UnknownQuorumType(t *testing.T) {
+	_, err := buildPoolerPosition(1, 0, nil, "", nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2, "0/0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown quorum_type")
 }
