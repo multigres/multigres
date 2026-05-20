@@ -24,30 +24,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-
-	"github.com/multigres/multigres/go/common/pgprotocol/server"
-)
-
-// Re-export the canonical auth/TLS label constants from pgprotocol/server so
-// callers inside the multigateway package (e.g. tests) don't need a second
-// import. The vocabulary is defined alongside the AuthMetricsRecorder
-// interface so the listener can emit metrics without depending on this
-// package.
-const (
-	AuthOutcomeSuccess         = server.AuthOutcomeSuccess
-	AuthOutcomeUserNotFound    = server.AuthOutcomeUserNotFound
-	AuthOutcomeBadPassword     = server.AuthOutcomeBadPassword
-	AuthOutcomeProtocolError   = server.AuthOutcomeProtocolError
-	AuthOutcomeLoginDisabled   = server.AuthOutcomeLoginDisabled
-	AuthOutcomePasswordExpired = server.AuthOutcomePasswordExpired
-	AuthOutcomeLookupError     = server.AuthOutcomeLookupError
-
-	TLSOutcomeSuccess          = server.TLSOutcomeSuccess
-	TLSOutcomeHandshakeFailure = server.TLSOutcomeHandshakeFailure
-	TLSOutcomeClientAborted    = server.TLSOutcomeClientAborted
-
-	PlaintextRejectedReasonNoSSLRequest        = server.PlaintextRejectedReasonNoSSLRequest
-	PlaintextRejectedReasonTLSDisabledByServer = server.PlaintextRejectedReasonTLSDisabledByServer
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // GatewayMetrics holds OTel metrics for the multigateway service.
@@ -69,6 +46,8 @@ type GatewayMetrics struct {
 }
 
 // NewGatewayMetrics initializes OTel metrics for the multigateway service.
+// Individual metrics that fail to initialize use noop implementations and are
+// included in the returned error. The returned instance is always usable.
 func NewGatewayMetrics() (*GatewayMetrics, error) {
 	meter := otel.Meter("github.com/multigres/multigres/go/services/multigateway")
 
@@ -87,12 +66,13 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 
 	m.authSCRAMDuration, err = meter.Float64Histogram(
 		"mg.gateway.auth.scram.duration",
-		metric.WithDescription("Full SCRAM handshake duration (client-first to server-final)"),
+		metric.WithDescription("SCRAM handshake duration (client-first to server-final)"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10),
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.auth.scram.duration histogram: %w", err))
+		m.authSCRAMDuration = noop.Float64Histogram{}
 	}
 
 	m.authAttempts, err = meter.Int64Counter(
@@ -102,6 +82,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.auth.attempts counter: %w", err))
+		m.authAttempts = noop.Int64Counter{}
 	}
 
 	m.authCredentialLookupDuration, err = meter.Float64Histogram(
@@ -112,6 +93,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.auth.credential_lookup.duration histogram: %w", err))
+		m.authCredentialLookupDuration = noop.Float64Histogram{}
 	}
 
 	m.authCredentialLookupRate, err = meter.Int64Counter(
@@ -121,6 +103,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.auth.credential_lookup.rate counter: %w", err))
+		m.authCredentialLookupRate = noop.Int64Counter{}
 	}
 
 	m.tlsHandshakeDuration, err = meter.Float64Histogram(
@@ -131,6 +114,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.tls.handshake.duration histogram: %w", err))
+		m.tlsHandshakeDuration = noop.Float64Histogram{}
 	}
 
 	m.tlsConnections, err = meter.Int64Counter(
@@ -140,6 +124,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.tls.connections counter: %w", err))
+		m.tlsConnections = noop.Int64Counter{}
 	}
 
 	m.tlsPlaintextRejected, err = meter.Int64Counter(
@@ -149,6 +134,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.tls.plaintext_rejected counter: %w", err))
+		m.tlsPlaintextRejected = noop.Int64Counter{}
 	}
 
 	m.tlsSSLRequestDeclined, err = meter.Int64Counter(
@@ -158,6 +144,7 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.tls.sslrequest_declined counter: %w", err))
+		m.tlsSSLRequestDeclined = noop.Int64Counter{}
 	}
 
 	if len(errs) > 0 {
@@ -191,9 +178,9 @@ func (m *GatewayMetrics) RegisterClientConnectionsCallback(primaryGetter, replic
 }
 
 // RecordSCRAMDuration records the SCRAM handshake duration tagged by outcome.
-// Safe to call on a nil receiver — no-op so call sites can stay unconditional.
+// Safe to call on a nil receiver so call sites can stay unconditional.
 func (m *GatewayMetrics) RecordSCRAMDuration(ctx context.Context, outcome string, d time.Duration) {
-	if m == nil || m.authSCRAMDuration == nil {
+	if m == nil {
 		return
 	}
 	m.authSCRAMDuration.Record(ctx, d.Seconds(),
@@ -202,7 +189,7 @@ func (m *GatewayMetrics) RecordSCRAMDuration(ctx context.Context, outcome string
 
 // RecordAuthAttempt increments the auth-attempts counter tagged by outcome.
 func (m *GatewayMetrics) RecordAuthAttempt(ctx context.Context, outcome string) {
-	if m == nil || m.authAttempts == nil {
+	if m == nil {
 		return
 	}
 	m.authAttempts.Add(ctx, 1,
@@ -215,17 +202,13 @@ func (m *GatewayMetrics) RecordCredentialLookup(ctx context.Context, d time.Dura
 	if m == nil {
 		return
 	}
-	if m.authCredentialLookupDuration != nil {
-		m.authCredentialLookupDuration.Record(ctx, d.Seconds())
-	}
-	if m.authCredentialLookupRate != nil {
-		m.authCredentialLookupRate.Add(ctx, 1)
-	}
+	m.authCredentialLookupDuration.Record(ctx, d.Seconds())
+	m.authCredentialLookupRate.Add(ctx, 1)
 }
 
 // RecordTLSHandshake records the TLS handshake duration tagged by outcome.
 func (m *GatewayMetrics) RecordTLSHandshake(ctx context.Context, outcome string, d time.Duration) {
-	if m == nil || m.tlsHandshakeDuration == nil {
+	if m == nil {
 		return
 	}
 	m.tlsHandshakeDuration.Record(ctx, d.Seconds(),
@@ -237,7 +220,7 @@ func (m *GatewayMetrics) RecordTLSHandshake(ctx context.Context, outcome string,
 // crypto/tls so they match Go's published constants (e.g. "TLS 1.3",
 // "TLS_AES_128_GCM_SHA256").
 func (m *GatewayMetrics) RecordTLSConnection(ctx context.Context, version, cipher uint16) {
-	if m == nil || m.tlsConnections == nil {
+	if m == nil {
 		return
 	}
 	m.tlsConnections.Add(ctx, 1, metric.WithAttributes(
@@ -249,7 +232,7 @@ func (m *GatewayMetrics) RecordTLSConnection(ctx context.Context, version, ciphe
 // RecordPlaintextRejected increments the plaintext-rejection counter tagged
 // by reason.
 func (m *GatewayMetrics) RecordPlaintextRejected(ctx context.Context, reason string) {
-	if m == nil || m.tlsPlaintextRejected == nil {
+	if m == nil {
 		return
 	}
 	m.tlsPlaintextRejected.Add(ctx, 1,
@@ -259,7 +242,7 @@ func (m *GatewayMetrics) RecordPlaintextRejected(ctx context.Context, reason str
 // RecordSSLRequestDeclined increments the SSL-declined counter, used before
 // enforcement is enabled to size the impact of flipping --pg-require-ssl.
 func (m *GatewayMetrics) RecordSSLRequestDeclined(ctx context.Context) {
-	if m == nil || m.tlsSSLRequestDeclined == nil {
+	if m == nil {
 		return
 	}
 	m.tlsSSLRequestDeclined.Add(ctx, 1)

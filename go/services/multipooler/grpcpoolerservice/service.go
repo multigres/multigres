@@ -187,11 +187,13 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	// gateway-visible auth latency. The duration is recorded on every
 	// exit, error or not; the error counter only fires on failures so
 	// the success rate is implicit.
-	metrics := poolManager.Metrics()
+	recorder := poolManager.CredentialQueryRecorder()
 	start := time.Now()
 	var errorType string
 	defer func() {
-		metrics.RecordCredentialQuery(ctx, time.Since(start), errorType)
+		if recorder != nil {
+			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
+		}
 	}()
 
 	// An admin connection:

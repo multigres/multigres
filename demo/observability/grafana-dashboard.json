@@ -2283,7 +2283,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Client authentication attempts per second, split by outcome. success/bad_password/user_not_found/login_disabled/password_expired/protocol_error/lookup_error.",
+      "description": "Client authentication attempts per second, split by outcome. success/bad_password/user_not_found/login_disabled/password_expired/protocol_error/lookup_error/internal_error/replication_role_required.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"

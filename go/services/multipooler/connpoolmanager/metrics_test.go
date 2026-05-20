@@ -20,28 +20,22 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 func setupPoolerMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
 	t.Helper()
 
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-
-	prev := otel.GetMeterProvider()
-	otel.SetMeterProvider(mp)
-	t.Cleanup(func() {
-		otel.SetMeterProvider(prev)
-		_ = mp.Shutdown(context.Background())
-	})
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
 
 	m, err := NewMetrics()
 	require.NoError(t, err)
-	return m, reader
+	return m, setup.MetricReader
 }
 
 func collectAggregation(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Aggregation {

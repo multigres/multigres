@@ -25,13 +25,15 @@ import (
 // implementations in higher layers share the vocabulary without inverting
 // the dependency direction (pgprotocol/server must not import service code).
 const (
-	AuthOutcomeSuccess         = "success"
-	AuthOutcomeUserNotFound    = "user_not_found"
-	AuthOutcomeBadPassword     = "bad_password"
-	AuthOutcomeProtocolError   = "protocol_error"
-	AuthOutcomeLoginDisabled   = "login_disabled"
-	AuthOutcomePasswordExpired = "password_expired"
-	AuthOutcomeLookupError     = "lookup_error"
+	AuthOutcomeSuccess                 = "success"
+	AuthOutcomeUserNotFound            = "user_not_found"
+	AuthOutcomeBadPassword             = "bad_password"
+	AuthOutcomeProtocolError           = "protocol_error"
+	AuthOutcomeLoginDisabled           = "login_disabled"
+	AuthOutcomePasswordExpired         = "password_expired"
+	AuthOutcomeLookupError             = "lookup_error"
+	AuthOutcomeInternal                = "internal_error"
+	AuthOutcomeReplicationRoleRequired = "replication_role_required"
 )
 
 // TLS handshake outcome label values.

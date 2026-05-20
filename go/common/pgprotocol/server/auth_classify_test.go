@@ -46,7 +46,7 @@ func TestClassifyAuthError(t *testing.T) {
 		{"channel binding check", scram.ErrChannelBindingCheck, AuthOutcomeProtocolError},
 		{"authzid not supported", scram.ErrAuthzidNotSupported, AuthOutcomeProtocolError},
 		{"wrapped bad password", fmt.Errorf("scram failed: %w", scram.ErrAuthenticationFailed), AuthOutcomeBadPassword},
-		{"unknown is lookup_error", errors.New("transport closed"), AuthOutcomeLookupError},
+		{"unknown is internal_error", errors.New("transport closed"), AuthOutcomeInternal},
 	}
 
 	for _, tc := range cases {

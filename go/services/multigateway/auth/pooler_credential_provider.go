@@ -31,10 +31,13 @@ import (
 )
 
 // CredentialLookupRecorder is the metric sink for credential-lookup latency
-// and rate. Implemented by *multigateway.GatewayMetrics; declared here to
-// avoid the import cycle that pulling the multigateway package into go/services/multigateway/auth
-// would create. A nil receiver is acceptable — the gateway init wires a real
-// implementation, but tests and the trust-auth path can leave it unset.
+// and rate. It is a subset of pgprotocol/server.AuthMetricsRecorder kept
+// aligned with that interface — drift between the two would silently no-op
+// metric emission. Declared here (not imported from the server package) to
+// avoid the import cycle that pulling the multigateway package into
+// go/services/multigateway/auth would create. A nil receiver is acceptable —
+// the gateway init wires a real implementation, but tests and the trust-auth
+// path can leave it unset.
 type CredentialLookupRecorder interface {
 	RecordCredentialLookup(ctx context.Context, d time.Duration)
 }

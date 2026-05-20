@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 )
@@ -263,6 +264,7 @@ func NewMetrics() (*Metrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.pooler.auth.credential_query.duration histogram: %w", err))
+		m.authCredQueryDuration = noop.Float64Histogram{}
 	}
 
 	// Auth credential-query error counter.
@@ -273,6 +275,7 @@ func NewMetrics() (*Metrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.pooler.auth.credential_query.errors counter: %w", err))
+		m.authCredQueryErrors = noop.Int64Counter{}
 	}
 
 	if len(errs) > 0 {
@@ -285,16 +288,14 @@ func NewMetrics() (*Metrics, error) {
 // RecordCredentialQuery records a credential-query latency observation and,
 // when errorType is non-empty, bumps the corresponding error counter. Use
 // the CredentialQueryError* constants for errorType so the label set stays
-// closed. Safe to call on a nil receiver — no-op so the gRPC handler can
-// stay unconditional even when metric init failed.
+// closed. Safe to call on a nil receiver so the gRPC handler can stay
+// unconditional even when metric init failed.
 func (m *Metrics) RecordCredentialQuery(ctx context.Context, d time.Duration, errorType string) {
 	if m == nil {
 		return
 	}
-	if m.authCredQueryDuration != nil {
-		m.authCredQueryDuration.Record(ctx, d.Seconds())
-	}
-	if errorType != "" && m.authCredQueryErrors != nil {
+	m.authCredQueryDuration.Record(ctx, d.Seconds())
+	if errorType != "" {
 		m.authCredQueryErrors.Add(ctx, 1,
 			metric.WithAttributes(attribute.String("error_type", errorType)))
 	}

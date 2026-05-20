@@ -528,11 +528,11 @@ func (c *Conn) authenticate() (err error) {
 	// Done post-auth so we don't leak which roles exist for unauthenticated
 	// clients.
 	if err = c.verifyReplicationRole(); err != nil {
-		// SCRAM succeeded but the role lacks rolreplication. Reuse
-		// login_disabled — operators see the same "auth-stage rejected
-		// the role" semantics; the rolreplication-specific FATAL is
-		// already visible in logs.
-		outcome = AuthOutcomeLoginDisabled
+		// SCRAM succeeded but the role lacks rolreplication. Tagged as
+		// its own outcome so MUL-420's fleet validation alert can
+		// distinguish role-attribute rejections from login_disabled
+		// without scanning logs.
+		outcome = AuthOutcomeReplicationRoleRequired
 		return err
 	}
 
@@ -562,7 +562,7 @@ func classifyAuthError(err error) string {
 		errors.Is(err, scram.ErrAuthzidNotSupported):
 		return AuthOutcomeProtocolError
 	default:
-		return AuthOutcomeLookupError
+		return AuthOutcomeInternal
 	}
 }
 
@@ -777,10 +777,10 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 		advertised[m] = struct{}{}
 	}
 	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
-		return AuthOutcomeLookupError, fmt.Errorf("failed to send AuthenticationSASL: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASL: %w", err)
 	}
 	if err := c.flush(); err != nil {
-		return AuthOutcomeLookupError, fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
 	}
 
 	// Read SASLInitialResponse (chosen mechanism + client-first-message).
@@ -803,10 +803,10 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 
 	// Send AuthenticationSASLContinue with server-first-message.
 	if err := c.sendAuthenticationSASLContinue(serverFirstMessage); err != nil {
-		return AuthOutcomeLookupError, fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
 	}
 	if err := c.flush(); err != nil {
-		return AuthOutcomeLookupError, fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
 	}
 
 	// Read SASLResponse (contains client-final-message).
@@ -836,7 +836,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 	// the caller (authenticate) continues with the post-auth role-attribute
 	// check and the AuthenticationOk → ReadyForQuery completion sequence.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
-		return AuthOutcomeLookupError, fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
 	}
 
 	c.logger.Debug("scram authentication succeeded", "user", c.user)

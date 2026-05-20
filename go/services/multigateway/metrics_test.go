@@ -21,32 +21,25 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// setupGatewayMetrics installs a ManualReader-backed MeterProvider and
-// constructs a fresh GatewayMetrics. The provider is restored on cleanup
-// so other tests are not affected. Returns the metrics handle and the
-// reader so the caller can collect snapshots.
+// setupGatewayMetrics installs the shared test telemetry stack and returns
+// a fresh GatewayMetrics wired to its ManualReader.
 func setupGatewayMetrics(t *testing.T) (*GatewayMetrics, *sdkmetric.ManualReader) {
 	t.Helper()
 
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-
-	prev := otel.GetMeterProvider()
-	otel.SetMeterProvider(mp)
-	t.Cleanup(func() {
-		otel.SetMeterProvider(prev)
-		_ = mp.Shutdown(context.Background())
-	})
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multigateway"))
 
 	m, err := NewGatewayMetrics()
 	require.NoError(t, err)
-	return m, reader
+	return m, setup.MetricReader
 }
 
 // findMetric returns the named metric's data from the most-recent collect,
@@ -80,9 +73,9 @@ func TestGatewayMetrics_RecordSCRAMDuration_TagsOutcome(t *testing.T) {
 	m, reader := setupGatewayMetrics(t)
 	ctx := context.Background()
 
-	m.RecordSCRAMDuration(ctx, AuthOutcomeSuccess, 5*time.Millisecond)
-	m.RecordSCRAMDuration(ctx, AuthOutcomeBadPassword, 7*time.Millisecond)
-	m.RecordSCRAMDuration(ctx, AuthOutcomeBadPassword, 9*time.Millisecond)
+	m.RecordSCRAMDuration(ctx, server.AuthOutcomeSuccess, 5*time.Millisecond)
+	m.RecordSCRAMDuration(ctx, server.AuthOutcomeBadPassword, 7*time.Millisecond)
+	m.RecordSCRAMDuration(ctx, server.AuthOutcomeBadPassword, 9*time.Millisecond)
 
 	agg := findMetric(t, reader, "mg.gateway.auth.scram.duration")
 	require.NotNil(t, agg, "scram duration histogram not emitted")
@@ -95,17 +88,17 @@ func TestGatewayMetrics_RecordSCRAMDuration_TagsOutcome(t *testing.T) {
 	for _, dp := range hist.DataPoints {
 		counts[attrLookup(t, dp.Attributes, "outcome")] = dp.Count
 	}
-	require.Equal(t, uint64(1), counts[AuthOutcomeSuccess])
-	require.Equal(t, uint64(2), counts[AuthOutcomeBadPassword])
+	require.Equal(t, uint64(1), counts[server.AuthOutcomeSuccess])
+	require.Equal(t, uint64(2), counts[server.AuthOutcomeBadPassword])
 }
 
 func TestGatewayMetrics_RecordAuthAttempt_Increments(t *testing.T) {
 	m, reader := setupGatewayMetrics(t)
 	ctx := context.Background()
 
-	m.RecordAuthAttempt(ctx, AuthOutcomeSuccess)
-	m.RecordAuthAttempt(ctx, AuthOutcomeSuccess)
-	m.RecordAuthAttempt(ctx, AuthOutcomeUserNotFound)
+	m.RecordAuthAttempt(ctx, server.AuthOutcomeSuccess)
+	m.RecordAuthAttempt(ctx, server.AuthOutcomeSuccess)
+	m.RecordAuthAttempt(ctx, server.AuthOutcomeUserNotFound)
 
 	agg := findMetric(t, reader, "mg.gateway.auth.attempts")
 	require.NotNil(t, agg)
@@ -116,8 +109,8 @@ func TestGatewayMetrics_RecordAuthAttempt_Increments(t *testing.T) {
 	for _, dp := range sum.DataPoints {
 		values[attrLookup(t, dp.Attributes, "outcome")] = dp.Value
 	}
-	require.Equal(t, int64(2), values[AuthOutcomeSuccess])
-	require.Equal(t, int64(1), values[AuthOutcomeUserNotFound])
+	require.Equal(t, int64(2), values[server.AuthOutcomeSuccess])
+	require.Equal(t, int64(1), values[server.AuthOutcomeUserNotFound])
 }
 
 func TestGatewayMetrics_RecordCredentialLookup_RateAndDuration(t *testing.T) {
@@ -164,9 +157,9 @@ func TestGatewayMetrics_RecordPlaintextRejected_TagsReason(t *testing.T) {
 	m, reader := setupGatewayMetrics(t)
 	ctx := context.Background()
 
-	m.RecordPlaintextRejected(ctx, PlaintextRejectedReasonNoSSLRequest)
-	m.RecordPlaintextRejected(ctx, PlaintextRejectedReasonNoSSLRequest)
-	m.RecordPlaintextRejected(ctx, PlaintextRejectedReasonTLSDisabledByServer)
+	m.RecordPlaintextRejected(ctx, server.PlaintextRejectedReasonNoSSLRequest)
+	m.RecordPlaintextRejected(ctx, server.PlaintextRejectedReasonNoSSLRequest)
+	m.RecordPlaintextRejected(ctx, server.PlaintextRejectedReasonTLSDisabledByServer)
 
 	agg := findMetric(t, reader, "mg.gateway.tls.plaintext_rejected")
 	require.NotNil(t, agg)
@@ -177,8 +170,8 @@ func TestGatewayMetrics_RecordPlaintextRejected_TagsReason(t *testing.T) {
 	for _, dp := range sum.DataPoints {
 		values[attrLookup(t, dp.Attributes, "reason")] = dp.Value
 	}
-	require.Equal(t, int64(2), values[PlaintextRejectedReasonNoSSLRequest])
-	require.Equal(t, int64(1), values[PlaintextRejectedReasonTLSDisabledByServer])
+	require.Equal(t, int64(2), values[server.PlaintextRejectedReasonNoSSLRequest])
+	require.Equal(t, int64(1), values[server.PlaintextRejectedReasonTLSDisabledByServer])
 }
 
 func TestGatewayMetrics_RecordSSLRequestDeclined_Increments(t *testing.T) {
@@ -205,12 +198,12 @@ func TestGatewayMetrics_NilReceiverIsNoop(t *testing.T) {
 	ctx := context.Background()
 
 	require.NotPanics(t, func() {
-		m.RecordSCRAMDuration(ctx, AuthOutcomeSuccess, time.Second)
-		m.RecordAuthAttempt(ctx, AuthOutcomeSuccess)
+		m.RecordSCRAMDuration(ctx, server.AuthOutcomeSuccess, time.Second)
+		m.RecordAuthAttempt(ctx, server.AuthOutcomeSuccess)
 		m.RecordCredentialLookup(ctx, time.Second)
-		m.RecordTLSHandshake(ctx, TLSOutcomeSuccess, time.Second)
+		m.RecordTLSHandshake(ctx, server.TLSOutcomeSuccess, time.Second)
 		m.RecordTLSConnection(ctx, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
-		m.RecordPlaintextRejected(ctx, PlaintextRejectedReasonNoSSLRequest)
+		m.RecordPlaintextRejected(ctx, server.PlaintextRejectedReasonNoSSLRequest)
 		m.RecordSSLRequestDeclined(ctx)
 	})
 }
