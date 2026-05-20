@@ -366,6 +366,25 @@ message ConcludeTransactionRequest {
 
   // conclusion specifies whether to COMMIT or ROLLBACK the transaction
   TransactionConclusion conclusion = 4;
+
+  // release_portal_names lists `DECLARE … WITH HOLD` cursor names that
+  // PostgreSQL would close as part of this ROLLBACK — typically the
+  // cursors declared inside the explicit transaction block. Used so the
+  // multipooler unpins exactly those portals (matching PG's behavior)
+  // instead of dropping every pin via ReleaseAllPortals.
+  //
+  // Honored only when conclusion == ROLLBACK and release_all_portals is
+  // false. Ignored on COMMIT (PG keeps every WITH HOLD cursor across
+  // COMMIT, so no pin should be released).
+  repeated string release_portal_names = 5;
+
+  // release_all_portals, when true on a ROLLBACK conclusion, asks the
+  // multipooler to drop every portal pin on the reserved connection
+  // (`ReleaseAllPortals` semantics). When false, only the names listed
+  // in release_portal_names are released. Default true preserves the
+  // historical behavior so old gateway clients that do not yet compute
+  // the per-txn diff keep working.
+  bool release_all_portals = 6;
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.

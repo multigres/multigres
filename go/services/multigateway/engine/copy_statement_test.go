@@ -146,6 +146,8 @@ func (m *mockIExecute) ConcludeTransaction(
 	*server.Conn,
 	*handler.MultiGatewayConnectionState,
 	multipoolerpb.TransactionConclusion,
+	[]string,
+	bool,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	return nil

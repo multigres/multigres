@@ -584,19 +584,25 @@ func (g *grpcQueryService) ConcludeTransaction(
 	target *querypb.Target,
 	options *querypb.ExecuteOptions,
 	conclusion multipoolerservice.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"conclusion", conclusion.String(),
-		"reserved_conn_id", options.ReservedConnectionId)
+		"reserved_conn_id", options.ReservedConnectionId,
+		"release_portal_names", releasePortalNames,
+		"release_all_portals", releaseAllPortals)
 
 	// Create the request
 	req := &multipoolerservice.ConcludeTransactionRequest{
-		Target:     target,
-		Options:    options,
-		Conclusion: conclusion,
+		Target:             target,
+		Options:            options,
+		Conclusion:         conclusion,
+		ReleasePortalNames: releasePortalNames,
+		ReleaseAllPortals:  releaseAllPortals,
 	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic

@@ -523,16 +523,17 @@ func (e *Executor) streamExecuteOnReservedConn(
 		// Roll back every pin we registered for this DECLARE — PG
 		// rejected the statement, so the gateway will never call
 		// AddOpenHoldCursor and any matching CLOSE will not arrive.
-		// If the rollback drains the last reason and no other reason
-		// is set, return the backend to the pool with a zero
-		// ReservedState so the gateway clears its shard tracking.
+		// ReleasePortal returns true iff the call drained the *last*
+		// reservation reason on the connection (the bool propagates
+		// IsEmpty(), not "ReasonPortal cleared"), so a single true
+		// is sufficient to know the conn should be released.
 		shouldRelease := false
 		for _, name := range pinNames {
 			if rc.ReleasePortal(name) {
 				shouldRelease = true
 			}
 		}
-		if shouldRelease && rc.RemainingReasons() == 0 {
+		if shouldRelease {
 			rc.Release(reserved.ReleaseError)
 			return nil, wrapQueryError(err)
 		}
@@ -541,17 +542,18 @@ func (e *Executor) streamExecuteOnReservedConn(
 
 	// Apply portal releases after the query succeeds. CLOSE forwards the
 	// statement to PG first; only on success do we unpin so the
-	// gateway's HOLD-cursor bookkeeping matches the server side. If the
-	// final release drains every reservation reason, return the backend
-	// to the pool and surface a zero ReservedState so the gateway clears
-	// its tracking.
+	// gateway's HOLD-cursor bookkeeping matches the server side.
+	// ReleasePortal returns true iff this call drained the last
+	// reservation reason on the connection — when that happens, return
+	// the backend to the pool and surface a zero ReservedState so the
+	// gateway clears its shard tracking.
 	shouldRelease := false
 	for _, name := range reservationOptions.GetReleasePortalNames() {
 		if rc.ReleasePortal(name) {
 			shouldRelease = true
 		}
 	}
-	if shouldRelease && rc.RemainingReasons() == 0 {
+	if shouldRelease {
 		rc.Release(reserved.ReleasePortalComplete)
 		return nil, nil
 	}
@@ -1255,12 +1257,25 @@ func wrapQueryError(err error) error {
 
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+//
+// On ROLLBACK, the caller controls which portal pins are dropped via
+// releasePortalNames + releaseAllPortals. PostgreSQL closes only the
+// cursors created inside the rolled-back transaction block; cursors
+// declared outside the explicit block (under autocommit, before BEGIN)
+// survive the ROLLBACK. The gateway computes the per-txn diff and
+// passes the inside-txn cursor names so the multipooler unpins exactly
+// those, matching PG. When releaseAllPortals is true (or no diff is
+// supplied — e.g. by an older gateway that doesn't yet compute it), the
+// historical "drop every pin" semantics are used.
+//
 // Returns ReservedState with the authoritative reservation state.
 func (e *Executor) ConcludeTransaction(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
@@ -1299,11 +1314,20 @@ func (e *Executor) ConcludeTransaction(
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, nil, err
 		}
-		// PostgreSQL closes every open portal — both transaction-scoped
-		// cursors and `WITH HOLD` cursors — at ROLLBACK. Drop our pin set
-		// so the reservation bitmask matches the server state and the
-		// connection can be returned to the pool when nothing else holds it.
-		reservedConn.ReleaseAllPortals()
+		// PostgreSQL closes the cursors created inside this transaction
+		// block at ROLLBACK; cursors declared outside the block (under
+		// autocommit, before BEGIN) survive. Honor the caller's diff so
+		// the multipooler pin set tracks PG exactly. When the diff isn't
+		// supplied (releaseAllPortals==true), fall back to the historical
+		// "drop every pin" behavior — back-compat for callers that
+		// haven't been updated yet.
+		if releaseAllPortals {
+			reservedConn.ReleaseAllPortals()
+		} else {
+			for _, name := range releasePortalNames {
+				reservedConn.ReleasePortal(name)
+			}
+		}
 	default:
 		return nil, nil, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
 	}

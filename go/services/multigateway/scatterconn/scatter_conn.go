@@ -258,8 +258,11 @@ func (sc *ScatterConn) StreamExecute(
 	}
 
 	// Case 2: Need a new reserved connection — for transaction, temp table,
-	// portal pin (DECLARE WITH HOLD), or any combination.
-	if conn.IsInTransaction() || state.PendingTempTableReservation || state.HasPendingPinPortals() {
+	// portal pin (DECLARE WITH HOLD), or any combination. Take the pin
+	// list once up front so we don't double-lock the state mutex via a
+	// separate Has check.
+	pinPortalNames := state.TakePendingPinPortals()
+	if conn.IsInTransaction() || state.PendingTempTableReservation || len(pinPortalNames) > 0 {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -273,7 +276,6 @@ func (sc *ScatterConn) StreamExecute(
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
-		pinPortalNames := state.TakePendingPinPortals()
 		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
 		}
@@ -547,6 +549,8 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
@@ -609,7 +613,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
