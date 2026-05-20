@@ -119,6 +119,15 @@ func (s *postgresqlSyncStandbyManager) reloadConfig(ctx context.Context) error {
 		s.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
+	// pg_reload_conf sends SIGHUP to postgres backends asynchronously.
+	// Sleep briefly to give pool backends time to reload before the next WAL write.
+	// SHOW on a single connection is insufficient — it only confirms one backend
+	// processed the SIGHUP; other pooled connections may still use the old value.
+	select {
+	case <-time.After(10 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -206,15 +215,6 @@ func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonc
 	}
 	if err := s.reloadConfig(ctx); err != nil {
 		return err
-	}
-	// pg_reload_conf sends SIGHUP to postgres backends asynchronously.
-	// Sleep briefly to give pool backends time to reload before the next WAL write.
-	// SHOW on a single connection is insufficient — it only confirms one backend
-	// processed the SIGHUP; other pooled connections may still use the old value.
-	select {
-	case <-time.After(100 * time.Millisecond):
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 
 	s.mu.Lock()
