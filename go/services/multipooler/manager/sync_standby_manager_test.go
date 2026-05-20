@@ -64,7 +64,7 @@ func ssmTestPolicyWithCohort() commonconsensus.PolicyWithCohort {
 func addSetPolicyExpectations(m *mock.QueryService) {
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
 }
 
 func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
@@ -131,7 +131,7 @@ func TestClear_ResetsAndInvalidatesCache(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	mockQS.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQS)
 
 	// Pre-seed cache to verify it gets cleared.
 	ssm.lastSyncCommit = "on"
@@ -172,7 +172,7 @@ func TestClear_ReloadFails(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	mockQS.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+	expectReloadConfigFailure(mockQS, errors.New("reload failed"))
 
 	err := ssm.Clear(withTestActionLock(t))
 	require.Error(t, err)
