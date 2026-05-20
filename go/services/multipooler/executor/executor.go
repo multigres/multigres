@@ -424,6 +424,11 @@ func (e *Executor) reserveAndStreamExecute(
 	// declared with WITH HOLD; ReserveForPortal adds the name to the
 	// per-conn portal set and ORs ReasonPortal into the reservation
 	// bitmask (idempotent with the AddReservationReason call above).
+	// This path always releases the connection on QueryStreaming error
+	// (Release(ReleaseError) below), so a failed DECLARE never leaks a
+	// pin from the new-reservation branch — even without the explicit
+	// rollback dance that streamExecuteOnReservedConn performs for the
+	// existing-reservation case.
 	for _, name := range reservationOptions.GetPinPortalNames() {
 		reservedConn.ReserveForPortal(name)
 	}
@@ -500,22 +505,37 @@ func (e *Executor) streamExecuteOnReservedConn(
 	}
 
 	// Register pin-portal entries for DECLARE … WITH HOLD before running
-	// the DECLARE itself. Done up-front so that if the DECLARE fails on
-	// the backend the caller can still rely on the pin bitmask to keep
-	// the conn until ROLLBACK / session-end cleanup runs.
-	//
-	// The gateway-side bookkeeping is asymmetric: HoldCursorRoute only
-	// records the cursor in OpenHoldCursors on DECLARE success, while the
-	// multipooler side pins eagerly. This is intentional — a failed
-	// DECLARE leaves the txn in an error state and the subsequent
-	// (explicit or implicit) ROLLBACK calls ReleaseAllPortals on this
-	// connection, draining any pin that the gateway never recorded.
-	for _, name := range reservationOptions.GetPinPortalNames() {
+	// the DECLARE itself so the bitmask is consistent during the round
+	// trip. The gateway only records the cursor in OpenHoldCursors on
+	// DECLARE success, so we mirror that here: if PG rejects the
+	// DECLARE (outside-of-transaction, syntax error, table missing,
+	// duplicate name, etc.) we roll back every pin we just added so
+	// the multipooler-side bitmask matches what the gateway thinks is
+	// open. Without this, a failed DECLARE outside an explicit
+	// transaction block would leak ReasonPortal on the reserved
+	// connection until session disconnect.
+	pinNames := reservationOptions.GetPinPortalNames()
+	for _, name := range pinNames {
 		rc.ReserveForPortal(name)
 	}
 
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
-		// Query failed but connection still exists — return current state
+		// Roll back every pin we registered for this DECLARE — PG
+		// rejected the statement, so the gateway will never call
+		// AddOpenHoldCursor and any matching CLOSE will not arrive.
+		// If the rollback drains the last reason and no other reason
+		// is set, return the backend to the pool with a zero
+		// ReservedState so the gateway clears its shard tracking.
+		shouldRelease := false
+		for _, name := range pinNames {
+			if rc.ReleasePortal(name) {
+				shouldRelease = true
+			}
+		}
+		if shouldRelease && rc.RemainingReasons() == 0 {
+			rc.Release(reserved.ReleaseError)
+			return nil, wrapQueryError(err)
+		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
 	}
 

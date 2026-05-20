@@ -275,6 +275,152 @@ func TestStreamExecuteOnReservedConn_NoReservationOptions(t *testing.T) {
 	require.True(t, rc.streamingCalled)
 }
 
+// TestStreamExecuteOnReservedConn_PinPortalSuccess covers the WITH HOLD pin
+// path: PinPortalNames arrives in ReservationOptions, ReserveForPortal is
+// called BEFORE the query, and the cursor stays pinned after a successful
+// DECLARE.
+func TestStreamExecuteOnReservedConn_PinPortalSuccess(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc,
+		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
+		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"c1"}, rc.pinnedPortals,
+		"pin should be registered for the WITH HOLD cursor")
+	require.Empty(t, rc.releasedPortals, "no release on success")
+	require.Empty(t, rc.releaseCalls, "connection should not be released on a successful pin")
+	require.True(t, rc.streamingCalled)
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
+	require.Equal(t,
+		protoutil.ReasonTransaction|protoutil.ReasonPortal,
+		state.GetReservationReasons(),
+		"returned state should carry the new portal pin alongside the transaction reason")
+}
+
+// TestStreamExecuteOnReservedConn_PinPortalFailureRollsBack verifies the
+// MUL-389 review-fix B2 invariant: if DECLARE fails on the backend, every
+// pin we just registered is rolled back. If the rollback drains the last
+// reservation reason, the connection is released and a nil ReservedState is
+// returned so the gateway clears its tracking.
+func TestStreamExecuteOnReservedConn_PinPortalFailureRollsBack(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:       42,
+		streamingErr: errors.New("DECLARE CURSOR WITH HOLD cannot be used outside of a transaction"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc,
+		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
+		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, []string{"c1"}, rc.pinnedPortals,
+		"pin should be registered before the failing DECLARE")
+	require.Equal(t, []string{"c1"}, rc.releasedPortals,
+		"failed DECLARE must roll back every pin it added")
+	require.Equal(t, uint32(0), rc.remainingReasons,
+		"no reasons should remain after rollback")
+	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseError}, rc.releaseCalls,
+		"connection should be released when the rollback drains the last reason")
+	require.Nil(t, state, "released conn must surface as zero ReservedState")
+}
+
+// TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons covers
+// the case where pin rollback drains ReasonPortal but other reasons (e.g.,
+// ReasonTransaction) remain — the connection must stay reserved and the
+// returned state should reflect the surviving bitmask.
+func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+		streamingErr:     errors.New("syntax error"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc,
+		"DECLARE bad CURSOR WITH HOLD FOR SELECT garbage",
+		&query.ReservationOptions{PinPortalNames: []string{"bad"}},
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, []string{"bad"}, rc.releasedPortals,
+		"failed DECLARE must roll back the pin")
+	require.Empty(t, rc.releaseCalls,
+		"connection must stay reserved while the transaction reason persists")
+	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons,
+		"transaction reason must survive pin rollback")
+	require.NotNil(t, state, "non-released conn must surface its remaining reasons")
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
+}
+
+// TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection verifies
+// CLOSE / DISCARD ALL semantics: ReleasePortalNames drains the matching
+// pins, and when the last reason clears, the connection is released with
+// a zero ReservedState.
+func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonPortal,
+		openHoldCursors:  map[string]bool{"c1": true},
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CLOSE c1",
+		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.True(t, rc.streamingCalled, "CLOSE must reach the backend before the pin is dropped")
+	require.Equal(t, []string{"c1"}, rc.releasedPortals)
+	require.Equal(t, []reserved.ReleaseReason{reserved.ReleasePortalComplete}, rc.releaseCalls,
+		"draining the final ReasonPortal must release the backend")
+	require.Nil(t, state, "released conn must surface as zero ReservedState")
+}
+
+// TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons covers
+// CLOSE on a HOLD cursor while a transaction is still active: the pin
+// drops but the transaction reason keeps the conn reserved.
+func TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction | protoutil.ReasonPortal,
+		openHoldCursors:  map[string]bool{"c1": true},
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CLOSE c1",
+		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"c1"}, rc.releasedPortals)
+	require.Empty(t, rc.releaseCalls,
+		"conn must stay reserved while ReasonTransaction is set")
+	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons)
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
+}
+
 func TestScramKeysFromOptions(t *testing.T) {
 	ck := []byte{1, 2, 3}
 	sk := []byte{4, 5, 6}

@@ -56,15 +56,12 @@ func NewHoldCursorRoute(tableGroup, shard, sql, cursorName string) *HoldCursorRo
 // DECLARE on a reserved connection, and on success records the cursor as an
 // open HOLD cursor on the gateway session.
 //
-// Pin lifecycle on failure: ScatterConn consumes (and nils) PendingPinPortals
-// at the moment it issues the StreamExecute RPC, so by the time we observe
-// an error here the pending slot is already cleared on the gateway side. The
-// multipooler may have registered the pin (it does so before issuing the
-// DECLARE — see executor.go's streamExecuteOnReservedConn) but a failed
-// DECLARE leaves the txn in an error state; PG forces ROLLBACK on COMMIT,
-// which drops every portal pin via ReleaseAllPortals. The asymmetry is
-// intentional defense-in-depth — the worst case is one reserved connection
-// pinned for the remainder of the failed transaction.
+// Pin lifecycle on failure: the gateway only records the cursor in
+// OpenHoldCursors after DECLARE returns nil. The multipooler-side
+// streamExecuteOnReservedConn rolls back any pin it just registered when
+// QueryStreaming reports an error (releasing the connection if that was
+// the last reservation reason), so both sides stay in sync without
+// relying on ROLLBACK / session-end cleanup to drain a stale pin.
 func (h *HoldCursorRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -73,7 +70,7 @@ func (h *HoldCursorRoute) StreamExecute(
 	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	state.PendingPinPortals = append(state.PendingPinPortals, h.CursorName)
+	state.AppendPendingPinPortals(h.CursorName)
 	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, callback); err != nil {
 		return err
 	}

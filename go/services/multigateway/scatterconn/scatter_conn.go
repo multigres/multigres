@@ -226,25 +226,26 @@ func (sc *ScatterConn) StreamExecute(
 		}
 
 		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
-		// the reserved backend so the cursor survives COMMIT.
-		if len(state.PendingPinPortals) > 0 {
+		// the reserved backend so the cursor survives COMMIT. Take the
+		// pending list through the mutex-protected accessor so concurrent
+		// access (e.g. a future cancellation goroutine touching state) stays
+		// race-free.
+		if pinNames := state.TakePendingPinPortals(); len(pinNames) > 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.Reasons |= protoutil.ReasonPortal
-			reservationOpts.PinPortalNames = append(reservationOpts.PinPortalNames, state.PendingPinPortals...)
-			state.PendingPinPortals = nil
+			reservationOpts.PinPortalNames = append(reservationOpts.PinPortalNames, pinNames...)
 		}
 
 		// If this query closes a `WITH HOLD` cursor, unpin it after the CLOSE
 		// runs on the backend. The multipooler will drop the reservation
 		// (returning ReservedConnectionId=0) when the last reason clears.
-		if len(state.PendingReleasePortals) > 0 {
+		if releaseNames := state.TakePendingReleasePortals(); len(releaseNames) > 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
-			reservationOpts.ReleasePortalNames = append(reservationOpts.ReleasePortalNames, state.PendingReleasePortals...)
-			state.PendingReleasePortals = nil
+			reservationOpts.ReleasePortalNames = append(reservationOpts.ReleasePortalNames, releaseNames...)
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
@@ -258,7 +259,7 @@ func (sc *ScatterConn) StreamExecute(
 
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
-	if conn.IsInTransaction() || state.PendingTempTableReservation || len(state.PendingPinPortals) > 0 {
+	if conn.IsInTransaction() || state.PendingTempTableReservation || state.HasPendingPinPortals() {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -272,11 +273,9 @@ func (sc *ScatterConn) StreamExecute(
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
-		var pinPortalNames []string
-		if len(state.PendingPinPortals) > 0 {
+		pinPortalNames := state.TakePendingPinPortals()
+		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
-			pinPortalNames = append(pinPortalNames, state.PendingPinPortals...)
-			state.PendingPinPortals = nil
 		}
 
 		sc.logger.DebugContext(ctx, "creating reserved connection",

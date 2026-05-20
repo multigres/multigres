@@ -157,6 +157,13 @@ type MultiGatewayConnectionState struct {
 type savepointFrame struct {
 	name            string
 	sessionSettings map[string]string
+	// openHoldCursors snapshots the names of `DECLARE … WITH HOLD`
+	// cursors that were open at the moment the savepoint was pushed.
+	// Used so that `ROLLBACK TO <name>` can compute the set of cursors
+	// declared in the rolled-back sub-transaction and unpin them on the
+	// multipooler — PG closes those cursors server-side on
+	// ROLLBACK TO, and our reservation bookkeeping must follow.
+	openHoldCursors map[string]bool
 }
 
 type ShardState struct {
@@ -237,6 +244,65 @@ func (m *MultiGatewayConnectionState) ClearOpenHoldCursors() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.OpenHoldCursors = make(map[string]bool)
+}
+
+// AppendPendingPinPortals adds one cursor name to the pending-pin queue.
+// Used by HoldCursorRoute to register the cursor for the next StreamExecute
+// call without touching the field directly.
+func (m *MultiGatewayConnectionState) AppendPendingPinPortals(names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PendingPinPortals = append(m.PendingPinPortals, names...)
+}
+
+// TakePendingPinPortals returns the current pending-pin list and clears it
+// atomically. Called by ScatterConn at the moment it builds the
+// ReservationOptions for an outbound RPC.
+func (m *MultiGatewayConnectionState) TakePendingPinPortals() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.PendingPinPortals) == 0 {
+		return nil
+	}
+	out := m.PendingPinPortals
+	m.PendingPinPortals = nil
+	return out
+}
+
+// HasPendingPinPortals reports whether the pending-pin queue is non-empty.
+// Used by ScatterConn to decide whether to take the reserve-creating path
+// for a session whose only reservation reason is a new HOLD cursor.
+func (m *MultiGatewayConnectionState) HasPendingPinPortals() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.PendingPinPortals) > 0
+}
+
+// AppendPendingReleasePortals queues cursor names for unpinning on the next
+// StreamExecute.
+func (m *MultiGatewayConnectionState) AppendPendingReleasePortals(names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PendingReleasePortals = append(m.PendingReleasePortals, names...)
+}
+
+// TakePendingReleasePortals returns the current pending-release list and
+// clears it atomically.
+func (m *MultiGatewayConnectionState) TakePendingReleasePortals() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.PendingReleasePortals) == 0 {
+		return nil
+	}
+	out := m.PendingReleasePortals
+	m.PendingReleasePortals = nil
+	return out
 }
 
 // StorePortalInfo stores the portal information.
@@ -423,8 +489,23 @@ func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
 	m.savepoints = append(m.savepoints, savepointFrame{
 		name:            name,
 		sessionSettings: m.snapshotSessionSettingsLocked(),
+		openHoldCursors: m.snapshotOpenHoldCursorsLocked(),
 	})
 	m.statementTimeout.Snapshot()
+}
+
+// snapshotOpenHoldCursorsLocked returns a copy of the current OpenHoldCursors
+// set. Caller must hold m.mu. Used by pushFrameLocked / BeginTransaction so a
+// later ROLLBACK TO can compute the cursors declared after the savepoint.
+func (m *MultiGatewayConnectionState) snapshotOpenHoldCursorsLocked() map[string]bool {
+	if len(m.OpenHoldCursors) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(m.OpenHoldCursors))
+	for name := range m.OpenHoldCursors {
+		out[name] = true
+	}
+	return out
 }
 
 // BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
@@ -469,11 +550,41 @@ func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
 	m.statementTimeout.PopFrom(idx)
 }
 
-// RollbackToSavepoint restores SessionSettings and every gateway-managed
-// variable from the snapshot under `name`, popping any intermediate frames.
-// The named frame stays on the stack so a subsequent ROLLBACK TO `name` can
-// be issued again — matching PostgreSQL's behavior of leaving the savepoint
-// active after rollback.
+// HoldCursorsDeclaredAfterSavepoint returns the names of `DECLARE … WITH HOLD`
+// cursors that were declared after the named savepoint was pushed (i.e.,
+// would be closed by ROLLBACK TO). The state is not mutated. Returns nil if
+// the savepoint isn't on the stack or no qualifying cursors exist.
+//
+// Used by executeRollbackToSavepoint to enqueue release_portal_names ahead of
+// forwarding the ROLLBACK TO statement to the multipooler — PG closes those
+// cursors server-side and the reservation pin set must follow suit.
+func (m *MultiGatewayConnectionState) HoldCursorsDeclaredAfterSavepoint(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return nil
+	}
+	snapshot := m.savepoints[idx].openHoldCursors
+	var lost []string
+	for cur := range m.OpenHoldCursors {
+		if !snapshot[cur] {
+			lost = append(lost, cur)
+		}
+	}
+	return lost
+}
+
+// RollbackToSavepoint restores SessionSettings, every gateway-managed
+// variable, and the OpenHoldCursors set from the snapshot under `name`,
+// popping any intermediate frames. The named frame stays on the stack so a
+// subsequent ROLLBACK TO `name` can be issued again — matching PostgreSQL's
+// behavior of leaving the savepoint active after rollback.
+//
+// Cursors declared inside the rolled-back sub-transaction are dropped from
+// OpenHoldCursors. The multipooler-side portal pin must be released by the
+// caller via PendingReleasePortals; the set of lost cursor names can be
+// obtained ahead of time via HoldCursorsDeclaredAfterSavepoint.
 func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -485,6 +596,11 @@ func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 	if m.savepoints[idx].sessionSettings != nil {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[idx].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
+	}
+	snapshot := m.savepoints[idx].openHoldCursors
+	m.OpenHoldCursors = make(map[string]bool, len(snapshot))
+	for cur := range snapshot {
+		m.OpenHoldCursors[cur] = true
 	}
 	m.savepoints = m.savepoints[:idx+1]
 	m.statementTimeout.RestoreFromDepth(idx)

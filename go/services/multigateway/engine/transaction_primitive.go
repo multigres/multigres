@@ -203,7 +203,14 @@ func (t *TransactionPrimitive) executeCommit(
 	}
 	if len(state.ShardStates) == 0 || !hasActiveTransaction {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
-		syncPendingSubscriptions(conn, state)
+		// Pending LISTEN/UNLISTEN buffered inside a failed transaction
+		// must be discarded — PG's implicit ROLLBACK invalidates them.
+		// A healthy COMMIT promotes them as usual.
+		if implicitRollback {
+			state.DiscardPendingListens()
+		} else {
+			syncPendingSubscriptions(conn, state)
+		}
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: commandTag,
 		})
@@ -353,6 +360,16 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 ) error {
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
 
+	// PG closes any cursor (including WITH HOLD) declared in the
+	// rolled-back sub-transaction. Enqueue those names so ScatterConn
+	// forwards them as release_portal_names alongside the ROLLBACK TO
+	// statement and the multipooler's portal pin set matches what the
+	// server keeps. Done before exec so the same RPC carries both.
+	lostHoldCursors := state.HoldCursorsDeclaredAfterSavepoint(t.SavepointName)
+	if len(lostHoldCursors) > 0 {
+		state.AppendPendingReleasePortals(lostHoldCursors...)
+	}
+
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	if err != nil {
 		return err
@@ -365,9 +382,10 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	}
 
-	// Revert SessionSettings and gateway-managed variables to the snapshot
-	// captured when this savepoint was opened. The named frame stays on the
-	// stack — PostgreSQL leaves the savepoint active after ROLLBACK TO.
+	// Revert SessionSettings, gateway-managed variables, and the
+	// OpenHoldCursors set to the snapshot captured when this savepoint was
+	// opened. The named frame stays on the stack — PostgreSQL leaves the
+	// savepoint active after ROLLBACK TO.
 	state.RollbackToSavepoint(t.SavepointName)
 
 	return nil
