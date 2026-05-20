@@ -625,7 +625,7 @@ func (r *RoleSpec) String() string {
 func (r *RoleSpec) SqlString() string {
 	switch r.Roletype {
 	case ROLESPEC_CSTRING:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	case ROLESPEC_CURRENT_USER:
 		return "CURRENT_USER"
 	case ROLESPEC_SESSION_USER:
@@ -635,7 +635,7 @@ func (r *RoleSpec) SqlString() string {
 	case ROLESPEC_PUBLIC:
 		return "PUBLIC"
 	default:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	}
 }
 
@@ -1434,7 +1434,7 @@ func (c *Constraint) SqlString() string {
 
 		// Add access method if specified
 		if c.AccessMethod != "" {
-			result += " USING " + c.AccessMethod
+			result += " USING " + QuoteIdentifier(c.AccessMethod)
 		}
 
 		// Add exclusion elements (column WITH operator pairs)
@@ -1596,36 +1596,22 @@ func (a *AlterTableMoveAllStmt) SqlString() string {
 	}
 
 	// Add ALL IN TABLESPACE
-	parts = append(parts, "ALL IN TABLESPACE", a.OrigTablespacename)
+	parts = append(parts, "ALL IN TABLESPACE", QuoteIdentifier(a.OrigTablespacename))
 
 	// Add OWNED BY if roles specified
 	if a.Roles != nil && a.Roles.Len() > 0 {
 		parts = append(parts, "OWNED BY")
-		// Extract role names from the NodeList
 		roleNames := make([]string, 0, a.Roles.Len())
 		for _, item := range a.Roles.Items {
 			if roleSpec, ok := item.(*RoleSpec); ok {
-				// Handle different role types
-				if roleSpec.Rolename != "" {
-					roleNames = append(roleNames, roleSpec.Rolename)
-				} else {
-					// Handle special roles like CURRENT_USER, etc.
-					switch roleSpec.Roletype {
-					case ROLESPEC_CURRENT_USER:
-						roleNames = append(roleNames, "CURRENT_USER")
-					case ROLESPEC_CURRENT_ROLE:
-						roleNames = append(roleNames, "CURRENT_ROLE")
-					case ROLESPEC_SESSION_USER:
-						roleNames = append(roleNames, "SESSION_USER")
-					}
-				}
+				roleNames = append(roleNames, roleSpec.SqlString())
 			}
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
 
 	// Add SET TABLESPACE
-	parts = append(parts, "SET TABLESPACE", a.NewTablespacename)
+	parts = append(parts, "SET TABLESPACE", QuoteIdentifier(a.NewTablespacename))
 
 	// Add NOWAIT if specified
 	if a.Nowait {
@@ -3337,7 +3323,7 @@ func (i *IndexStmt) SqlString() string {
 
 	// Add access method if specified
 	if i.AccessMethod != "" {
-		parts = append(parts, "USING", i.AccessMethod)
+		parts = append(parts, "USING", QuoteIdentifier(i.AccessMethod))
 	}
 
 	// Add index columns
@@ -4119,7 +4105,7 @@ func (d *DropTableSpaceStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Tablespacename)
+	parts = append(parts, QuoteIdentifier(d.Tablespacename))
 
 	return strings.Join(parts, " ")
 }

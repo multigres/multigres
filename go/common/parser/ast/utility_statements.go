@@ -522,11 +522,7 @@ func (gs *GrantStmt) SqlString() string {
 		var objNames []string
 		for _, obj := range gs.Objects.Items {
 			if rangeVar, ok := obj.(*RangeVar); ok {
-				name := rangeVar.RelName
-				if rangeVar.SchemaName != "" {
-					name = rangeVar.SchemaName + "." + name
-				}
-				objNames = append(objNames, name)
+				objNames = append(objNames, FormatFullyQualifiedName(rangeVar.CatalogName, rangeVar.SchemaName, rangeVar.RelName))
 			} else if str, ok := obj.(*String); ok {
 				objNames = append(objNames, str.SVal)
 			} else if integer, ok := obj.(*Integer); ok {
@@ -597,14 +593,16 @@ func (grs *GrantRoleStmt) SqlString() string {
 		parts = append(parts, "REVOKE")
 	}
 
-	// Add role names
+	// Add role names. In GRANT ROLE, role names are parsed into RoleSpec or
+	// AccessPriv nodes — AccessPriv.PrivName here holds a role identifier (not a
+	// privilege keyword like SELECT), so it must be quoted as an identifier.
 	if grs.GrantedRoles != nil && len(grs.GrantedRoles.Items) > 0 {
 		var roleNames []string
 		for _, role := range grs.GrantedRoles.Items {
 			if roleSpec, ok := role.(*RoleSpec); ok {
-				roleNames = append(roleNames, roleSpec.Rolename)
+				roleNames = append(roleNames, roleSpec.SqlString())
 			} else if accessPriv, ok := role.(*AccessPriv); ok {
-				roleNames = append(roleNames, accessPriv.PrivName)
+				roleNames = append(roleNames, QuoteIdentifier(accessPriv.PrivName))
 			}
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
@@ -622,7 +620,7 @@ func (grs *GrantRoleStmt) SqlString() string {
 		var granteeNames []string
 		for _, grantee := range grs.GranteeRoles.Items {
 			if roleSpec, ok := grantee.(*RoleSpec); ok {
-				granteeNames = append(granteeNames, roleSpec.Rolename)
+				granteeNames = append(granteeNames, roleSpec.SqlString())
 			}
 		}
 		parts = append(parts, strings.Join(granteeNames, ", "))
@@ -2230,11 +2228,7 @@ func (cs *CopyStmt) SqlString() string {
 
 	if cs.Relation != nil {
 		// COPY table_name
-		if cs.Relation.SchemaName != "" {
-			parts = append(parts, cs.Relation.SchemaName+"."+cs.Relation.RelName)
-		} else {
-			parts = append(parts, cs.Relation.RelName)
-		}
+		parts = append(parts, FormatFullyQualifiedName(cs.Relation.CatalogName, cs.Relation.SchemaName, cs.Relation.RelName))
 
 		// Add column list if specified
 		if cs.Attlist != nil && cs.Attlist.Len() > 0 {
@@ -2457,10 +2451,7 @@ func (vs *VacuumStmt) SqlString() string {
 		for _, item := range vs.Rels.Items {
 			if rel, ok := item.(*VacuumRelation); ok {
 				if rel.Relation != nil {
-					relName := rel.Relation.RelName
-					if rel.Relation.SchemaName != "" {
-						relName = rel.Relation.SchemaName + "." + relName
-					}
+					relName := FormatFullyQualifiedName(rel.Relation.CatalogName, rel.Relation.SchemaName, rel.Relation.RelName)
 
 					// Add column list if present
 					if rel.VaCols != nil && rel.VaCols.Len() > 0 {
@@ -2745,7 +2736,7 @@ func (cs *ClusterStmt) SqlString() string {
 
 		// Add index specification if present
 		if cs.Indexname != "" {
-			parts = append(parts, "USING", cs.Indexname)
+			parts = append(parts, "USING", QuoteIdentifier(cs.Indexname))
 		}
 	}
 

@@ -65,7 +65,7 @@ func (c *CreateTableSpaceStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE TABLESPACE statement
 func (c *CreateTableSpaceStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE TABLESPACE", c.TablespaceName)
+	parts = append(parts, "CREATE TABLESPACE", QuoteIdentifier(c.TablespaceName))
 
 	if c.Owner != nil {
 		parts = append(parts, "OWNER", c.Owner.SqlString())
@@ -117,7 +117,7 @@ func (a *AlterTableSpaceStmt) StatementType() string {
 // SqlString returns the SQL representation of ALTER TABLESPACE statement
 func (a *AlterTableSpaceStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER TABLESPACE", a.TablespaceName)
+	parts = append(parts, "ALTER TABLESPACE", QuoteIdentifier(a.TablespaceName))
 
 	if a.Options != nil && a.Options.Len() > 0 {
 		optionStrs := make([]string, 0, a.Options.Len())

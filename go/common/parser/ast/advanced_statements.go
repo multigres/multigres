@@ -1298,7 +1298,7 @@ func (n *RenameStmt) SqlString() string {
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "ATTRIBUTE", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "ATTRIBUTE", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	default:
 		// Default rename: ALTER <type> old_name RENAME TO new_name
 		if n.Relation != nil {
@@ -1308,9 +1308,9 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		} else if n.Subname != "" {
 			// For DATABASE, SCHEMA, ROLE, etc., the old name might be in Subname
-			parts = append(parts, n.Subname)
+			parts = append(parts, QuoteIdentifier(n.Subname))
 		}
-		parts = append(parts, "RENAME", "TO", n.Newname)
+		parts = append(parts, "RENAME", "TO", QuoteIdentifier(n.Newname))
 	}
 
 	// Add CASCADE behavior if specified
