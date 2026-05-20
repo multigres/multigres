@@ -260,6 +260,7 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 		Password:             password,
 		PasswordSource:       passwordSource,
 		PasswordFile:         passwordFile,
+		InitdbArgs:           i.pgCtlCmd.pgInitdbArgs.Get(),
 		InitdbSQLFiles:       i.pgCtlCmd.pgInitdbSQLFiles.Get(),
 		InitdbSQLDirs:        i.pgCtlCmd.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),

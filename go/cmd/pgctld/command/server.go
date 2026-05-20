@@ -154,6 +154,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		Password:             password,
 		PasswordSource:       passwordSource,
 		PasswordFile:         passwordFile,
+		InitdbArgs:           s.pgCtlCmd.pgInitdbArgs.Get(),
 		InitdbSQLFiles:       s.pgCtlCmd.pgInitdbSQLFiles.Get(),
 		InitdbSQLDirs:        s.pgCtlCmd.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
