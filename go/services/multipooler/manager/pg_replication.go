@@ -550,32 +550,57 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Track the latest poll snapshot so a timeout has diagnostic detail without
+	// needing another query after the ctx has already expired.
+	var (
+		lastCount    int64 = -1 // -1 = not yet polled
+		lastStatus   string
+		lastConnInfo string
+	)
+
+	timedOut := func(cause error) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+		pm.logger.ErrorContext(ctx, "WAL receiver did not disconnect",
+			"cause", cause,
+			"last_receiver_count", lastCount,
+			"last_walreceiver_status", lastStatus,
+			"last_primary_conninfo", lastConnInfo)
+		if errors.Is(cause, context.DeadlineExceeded) {
+			return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+		}
+		return nil, mterrors.Wrap(cause, "context cancelled while waiting for WAL receiver to disconnect")
+	}
+
 	for {
 		select {
 		case <-waitCtx.Done():
-			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
-			}
-			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL receiver to disconnect")
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
+			return timedOut(waitCtx.Err())
 
 		case <-ticker.C:
-			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
-			result, err := pm.query(waitCtx, "SELECT COUNT(*) FROM pg_stat_wal_receiver")
+			// Re-check waitCtx before issuing a query: when waitCtx expires at the
+			// same tick boundary, select may pick this branch and the subsequent
+			// pm.query would surface an opaque "pool ctx expired" instead of the
+			// real timeout cause.
+			if err := waitCtx.Err(); err != nil {
+				return timedOut(err)
+			}
+
+			// Pull the count, the walreceiver status, and the live primary_conninfo
+			// in a single query so each poll is also a diagnostic snapshot.
+			result, err := pm.query(waitCtx, `SELECT
+				(SELECT COUNT(*) FROM pg_stat_wal_receiver),
+				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
+				current_setting('primary_conninfo')`)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
 				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
 			}
-
-			var receiverCount int64
-			if err := executor.ScanSingleRow(result, &receiverCount); err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan receiver count", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver count")
+			if err := executor.ScanSingleRow(result, &lastCount, &lastStatus, &lastConnInfo); err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to scan pg_stat_wal_receiver row", "error", err)
+				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
 			}
 
 			// Once receiver is disconnected, query final replication status
-			if receiverCount == 0 {
+			if lastCount == 0 {
 				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
 
 				// Get the final replication status
