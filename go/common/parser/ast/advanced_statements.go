@@ -498,7 +498,7 @@ func (n *InferClause) String() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -524,7 +524,7 @@ func (n *InferClause) SqlString() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -1283,7 +1283,7 @@ func (n *RenameStmt) SqlString() string {
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_DOMCONSTRAINT:
 		// Domain constraint rename: ALTER DOMAIN domain_name RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
@@ -1292,7 +1292,7 @@ func (n *RenameStmt) SqlString() string {
 			// Use the helper function to format domain name properly
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_ATTRIBUTE:
 		// Type attribute rename: ALTER TYPE type_name RENAME ATTRIBUTE old_name TO new_name
 		if n.Relation != nil {

@@ -1298,7 +1298,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_PRIMARY:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "PRIMARY KEY"
 		if c.Keys != nil && c.Keys.Len() > 0 {
@@ -1311,7 +1311,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_UNIQUE:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "UNIQUE"
 		if c.Keys != nil && c.Keys.Len() > 0 {
@@ -1324,7 +1324,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_CHECK:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "CHECK"
 		if c.RawExpr != nil {
@@ -1345,7 +1345,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_FOREIGN:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 
 		// For column-level constraints, don't include "FOREIGN KEY"
@@ -1428,7 +1428,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_EXCLUSION:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "EXCLUDE"
 
@@ -2074,7 +2074,7 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "ALTER CONSTRAINT")
 		if constraint, ok := a.Def.(*Constraint); ok && constraint != nil {
 			if constraint.Conname != "" {
-				parts = append(parts, constraint.Conname)
+				parts = append(parts, QuoteIdentifier(constraint.Conname))
 			}
 			// Add DEFERRABLE and INITIALLY DEFERRED attributes
 			if constraint.Deferrable {
@@ -2777,7 +2777,7 @@ func (a *AlterDomainStmt) SqlString() string {
 			parts = append(parts, "IF EXISTS")
 		}
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
@@ -2785,7 +2785,7 @@ func (a *AlterDomainStmt) SqlString() string {
 	case 'V': // VALIDATE CONSTRAINT
 		parts = append(parts, "VALIDATE CONSTRAINT")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 	}
 
