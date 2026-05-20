@@ -591,6 +591,12 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
 				current_setting('primary_conninfo')`)
 			if err != nil {
+				// If waitCtx expired between the pre-check and the Pool.Get
+				// ctx.Err() check, surface the cleaner timeout cause instead of
+				// an opaque "pool ctx expired" wrapper.
+				if waitErr := waitCtx.Err(); waitErr != nil {
+					return timedOut(waitErr)
+				}
 				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
 				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
 			}
