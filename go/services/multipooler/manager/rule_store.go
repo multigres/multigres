@@ -987,13 +987,13 @@ type priorRuleWritesDrainedKey struct{}
 
 // withPriorRuleWritesDrained returns a derived context carrying proof that any
 // in-flight rule writes from the previous action lock holder have been resolved.
-// Set by readCurrentRuleLocked; callers must not stamp the context themselves.
+// Called by readCurrentRuleLocked; callers must not stamp the context themselves.
 func withPriorRuleWritesDrained(ctx context.Context) context.Context {
 	return context.WithValue(ctx, priorRuleWritesDrainedKey{}, struct{}{})
 }
 
 // assertPriorRuleWritesDrained returns an error if the context does not carry
-// proof that prior rule writes have been drained. Set automatically by
+// proof that prior rule writes have been drained. Called automatically via
 // readCurrentRuleLocked; callers must not stamp the context themselves.
 func assertPriorRuleWritesDrained(ctx context.Context) error {
 	if _, ok := ctx.Value(priorRuleWritesDrainedKey{}).(struct{}); !ok {

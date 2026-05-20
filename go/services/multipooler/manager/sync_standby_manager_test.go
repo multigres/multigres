@@ -172,8 +172,7 @@ func TestClear_ReloadFails(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-	mockQS.AddQueryPatternOnce("SELECT pg_conf_load_time", mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00"}}))
-	mockQS.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+	expectReloadConfigFailure(mockQS, errors.New("reload failed"))
 
 	err := ssm.Clear(withTestActionLock(t))
 	require.Error(t, err)
@@ -195,6 +194,7 @@ func TestSetPolicy_NoEligibleStandbys(t *testing.T) {
 	err := ssm.SetPolicy(ctx, pc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no eligible standbys")
+	// No ALTER SYSTEM queries should have been issued.
 	assert.NoError(t, mockQS.ExpectationsWereMet())
 }
 
@@ -214,6 +214,23 @@ func TestSetPolicy_ComputeGUCFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "insufficient cohort members")
 }
 
+func TestSetPolicy_SetStandbyNamesFails(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
+	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("standby names rejected"))
+
+	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "standby names rejected")
+	require.NoError(t, mockQS.ExpectationsWereMet())
+
+	// Cache must still be empty so the next call re-applies.
+	assert.Empty(t, ssm.lastSyncCommit)
+	assert.Empty(t, ssm.lastStandbyNames)
+}
+
 func TestSetPolicy_ReloadFails(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	ssm := newTestSSM(mockQS)
@@ -230,22 +247,6 @@ func TestSetPolicy_ReloadFails(t *testing.T) {
 	// Cache must still be empty: the ALTER SYSTEM writes landed in
 	// postgresql.auto.conf but were never reloaded, so postmaster is still
 	// running the previous GUC values.
-	assert.Empty(t, ssm.lastSyncCommit)
-	assert.Empty(t, ssm.lastStandbyNames)
-}
-
-func TestSetPolicy_StandbyNamesError(t *testing.T) {
-	mockQS := mock.NewQueryService()
-	ssm := newTestSSM(mockQS)
-	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
-	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("disk full"))
-
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
-	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk full")
-	require.NoError(t, mockQS.ExpectationsWereMet())
-
 	assert.Empty(t, ssm.lastSyncCommit)
 	assert.Empty(t, ssm.lastStandbyNames)
 }
@@ -380,6 +381,18 @@ func TestNeedsApply_FallsBackToCacheOnQueryError(t *testing.T) {
 	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	assert.False(t, needs)
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
+func TestNeedsApply_TrueWhenCacheColdAndQueryFails(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	// Cache is cold (no prior write); postgres is unreachable so we can't
+	// detect drift directly. Cache != desired, so fallback returns true.
+	mockQS.AddQueryPatternOnceWithError("SELECT current_setting", errors.New("postgres down"))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.True(t, needs)
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 

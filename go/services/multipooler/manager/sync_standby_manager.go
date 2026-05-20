@@ -113,7 +113,18 @@ func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, meth
 }
 
 func (s *postgresqlSyncStandbyManager) reloadConfig(ctx context.Context) error {
-	return reloadPostgresConfig(ctx, s.logger, s.qs)
+	if err := reloadPostgresConfig(ctx, s.logger, s.qs); err != nil {
+		return err
+	}
+	// reloadPostgresConfig confirms postmaster has re-read the config, but pooled
+	// backends pick up SIGHUP asynchronously. Sleep briefly so the next WAL write
+	// is unlikely to land on a backend still using the old GUC values.
+	select {
+	case <-time.After(10 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
 }
 
 // computedGUC holds the GUC strings and the config needed to apply them.

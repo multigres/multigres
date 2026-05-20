@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -699,10 +700,6 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 	return nil
 }
 
-func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
-	return reloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
-}
-
 // reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via
 // ALTER SYSTEM, and waits for postmaster to finish re-reading the config files
 // before returning.
@@ -724,7 +721,7 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 // signal handler.
 func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.InternalQueryService) error {
 	if qs == nil {
-		return mterrors.New(mtrpcpb.Code_INTERNAL, "internal query service not available")
+		return errors.New("internal query service not available")
 	}
 
 	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -768,22 +765,17 @@ func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 			return mterrors.Wrap(err, "failed to scan pg_conf_load_time after reload")
 		}
 		if loadTimeAfter != loadTimeBefore {
-			// TODO: accept a verifier func(ctx) error parameter so callers can
-			// confirm their specific change is visible (e.g. poll a GUC value).
-			// For now, sleep briefly to give pooled backends time to act on the
-			// SIGHUP before the caller proceeds — postmaster having processed the
-			// reload is necessary but not sufficient for every backend to have seen
-			// the new config.
-			select {
-			case <-time.After(10 * time.Millisecond):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
 			return nil
 		}
 	}
 	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
 	return mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
+}
+
+// reloadPostgresConfig is a convenience wrapper around the package-level
+// reloadPostgresConfig helper bound to this manager's query service and logger.
+func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+	return reloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
