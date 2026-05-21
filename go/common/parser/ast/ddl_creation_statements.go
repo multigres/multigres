@@ -757,8 +757,13 @@ func (oci *CreateOpClassItem) SqlString() string {
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
 			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
 			nameStr = strings.ReplaceAll(nameStr, "INT", "int4")
-			// Add space before opening parenthesis
-			nameStr = strings.ReplaceAll(nameStr, "(", " (")
+			// Add a space between the operator name and the argument list,
+			// e.g. "=(int4, int4)" -> "= (int4, int4)". If there is no operator
+			// name (DROP OPERATOR), nameStr starts with "(" and we must not
+			// emit a leading space — that produces a double space when joined.
+			if !strings.HasPrefix(nameStr, "(") {
+				nameStr = strings.ReplaceAll(nameStr, "(", " (")
+			}
 		case OPCLASS_ITEM_FUNCTION:
 			// Fix type normalization in function arguments (order matters!)
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
