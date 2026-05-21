@@ -1717,9 +1717,9 @@ func (n *NamedArgExpr) String() string {
 func (n *NamedArgExpr) SqlString() string {
 	// Format as: name => value
 	if n.Arg != nil {
-		return fmt.Sprintf("%s => %s", n.Name, n.Arg.SqlString())
+		return fmt.Sprintf("%s => %s", QuoteIdentifier(n.Name), n.Arg.SqlString())
 	}
-	return n.Name + " => NULL"
+	return QuoteIdentifier(n.Name) + " => NULL"
 }
 
 // CaseTestExpr represents a CASE test expression

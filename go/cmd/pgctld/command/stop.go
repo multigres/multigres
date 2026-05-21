@@ -96,7 +96,19 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	password, _, _, err := s.pgCtlCmd.GetPostgresPassword()
+	if err != nil {
+		return err
+	}
+	config.Password = password
 
+	// Stop PostgreSQL and get detailed result information. We are using a
+	// password here because the CHECKPOINT command requires authentication,
+	// even if the stop command itself does not.
+	//
+	// TODO: Consider removing the CHECKPOINT command in the stop flow since
+	// it's not strictly necessary and adds complexity (requires password, can
+	// fail if PostgreSQL is already in a bad state, etc.)
 	result, err := StopPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, s.mode.Get())
 	if err != nil {
 		return err

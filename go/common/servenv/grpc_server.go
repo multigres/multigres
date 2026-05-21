@@ -430,6 +430,10 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 	// register reflection to support list calls :)
 	reflection.Register(g.Server)
 
+	// register the shared ServiceInfo service so every multigres process
+	// exposes build identity (revision, go version, etc.) on its gRPC port
+	registerServiceInfo(g.Server)
+
 	// register health service to support health checks
 	healthServer := health.NewServer()
 	healthpb.RegisterHealthServer(g.Server, healthServer)

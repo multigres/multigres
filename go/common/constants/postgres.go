@@ -31,6 +31,12 @@ const (
 	// PgPasswordEnvVar is the environment variable for the PostgreSQL password.
 	PgPasswordEnvVar = "POSTGRES_PASSWORD" //nolint:gosec // This is an env var name, not a credential
 
+	// PgPasswordFileEnvVar names an environment variable that points at a file
+	// containing the PostgreSQL password. Takes precedence over PgPasswordEnvVar
+	// when set. Matches the docker-library/postgres convention: the file holds
+	// the plaintext password, not a pre-hashed SCRAM verifier.
+	PgPasswordFileEnvVar = "POSTGRES_PASSWORD_FILE" //nolint:gosec // env var name, not a credential
+
 	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
 	PgDatabaseEnvVar = "POSTGRES_DB"
 

@@ -695,10 +695,11 @@ func (s *SelectStmt) SqlString() string {
 				// For WINDOW clause, format as "name AS (specification)"
 				if windowDef.Name != "" {
 					spec := windowDef.SqlStringForContext(true)
+					quotedName := QuoteIdentifier(windowDef.Name)
 					if spec != "" {
-						windowItems = append(windowItems, windowDef.Name+" AS ("+spec+")")
+						windowItems = append(windowItems, quotedName+" AS ("+spec+")")
 					} else {
-						windowItems = append(windowItems, windowDef.Name+" AS ()")
+						windowItems = append(windowItems, quotedName+" AS ()")
 					}
 				}
 			}
@@ -1721,7 +1722,7 @@ func (c *CreateStmt) SqlString() string {
 
 	// Add tablespace if specified
 	if c.TableSpaceName != "" {
-		parts = append(parts, "TABLESPACE", c.TableSpaceName)
+		parts = append(parts, "TABLESPACE", QuoteIdentifier(c.TableSpaceName))
 	}
 
 	return strings.Join(parts, " ")

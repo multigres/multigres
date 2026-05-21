@@ -16,6 +16,8 @@ package connpoolmanager
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -111,7 +113,11 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	// Verify getters return the default values (viperutil.Value returns defaults
 	// when no flags are parsed and no env vars are set).
 	assert.Equal(t, constants.DefaultPostgresUser, config.PgUser())
-	assert.Equal(t, "", config.PgPassword())
+	// Until ResolvePgPassword runs, PgPassword returns the zero value for
+	// both fields.
+	pw, source := config.PgPassword()
+	assert.Equal(t, "", pw)
+	assert.Equal(t, pwSourceNone, source)
 	assert.Equal(t, int64(5), config.AdminCapacity())
 
 	// Regular pool (capacity managed by rebalancer)
@@ -212,7 +218,10 @@ func TestConfig_ConnpoolAdminPassword_EnvVar(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 
-	assert.Equal(t, "connpool_pass", config.PgPassword())
+	require.NoError(t, config.ResolvePgPassword())
+	pw, source := config.PgPassword()
+	assert.Equal(t, "connpool_pass", pw)
+	assert.Equal(t, pwSourceEnv, source)
 }
 
 func TestConfig_ConnpoolAdminUser_TakesPrecedence(t *testing.T) {
@@ -238,7 +247,10 @@ func TestConfig_ConnpoolAdminPassword_TakesPrecedence(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 
-	assert.Equal(t, "connpool_pass", config.PgPassword())
+	require.NoError(t, config.ResolvePgPassword())
+	pw, source := config.PgPassword()
+	assert.Equal(t, "connpool_pass", pw)
+	assert.Equal(t, pwSourceEnv, source)
 }
 
 func TestConfig_PgPassword_EnvVar(t *testing.T) {
@@ -250,7 +262,155 @@ func TestConfig_PgPassword_EnvVar(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 
-	assert.Equal(t, "test-password", config.PgPassword())
+	require.NoError(t, config.ResolvePgPassword())
+	pw, source := config.PgPassword()
+	assert.Equal(t, "test-password", pw)
+	assert.Equal(t, pwSourceEnv, source)
+}
+
+// --- ResolvePgPassword edge cases ---
+
+// writePwFile is a small helper that creates a password file inside a fresh
+// temp dir and returns its path. Used by the empty-file / non-empty-file
+// fallthrough tests below.
+func writePwFile(t *testing.T, contents string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "postgres-password")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	return path
+}
+
+// Row 2a: file path set with non-empty path but the file's content is empty.
+// Resolver must surface a clear error and NOT silently fall through to env
+// even if env vars are set to something else.
+func TestResolvePgPassword_FileEmpty_Errors(t *testing.T) {
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
+	t.Setenv(constants.PgPasswordFileEnvVar, writePwFile(t, ""))
+	// Distinct env value so a regression that falls through surfaces
+	// immediately as a wrong source/value.
+	t.Setenv(constants.PgPasswordEnvVar, "from-env-should-be-ignored")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is empty")
+}
+
+// Row 2b: file path env var is explicitly set to the empty string. That's
+// "operator wrote POSTGRES_PASSWORD_FILE= in a manifest" — a deliberate
+// misconfiguration, not "unset". os.LookupEnv distinguishes the two.
+func TestResolvePgPassword_FilePathEnvSetEmpty_Errors(t *testing.T) {
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
+	t.Setenv(constants.PgPasswordFileEnvVar, "")
+	// Env value set to something so a regression would silently use it.
+	t.Setenv(constants.PgPasswordEnvVar, "from-env-should-be-ignored")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "file path is set to the empty string")
+}
+
+// Row 3: --connpool-admin-password flag set to a non-empty value, no file
+// path configured. Flag wins over any env var; source must be Option.
+func TestResolvePgPassword_OptionFlagSet_UsesOption(t *testing.T) {
+	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
+	// Set env vars to a distinct value to prove the flag dominates.
+	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "from-env-should-be-ignored")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+	require.NoError(t, fs.Set("connpool-admin-password", "from-flag"))
+
+	require.NoError(t, config.ResolvePgPassword())
+	pw, source := config.PgPassword()
+	assert.Equal(t, "from-flag", pw)
+	assert.Equal(t, pwSourceOption, source)
+}
+
+// Row 4: --connpool-admin-password flag explicitly set to the empty string.
+// Resolver must error even when env vars are set to a non-empty value.
+func TestResolvePgPassword_OptionFlagSetEmpty_Errors(t *testing.T) {
+	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
+	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "from-env-should-be-ignored")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+	require.NoError(t, fs.Set("connpool-admin-password", ""))
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--connpool-admin-password")
+	assert.Contains(t, err.Error(), "empty string")
+}
+
+// No source configured at all: file path unset, neither env var set. Both
+// branches fall through; Resolve must surface a clear "not configured" error
+// rather than silently leave the resolver with an empty cached password.
+func TestResolvePgPassword_NoSourceConfigured(t *testing.T) {
+	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
+	require.NoError(t, os.Unsetenv(constants.PgPasswordEnvVar))
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD"))
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "admin password not configured")
+}
+
+// POSTGRES_PASSWORD deliberately set to the empty string is a misconfiguration
+// (operator typed POSTGRES_PASSWORD= in a unit file or manifest). Distinct
+// from "unset" via os.LookupEnv; resolver must reject it explicitly.
+func TestResolvePgPassword_PostgresPasswordSetEmpty(t *testing.T) {
+	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD"))
+	t.Setenv(constants.PgPasswordEnvVar, "")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "POSTGRES_PASSWORD")
+	assert.Contains(t, err.Error(), "empty string")
+}
+
+// CONNPOOL_ADMIN_PASSWORD deliberately set to empty — same misconfiguration,
+// different env-var name.
+func TestResolvePgPassword_ConnpoolAdminPasswordSetEmpty(t *testing.T) {
+	require.NoError(t, os.Unsetenv(constants.PgPasswordEnvVar))
+	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	err := config.ResolvePgPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONNPOOL_ADMIN_PASSWORD")
+	assert.Contains(t, err.Error(), "empty string")
 }
 
 func TestConfig_PgUser_EnvVar(t *testing.T) {

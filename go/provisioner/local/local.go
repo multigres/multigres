@@ -810,16 +810,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
 
-	// Pass POSTGRES_PASSWORD so multipooler can authenticate to the admin pool.
-	// Source it from the same pgctld config block pgctld itself uses, so both
-	// services agree on the credential. Required: multipooler refuses to start
+	// Point multipooler at the password file pgctld already wrote (and is
+	// using itself). Both services agree on the credential because they
+	// resolve it from the same file. Required: multipooler refuses to start
 	// without it (pg_hba.conf uses scram-sha-256 for every connection).
-	pgPassword, ok := pgctldConfig["password"].(string)
-	if !ok || pgPassword == "" {
-		return nil, fmt.Errorf("pgctld password not configured for cell %s: set pg-password in the local provisioner config", cell)
-	}
 	multipoolerCmd.Env = append(os.Environ(),
-		"POSTGRES_PASSWORD="+pgPassword,
+		constants.PgPasswordFileEnvVar+"="+pgctldResult.PasswordFile,
 		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
 	)
 
@@ -879,6 +875,10 @@ type PgctldProvisionResult struct {
 	Address string
 	Port    int
 	LogFile string
+	// PasswordFile is the path to the postgres password file written under the
+	// pooler directory. Both pgctld (already running with POSTGRES_PASSWORD_FILE
+	// pointing here) and the multipooler in the same cell read from it.
+	PasswordFile string
 }
 
 // provisionMultiOrch provisions multi-orchestrator using local binary
