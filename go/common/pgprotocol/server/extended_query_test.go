@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -1366,4 +1367,174 @@ func TestDeferredDescribeErrorDiscardsTriggeringExecute(t *testing.T) {
 		"deferred Describe flush erroring inside handleExecute must abort "+
 			"the HandleExecute call — no RowDescription/DataRow/CommandComplete "+
 			"may appear between ErrorResponse and ReadyForQuery")
+}
+
+// TestDrainModeFlushPushesErrorWithoutReply covers the Flush branch of
+// maybeDispatchDrain. A client that issues `Parse(err) + Flush` (the
+// shape libpq uses to surface a Parse error without committing to a
+// Sync yet) must see the ErrorResponse on the wire after the Flush,
+// but no further reply frame from the Flush itself. The drain flag
+// stays set; the next Parse is still drained; Sync clears the flag.
+func TestDrainModeFlushPushesErrorWithoutReply(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Parse (errors).
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2))
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Flush — should push the buffered ErrorResponse without adding a frame.
+	readBuf.WriteByte(protocol.MsgFlush)
+	writeTestInt32(&readBuf, 4)
+
+	// Another Parse — must be drained, no reply.
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2))
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Sync — clears drain mode and emits RFQ.
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 4 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"Flush in drain mode must push buffered ErrorResponse but emit "+
+			"no reply of its own; subsequent Parse must drain; Sync ends "+
+			"drain mode with ReadyForQuery")
+	assert.False(t, conn.discardingUntilSync,
+		"drain flag must be cleared by Sync")
+}
+
+// TestDrainModeTruncatedStreamSurfacesError pins the I/O error paths
+// in maybeDispatchDrain (Flush) and drainExtendedQueryMessage (Bind):
+// if the wire is truncated mid-header, both must return a wrapped error
+// rather than crashing or silently advancing.
+func TestDrainModeTruncatedStreamSurfacesError(t *testing.T) {
+	t.Run("drained_message_missing_length", func(t *testing.T) {
+		var readBuf, writeBuf bytes.Buffer
+		handler := &testHandler{
+			parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+				return errors.New("parse failed")
+			},
+		}
+		conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+		// Parse (errors) — enters drain mode.
+		readBuf.WriteByte(protocol.MsgParse)
+		writeTestInt32(&readBuf, int32(4+1+1+2))
+		writeTestString(&readBuf, "")
+		writeTestString(&readBuf, "")
+		writeTestInt16(&readBuf, 0)
+
+		// Bind type byte with no length — truncated header.
+		readBuf.WriteByte(protocol.MsgBind)
+
+		conn.startWriterBuffering()
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err)
+		require.NoError(t, conn.handleMessage(msgType))
+		assert.True(t, conn.discardingUntilSync)
+
+		msgType, err = conn.ReadMessageType()
+		require.NoError(t, err)
+		err = conn.handleMessage(msgType)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read length while draining")
+	})
+
+	t.Run("drain_flush_missing_length", func(t *testing.T) {
+		var readBuf, writeBuf bytes.Buffer
+		handler := &testHandler{
+			parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+				return errors.New("parse failed")
+			},
+		}
+		conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+		// Parse (errors) — enters drain mode.
+		readBuf.WriteByte(protocol.MsgParse)
+		writeTestInt32(&readBuf, int32(4+1+1+2))
+		writeTestString(&readBuf, "")
+		writeTestString(&readBuf, "")
+		writeTestInt16(&readBuf, 0)
+
+		// Flush type byte with no length — truncated header.
+		readBuf.WriteByte(protocol.MsgFlush)
+
+		conn.startWriterBuffering()
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err)
+		require.NoError(t, conn.handleMessage(msgType))
+
+		msgType, err = conn.ReadMessageType()
+		require.NoError(t, err)
+		err = conn.handleMessage(msgType)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read Flush message length")
+	})
+}
+
+// TestDrainModeTerminateExits covers the Terminate branch of
+// maybeDispatchDrain. A client that errors during an extended-query
+// batch and then closes the connection (Parse(err) + Terminate) must
+// still see Terminate handled as connection teardown — the gate falls
+// through to handleMessage's normal Terminate dispatch (return io.EOF).
+func TestDrainModeTerminateExits(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Parse (errors).
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2))
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Terminate (no body).
+	readBuf.WriteByte(protocol.MsgTerminate)
+
+	conn.startWriterBuffering()
+
+	// Parse: writes ErrorResponse, enters drain mode.
+	msgType, err := conn.ReadMessageType()
+	require.NoError(t, err)
+	require.NoError(t, conn.handleMessage(msgType))
+	assert.True(t, conn.discardingUntilSync, "Parse error must enter drain mode")
+
+	// Terminate: must surface io.EOF so the serve() loop tears the
+	// connection down cleanly even from drain mode.
+	msgType, err = conn.ReadMessageType()
+	require.NoError(t, err)
+	require.Equal(t, byte(protocol.MsgTerminate), msgType)
+	require.ErrorIs(t, conn.handleMessage(msgType), io.EOF,
+		"Terminate in drain mode must return io.EOF, not silently drain")
 }

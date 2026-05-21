@@ -1394,17 +1394,15 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 // message body while the connection is in error-drain mode. The bytes
 // must still be consumed off the wire so the next ReadMessageType aligns
 // to the next message header — only the handler call and the reply
-// frame are suppressed.
+// frame are suppressed. readMessageBody handles zero-length bodies as a
+// no-op, so no special case is needed here.
 func (c *Conn) drainExtendedQueryMessage() error {
 	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
-		return fmt.Errorf("failed to read message length while draining: %w", err)
-	}
-	if bodyLen == 0 {
-		return nil
+		return fmt.Errorf("read length while draining: %w", err)
 	}
 	if _, err := c.readMessageBody(bodyLen); err != nil {
-		return fmt.Errorf("failed to read message body while draining: %w", err)
+		return fmt.Errorf("read body while draining: %w", err)
 	}
 	c.returnReadBuffer()
 	return nil
