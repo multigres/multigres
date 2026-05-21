@@ -216,6 +216,18 @@ type Conn struct {
 	deferredPortalDescribe     bool
 	deferredPortalDescribeName string
 
+	// discardingUntilSync is the extended-query error-recovery flag. Set
+	// when an ErrorResponse is emitted from any extended-query handler
+	// (Parse, Bind, Describe, Execute, Close); cleared when handleMessage
+	// observes Sync or Query (both flush boundaries). While set, every
+	// Parse/Bind/Describe/Execute/Close inbound message is read off the
+	// wire and silently discarded — no handler runs, no reply frame is
+	// emitted — matching PostgreSQL's "reads and discards messages until
+	// a Sync message is reached" rule. Without this gate, a CloseComplete
+	// (or ParseComplete, BindComplete, etc.) emitted after ErrorResponse
+	// in the same pipelined batch crashes strict drivers like Postgrex.
+	discardingUntilSync bool
+
 	// flushTimer is used for auto-flushing buffered writes.
 	flushTimer *time.Timer
 
@@ -742,11 +754,25 @@ func (c *Conn) serve() error {
 // other message (including a follow-up Describe of either type) flushes the
 // held state here first so the wire reply order matches what an unfused
 // Describe(P)+Execute would produce.
+//
+// Extended-query error recovery: once an ErrorResponse has been emitted in
+// the current batch, c.discardingUntilSync is set and every subsequent
+// Parse / Bind / Describe / Execute / Close is read off the wire and
+// discarded here without dispatching to a handler. Sync clears the flag
+// and proceeds to handleSync (which emits the ReadyForQuery the client is
+// waiting on). This matches PostgreSQL's documented behavior and prevents
+// the post-error frames (notably CloseComplete) that crash strict drivers.
 func (c *Conn) handleMessage(msgType byte) error {
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
+		return err
+	}
+
 	switch msgType {
 	case protocol.MsgExecute:
 		// handleExecute consumes the deferred describe directly (it folds
 		// it into the backend call rather than flushing it separately).
+		// handleExecute itself re-checks the drain flag after the
+		// fallback resolveDeferredPortalDescribe path.
 		return c.handleExecute()
 
 	case protocol.MsgTerminate:
@@ -757,6 +783,14 @@ func (c *Conn) handleMessage(msgType byte) error {
 	// Every other message must run after any pending portal describe is
 	// flushed so the wire stays well-formed.
 	if err := c.resolveDeferredPortalDescribe(); err != nil {
+		return err
+	}
+	// resolveDeferredPortalDescribe may have flushed via HandleDescribe
+	// and entered drain mode by emitting an ErrorResponse. In that case
+	// the inbound message that triggered the flush (Parse/Bind/Close/…)
+	// must also be discarded — otherwise its reply frame would land
+	// between ErrorResponse and ReadyForQuery and crash strict drivers.
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
 		return err
 	}
 
@@ -953,7 +987,7 @@ func (c *Conn) handleParse() error {
 		// (Describe, Sync) would corrupt the next query's response stream.
 		// The error packet stays buffered until Sync flushes the batch — same shape
 		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
-		return c.writeError(mterrors.MTD04.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD04.NewWithDetail(err.Error()))
 	}
 
 	// Send ParseComplete message. Stays buffered for the rest of the batch.
@@ -1039,7 +1073,7 @@ func (c *Conn) handleBind() error {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
 		// ReadyForQuery is sent only in response to Sync. The error packet
 		// stays buffered until Sync flushes the batch.
-		return c.writeError(mterrors.MTD05.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD05.NewWithDetail(err.Error()))
 	}
 
 	// Send BindComplete message. Stays buffered for the rest of the batch.
@@ -1098,6 +1132,13 @@ func (c *Conn) handleExecute() error {
 			if err := c.resolveDeferredPortalDescribe(); err != nil {
 				return err
 			}
+			// If the deferred Describe flush errored, we're now in
+			// drain mode. Don't run HandleExecute — its
+			// RowDescription / DataRow / CommandComplete frames
+			// would leak between ErrorResponse and ReadyForQuery.
+			if c.discardingUntilSync {
+				return nil
+			}
 		}
 	}
 
@@ -1155,7 +1196,7 @@ func (c *Conn) handleExecute() error {
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
-		return c.writeError(err)
+		return c.writeExtendedQueryError(err)
 	}
 
 	return nil
@@ -1215,7 +1256,7 @@ func (c *Conn) handleDescribe() error {
 	// Describe('P') was already flushed by handleMessage before this call.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		return c.writeError(mterrors.MTD06.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD06.NewWithDetail(err.Error()))
 	}
 
 	// Send ParameterDescription only for statement describes ('S').
@@ -1256,7 +1297,7 @@ func (c *Conn) resolveDeferredPortalDescribe() error {
 	c.deferredPortalDescribeName = ""
 	desc, err := c.handler.HandleDescribe(c.ctx, c, 'P', name)
 	if err != nil {
-		return c.writeError(mterrors.MTD06.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD06.NewWithDetail(err.Error()))
 	}
 	if desc != nil && desc.Fields != nil {
 		return c.writeRowDescription(desc.Fields)
@@ -1297,11 +1338,92 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		return c.writeError(mterrors.MTD07.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD07.NewWithDetail(err.Error()))
 	}
 
 	// Send CloseComplete. Stays buffered for the rest of the batch.
 	return c.writeMessage(protocol.MsgCloseComplete, nil)
+}
+
+// maybeDispatchDrain is the extended-query error-drain gate. When
+// c.discardingUntilSync is set it routes the current inbound message
+// without dispatching to its normal handler — Sync/Query clear the
+// flag and signal the caller to fall through, Flush flushes buffered
+// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
+// their bodies drained off the wire, and Terminate falls through to
+// the normal teardown.
+//
+// Returns (handled=true, err) when the message was absorbed here and
+// the caller should return immediately; (handled=false, nil) when the
+// caller should continue to its normal dispatch.
+//
+// Called twice from handleMessage — once at the top for messages that
+// arrive while drain mode is already set, and once again after
+// resolveDeferredPortalDescribe runs (which can itself enter drain
+// mode by flushing a failing deferred Describe).
+func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
+	if !c.discardingUntilSync {
+		return false, nil
+	}
+	switch msgType {
+	case protocol.MsgSync, protocol.MsgQuery:
+		// Flush boundaries — clear the flag and signal the caller to
+		// fall through so handleSync emits ReadyForQuery (or
+		// handleQuery runs a fresh simple-query exchange).
+		c.discardingUntilSync = false
+		return false, nil
+	case protocol.MsgTerminate:
+		// Connection teardown — fall through to normal dispatch.
+		return false, nil
+	case protocol.MsgFlush:
+		// Flush still pushes any buffered ErrorResponse to the client
+		// but writes no reply of its own. Mirror the length-consume +
+		// flush dance that handleMessage's MsgFlush branch does.
+		if _, err := c.ReadMessageLength(); err != nil {
+			return true, fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		return true, c.flush()
+	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
+		protocol.MsgExecute, protocol.MsgClose:
+		return true, c.drainExtendedQueryMessage()
+	}
+	return false, nil
+}
+
+// drainExtendedQueryMessage reads and discards a single extended-query
+// message body while the connection is in error-drain mode. The bytes
+// must still be consumed off the wire so the next ReadMessageType aligns
+// to the next message header — only the handler call and the reply
+// frame are suppressed. readMessageBody handles zero-length bodies as a
+// no-op, so no special case is needed here.
+func (c *Conn) drainExtendedQueryMessage() error {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
+		return fmt.Errorf("read length while draining: %w", err)
+	}
+	if _, err := c.readMessageBody(bodyLen); err != nil {
+		return fmt.Errorf("read body while draining: %w", err)
+	}
+	c.returnReadBuffer()
+	return nil
+}
+
+// writeExtendedQueryError writes an ErrorResponse and enters error-drain
+// mode. PostgreSQL's protocol spec requires that after an extended-query
+// message errors, the backend discards every subsequent message until
+// Sync and only then emits ReadyForQuery. Strict drivers (Postgrex, JDBC)
+// treat any frame between ErrorResponse and ReadyForQuery as protocol
+// corruption and drop the connection.
+//
+// Use this from any handler that processes an extended-query inbound
+// message (Parse, Bind, Describe, Execute, Close) when reporting an
+// error to the client. Do NOT use it from handleQuery (simple Query is
+// its own self-contained ErrorResponse + ReadyForQuery flow) or from
+// handleSync (Sync itself emits ReadyForQuery and is the boundary the
+// drain ends at).
+func (c *Conn) writeExtendedQueryError(err error) error {
+	c.discardingUntilSync = true
+	return c.writeError(err)
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
