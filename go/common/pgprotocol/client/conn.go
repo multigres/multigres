@@ -451,8 +451,16 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 			// Continue reading to get ReadyForQuery
 
 		case protocol.MsgErrorResponse:
-			// Parse error message
-			return "", 0, c.parseError(body)
+			// Parse the error, then drain the trailing ReadyForQuery so the
+			// connection is left in a clean state and is safe to return to the
+			// pool. Without this, the next operation on this socket would see
+			// the leftover RFQ as its first response and fail. waitForReadyForQuery
+			// also updates txnStatus from the RFQ payload, which we want even on
+			// the error path so callers can observe TxnStatusFailed when COPY
+			// finalization fails inside a transaction.
+			pgErr := c.parseError(body)
+			_ = c.waitForReadyForQuery(ctx)
+			return "", 0, pgErr
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices
@@ -461,6 +469,7 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 		case protocol.MsgReadyForQuery:
 			// End of response - if we got CommandComplete, return success
 			if gotCommandComplete {
+				c.txnStatus = protocol.TransactionStatus(body[0])
 				return commandTag, rowsAffected, nil
 			}
 			// Otherwise, we got ReadyForQuery without CommandComplete (error case)
