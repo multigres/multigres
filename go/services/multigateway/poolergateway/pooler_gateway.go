@@ -404,6 +404,8 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
@@ -418,7 +420,7 @@ func (pg *PoolerGateway) ConcludeTransaction(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals)
 }
 
 // DiscardTempTables implements queryservice.QueryService.

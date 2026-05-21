@@ -1223,9 +1223,26 @@ type ConcludeTransactionRequest struct {
 	// options must include reserved_connection_id to identify the connection
 	Options *query.ExecuteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
 	// conclusion specifies whether to COMMIT or ROLLBACK the transaction
-	Conclusion    TransactionConclusion `protobuf:"varint,4,opt,name=conclusion,proto3,enum=multipoolerservice.TransactionConclusion" json:"conclusion,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Conclusion TransactionConclusion `protobuf:"varint,4,opt,name=conclusion,proto3,enum=multipoolerservice.TransactionConclusion" json:"conclusion,omitempty"`
+	// release_portal_names lists `DECLARE … WITH HOLD` cursor names that
+	// PostgreSQL would close as part of this ROLLBACK — typically the
+	// cursors declared inside the explicit transaction block. Used so the
+	// multipooler unpins exactly those portals (matching PG's behavior)
+	// instead of dropping every pin via ReleaseAllPortals.
+	//
+	// Honored only when conclusion == ROLLBACK and release_all_portals is
+	// false. Ignored on COMMIT (PG keeps every WITH HOLD cursor across
+	// COMMIT, so no pin should be released).
+	ReleasePortalNames []string `protobuf:"bytes,5,rep,name=release_portal_names,json=releasePortalNames,proto3" json:"release_portal_names,omitempty"`
+	// release_all_portals, when true on a ROLLBACK conclusion, asks the
+	// multipooler to drop every portal pin on the reserved connection
+	// (`ReleaseAllPortals` semantics). When false, only the names listed
+	// in release_portal_names are released. Default true preserves the
+	// historical behavior so old gateway clients that do not yet compute
+	// the per-txn diff keep working.
+	ReleaseAllPortals bool `protobuf:"varint,6,opt,name=release_all_portals,json=releaseAllPortals,proto3" json:"release_all_portals,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ConcludeTransactionRequest) Reset() {
@@ -1284,6 +1301,20 @@ func (x *ConcludeTransactionRequest) GetConclusion() TransactionConclusion {
 		return x.Conclusion
 	}
 	return TransactionConclusion_TRANSACTION_CONCLUSION_UNSPECIFIED
+}
+
+func (x *ConcludeTransactionRequest) GetReleasePortalNames() []string {
+	if x != nil {
+		return x.ReleasePortalNames
+	}
+	return nil
+}
+
+func (x *ConcludeTransactionRequest) GetReleaseAllPortals() bool {
+	if x != nil {
+		return x.ReleaseAllPortals
+	}
+	return false
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.
@@ -1939,14 +1970,16 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x04DATA\x10\x01\x12\n" +
 	"\n" +
 	"\x06RESULT\x10\x02\x12\t\n" +
-	"\x05ERROR\x10\x03\"\xed\x01\n" +
+	"\x05ERROR\x10\x03\"\xcf\x02\n" +
 	"\x1aConcludeTransactionRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12I\n" +
 	"\n" +
 	"conclusion\x18\x04 \x01(\x0e2).multipoolerservice.TransactionConclusionR\n" +
-	"conclusion\"\x86\x01\n" +
+	"conclusion\x120\n" +
+	"\x14release_portal_names\x18\x05 \x03(\tR\x12releasePortalNames\x12.\n" +
+	"\x13release_all_portals\x18\x06 \x01(\bR\x11releaseAllPortals\"\x86\x01\n" +
 	"\x1bConcludeTransactionResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
 	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xa0\x01\n" +
