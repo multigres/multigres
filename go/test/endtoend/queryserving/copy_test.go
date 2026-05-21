@@ -647,7 +647,7 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 				// Trigger CopyReady to error on the existing reserved conn.
 				// "nonexistent_col" does not exist on the target relation, so
 				// PostgreSQL rejects the COPY at planning before entering
-				// CopyIn mode. The reserved conn (held by the transaction)
+				// copy-in mode. The reserved conn (held by the transaction)
 				// must NOT be torn down.
 				_, err = conn.Exec(ctx,
 					fmt.Sprintf("COPY %s (nonexistent_col) FROM STDIN", tableName))
@@ -662,7 +662,7 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 				_, err = conn.Exec(ctx, "ROLLBACK")
 				require.NoError(t, err, "ROLLBACK after COPY init error must succeed on the same conn")
 
-				// Confirm session is fully recovered and re-usable.
+				// Confirm session is fully recovered and reusable.
 				var x int
 				err = conn.QueryRow(ctx, "SELECT 1").Scan(&x)
 				require.NoError(t, err)
@@ -676,7 +676,7 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 			})
 
 			t.Run("COPY finalize failure inside transaction preserves reserved connection", func(t *testing.T) {
-				// Exercises the CopyFinalize error path: COPY enters CopyIn
+				// Exercises the CopyFinalize error path: COPY enters copy-in
 				// mode successfully, but a CHECK constraint violation aborts
 				// the COPY at CopyDone. Because a transaction reason still
 				// holds the reserved conn, the multipooler must not release
