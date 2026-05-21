@@ -1250,3 +1250,120 @@ func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 			"and emit only ReadyForQuery — any frame between Error and RFQ "+
 			"(notably CloseComplete) breaks strict clients like Postgrex/JDBC")
 }
+
+// TestDeferredDescribeErrorDiscardsTriggeringMessage covers a subtle
+// second path into drain mode: handleDescribe('P') defers; the next
+// inbound message (here, Bind) calls handleMessage → resolveDeferredPortalDescribe
+// → HandleDescribe fails → writeExtendedQueryError sets the drain flag
+// and returns nil. handleMessage's flag check at the top has already
+// run, so without a second check the triggering Bind still dispatches
+// to handleBind, which emits BindComplete after the just-buffered
+// ErrorResponse — the exact protocol violation the PR is fixing.
+//
+// Wire must be: ErrorResponse (from the deferred Describe), ReadyForQuery.
+// No BindComplete.
+func TestDeferredDescribeErrorDiscardsTriggeringMessage(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		describeFunc: func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+			return nil, errors.New("portal does not exist")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Describe('P', "missing") — deferred until the next non-Execute msg.
+	readBuf.WriteByte(protocol.MsgDescribe)
+	writeTestInt32(&readBuf, int32(4+1+len("missing")+1))
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, "missing")
+
+	// Bind — triggers resolveDeferredPortalDescribe, which fails.
+	readBuf.WriteByte(protocol.MsgBind)
+	writeTestInt32(&readBuf, int32(4+1+1+2+2+2)) // empty portal + empty stmt + 0/0/0 counts
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+	writeTestInt16(&readBuf, 0)
+	writeTestInt16(&readBuf, 0)
+
+	// Sync
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 3 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"when the deferred Describe flush emits ErrorResponse, the message "+
+			"that triggered the flush (Bind) must not also emit its own "+
+			"BindComplete — that frame would land between Error and RFQ")
+}
+
+// TestDeferredDescribeErrorDiscardsTriggeringExecute covers the same
+// gap inside handleExecute: Execute with a portal name that doesn't
+// match the deferred describe forces resolveDeferredPortalDescribe to
+// flush via HandleDescribe; if that fails and enters drain mode, the
+// subsequent HandleExecute call must not run — otherwise its
+// CommandComplete (or DataRow / RowDescription) frames leak after
+// ErrorResponse.
+func TestDeferredDescribeErrorDiscardsTriggeringExecute(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		describeFunc: func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+			return nil, errors.New("portal does not exist")
+		},
+		// HandleExecute default in testHandler emits a row — if the gate
+		// fails to suppress it, RowDescription/DataRow/CommandComplete
+		// will appear in the wire output.
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Describe('P', "deferred-name") — sets the deferred-describe state.
+	readBuf.WriteByte(protocol.MsgDescribe)
+	writeTestInt32(&readBuf, int32(4+1+len("deferred-name")+1))
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, "deferred-name")
+
+	// Execute("other-portal") — mismatched name, so the deferred describe
+	// flushes via the handler, which errors out.
+	readBuf.WriteByte(protocol.MsgExecute)
+	writeTestInt32(&readBuf, int32(4+len("other-portal")+1+4))
+	writeTestString(&readBuf, "other-portal")
+	writeTestInt32(&readBuf, 0)
+
+	// Sync
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 3 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"deferred Describe flush erroring inside handleExecute must abort "+
+			"the HandleExecute call — no RowDescription/DataRow/CommandComplete "+
+			"may appear between ErrorResponse and ReadyForQuery")
+}

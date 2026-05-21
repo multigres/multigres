@@ -763,34 +763,16 @@ func (c *Conn) serve() error {
 // waiting on). This matches PostgreSQL's documented behavior and prevents
 // the post-error frames (notably CloseComplete) that crash strict drivers.
 func (c *Conn) handleMessage(msgType byte) error {
-	if c.discardingUntilSync {
-		switch msgType {
-		case protocol.MsgSync, protocol.MsgQuery:
-			// Flush boundaries — clear the flag and fall through to
-			// normal dispatch so handleSync emits ReadyForQuery (or
-			// handleQuery runs a fresh simple-query exchange).
-			c.discardingUntilSync = false
-		case protocol.MsgTerminate:
-			// Connection teardown — fall through to normal dispatch.
-		case protocol.MsgFlush:
-			// Flush still pushes any buffered ErrorResponse to the
-			// client, but writes no reply of its own. Mirror the
-			// length-consume + flush dance that handleMessage's
-			// MsgFlush branch does below.
-			if _, err := c.ReadMessageLength(); err != nil {
-				return fmt.Errorf("failed to read Flush message length: %w", err)
-			}
-			return c.flush()
-		case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
-			protocol.MsgExecute, protocol.MsgClose:
-			return c.drainExtendedQueryMessage()
-		}
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
+		return err
 	}
 
 	switch msgType {
 	case protocol.MsgExecute:
 		// handleExecute consumes the deferred describe directly (it folds
 		// it into the backend call rather than flushing it separately).
+		// handleExecute itself re-checks the drain flag after the
+		// fallback resolveDeferredPortalDescribe path.
 		return c.handleExecute()
 
 	case protocol.MsgTerminate:
@@ -801,6 +783,14 @@ func (c *Conn) handleMessage(msgType byte) error {
 	// Every other message must run after any pending portal describe is
 	// flushed so the wire stays well-formed.
 	if err := c.resolveDeferredPortalDescribe(); err != nil {
+		return err
+	}
+	// resolveDeferredPortalDescribe may have flushed via HandleDescribe
+	// and entered drain mode by emitting an ErrorResponse. In that case
+	// the inbound message that triggered the flush (Parse/Bind/Close/…)
+	// must also be discarded — otherwise its reply frame would land
+	// between ErrorResponse and ReadyForQuery and crash strict drivers.
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
 		return err
 	}
 
@@ -1142,6 +1132,13 @@ func (c *Conn) handleExecute() error {
 			if err := c.resolveDeferredPortalDescribe(); err != nil {
 				return err
 			}
+			// If the deferred Describe flush errored, we're now in
+			// drain mode. Don't run HandleExecute — its
+			// RowDescription / DataRow / CommandComplete frames
+			// would leak between ErrorResponse and ReadyForQuery.
+			if c.discardingUntilSync {
+				return nil
+			}
 		}
 	}
 
@@ -1346,6 +1343,51 @@ func (c *Conn) handleClose() error {
 
 	// Send CloseComplete. Stays buffered for the rest of the batch.
 	return c.writeMessage(protocol.MsgCloseComplete, nil)
+}
+
+// maybeDispatchDrain is the extended-query error-drain gate. When
+// c.discardingUntilSync is set it routes the current inbound message
+// without dispatching to its normal handler — Sync/Query clear the
+// flag and signal the caller to fall through, Flush flushes buffered
+// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
+// their bodies drained off the wire, and Terminate falls through to
+// the normal teardown.
+//
+// Returns (handled=true, err) when the message was absorbed here and
+// the caller should return immediately; (handled=false, nil) when the
+// caller should continue to its normal dispatch.
+//
+// Called twice from handleMessage — once at the top for messages that
+// arrive while drain mode is already set, and once again after
+// resolveDeferredPortalDescribe runs (which can itself enter drain
+// mode by flushing a failing deferred Describe).
+func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
+	if !c.discardingUntilSync {
+		return false, nil
+	}
+	switch msgType {
+	case protocol.MsgSync, protocol.MsgQuery:
+		// Flush boundaries — clear the flag and signal the caller to
+		// fall through so handleSync emits ReadyForQuery (or
+		// handleQuery runs a fresh simple-query exchange).
+		c.discardingUntilSync = false
+		return false, nil
+	case protocol.MsgTerminate:
+		// Connection teardown — fall through to normal dispatch.
+		return false, nil
+	case protocol.MsgFlush:
+		// Flush still pushes any buffered ErrorResponse to the client
+		// but writes no reply of its own. Mirror the length-consume +
+		// flush dance that handleMessage's MsgFlush branch does.
+		if _, err := c.ReadMessageLength(); err != nil {
+			return true, fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		return true, c.flush()
+	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
+		protocol.MsgExecute, protocol.MsgClose:
+		return true, c.drainExtendedQueryMessage()
+	}
+	return false, nil
 }
 
 // drainExtendedQueryMessage reads and discards a single extended-query
