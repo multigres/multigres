@@ -155,6 +155,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		PasswordSource:       passwordSource,
 		PasswordFile:         passwordFile,
 		InitdbSQLFiles:       s.pgCtlCmd.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:        s.pgCtlCmd.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 
@@ -260,6 +261,7 @@ type PgCtldServiceConfig struct {
 	PasswordFile         string
 	InitdbArgs           string
 	InitdbSQLFiles       []string
+	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
 }
 

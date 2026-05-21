@@ -414,7 +414,7 @@ func TestResolvePgPassword_ConnpoolAdminPasswordSetEmpty(t *testing.T) {
 }
 
 func TestConfig_PgUser_EnvVar(t *testing.T) {
-	t.Setenv(constants.PgUserEnvVar, "supabase_admin")
+	t.Setenv(constants.PgUserEnvVar, "multigres")
 
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
@@ -422,5 +422,5 @@ func TestConfig_PgUser_EnvVar(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 
-	assert.Equal(t, "supabase_admin", config.PgUser())
+	assert.Equal(t, "multigres", config.PgUser())
 }

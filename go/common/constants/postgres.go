@@ -50,6 +50,10 @@ const (
 	// Multiple files are comma-separated.
 	PgInitdbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
 
+	// PgInitdbSQLDirsEnvVar is the environment variable for init SQL dirs to run after initdb.
+	// Multiple entries are comma-separated, each in role:path format.
+	PgInitdbSQLDirsEnvVar = "POSTGRES_INITDB_SQL_DIRS"
+
 	// PgInitdbExtraConfEnvVar is the environment variable for extra postgresql.conf
 	// files appended verbatim onto the generated config at init time.
 	// Multiple files are comma-separated. Postgres applies last-write-wins, so
