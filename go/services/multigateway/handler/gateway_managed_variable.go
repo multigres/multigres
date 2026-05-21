@@ -14,6 +14,25 @@
 
 package handler
 
+// gmvLifecycle is the non-generic subset of GatewayManagedVariable[T] needed by
+// MultiGatewayConnectionState to drive savepoint / transaction lifecycle in a
+// type-agnostic way. Every GatewayManagedVariable[T] satisfies this interface
+// via pointer receiver, so the connection-state registry can iterate a single
+// []gmvLifecycle instead of naming each typed field explicitly.
+//
+// Adding a new gateway-managed variable requires only:
+//  1. Declaring a `GatewayManagedVariable[T]` field on MultiGatewayConnectionState.
+//  2. Registering &field in the gmvs slice in NewMultiGatewayConnectionState.
+//
+// All snapshot/restore/reset behavior is then inherited automatically.
+type gmvLifecycle interface {
+	Snapshot()
+	RestoreFromDepth(int)
+	PopFrom(int)
+	ClearSnapshots()
+	ResetLocal()
+}
+
 // GatewayManagedVariable holds a variable with three priority layers matching
 // PostgreSQL's GUC semantics:
 //

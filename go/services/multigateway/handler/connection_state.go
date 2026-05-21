@@ -107,20 +107,37 @@ type MultiGatewayConnectionState struct {
 	// Parsed at SET time to avoid repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
 
+	// applicationName is the session-level application_name override set via
+	// SET application_name. Managed entirely by the gateway and NOT forwarded
+	// to PostgreSQL — the multipooler keeps stamping `multigres_vpid:<id>` on
+	// the backend application_name for lock detection, while SHOW and the
+	// gateway-tracked session state expose the client-supplied value.
+	// The default is initialized from the application_name startup parameter
+	// (if present) or the PostgreSQL default (empty string).
+	// Note: `current_setting('application_name')` inside arbitrary SQL still
+	// returns the multipooler stamp; full transparency would require AST-level
+	// rewriting and is out of scope.
+	applicationName GatewayManagedVariable[string]
+
+	// gmvs is the registry of every gateway-managed variable on this struct.
+	// Lifecycle methods (pushFrameLocked, ReleaseSavepoint, RollbackToSavepoint,
+	// BeginTransaction, CommitTransaction, RollbackTransaction, ResetAllLocalGUCs)
+	// iterate this registry to keep all variables' snapshot stacks in lockstep
+	// with savepoints. Populated once in NewMultiGatewayConnectionState; entries
+	// hold pointers to the addressable field values, so reassigning a variable
+	// via Init* does not invalidate the registry.
+	gmvs []gmvLifecycle
+
 	// savepoints is the stack of per-savepoint snapshots driving GUC revert
 	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings;
 	// gateway-managed variables maintain parallel snapshot stacks of equal depth
 	// (lockstep invariant). Index 0, when present, is the BEGIN-level frame
 	// (name=""); indices 1+ correspond to user SAVEPOINTs.
 	//
-	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct (e.g.
-	// statementTimeout) must be wired into all six lifecycle methods —
-	// pushFrameLocked, ReleaseSavepoint, RollbackToSavepoint, BeginTransaction,
-	// CommitTransaction, RollbackTransaction — or revert semantics break for
-	// the missing variable. When a second GMV is added, refactor to a
-	// non-generic `gmvLifecycle` interface ({Snapshot, RestoreFromDepth(int),
-	// PopFrom(int), ClearSnapshots}) and iterate a `[]gmvLifecycle` registry
-	// instead of naming each variable explicitly.
+	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct must
+	// implement gmvLifecycle and be registered in the gmvs slice at construction
+	// time (see NewMultiGatewayConnectionState). Lifecycle methods iterate the
+	// registry instead of naming each variable explicitly.
 	savepoints []savepointFrame
 
 	// targetReplica is true when this connection arrived on the replica-reads
@@ -147,11 +164,15 @@ type ShardState struct {
 }
 
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
+// The gmvs registry holds pointers to each gateway-managed variable field so
+// lifecycle methods can drive all of them in lockstep with a single loop.
 func NewMultiGatewayConnectionState() *MultiGatewayConnectionState {
-	return &MultiGatewayConnectionState{
+	s := &MultiGatewayConnectionState{
 		mu:      sync.Mutex{},
 		Portals: make(map[string]*preparedstatement.PortalInfo),
 	}
+	s.gmvs = []gmvLifecycle{&s.statementTimeout, &s.applicationName}
+	return s
 }
 
 // StorePortalInfo stores the portal information.
@@ -305,7 +326,9 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statementTimeout.ResetLocal()
+	for _, v := range m.gmvs {
+		v.ResetLocal()
+	}
 }
 
 // snapshotSessionSettingsLocked returns a copy of SessionSettings (or nil if
@@ -339,7 +362,9 @@ func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
 		name:            name,
 		sessionSettings: m.snapshotSessionSettingsLocked(),
 	})
-	m.statementTimeout.Snapshot()
+	for _, v := range m.gmvs {
+		v.Snapshot()
+	}
 }
 
 // BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
@@ -356,7 +381,9 @@ func (m *MultiGatewayConnectionState) BeginTransaction() {
 		return
 	}
 	m.savepoints = m.savepoints[:0]
-	m.statementTimeout.ClearSnapshots()
+	for _, v := range m.gmvs {
+		v.ClearSnapshots()
+	}
 	m.pushFrameLocked("")
 }
 
@@ -381,7 +408,9 @@ func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
 		return
 	}
 	m.savepoints = m.savepoints[:idx]
-	m.statementTimeout.PopFrom(idx)
+	for _, v := range m.gmvs {
+		v.PopFrom(idx)
+	}
 }
 
 // RollbackToSavepoint restores SessionSettings and every gateway-managed
@@ -402,7 +431,9 @@ func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
 	}
 	m.savepoints = m.savepoints[:idx+1]
-	m.statementTimeout.RestoreFromDepth(idx)
+	for _, v := range m.gmvs {
+		v.RestoreFromDepth(idx)
+	}
 }
 
 // CommitTransaction drops all savepoint frames (current values become
@@ -412,8 +443,10 @@ func (m *MultiGatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.savepoints = nil
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, v := range m.gmvs {
+		v.ClearSnapshots()
+		v.ResetLocal()
+	}
 }
 
 // RollbackTransaction reverts all SET / RESET commands issued inside the
@@ -424,7 +457,9 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.savepoints) == 0 {
-		m.statementTimeout.ResetLocal()
+		for _, v := range m.gmvs {
+			v.ResetLocal()
+		}
 		return
 	}
 	m.SessionSettings = nil
@@ -432,9 +467,11 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
 	}
-	m.statementTimeout.RestoreFromDepth(0)
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, v := range m.gmvs {
+		v.RestoreFromDepth(0)
+		v.ClearSnapshots()
+		v.ResetLocal()
+	}
 	m.savepoints = nil
 }
 
@@ -470,6 +507,69 @@ func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Dur
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// SetApplicationName sets the session-level application_name override.
+func (m *MultiGatewayConnectionState) SetApplicationName(v string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applicationName.Set(v)
+}
+
+// ResetApplicationName clears both the session-level override and any active
+// transaction-local override, reverting to the default (from startup params or
+// the PostgreSQL default of empty string). Matches PostgreSQL: RESET inside a
+// transaction with a prior SET LOCAL supersedes the LOCAL — effective value
+// becomes the default.
+func (m *MultiGatewayConnectionState) ResetApplicationName() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applicationName.Reset()
+}
+
+// SetLocalApplicationName stores a transaction-local application_name override
+// (from SET LOCAL application_name). Cleared on COMMIT/ROLLBACK via
+// ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalApplicationName(v string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applicationName.SetLocal(v)
+}
+
+// SetLocalApplicationNameToDefault installs a transaction-local override equal
+// to the connection default (from SET LOCAL application_name TO DEFAULT). This
+// masks any session-level override for the duration of the transaction without
+// destroying it; the session value is restored on COMMIT/ROLLBACK via
+// ResetAllLocalGUCs.
+func (m *MultiGatewayConnectionState) SetLocalApplicationNameToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applicationName.SetLocalToDefault()
+}
+
+// GetApplicationName returns the effective application_name:
+// transaction-local override if set, else session override, else default.
+func (m *MultiGatewayConnectionState) GetApplicationName() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applicationName.GetEffective()
+}
+
+// ShowApplicationName returns the effective application_name for SHOW output.
+// PostgreSQL's SHOW returns the raw string value; no formatting is applied.
+func (m *MultiGatewayConnectionState) ShowApplicationName() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applicationName.GetEffective()
+}
+
+// InitApplicationName sets the default for the application_name variable.
+// Called once during connection initialization with the value from the
+// application_name startup parameter (if present) or "" (PostgreSQL default).
+func (m *MultiGatewayConnectionState) InitApplicationName(defaultValue string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applicationName = NewGatewayManagedVariable(defaultValue)
 }
 
 // TargetReplica returns true if this connection targets a replica.

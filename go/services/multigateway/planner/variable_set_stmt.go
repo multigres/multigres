@@ -108,7 +108,7 @@ func (p *Planner) planVariableSetStmt(
 // them to PostgreSQL would be redundant or counterproductive for connection pooling.
 func isGatewayManagedVariable(name string) bool {
 	switch strings.ToLower(name) {
-	case "statement_timeout":
+	case "statement_timeout", "application_name":
 		return true
 	default:
 		return false
@@ -136,6 +136,13 @@ func (p *Planner) planGatewayManagedVariable(
 			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
 				"value", value, "parsed", d, "is_local", stmt.IsLocal)
 			return engine.NewStatementTimeoutSet(sql, d, stmt.IsLocal), nil
+		case "application_name":
+			// application_name has no parser-level validation in PostgreSQL —
+			// any string is accepted (length is implicitly bounded by GUC
+			// buffer sizes). Pass the extracted value through verbatim.
+			p.logger.Debug("planning SET application_name (gateway-managed)",
+				"value", value, "is_local", stmt.IsLocal)
+			return engine.NewApplicationNameSet(sql, value, stmt.IsLocal), nil
 		default:
 			return nil, mterrors.NewUnrecognizedParameter(name)
 		}

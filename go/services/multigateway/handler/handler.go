@@ -341,6 +341,21 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+
+		// application_name is gateway-managed: the multipooler stamps
+		// `multigres_vpid:<id>` on the backend's application_name for lock
+		// detection, so the gateway owns the client-visible value (SHOW,
+		// SET, RESET). Default comes from the startup parameter if present;
+		// otherwise the PostgreSQL default (empty string). Remove from
+		// StartupParams so it is not forwarded to PostgreSQL — the multipooler
+		// stamping is authoritative on the wire.
+		appNameDefault := ""
+		if v, ok := newState.StartupParams["application_name"]; ok {
+			appNameDefault = v
+			delete(newState.StartupParams, "application_name")
+		}
+		newState.InitApplicationName(appNameDefault)
+
 		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{
