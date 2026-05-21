@@ -1500,6 +1500,30 @@ func TestPauseReplication(t *testing.T) {
 			errorContains: "failed to query pg_stat_wal_receiver",
 		},
 		{
+			// count > 0 but status=waiting with empty primary_conninfo should be
+			// treated as effectively disconnected: the walreceiver can't transition
+			// out of WAITING without a non-empty primary_conninfo, and we hold the
+			// action lock so nothing else can repopulate it.
+			name: "PauseReceiverOnly accepts WALRCV_WAITING+empty primary_conninfo as disconnected",
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+			wait: true,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult(
+					[]string{"count", "status", "primary_conninfo"},
+					[][]any{{int64(1), "waiting", ""}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/6000000", "", "f", "not paused", "2025-01-15 13:00:00+00", "", "waiting", nil, nil, nil}}))
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
+				assert.Equal(t, "0/6000000", status.LastReplayLsn)
+			},
+		},
+		{
 			name: "PauseReplayAndReceiver fails on pause",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
