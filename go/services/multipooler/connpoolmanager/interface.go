@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
@@ -109,6 +110,20 @@ type PoolManager interface {
 
 	// Stats returns statistics for all pools.
 	Stats() ManagerStats
+
+	// CredentialQueryRecorder returns a narrow recorder for auth-path
+	// observations made by the gRPC service. May return nil when the
+	// manager is unopened or metric init failed; the underlying *Metrics
+	// receiver is nil-safe, so callers can treat nil as the noop sink.
+	CredentialQueryRecorder() CredentialQueryRecorder
+}
+
+// CredentialQueryRecorder records credential-query latency and error-type
+// labels. Implemented by *Metrics; declared as an interface so callers
+// (e.g. grpcpoolerservice) do not couple to the full pool-manager metrics
+// surface.
+type CredentialQueryRecorder interface {
+	RecordCredentialQuery(ctx context.Context, d time.Duration, errorType string)
 }
 
 // Compile-time check that Manager implements PoolManager.

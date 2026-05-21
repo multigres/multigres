@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
@@ -179,12 +181,28 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
 	}
 
+	// Time the full credential-query path (admin acquire + pg_authid
+	// lookup + decode) for mg.pooler.auth.credential_query.duration so
+	// admin-pool contention shows up before it cascades into
+	// gateway-visible auth latency. The duration is recorded on every
+	// exit, error or not; the error counter only fires on failures so
+	// the success rate is implicit.
+	recorder := poolManager.CredentialQueryRecorder()
+	start := time.Now()
+	var errorType string
+	defer func() {
+		if recorder != nil {
+			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
+		}
+	}()
+
 	// An admin connection:
 	// - has permission to read password hashes
 	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
 	//   to figure out if the caller should have access to that role-specific connection.
 	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
+		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
 		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
 	}
 	defer conn.Recycle()
@@ -195,6 +213,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
+			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 		case errors.Is(err, admin.ErrLoginDisabled):
 			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
@@ -203,6 +222,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// codes.Unauthenticated for transport failures; keying on code
 			// alone would misclassify an mTLS or authz error as an app-level
 			// "role not permitted to log in" rejection to the end user.
+			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSInvalidAuthSpec,
 				fmt.Sprintf("role %q is not permitted to log in", req.Username),
@@ -212,12 +232,18 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// SQLSTATE 28P01 matches PG's opaque "password authentication
 			// failed" error for expired passwords. PgDiagnostic detail
 			// survives the gRPC round trip and the gateway matches on it.
+			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSAuthFailed,
 				fmt.Sprintf("password authentication failed for user %q", req.Username),
 				"",
 			))
 		default:
+			// Genuine DB-level failure (SQL error, unexpected result shape,
+			// connection drop mid-query). Tagged db_error so operators can
+			// alert on it without false positives from the user_not_found
+			// baseline.
+			errorType = connpoolmanager.CredentialQueryErrorDB
 			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
 	}

@@ -133,6 +133,12 @@ type Conn struct {
 	// listener at accept time. Cancel requests bypass this check.
 	requireTLS bool
 
+	// authMetrics receives auth- and TLS-path metric events for this
+	// connection. Never nil — a noop is substituted at listener
+	// construction when the caller did not supply one — so startup-phase
+	// code can call methods unconditionally.
+	authMetrics AuthMetricsRecorder
+
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool
