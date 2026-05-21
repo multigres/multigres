@@ -10,6 +10,9 @@ Prerequisites
 Step 1: Build Docker images
 
 Build the multigres images before starting (from the repo root — the scripts assume they already exist in your local Docker daemon).
+```
+make images
+```
 
 Step 2: Create a data/ directory
 
