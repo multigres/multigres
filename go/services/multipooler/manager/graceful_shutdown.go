@@ -78,7 +78,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// --connpool-drain-grace-period). Best-effort: a failure here is logged but
 	// doesn't block the rest of shutdown.
 	if pm.servingState != nil {
-		if err := pm.servingState.SetState(lockCtx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
 				"error", err)
 		}

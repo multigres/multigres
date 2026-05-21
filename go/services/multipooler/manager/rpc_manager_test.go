@@ -355,14 +355,12 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Update the pooler type if needed for this test
 			if tt.poolerType != multipooler.Type {
-				updatedMultipooler, err := ts.UpdateMultiPoolerFields(ctx, serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+				_, err := ts.UpdateMultiPoolerFields(ctx, serviceID, func(mp *clustermetadatapb.MultiPooler) error {
 					mp.Type = tt.poolerType
 					return nil
 				})
 				require.NoError(t, err)
-				manager.mu.Lock()
-				manager.multipooler = updatedMultipooler
-				manager.mu.Unlock()
+				setPoolerTypeForTest(t, manager, tt.poolerType)
 			}
 
 			// Hold the lock for 2 seconds
@@ -508,7 +506,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 
 	// Topology is still REPLICA (this is what the guard rail checks)
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Call Promote - should detect PG is already promoted and only update topology
@@ -521,7 +519,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 
 	// Verify topology was updated
 	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type, "Topology should be updated to PRIMARY")
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type(), "Topology should be updated to PRIMARY")
 	pm.mu.Unlock()
 	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -552,7 +550,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 
 	// Topology is already PRIMARY
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
 	pm.mu.Unlock()
 
 	// Call Promote - should succeed with WasAlreadyPrimary=true (idempotent)
@@ -585,7 +583,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
 	pm.mu.Unlock()
 
 	// Call Promote without force - should fail with inconsistent state error
@@ -638,7 +636,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
 	pm.mu.Unlock()
 
 	// Call Promote with force=true - should fix the inconsistency
@@ -695,7 +693,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 
 	// Topology is REPLICA
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Call Promote - should execute all steps
@@ -707,7 +705,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 
 	// Verify topology was updated
 	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	pm.mu.Unlock()
 	fakeRules.assertPromoteRecorded(t)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -731,7 +729,7 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
 
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Call Promote with different expected LSN - should fail
@@ -804,7 +802,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// First call
@@ -814,7 +812,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 
 	// Verify topology was updated to PRIMARY
 	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	pm.mu.Unlock()
 	fakeRules.assertPromoteRecorded(t)
 
@@ -860,7 +858,7 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
 
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Call Promote with empty expectedLSN - should skip LSN validation
@@ -910,7 +908,7 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 
 	// Topology is REPLICA
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Call Promote with election metadata
@@ -935,7 +933,7 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 
 	// Verify topology was updated
 	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	pm.mu.Unlock()
 
 	update := fakeRules.assertPromoteRecorded(t)
@@ -985,7 +983,7 @@ func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
 
 	// Topology is REPLICA
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
 	pm.mu.Unlock()
 
 	// Verify primary_term is 0 before promotion
@@ -1131,7 +1129,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	// Local state should still be updated to PRIMARY
 	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	pm.mu.Unlock()
 
 	// Verify health streamer has primary observation with self as primary

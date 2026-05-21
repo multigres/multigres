@@ -1132,6 +1132,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			pm.Start(senv)
+			pm.StartTopoRegistration(func(string) {}) // start publisher; in production this fires from senv.OnRun
 			require.Eventually(t, func() bool {
 				return pm.GetState() == ManagerStateReady
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")

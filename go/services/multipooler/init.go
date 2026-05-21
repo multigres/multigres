@@ -20,19 +20,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
-	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/services/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/services/multipooler/manager"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -70,9 +71,9 @@ type MultiPooler struct {
 	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
-	ts           topoclient.Store
-	tr           *toporeg.TopoReg
-	serverStatus Status
+	ts            topoclient.Store
+	poolerManager *manager.MultiPoolerManager
+	serverStatus  Status
 }
 
 func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
@@ -346,46 +347,27 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 
-	mp.senv.OnRun(
-		func() {
-			registerFunc := func(ctx context.Context) error {
-				return mp.ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
-			}
-			// For poolers, we don't un-register them on shutdown (they are persistent component)
-			// If they are actually deleted, they need to be cleaned up outside the lifecycle of starting / stopping.
-			unregisterFunc := func(ctx context.Context) error {
-				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
-					func(mp *clustermetadatapb.MultiPooler) error {
-						mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-						// Set PoolerType to DRAINED so administrative views
-						// (e.g. `multigres getpoolers`) reflect that this pooler
-						// has gone away rather than continuing to display its
-						// last live role (often PRIMARY for a node that just
-						// failed over). This is purely cosmetic: failover keys
-						// off LeadershipStatus.REQUESTING_DEMOTION on the
-						// health stream, not off PoolerType. On restart the
-						// pooler re-registers with PoolerType_REPLICA and the
-						// orchestrator promotes as usual.
-						mp.Type = clustermetadatapb.PoolerType_DRAINED
-						return nil
-					})
-				return err
-			}
-
-			mp.tr = toporeg.Register(
-				registerFunc,
-				unregisterFunc,
-				func(s string) {
-					mp.serverStatus.mu.Lock()
-					defer mp.serverStatus.mu.Unlock()
-					mp.serverStatus.InitError = s
-				}, /* alarm */
-			)
-		},
-	)
+	// Kick off the pooler's topology lifecycle once the server starts.
+	// Initial registration (with retry + alarm), the eventually-consistent
+	// publisher, and the DRAINED unregister on close all live behind
+	// StartTopoRegistration / StopTopoRegistration on the manager.
+	mp.poolerManager = poolerManager
+	mp.senv.OnRun(func() {
+		poolerManager.StartTopoRegistration(func(s string) {
+			mp.serverStatus.mu.Lock()
+			defer mp.serverStatus.mu.Unlock()
+			mp.serverStatus.InitError = s
+		})
+	})
 
 	mp.senv.OnClose(func() {
-		mp.Shutdown()
+		// Detach from startCtx so a cancelled startup ctx doesn't block
+		// the DRAINED shutdown write, while preserving any trace/telemetry
+		// values. Bounded by onCloseTimeout (senv flag, defaults short)
+		// implicitly — senv enforces it on the OnClose hook duration.
+		ctx, cancel := context.WithTimeout(ctxutil.Detach(startCtx), 10*time.Second)
+		defer cancel()
+		mp.Shutdown(ctx)
 	})
 	return nil
 }
@@ -399,8 +381,10 @@ func (mp *MultiPooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
 
-func (mp *MultiPooler) Shutdown() {
-	mp.senv.GetLogger().Info("multipooler shutting down")
-	mp.tr.Unregister()
+func (mp *MultiPooler) Shutdown(ctx context.Context) {
+	mp.senv.GetLogger().InfoContext(ctx, "multipooler shutting down")
+	if mp.poolerManager != nil {
+		mp.poolerManager.StopTopoRegistration(ctx)
+	}
 	mp.ts.Close()
 }

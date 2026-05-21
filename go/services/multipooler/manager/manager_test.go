@@ -52,6 +52,7 @@ func TestManagerState_InitialState(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -87,6 +88,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -99,7 +101,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	defer manager.Shutdown()
 
 	// Start the async loader
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Wait for the state to become Error
 	require.Eventually(t, func() bool {
@@ -130,6 +132,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -142,7 +145,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start the async loader
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Give it a moment to start retrying
 	time.Sleep(200 * time.Millisecond)
@@ -212,7 +215,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	defer manager.Shutdown()
 
 	// Start async topo loader (consensus is loaded synchronously in the constructor)
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Wait for the state to become Ready after retries
 	require.Eventually(t, func() bool {
@@ -525,6 +528,7 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -559,6 +563,7 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -594,6 +599,7 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -625,6 +631,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -970,4 +977,72 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestPause_PreservesPublisher verifies that Pause/resume does not stop the
+// poolerRecord's publisher — the topology entry continues to reflect state
+// changes throughout. (Pause is conceptually "stop serving queries", not
+// "stop participating in cluster topology".)
+func TestPause_PreservesPublisher(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pause-publisher",
+	}
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		PoolerDir:     t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	pm, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.Shutdown() })
+
+	// Inject a no-op query service so Open's heartbeat start doesn't panic
+	// on a nil pool. This test isn't exercising heartbeat behavior; it just
+	// needs Open to succeed so we have something to Pause.
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+
+	// Start the publisher (in production this happens via init.go's OnRun
+	// firing StartTopoRegistration). Then open the manager so Pause has
+	// something to pause.
+	pm.StartTopoRegistration(func(string) {})
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-pause")
+	require.NoError(t, err)
+	pm.Open(lockCtx)
+
+	// Pause the manager. With the old "publisher tied to Open" design this
+	// would have cancelled the publisher; with the new "publisher tied to
+	// Register" design it should keep running.
+	resume := pm.Pause(lockCtx)
+
+	// Mutate to PRIMARY while paused. The publisher should still pick this
+	// up and reflect it in topology.
+	require.NoError(t, pm.record.Mutate(lockCtx, func(mp *clustermetadatapb.MultiPooler) {
+		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	}))
+
+	require.Eventually(t, func() bool {
+		mp, err := ts.GetMultiPooler(ctx, serviceID)
+		return err == nil && mp.Type == clustermetadatapb.PoolerType_PRIMARY
+	}, 2*time.Second, 25*time.Millisecond, "publisher should reflect Mutate to PRIMARY in topology while paused")
+
+	resume(lockCtx)
+	pm.actionLock.Release(lockCtx)
 }

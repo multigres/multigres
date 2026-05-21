@@ -100,7 +100,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		config:       &Config{},
 		serviceID:    multipoolerID,
 		topoClient:   topoClient,
-		multipooler:  multipoolerProto,
+		record:       newRecordFromProto(multipoolerProto),
 		state:        ManagerStateReady,
 		backupConfig: backupConfig,
 		actionLock:   NewActionLock(),
@@ -1240,7 +1240,7 @@ exit 0
 				config:     &Config{},
 				serviceID:  multipoolerID,
 				topoClient: ts,
-				multipooler: &clustermetadatapb.MultiPooler{
+				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 					Id:        multipoolerID,
 					Type:      clustermetadatapb.PoolerType_PRIMARY,
 					PoolerDir: poolerDir,
@@ -1249,7 +1249,7 @@ exit 0
 						Shard:      tt.shard,
 						Database:   "test-database",
 					},
-				},
+				}),
 				state:                ManagerStateReady,
 				backupConfig:         backupConfig,
 				actionLock:           NewActionLock(),

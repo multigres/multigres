@@ -36,19 +36,20 @@ type StateAware interface {
 
 // StateManager coordinates serving state transitions across components.
 //
-// The current state lives in the multipooler record (multipooler.Type and
-// multipooler.ServingStatus), which is the source of truth for topology.
+// The current state lives in the poolerRecord (Type and ServingStatus),
+// which is the source of truth for topology.
 //
 // On SetState, the manager fans out OnStateChange to all registered components
-// in parallel, waits for completion, then updates the multipooler record.
+// in parallel, waits for completion, then updates the record via Mutate. The
+// Mutate also schedules an asynchronous publish so callers cannot forget to
+// reflect the new state to etcd.
 type StateManager struct {
 	mu     sync.Mutex
 	logger *slog.Logger
 
-	// Current state lives in multipooler.Type / .ServingStatus.
-	// This pointer is shared with MultiPoolerManager; the StateManager is the
-	// exclusive writer of the Type and ServingStatus fields.
-	multipooler *clustermetadatapb.MultiPooler
+	// Current state lives in record.Type() / .ServingStatus(). The StateManager
+	// is the exclusive caller of record.Mutate for Type/ServingStatus.
+	record *poolerRecord
 
 	// Registered components that react to state changes.
 	components []StateAware
@@ -57,13 +58,13 @@ type StateManager struct {
 // NewStateManager creates a new StateManager.
 func NewStateManager(
 	logger *slog.Logger,
-	multipooler *clustermetadatapb.MultiPooler,
+	record *poolerRecord,
 	components ...StateAware,
 ) *StateManager {
 	return &StateManager{
-		logger:      logger,
-		multipooler: multipooler,
-		components:  components,
+		logger:     logger,
+		record:     record,
+		components: components,
 	}
 }
 
@@ -79,23 +80,25 @@ func (ssm *StateManager) Register(component StateAware) {
 // RegisterAndSync adds a component and immediately syncs it to the current state.
 // This is used for components created after the initial state transition (e.g.,
 // ReplTracker is created after Open() has already transitioned to SERVING).
-// The component is initialized from the multipooler record, which is the source of truth.
+// The component is initialized from the record, which is the source of truth.
 func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAware) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	ssm.components = append(ssm.components, component)
-	return component.OnStateChange(ctx, ssm.multipooler.Type, ssm.multipooler.ServingStatus)
+	return component.OnStateChange(ctx, ssm.record.Type(), ssm.record.ServingStatus())
 }
 
 // SetState transitions all components to the given state in parallel.
-// The multipooler record is updated only after all components converge.
+// The record is updated only after all components converge.
 // Returns an error if any component fails to transition.
 // No-op if the state hasn't changed.
 func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
-	if ssm.multipooler.Type == poolerType && ssm.multipooler.ServingStatus == servingStatus {
+	currentType := ssm.record.Type()
+	currentStatus := ssm.record.ServingStatus()
+	if currentType == poolerType && currentStatus == servingStatus {
 		ssm.logger.InfoContext(ctx, "Serving state unchanged, skipping",
 			"type", poolerType, "status", servingStatus)
 		return nil
@@ -103,7 +106,7 @@ func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadat
 
 	ssm.logger.InfoContext(ctx, "Setting serving state",
 		"target_type", poolerType, "target_status", servingStatus,
-		"current_type", ssm.multipooler.Type, "current_status", ssm.multipooler.ServingStatus)
+		"current_type", currentType, "current_status", currentStatus)
 
 	g, ctx := errgroup.WithContext(ctx)
 	for _, c := range ssm.components {
@@ -115,9 +118,15 @@ func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadat
 		return err
 	}
 
-	// All components converged — update the multipooler record (current state).
-	ssm.multipooler.Type = poolerType
-	ssm.multipooler.ServingStatus = servingStatus
+	// All components converged — update the record and schedule a publish.
+	// Requires the caller to hold the action lock; Mutate will return an
+	// error otherwise.
+	if err := ssm.record.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
+		mp.Type = poolerType
+		mp.ServingStatus = servingStatus
+	}); err != nil {
+		return err
+	}
 
 	ssm.logger.InfoContext(ctx, "Serving state converged",
 		"type", poolerType, "status", servingStatus)
