@@ -533,23 +533,19 @@
   },
   {
     "comment": "INSERT with OVERRIDING USER VALUE",
-    "query": "INSERT INTO users OVERRIDING USER VALUE SELECT * FROM temp_users",
-    "expected": "INSERT INTO users SELECT * FROM temp_users"
+    "query": "INSERT INTO users OVERRIDING USER VALUE SELECT * FROM temp_users"
   },
   {
     "comment": "INSERT with OVERRIDING SYSTEM VALUE",
-    "query": "INSERT INTO users OVERRIDING SYSTEM VALUE SELECT * FROM temp_users",
-    "expected": "INSERT INTO users SELECT * FROM temp_users"
+    "query": "INSERT INTO users OVERRIDING SYSTEM VALUE SELECT * FROM temp_users"
   },
   {
     "comment": "INSERT with column list and OVERRIDING USER VALUE",
-    "query": "INSERT INTO users (id, name) OVERRIDING USER VALUE SELECT * FROM temp_users",
-    "expected": "INSERT INTO users (id, name) SELECT * FROM temp_users"
+    "query": "INSERT INTO users (id, name) OVERRIDING USER VALUE SELECT * FROM temp_users"
   },
   {
     "comment": "INSERT with column list and OVERRIDING SYSTEM VALUE",
-    "query": "INSERT INTO users (id, name) OVERRIDING SYSTEM VALUE SELECT * FROM temp_users",
-    "expected": "INSERT INTO users (id, name) SELECT * FROM temp_users"
+    "query": "INSERT INTO users (id, name) OVERRIDING SYSTEM VALUE SELECT * FROM temp_users"
   },
   {
     "comment": "INSERT with complex expressions in VALUES",
