@@ -1182,3 +1182,71 @@ func TestPipelinedParseErrorRecovery(t *testing.T) {
 	// Buffer should be empty — no extra messages.
 	assert.Equal(t, 0, writeBuf.Len(), "no extra messages should be in the buffer")
 }
+
+// TestExtendedQueryErrorDiscardsUntilSync pins the PostgreSQL extended-query
+// error-recovery rule:
+//
+//	"When an error is detected while processing any extended-query message,
+//	 the backend issues ErrorResponse, then reads and discards messages until
+//	 a Sync message is reached, then issues ReadyForQuery."
+//	 — https://www.postgresql.org/docs/current/protocol-flow.html
+//
+// Minimum reproducer: one extended-query message that errors (Parse),
+// then any extended-query follow-up (Close) that would otherwise emit a
+// *Complete reply, then Sync. The follow-up's reply frame must be
+// suppressed; only ErrorResponse and ReadyForQuery may appear on the
+// wire. Strict drivers (Postgrex, JDBC) crash on any frame between
+// ErrorResponse and ReadyForQuery; the original wire trace came from a
+// Parse / Bind / Execute / Close / Sync flight, but the gate applies to
+// every Parse/Bind/Describe/Execute/Close after an error.
+// See ~/dev/multigres-plans/investigations/2026-05-20-multigateway-extended-query-close-after-error.md.
+func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Drive the serve()-loop's ReadMessageType + handleMessage path —
+	// that's where the discard-until-Sync gate lives. (Calling handlers
+	// individually bypasses the gate by design.)
+
+	// Parse 'P' — parseFunc above makes this fail.
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2)) // empty stmt name + empty query + 0 param types
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Close 'C' — the frame whose CloseComplete must NOT be emitted.
+	readBuf.WriteByte(protocol.MsgClose)
+	writeTestInt32(&readBuf, int32(4+1+1)) // type byte + empty name + null
+	readBuf.WriteByte('S')
+	writeTestString(&readBuf, "")
+
+	// Sync 'S'
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 3 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"after ErrorResponse the gateway must discard the pipelined Close "+
+			"and emit only ReadyForQuery — any frame between Error and RFQ "+
+			"(notably CloseComplete) breaks strict clients like Postgrex/JDBC")
+}
