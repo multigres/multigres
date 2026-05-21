@@ -352,6 +352,20 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
 	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options, req.ReservationOptions)
 	if err != nil {
+		// CopyReady returns a non-nil reservedState when the COPY query was
+		// rejected by PostgreSQL (e.g., invalid column, conflicting options)
+		// but the existing reserved connection is still alive and holding
+		// other reasons. Forward that state to the gateway via an ERROR phase
+		// response so the gateway keeps tracking the reserved conn; without
+		// this, the gateway would see only the gRPC status error and the next
+		// statement would fail with "reserved connection not found".
+		if reservedState != nil {
+			_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
+				Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error:         err.Error(),
+				ReservedState: reservedState,
+			})
+		}
 		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
 	}
 
@@ -432,15 +446,19 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			// Phase 2b: DONE - Finalize COPY operation
 			result, reservedState, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
 			if err != nil {
-				// Abort to ensure protocol cleanup
-				// (even though connection might already be closed in Finalize)
-				abortState, _ := exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
-
-				// Send ERROR response with reserved state from abort
+				// CopyFinalize has already done its own cleanup:
+				//   - PG ErrorResponse: ReadyForQuery was drained, the COPY
+				//     reason was removed, and the conn was either released
+				//     (no other reasons) or kept with the returned state.
+				//   - Connection-level failure: conn was released, state is nil.
+				// Either way, calling CopyAbort here would either be a no-op
+				// (conn already released) or actively poison a clean conn by
+				// writing CopyFail on a backend already back in RFQ. Forward
+				// the state CopyFinalize returned.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:         err.Error(),
-					ReservedState: abortState,
+					ReservedState: reservedState,
 				}
 				_ = stream.Send(errorResp)
 				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
