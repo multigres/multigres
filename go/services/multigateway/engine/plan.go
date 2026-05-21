@@ -36,6 +36,8 @@ const (
 	PlanTypeListenNotify        = "ListenNotify"
 	PlanTypeSequence            = "Sequence"
 	PlanTypeTempTableRoute      = "TempTableRoute"
+	PlanTypeHoldCursorRoute     = "HoldCursorRoute"
+	PlanTypeCloseCursorRoute    = "CloseCursorRoute"
 	PlanTypeUnknown             = "Unknown"
 )
 

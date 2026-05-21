@@ -143,12 +143,19 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestPort := s.pgbackrestPort.Get()
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
+	password, passwordSource, passwordFile, err := s.pgCtlCmd.GetPostgresPassword()
+	if err != nil {
+		return err
+	}
 	pgctldConfig := PgCtldServiceConfig{
 		Port:                 s.pgCtlCmd.pgPort.Get(),
 		User:                 s.pgCtlCmd.pgUser.Get(),
 		Database:             s.pgCtlCmd.pgDatabase.Get(),
-		Password:             s.pgCtlCmd.pgPassword.Get(),
+		Password:             password,
+		PasswordSource:       passwordSource,
+		PasswordFile:         passwordFile,
 		InitdbSQLFiles:       s.pgCtlCmd.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:        s.pgCtlCmd.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 
@@ -241,12 +248,20 @@ func reapOrphanedChildren(logger *slog.Logger) {
 // parameters. These are the most commonly passed parameters and are grouped
 // here to reduce argument lists.
 type PgCtldServiceConfig struct {
-	Port                 int
-	User                 string
-	Database             string
-	Password             string
+	Port     int
+	User     string
+	Database string
+	Password string
+	// PasswordSource records where Password came from so log lines can report
+	// it without leaking the value itself. Optional; defaults to none.
+	PasswordSource PasswordSource
+	// PasswordFile is the absolute path to the operator-supplied password file
+	// when PasswordSource == PasswordSourceFile, otherwise "". initdb is handed
+	// this path directly via --pwfile so the plaintext never lands in /tmp.
+	PasswordFile         string
 	InitdbArgs           string
 	InitdbSQLFiles       []string
+	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
 }
 
@@ -306,9 +321,9 @@ func NewPgCtldService(
 	if listenAddresses == "" {
 		return nil, errors.New("listen-addresses needs to be set")
 	}
-	if cfg.Password == "" {
-		return nil, errors.New("POSTGRES_PASSWORD must be set")
-	}
+	// cfg.Password emptiness is not re-checked here: production callers
+	// (runServer) populate it via PgCtlCommand.GetPostgresPassword, which
+	// returns an error when no password source is configured.
 
 	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
 	// postgres subprocess and inherits this process's environment) can authenticate

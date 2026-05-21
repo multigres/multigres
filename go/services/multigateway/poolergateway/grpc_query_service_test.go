@@ -349,6 +349,8 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -370,6 +372,8 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -397,6 +401,8 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -417,6 +423,8 @@ func TestConcludeTransaction_Error(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.Error(t, err)

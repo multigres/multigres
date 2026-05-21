@@ -1277,9 +1277,24 @@ type ReservationOptions struct {
 	// or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
 	// multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
 	// If empty and transaction reason is set, defaults to "BEGIN".
-	BeginQuery    string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BeginQuery string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
+	// pin_portal_names lists named portals (cursors) that must be pinned to the
+	// reserved connection for the lifetime of the named portal — used for
+	// DECLARE ... WITH HOLD, where the cursor must survive COMMIT. The
+	// multipooler calls ReserveForPortal(name) for each entry, which adds
+	// ReasonPortal to the reservation bitmask and registers the name in the
+	// per-connection portal set. Independent of `reasons` — the multipooler
+	// sets ReasonPortal implicitly when this list is non-empty.
+	PinPortalNames []string `protobuf:"bytes,3,rep,name=pin_portal_names,json=pinPortalNames,proto3" json:"pin_portal_names,omitempty"`
+	// release_portal_names lists named portals (cursors) to unpin from the
+	// reserved connection — used for CLOSE <name> / CLOSE ALL on a WITH HOLD
+	// cursor. The multipooler calls ReleasePortal(name) for each entry; if
+	// the call drains the final ReasonPortal bit AND no other reasons remain,
+	// the connection is released back to the pool and the returned
+	// ReservedState has connection_id == 0.
+	ReleasePortalNames []string `protobuf:"bytes,4,rep,name=release_portal_names,json=releasePortalNames,proto3" json:"release_portal_names,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ReservationOptions) Reset() {
@@ -1324,6 +1339,20 @@ func (x *ReservationOptions) GetBeginQuery() string {
 		return x.BeginQuery
 	}
 	return ""
+}
+
+func (x *ReservationOptions) GetPinPortalNames() []string {
+	if x != nil {
+		return x.PinPortalNames
+	}
+	return nil
+}
+
+func (x *ReservationOptions) GetReleasePortalNames() []string {
+	if x != nil {
+		return x.ReleasePortalNames
+	}
+	return nil
 }
 
 var File_query_proto protoreflect.FileDescriptor
@@ -1428,11 +1457,13 @@ const file_query_proto_rawDesc = "" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
 	"\n" +
-	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"O\n" +
+	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xab\x01\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
-	"beginQueryB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"beginQuery\x12(\n" +
+	"\x10pin_portal_names\x18\x03 \x03(\tR\x0epinPortalNames\x120\n" +
+	"\x14release_portal_names\x18\x04 \x03(\tR\x12releasePortalNamesB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once

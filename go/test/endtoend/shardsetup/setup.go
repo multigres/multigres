@@ -79,6 +79,7 @@ type SetupConfig struct {
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 }
 
@@ -293,6 +294,15 @@ func WithVpidStamping() SetupOption {
 func WithInitdbSQLFiles(files ...string) SetupOption {
 	return func(c *SetupConfig) {
 		c.InitdbSQLFiles = files
+	}
+}
+
+// WithInitdbSQLDirs forwards role:path entries to every pgctld via --pg-initdb-sql-dirs.
+// pgctld runs all .sql files in each directory (lexicographic order) under
+// SET SESSION AUTHORIZATION <role> after initdb completes.
+func WithInitdbSQLDirs(dirs ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.InitdbSQLDirs = dirs
 	}
 }
 
@@ -568,6 +578,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 		inst.Multipooler.LogLevel = config.LogLevel
 		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
+		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
 		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 

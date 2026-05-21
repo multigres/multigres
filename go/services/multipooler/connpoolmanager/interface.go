@@ -48,8 +48,12 @@ type PoolManager interface {
 	// PgUser returns the configured PostgreSQL user for system queries.
 	PgUser() string
 
-	// PgPassword returns the configured PostgreSQL password for system queries.
-	PgPassword() string
+	// PgPassword returns the resolved PostgreSQL password and an "ok" flag
+	// indicating whether a password source was successfully resolved at
+	// startup. !ok means ResolvePgPassword has not run successfully and
+	// should be treated as an invariant violation by callers (production
+	// startup guarantees Resolve runs first).
+	PgPassword() (string, bool)
 
 	// --- Admin Pool Operations ---
 
