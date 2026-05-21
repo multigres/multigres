@@ -303,6 +303,30 @@ const (
 	PasswordSourceEnv  PasswordSource = "POSTGRES_PASSWORD"      //nolint:gosec // env var name, not a credential
 )
 
+// buildServiceConfig assembles a PgCtldServiceConfig from this command's
+// resolved flags / env vars. Shared between the `server` and `init`
+// subcommands so they construct identical configs and stay in sync as
+// fields are added. Returns an error from GetPostgresPassword unchanged so
+// callers can surface a CLI error.
+func (pc *PgCtlCommand) buildServiceConfig() (PgCtldServiceConfig, error) {
+	password, passwordSource, passwordFile, err := pc.GetPostgresPassword()
+	if err != nil {
+		return PgCtldServiceConfig{}, err
+	}
+	return PgCtldServiceConfig{
+		Port:                 pc.pgPort.Get(),
+		User:                 pc.pgUser.Get(),
+		Database:             pc.pgDatabase.Get(),
+		Password:             password,
+		PasswordSource:       passwordSource,
+		PasswordFile:         passwordFile,
+		InitdbArgs:           pc.pgInitdbArgs.Get(),
+		InitdbSQLFiles:       pc.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:        pc.pgInitdbSQLDirs.Get(),
+		InitdbExtraConfFiles: pc.pgInitdbExtraConf.Get(),
+	}, nil
+}
+
 // GetPostgresPassword resolves the postgres superuser password and reports
 // which source it came from. Sources are tried in order:
 //
