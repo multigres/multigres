@@ -87,6 +87,10 @@ type ProcessInstance struct {
 	// target database when InitDataDir runs on this pgctld instance.
 	InitdbSQLFiles []string
 
+	// InitdbSQLDirs is a list of role:path entries; each dir's .sql files run
+	// under SET SESSION AUTHORIZATION <role> after initdb (pgctld --pg-initdb-sql-dirs).
+	InitdbSQLDirs []string
+
 	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets appended to
 	// the generated config at init time (pgctld --pg-initdb-extra-conf).
 	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
@@ -234,6 +238,10 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 
 	for _, file := range p.InitdbSQLFiles {
 		args = append(args, "--pg-initdb-sql-files", file)
+	}
+
+	for _, dir := range p.InitdbSQLDirs {
+		args = append(args, "--pg-initdb-sql-dirs", dir)
 	}
 
 	for _, file := range p.PgInitdbExtraConfFiles {

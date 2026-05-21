@@ -50,6 +50,7 @@ type PgCtlCommand struct {
 	postgresConfigTmpl viperutil.Value[string]
 	pgInitdbArgs       viperutil.Value[string]
 	pgInitdbSQLFiles   viperutil.Value[[]string]
+	pgInitdbSQLDirs    viperutil.Value[[]string]
 	pgInitdbExtraConf  viperutil.Value[[]string]
 
 	vc        *viperutil.ViperConfig
@@ -123,6 +124,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars:  []string{constants.PgInitdbSQLFilesEnvVar},
 			Dynamic:  false,
 		}),
+		pgInitdbSQLDirs: viperutil.Configure(reg, "pg-initdb-sql-dirs", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "pg-initdb-sql-dirs",
+			EnvVars:  []string{constants.PgInitdbSQLDirsEnvVar},
+			Dynamic:  false,
+		}),
 		pgInitdbExtraConf: viperutil.Configure(reg, "pg-initdb-extra-conf", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "pg-initdb-extra-conf",
@@ -180,6 +187,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-sql-dirs", pc.pgInitdbSQLDirs.Default(), "Directory of .sql files to run after initdb, in role:path format. Files run in lexicographic order under SET SESSION AUTHORIZATION <role>. Repeat for multiple directories (overrides "+constants.PgInitdbSQLDirsEnvVar+" env var).")
 	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
 
 	// Backwards-compat alias: --init-db-sql-file → --pg-initdb-sql-files.
@@ -206,6 +214,7 @@ management for PostgreSQL servers.`,
 		pc.postgresConfigTmpl,
 		pc.pgInitdbArgs,
 		pc.pgInitdbSQLFiles,
+		pc.pgInitdbSQLDirs,
 		pc.pgInitdbExtraConf,
 	)
 
