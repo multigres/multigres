@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
 import type { MultiOrch } from "@/lib/api/types";
 
@@ -120,26 +120,42 @@ export function MultiOrchTable() {
                 <TableHead className="pl-6">Cell</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Hostname</TableHead>
-                <TableHead className="text-right pr-6">gRPC Port</TableHead>
+                <TableHead className="text-right">gRPC Port</TableHead>
+                <TableHead className="pr-6">Dashboard</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrchs.map((orch, idx) => (
-                <TableRow key={orch.id?.name || idx}>
-                  <TableCell className="pl-6 font-mono text-xs py-3">
-                    {orch.id?.cell || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {orch.id?.name || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {orch.hostname || "-"}
-                  </TableCell>
-                  <TableCell className="text-right pr-6 font-mono text-xs py-3">
-                    {orch.port_map?.grpc || "-"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filteredOrchs.map((orch, idx) => {
+                const dashboardUrl = `/proxy/orch/${orch.id?.cell}/${orch.id?.name}`;
+
+                return (
+                  <TableRow key={orch.id?.name || idx}>
+                    <TableCell className="pl-6 font-mono text-xs py-3">
+                      {orch.id?.cell || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {orch.id?.name || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {orch.hostname || "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs py-3">
+                      {orch.port_map?.grpc || "-"}
+                    </TableCell>
+                    <TableCell className="pr-6 py-3">
+                      <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View
+                      </a>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
