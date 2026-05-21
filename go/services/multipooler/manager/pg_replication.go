@@ -605,9 +605,27 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
 			}
 
-			// Once receiver is disconnected, query final replication status
-			if lastCount == 0 {
-				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
+			// Done when either the walreceiver slot is gone, OR it's sitting
+			// in WALRCV_WAITING with primary_conninfo empty. The latter is
+			// safe because:
+			//
+			//   - We hold the action lock, so no other in-process path can
+			//     write primary_conninfo during this wait.
+			//   - WAITING → STREAMING requires the startup process to call
+			//     RequestXLogStreaming, which only fires when primary_conninfo
+			//     is non-empty.
+			//   - We can't actively terminate a walreceiver from SQL —
+			//     pg_terminate_backend only works on regular backends, not
+			//     auxiliary processes like the walreceiver. The walreceiver
+			//     only exits when its in-flight libpq call returns, which is
+			//     bounded by connect_timeout (potentially tens of seconds).
+			//     Treating WAITING+empty as done lets us proceed without
+			//     waiting out that timeout.
+			done := lastCount == 0 || (lastStatus == "waiting" && lastConnInfo == "")
+			if done {
+				pm.logger.InfoContext(ctx, "WAL receiver has disconnected",
+					"last_receiver_count", lastCount,
+					"last_walreceiver_status", lastStatus)
 
 				// Get the final replication status
 				status, err := pm.queryReplicationStatus(waitCtx)
