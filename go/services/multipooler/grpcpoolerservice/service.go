@@ -525,8 +525,14 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	// Conclude the transaction
-	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
+	// Conclude the transaction. Forward the per-txn portal-release diff so the
+	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
+	// (or fall back to ReleaseAllPortals when release_all_portals is true,
+	// e.g. for older gateways that don't compute the diff).
+	result, reservedState, err := executor.ConcludeTransaction(
+		ctx, req.Target, req.Options, req.Conclusion,
+		req.GetReleasePortalNames(), req.GetReleaseAllPortals(),
+	)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

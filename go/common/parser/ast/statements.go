@@ -861,6 +861,13 @@ func (i *InsertStmt) SqlString() string {
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(cols, ", ")))
 	}
+
+	// OVERRIDING { SYSTEM | USER } VALUE clause — semantically significant
+	// when inserting into GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY columns.
+	if s := i.Override.SqlString(); s != "" {
+		parts = append(parts, s)
+	}
+
 	// SelectStmt/VALUES clause
 	if i.SelectStmt != nil {
 		selectStr := i.SelectStmt.SqlString()

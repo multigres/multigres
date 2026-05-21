@@ -163,6 +163,16 @@ func (p *Planner) Plan(
 		}
 		plan, err = p.planDefault(sql, stmt, conn)
 
+	case ast.T_DeclareCursorStmt:
+		dcs := stmt.(*ast.DeclareCursorStmt)
+		if dcs.Options&ast.CURSOR_OPT_HOLD != 0 {
+			return p.planHoldCursorDeclare(sql, dcs)
+		}
+		plan, err = p.planDefault(sql, stmt, conn)
+
+	case ast.T_ClosePortalStmt:
+		return p.planClosePortalStmt(sql, stmt.(*ast.ClosePortalStmt))
+
 	default:
 		// Default: simple route to PostgreSQL
 		plan, err = p.planDefault(sql, stmt, conn)
@@ -185,6 +195,38 @@ func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.
 	p.logger.Debug("planning temp table creation", "sql", sql)
 	route := engine.NewTempTableRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 	return engine.NewPlan(sql, route), nil
+}
+
+// planHoldCursorDeclare creates a plan for `DECLARE ... WITH HOLD` cursors.
+// WITH HOLD promotes the cursor to session-level state that must survive
+// COMMIT; the cursor name is pinned on the reserved backend connection via
+// ReasonPortal so the multipooler does not return the backend to the pool
+// when the surrounding transaction commits.
+func (p *Planner) planHoldCursorDeclare(sql string, stmt *ast.DeclareCursorStmt) (*engine.Plan, error) {
+	p.logger.Debug("planning DECLARE WITH HOLD cursor",
+		"cursor", stmt.PortalName, "sql", sql)
+	route := engine.NewHoldCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
+	plan := engine.NewPlan(sql, route)
+	plan.Type = engine.PlanTypeHoldCursorRoute
+	return plan, nil
+}
+
+// planClosePortalStmt creates a plan for `CLOSE <name>` / `CLOSE ALL`. The
+// CloseCursorRoute forwards the CLOSE to PostgreSQL on the existing reserved
+// backend and, when the named cursor was a `WITH HOLD` pin, asks the
+// multipooler to drop the corresponding entry from the reserved
+// connection's portal set.
+func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*engine.Plan, error) {
+	p.logger.Debug("planning CLOSE cursor", "cursor", stmt.PortalName, "sql", sql)
+	var route *engine.CloseCursorRoute
+	if stmt.PortalName == "" {
+		route = engine.NewCloseAllCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+	} else {
+		route = engine.NewCloseCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
+	}
+	plan := engine.NewPlan(sql, route)
+	plan.Type = engine.PlanTypeCloseCursorRoute
+	return plan, nil
 }
 
 // planDefault creates a simple route plan for queries without special handling.
@@ -285,6 +327,21 @@ func (p *Planner) PlanPortal(
 		// the connection is recycled.
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
+	case ast.T_DeclareCursorStmt:
+		// DECLARE … WITH HOLD must go through HoldCursorRoute so the cursor
+		// name is pinned on the reserved backend (ReasonPortal). Without
+		// this case, an extended-protocol DECLARE WITH HOLD would land on a
+		// pooled connection and the cursor would be lost on COMMIT.
+		// Non-HOLD DECLARE is delegated through Plan too so the parser-driven
+		// dispatch decides — non-HOLD falls through to planDefault there.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
+	case ast.T_ClosePortalStmt:
+		// CLOSE / CLOSE ALL must go through CloseCursorRoute so HOLD-cursor
+		// pin bookkeeping on the multipooler stays in sync — otherwise the
+		// reserved backend would leak with a stale ReasonPortal.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
 	default:
 		return nil, nil
 	}
@@ -310,6 +367,10 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeRoute
 	case *engine.TempTableRoute:
 		return engine.PlanTypeTempTableRoute
+	case *engine.HoldCursorRoute:
+		return engine.PlanTypeHoldCursorRoute
+	case *engine.CloseCursorRoute:
+		return engine.PlanTypeCloseCursorRoute
 	case *engine.TransactionPrimitive:
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:

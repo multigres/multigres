@@ -154,17 +154,52 @@ func (t *TransactionPrimitive) executeCommit(
 	state.PendingBeginQuery = ""
 	// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
 	// failed state, so SET / RESET issued before the failure must revert
-	// rather than persist. For a healthy COMMIT, drop the savepoint stack and
-	// clear SET LOCAL overrides — current values of non-LOCAL SETs become
-	// persistent session state.
-	if conn.TxnStatus() == protocol.TxnStatusFailed {
+	// rather than persist, every open cursor (including WITH HOLD) is closed,
+	// and the wire-level command tag returned to the client is `ROLLBACK`
+	// rather than `COMMIT`. For a healthy COMMIT, drop the savepoint stack
+	// and clear SET LOCAL overrides — current values of non-LOCAL SETs
+	// become persistent session state.
+	implicitRollback := conn.TxnStatus() == protocol.TxnStatusFailed
+	// Capture the HOLD-cursor diff BEFORE state is mutated. PG closes
+	// cursors declared inside this transaction at the implicit ROLLBACK
+	// boundary; cursors declared before BEGIN (under autocommit) survive.
+	// HoldCursorsDeclaredInTxn reads the depth-0 frame's snapshot.
+	var rollbackPortalReleases []string
+	if implicitRollback {
+		rollbackPortalReleases = state.HoldCursorsDeclaredInTxn()
+		// Restore HOLD-cursor tracking to the pre-BEGIN snapshot BEFORE
+		// RollbackTransaction tears the savepoint stack down — the
+		// snapshot lives on savepoints[0] and is gone once
+		// RollbackTransaction nils the stack. Cursors declared inside
+		// the failed transaction are dropped; cursors that pre-date
+		// BEGIN are kept (PG preserves them). The multipooler-side pin
+		// set is updated by ConcludeTransaction's ROLLBACK path below
+		// using rollbackPortalReleases.
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
 		state.RollbackTransaction()
 	} else {
 		state.CommitTransaction()
 	}
 
-	// Record transaction metrics before clearing state.
-	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
+	// Record transaction metrics before clearing state. Outcome is bucketed
+	// by the wire-level command tag we'll send to the client, so an implicit
+	// ROLLBACK is reported as such (not as a successful commit).
+	outcome := TxnOutcomeCommit
+	if implicitRollback {
+		outcome = TxnOutcomeRollback
+	}
+	t.recordTxnMetrics(ctx, conn, state, outcome)
+
+	// Choose the conclusion + synthetic command tag based on whether PG will
+	// honour or rewrite this COMMIT. Implicit ROLLBACK uses the multipooler's
+	// ROLLBACK path so ReleaseAllPortals fires and any pinned HOLD cursors
+	// are unpinned alongside the txn reason.
+	conclusion := multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT
+	commandTag := "COMMIT"
+	if implicitRollback {
+		conclusion = multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK
+		commandTag = "ROLLBACK"
+	}
 
 	// If no reserved connections, or if the reserved connections don't have
 	// an active transaction (e.g., temp-table-reserved session where BEGIN
@@ -178,30 +213,45 @@ func (t *TransactionPrimitive) executeCommit(
 	}
 	if len(state.ShardStates) == 0 || !hasActiveTransaction {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
-		syncPendingSubscriptions(conn, state)
+		// Pending LISTEN/UNLISTEN buffered inside a failed transaction
+		// must be discarded — PG's implicit ROLLBACK invalidates them.
+		// A healthy COMMIT promotes them as usual.
+		if implicitRollback {
+			state.DiscardPendingListens()
+		} else {
+			syncPendingSubscriptions(conn, state)
+		}
 		return callback(ctx, &sqltypes.Result{
-			CommandTag: "COMMIT",
+			CommandTag: commandTag,
 		})
 	}
 
-	// Wrap the callback to sync subscriptions after the backend confirms COMMIT
-	// but before the CommandComplete is sent to the client.
+	// Wrap the callback to sync subscriptions after the backend confirms the
+	// conclusion but before the CommandComplete is sent to the client.
 	commitCallback := callback
-	if state.HasPendingListens() {
+	if !implicitRollback && state.HasPendingListens() {
 		commitCallback = func(cbCtx context.Context, result *sqltypes.Result) error {
 			if result != nil && result.CommandTag != "" {
 				syncPendingSubscriptions(conn, state)
 			}
 			return callback(cbCtx, result)
 		}
+	} else if implicitRollback {
+		// Implicit ROLLBACK invalidates any pending LISTEN/UNLISTEN — drop
+		// them silently so they don't leak into the next transaction.
+		state.DiscardPendingListens()
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
 	// ConcludeTransaction clears shard state entries where the connection was
 	// fully released (remainingReasons == 0) and keeps entries where the
 	// connection is still reserved for other reasons (e.g., temp tables).
-	err := exec.ConcludeTransaction(ctx, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, commitCallback)
+	// For implicit ROLLBACK, forward only the in-txn HOLD cursors so the
+	// multipooler preserves pins for cursors that pre-date BEGIN. Regular
+	// COMMIT path passes nothing — the multipooler ignores both fields for
+	// COMMIT anyway.
+	err := exec.ConcludeTransaction(ctx, conn, state, conclusion,
+		rollbackPortalReleases, false /* releaseAllPortals */, commitCallback)
 
 	// Reset transaction state regardless of error.
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
@@ -232,6 +282,14 @@ func (t *TransactionPrimitive) executeRollback(
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
+	// Capture the HOLD-cursor diff before the snapshot stack collapses.
+	// PG closes cursors declared inside this transaction; cursors declared
+	// before BEGIN (autocommit) survive. Forward the in-txn list to the
+	// multipooler so it unpins exactly those names while preserving
+	// pre-existing pins.
+	rollbackPortalReleases := state.HoldCursorsDeclaredInTxn()
+	// Restore the gateway's HOLD-cursor tracking to the pre-BEGIN snapshot.
+	state.RestoreOpenHoldCursorsToBeginSnapshot()
 	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
 	// snapshot so any SET / RESET issued in the transaction is reverted.
 	state.RollbackTransaction()
@@ -259,8 +317,11 @@ func (t *TransactionPrimitive) executeRollback(
 	// ConcludeTransaction clears shard state entries where the connection was
 	// fully released (remainingReasons == 0) and keeps entries where the
 	// connection is still reserved for other reasons (e.g., temp tables).
+	// Forward the in-txn HOLD-cursor names so the multipooler preserves
+	// pre-BEGIN pins instead of dropping everything via ReleaseAllPortals.
 	err := exec.ConcludeTransaction(ctx, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, callback)
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		rollbackPortalReleases, false /* releaseAllPortals */, callback)
 
 	// Reset transaction state regardless of error.
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
@@ -320,6 +381,23 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 ) error {
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
 
+	// PG closes any cursor (including WITH HOLD) declared in the
+	// rolled-back sub-transaction. Enqueue those names so ScatterConn
+	// forwards them as release_portal_names alongside the ROLLBACK TO
+	// statement and the multipooler's portal pin set matches what the
+	// server keeps. Done before exec so the same RPC carries both.
+	//
+	// NOTE: CLOSE itself is *not* transactional in PostgreSQL — a
+	// cursor explicitly CLOSE'd inside the sub-transaction stays
+	// closed after ROLLBACK TO. We do not attempt to "revive" such
+	// cursors; the savepoint snapshot is intersected with the current
+	// open set (see RollbackToSavepoint) so the gateway's tracking
+	// drops them too.
+	lostHoldCursors := state.HoldCursorsDeclaredAfterSavepoint(t.SavepointName)
+	if len(lostHoldCursors) > 0 {
+		state.AppendPendingReleasePortals(lostHoldCursors...)
+	}
+
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	if err != nil {
 		return err
@@ -332,9 +410,10 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	}
 
-	// Revert SessionSettings and gateway-managed variables to the snapshot
-	// captured when this savepoint was opened. The named frame stays on the
-	// stack — PostgreSQL leaves the savepoint active after ROLLBACK TO.
+	// Revert SessionSettings, gateway-managed variables, and the
+	// OpenHoldCursors set to the snapshot captured when this savepoint was
+	// opened. The named frame stays on the stack — PostgreSQL leaves the
+	// savepoint active after ROLLBACK TO.
 	state.RollbackToSavepoint(t.SavepointName)
 
 	return nil

@@ -225,6 +225,29 @@ func (sc *ScatterConn) StreamExecute(
 			state.PendingTempTableReservation = false
 		}
 
+		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
+		// the reserved backend so the cursor survives COMMIT. Take the
+		// pending list through the mutex-protected accessor so concurrent
+		// access (e.g. a future cancellation goroutine touching state) stays
+		// race-free.
+		if pinNames := state.TakePendingPinPortals(); len(pinNames) > 0 {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.Reasons |= protoutil.ReasonPortal
+			reservationOpts.PinPortalNames = append(reservationOpts.PinPortalNames, pinNames...)
+		}
+
+		// If this query closes a `WITH HOLD` cursor, unpin it after the CLOSE
+		// runs on the backend. The multipooler will drop the reservation
+		// (returning ReservedConnectionId=0) when the last reason clears.
+		if releaseNames := state.TakePendingReleasePortals(); len(releaseNames) > 0 {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.ReleasePortalNames = append(reservationOpts.ReleasePortalNames, releaseNames...)
+		}
+
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		sc.applyReservedState(conn, state, target, reservedState)
 
@@ -234,8 +257,12 @@ func (sc *ScatterConn) StreamExecute(
 		return nil
 	}
 
-	// Case 2: Need a new reserved connection — for transaction, temp table, or both.
-	if conn.IsInTransaction() || state.PendingTempTableReservation {
+	// Case 2: Need a new reserved connection — for transaction, temp table,
+	// portal pin (DECLARE WITH HOLD), or any combination. Take the pin
+	// list once up front so we don't double-lock the state mutex via a
+	// separate Has check.
+	pinPortalNames := state.TakePendingPinPortals()
+	if conn.IsInTransaction() || state.PendingTempTableReservation || len(pinPortalNames) > 0 {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -249,11 +276,17 @@ func (sc *ScatterConn) StreamExecute(
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
+		if len(pinPortalNames) > 0 {
+			reasons |= protoutil.ReasonPortal
+		}
 
 		sc.logger.DebugContext(ctx, "creating reserved connection",
 			"reasons", protoutil.ReasonsString(reasons))
 
 		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
+		if len(pinPortalNames) > 0 {
+			reservationOpts.PinPortalNames = pinPortalNames
+		}
 		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
 		// so the multipooler preserves transaction options instead of using plain "BEGIN".
 		if state.PendingBeginQuery != "" {
@@ -516,6 +549,8 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
@@ -578,7 +613,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error

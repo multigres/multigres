@@ -147,6 +147,43 @@ func TestPgInitdbExtraConfFlag(t *testing.T) {
 	})
 }
 
+func TestPgInitdbSQLDirsFlag(t *testing.T) {
+	t.Run("defaults to empty slice", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Empty(t, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("accepts repeated flag", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--pg-initdb-sql-dirs", "postgres:/tmp/init-scripts",
+			"--pg-initdb-sql-dirs", "multigres:/tmp/migrations",
+		}))
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts", "multigres:/tmp/migrations"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("accepts comma-separated values", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--pg-initdb-sql-dirs", "postgres:/tmp/init-scripts,multigres:/tmp/migrations",
+		}))
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts", "multigres:/tmp/migrations"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("POSTGRES_INITDB_SQL_DIRS env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbSQLDirsEnvVar, "postgres:/tmp/init-scripts")
+		_, pc := GetRootCommand()
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_INITDB_SQL_DIRS env var", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbSQLDirsEnvVar, "postgres:/tmp/env-dir")
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-dirs", "postgres:/tmp/flag-dir"}))
+		assert.Equal(t, []string{"postgres:/tmp/flag-dir"}, pc.pgInitdbSQLDirs.Get())
+	})
+}
+
 func TestPgBackRestFlags(t *testing.T) {
 	// Test default values
 	rootCmd, _ := GetRootCommand()

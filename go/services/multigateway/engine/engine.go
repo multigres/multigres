@@ -124,12 +124,20 @@ type IExecute interface {
 	//   conn: Client connection (for user/session info)
 	//   state: Connection state containing reserved connections to conclude
 	//   conclusion: COMMIT or ROLLBACK
+	//   releasePortalNames: HOLD-cursor names to unpin on ROLLBACK — typically the
+	//     cursors declared inside the rolled-back transaction block. Empty (and
+	//     releaseAllPortals false) means "preserve every pin".
+	//   releaseAllPortals: when true on ROLLBACK, drops every pin on the
+	//     reserved connection (historical behavior). When false, only the
+	//     names listed in releasePortalNames are released. Ignored on COMMIT.
 	//   callback: Function called with the result of the COMMIT/ROLLBACK
 	ConcludeTransaction(
 		ctx context.Context,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
 		conclusion multipoolerpb.TransactionConclusion,
+		releasePortalNames []string,
+		releaseAllPortals bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

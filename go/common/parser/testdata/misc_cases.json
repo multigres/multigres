@@ -209,8 +209,7 @@
   },
   {
     "comment": "SHOW ALL",
-    "query": "SHOW ALL",
-    "expected": "SHOW \"all\""
+    "query": "SHOW ALL"
   },
   {
     "comment": "SHOW timezone",

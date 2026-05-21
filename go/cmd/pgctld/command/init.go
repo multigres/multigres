@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -112,7 +113,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	// Post-initdb steps that need a running server (custom DB creation, init
 	// SQL files) share a single transient PostgreSQL instance.
-	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 {
+	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 || len(cfg.InitdbSQLDirs) > 0 {
 		if err := postInitdbSetup(logger, cfg); err != nil {
 			return nil, err
 		}
@@ -126,12 +127,21 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 // postInitdbSetup starts a transient PostgreSQL instance and performs any
 // post-initdb setup steps: creating a custom target database (if requested)
-// and running user-provided init SQL files against the target database.
+// and running user-provided init SQL against the target database.
+//
+// Execution order:
+//  1. Create target database (if non-default).
+//  2. Run --pg-initdb-sql-dirs: bulk schema/migration directories, each under
+//     SET SESSION AUTHORIZATION <role>. Directories establish the base schema.
+//  3. Run --pg-initdb-sql-files: individual files applied on top as targeted
+//     overrides or patches.
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
 	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
-		"create_database", createDB, "init_sql_files", len(cfg.InitdbSQLFiles))
+		"create_database", createDB,
+		"init_sql_files", len(cfg.InitdbSQLFiles),
+		"init_sql_dirs", len(cfg.InitdbSQLDirs))
 	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg)
 	if err != nil {
 		return err
@@ -144,6 +154,12 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		}
 	}
 
+	// Dirs first: establish bulk schema/migrations under the specified roles.
+	if err := runInitdbSQLDirs(logger, pg, cfg.Database, cfg.InitdbSQLDirs); err != nil {
+		return err
+	}
+
+	// Files second: apply targeted overrides or patches on top of the base schema.
 	if err := runInitdbSQLFiles(logger, pg, cfg.Database, cfg.InitdbSQLFiles); err != nil {
 		return err
 	}
@@ -168,6 +184,69 @@ func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 	return nil
 }
 
+// runInitdbSQLDirs processes each role:path entry: reads all .sql files from the
+// directory in lexicographic order and runs them in a single psql session under
+// SET SESSION AUTHORIZATION "<role>" / RESET SESSION AUTHORIZATION.
+func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entries []string) error {
+	for _, entry := range entries {
+		role, dir, err := parseSQLDirEntry(entry)
+		if err != nil {
+			return err
+		}
+
+		files, err := sqlFilesInDir(dir)
+		if err != nil {
+			return err
+		}
+		if len(files) == 0 {
+			logger.Info("Init SQL dir is empty, skipping", "dir", dir, "role", role)
+			continue
+		}
+
+		logger.Info("Running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
+		args := []string{
+			"-v", "ON_ERROR_STOP=1",
+			"-c", "SET SESSION AUTHORIZATION " + quoteIdentifier(role),
+		}
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "-c", "RESET SESSION AUTHORIZATION")
+
+		if out, err := pg.psql(database, args...); err != nil {
+			return fmt.Errorf("init SQL dir failed (%s as %s): %w\nOutput: %s", dir, role, err, out)
+		}
+		logger.Info("Init SQL dir applied", "dir", dir, "role", role)
+	}
+	return nil
+}
+
+// parseSQLDirEntry splits a "role:path" entry on the first colon.
+func parseSQLDirEntry(entry string) (role, dir string, err error) {
+	idx := strings.IndexByte(entry, ':')
+	if idx <= 0 {
+		return "", "", fmt.Errorf("invalid --pg-initdb-sql-dir entry %q: expected role:path format", entry)
+	}
+	return entry[:idx], entry[idx+1:], nil
+}
+
+// sqlFilesInDir returns .sql file paths from dir in lexicographic order,
+// skipping subdirectories and non-.sql files.
+// os.ReadDir already returns entries sorted by name.
+func sqlFilesInDir(dir string) ([]string, error) {
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read init SQL dir %q: %w", dir, err)
+	}
+	var files []string
+	for _, e := range dirEntries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files, nil
+}
+
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
 	password, passwordSource, passwordFile, err := i.pgCtlCmd.GetPostgresPassword()
@@ -182,6 +261,7 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 		PasswordSource:       passwordSource,
 		PasswordFile:         passwordFile,
 		InitdbSQLFiles:       i.pgCtlCmd.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:        i.pgCtlCmd.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
@@ -219,11 +299,9 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 		return nil
 	}
 
-	// CREATE DATABASE with a double-quoted identifier; double quotes in the name
-	// are escaped as "" per the SQL standard.
 	logger.Info("Creating database", "database", database)
 	if out, err := pg.psql(constants.DefaultPostgresDatabase,
-		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(database, `"`, `""`)),
+		"-c", "CREATE DATABASE "+quoteIdentifier(database),
 	); err != nil {
 		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", database, err, out)
 	}
@@ -334,4 +412,14 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	logger.Info("User password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	return nil
+}
+
+// quoteIdentifier wraps name in double quotes and escapes any embedded double
+// quotes as "" per the SQL standard, producing a safe PostgreSQL identifier.
+// The value comes from operator config, not from untrusted user input, so a
+// simple ReplaceAll is sufficient here. If that assumption ever changes, replace
+// this with pq.QuoteIdentifier from github.com/lib/pq, which applies the same
+// escaping but is a well-tested, purpose-built function.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

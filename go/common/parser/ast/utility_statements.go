@@ -1772,6 +1772,14 @@ func (vss *VariableShowStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the SHOW statement
 func (vss *VariableShowStmt) SqlString() string {
+	// "all" is a sentinel set by the grammar for `SHOW ALL` — it must be
+	// rendered as the bare keyword, not a quoted identifier. The other
+	// grammar-set sentinels ("timezone", "transaction_isolation",
+	// "session_authorization") are valid bare identifiers that round-trip
+	// without quoting.
+	if vss.Name == "all" {
+		return "SHOW ALL"
+	}
 	return "SHOW " + QuoteQualifiedIdentifier(vss.Name)
 }
 
