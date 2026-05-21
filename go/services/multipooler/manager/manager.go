@@ -478,8 +478,13 @@ func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Co
 // ShutdownForTest tears down the manager. Test-only: production shutdown
 // flows through MultiPooler.Shutdown → StopTopoRegistration, which holds
 // the action lock from the surrounding senv lifecycle. Tests construct
-// managers ad hoc and need a one-call cleanup that handles the lock
-// internally.
+// managers ad hoc and need a one-call cleanup.
+//
+// Cleans up in the same order production does: stops the publisher and
+// cancels toporeg retries (no-op if StartTopoRegistration was never
+// called), then closes the manager. This prevents the publisher
+// goroutine from outliving the topo client and panicking on its next
+// publish.
 //
 // ctx must NOT be cancelled — the action-lock acquire short-circuits on a
 // cancelled ctx. From t.Cleanup (where t.Context() is already cancelled),
@@ -487,6 +492,8 @@ func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Co
 //
 // Safe to call multiple times and safe to call even if never opened.
 func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
+	pm.StopTopoRegistration(ctx)
+
 	lockCtx, err := pm.actionLock.Acquire(ctx, "ShutdownForTest")
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "ShutdownForTest: action lock acquire failed", "error", err)
