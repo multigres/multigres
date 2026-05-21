@@ -128,8 +128,15 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.closed.Store(false)
 	m.generation.Add(1)
 
-	// Build admin client config
-	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
+	// Build admin client config. pwSourceNone signals that ResolvePgPassword
+	// was never called — production startup in services/multipooler/init.go
+	// enforces it before reaching Open, so an unset source here is strictly
+	// a programmer error.
+	adminPassword, source := m.config.PgPassword()
+	if source == pwSourceNone {
+		panic("connpoolmanager: Open called before ResolvePgPassword; no password source configured")
+	}
+	adminClientConfig := m.buildClientConfig(m.config.PgUser(), adminPassword)
 
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
@@ -219,7 +226,14 @@ func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte
 	password := ""
 	if len(clientKey) == 0 || len(serverKey) == 0 {
 		if user == m.config.PgUser() {
-			password = m.config.PgPassword()
+			pw, source := m.config.PgPassword()
+			if source == pwSourceNone {
+				// Invariant violation: production startup in
+				// services/multipooler/init.go calls
+				// ResolvePgPassword before any user pool is created.
+				panic("connpoolmanager: buildUserClientConfig called before ResolvePgPassword; no password source configured")
+			}
+			password = pw
 		}
 	}
 	cfg := m.buildClientConfig(user, password)
@@ -399,9 +413,15 @@ func (m *Manager) PgUser() string {
 	return m.config.PgUser()
 }
 
-// PgPassword returns the configured PostgreSQL password for system queries.
-func (m *Manager) PgPassword() string {
-	return m.config.PgPassword()
+// PgPassword returns the resolved PostgreSQL superuser password and an "ok"
+// flag indicating whether ResolvePgPassword ran successfully and produced a
+// source. A false ok means no password source was configured (or Resolve was
+// never called); production startup in services/multipooler/init.go calls
+// Resolve first and surfaces its error, so callers reaching this point can
+// treat !ok as a programmer-error invariant violation.
+func (m *Manager) PgPassword() (string, bool) {
+	pw, source := m.config.PgPassword()
+	return pw, source != pwSourceNone
 }
 
 // --- Admin Pool Operations ---

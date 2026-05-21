@@ -558,7 +558,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"POSTGRES_PASSWORD environment variable\"", "Should use POSTGRES_PASSWORD")
+		assert.Contains(t, string(output), "\"password_source\":\"POSTGRES_PASSWORD\"", "Should record POSTGRES_PASSWORD env as the source")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
@@ -688,6 +688,70 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
 	})
+
+	// password_file_authentication exercises the Kubernetes-Secret-style path:
+	// POSTGRES_PASSWORD_FILE points at a file (with a trailing newline, mimicking
+	// `stringData`) and POSTGRES_PASSWORD is intentionally omitted. initdb,
+	// start, and stop must all resolve the password from the file.
+	t.Run("password_file_authentication", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_auth_file_test")
+		defer cleanup()
+
+		port := utils.GetFreePort(t)
+		testPassword := "secret_from_file_456"
+
+		pwFile := filepath.Join(baseDir, "postgres-password")
+		// Write with a trailing newline to match a kubectl-created Secret whose
+		// stringData value is line-terminated; the helper must strip it.
+		require.NoError(t, os.WriteFile(pwFile, []byte(testPassword+"\n"), 0o600))
+
+		envWithFile := func() []string {
+			env := filterEnv(os.Environ(), "POSTGRES_PASSWORD")
+			env = append(env,
+				"PGCONNECT_TIMEOUT=5",
+				"POSTGRES_PASSWORD_FILE="+pwFile,
+				constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
+			)
+			if runtime.GOOS == "darwin" {
+				env = append(env, "LC_ALL=en_US.UTF-8")
+			}
+			return env
+		}
+
+		t.Logf("Initializing PostgreSQL with POSTGRES_PASSWORD_FILE")
+		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+		initCmd.Env = envWithFile()
+		output, err := initCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld init should succeed with POSTGRES_PASSWORD_FILE, output: %s", string(output))
+		assert.Contains(t, string(output), "\"password_source\":\"POSTGRES_PASSWORD_FILE\"",
+			"Should record POSTGRES_PASSWORD_FILE as the source")
+
+		t.Logf("Starting PostgreSQL server")
+		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+		startCmd.Env = envWithFile()
+		output, err = startCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
+
+		time.Sleep(2 * time.Second)
+
+		// TCP auth using the password that was sourced from the file.
+		tcpCmd := exec.Command("psql",
+			"-h", "localhost",
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-c", "SELECT current_user;",
+		)
+		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		output, err = tcpCmd.CombinedOutput()
+		require.NoError(t, err, "TCP connection should succeed, output: %s", string(output))
+		assert.Contains(t, string(output), "postgres")
+
+		t.Logf("Shutting down PostgreSQL")
+		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
+		stopCmd.Env = append(envWithFile(), "PGPASSWORD="+testPassword)
+		require.NoError(t, stopCmd.Run(), "pgctld stop should succeed")
+	})
 }
 
 // TestPgctldRequiresPassword verifies that pgctld init and pgctld server refuse
@@ -719,8 +783,8 @@ func TestPgctldRequiresPassword(t *testing.T) {
 
 		output, err := initCmd.CombinedOutput()
 		require.Error(t, err, "pgctld init should fail without POSTGRES_PASSWORD, output: %s", string(output))
-		assert.Contains(t, string(output), "POSTGRES_PASSWORD must be set",
-			"error message should explain the missing env var")
+		assert.Contains(t, string(output), "postgres password must be set",
+			"error message should explain how to supply the password")
 	})
 
 	t.Run("server fails without POSTGRES_PASSWORD", func(t *testing.T) {
@@ -744,8 +808,8 @@ func TestPgctldRequiresPassword(t *testing.T) {
 
 		output, err := serverCmd.CombinedOutput()
 		require.Error(t, err, "pgctld server should fail without POSTGRES_PASSWORD, output: %s", string(output))
-		assert.Contains(t, string(output), "POSTGRES_PASSWORD must be set",
-			"error message should explain the missing env var")
+		assert.Contains(t, string(output), "postgres password must be set",
+			"error message should explain how to supply the password")
 	})
 }
 
