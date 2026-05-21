@@ -143,20 +143,9 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestPort := s.pgbackrestPort.Get()
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
-	password, passwordSource, passwordFile, err := s.pgCtlCmd.GetPostgresPassword()
+	pgctldConfig, err := s.pgCtlCmd.buildServiceConfig()
 	if err != nil {
 		return err
-	}
-	pgctldConfig := PgCtldServiceConfig{
-		Port:                 s.pgCtlCmd.pgPort.Get(),
-		User:                 s.pgCtlCmd.pgUser.Get(),
-		Database:             s.pgCtlCmd.pgDatabase.Get(),
-		Password:             password,
-		PasswordSource:       passwordSource,
-		PasswordFile:         passwordFile,
-		InitdbSQLFiles:       s.pgCtlCmd.pgInitdbSQLFiles.Get(),
-		InitdbSQLDirs:        s.pgCtlCmd.pgInitdbSQLDirs.Get(),
-		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 
 	pgctldService, err := NewPgCtldService(
