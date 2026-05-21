@@ -142,7 +142,7 @@ func TestPrimaryPosition(t *testing.T) {
 			}
 			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			defer manager.Shutdown()
+			defer manager.ShutdownForTest(t.Context())
 
 			// Set up mock query service for isInRecovery checks during test
 			mockQueryService := mock.NewQueryService()
@@ -221,7 +221,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Set up mock query service for isInRecovery check during startup
 	mockQueryService := mock.NewQueryService()
@@ -442,7 +442,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, 
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Shutdown() })
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	err = pm.setInitialized()
@@ -1089,7 +1089,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Shutdown() })
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 	err = pm.setInitialized()
 	require.NoError(t, err)
@@ -1188,7 +1188,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer pm.Shutdown()
+	defer pm.ShutdownForTest(t.Context())
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	err = pm.setInitialized()
@@ -1314,7 +1314,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 		// Create mock query service and inject it
 		mockQueryService := mock.NewQueryService()
@@ -1395,7 +1395,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1484,7 +1484,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 		// Create mock query service and inject it
 		mockQueryService := mock.NewQueryService()
@@ -1567,7 +1567,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 		mockQueryService := mock.NewQueryService()
 
@@ -1645,7 +1645,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Shutdown() })
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1740,7 +1740,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
@@ -1850,7 +1850,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
@@ -1962,7 +1962,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Create pg_data directory so setInitialized() can write marker file
 	createPgDataDir(t, poolerDir)

@@ -475,19 +475,21 @@ func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Co
 	}
 }
 
-// Shutdown permanently closes the database connection and stops background operations.
-// Use this for final cleanup when the manager will no longer be used.
-// Unlike Pause(), Shutdown does not return a resume function, signaling permanent closure.
-// Safe to call multiple times and safe to call even if never opened.
+// ShutdownForTest tears down the manager. Test-only: production shutdown
+// flows through MultiPooler.Shutdown → StopTopoRegistration, which holds
+// the action lock from the surrounding senv lifecycle. Tests construct
+// managers ad hoc and need a one-call cleanup that handles the lock
+// internally.
 //
-// Shutdown acquires its own action lock. The lock should always be acquirable
-// here — Shutdown runs from the senv OnClose hook, after the OnTermSync
-// graceful-shutdown sequence has released its own lock — so an error
-// returned by Acquire indicates a coding bug (typically re-entrance).
-func (pm *MultiPoolerManager) Shutdown() {
-	lockCtx, err := pm.actionLock.Acquire(pm.shutdownCtx, "Shutdown")
+// ctx must NOT be cancelled — the action-lock acquire short-circuits on a
+// cancelled ctx. From t.Cleanup (where t.Context() is already cancelled),
+// pass context.Background() or ctxutil.Detach(t.Context()) instead.
+//
+// Safe to call multiple times and safe to call even if never opened.
+func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
+	lockCtx, err := pm.actionLock.Acquire(ctx, "ShutdownForTest")
 	if err != nil {
-		pm.logger.ErrorContext(pm.shutdownCtx, "Failed to acquire action lock for Shutdown — re-entrance bug?", "error", err)
+		pm.logger.ErrorContext(ctx, "ShutdownForTest: action lock acquire failed", "error", err)
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)

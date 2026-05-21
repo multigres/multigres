@@ -61,7 +61,7 @@ func TestManagerState_InitialState(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Initial state should be Starting
 	assert.Equal(t, ManagerStateStarting, manager.GetState())
@@ -98,7 +98,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	// Create manager with a short timeout for testing
 	manager, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 1*time.Second)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Start the async loader
 	go manager.loadShardConfigFromGlobalTopo()
@@ -151,7 +151,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the manager
-	manager.Shutdown()
+	manager.ShutdownForTest(t.Context())
 
 	// Wait for the state to become Error due to context cancellation
 	require.Eventually(t, func() bool {
@@ -212,7 +212,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPoolerObj, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Start async topo loader (consensus is loaded synchronously in the constructor)
 	go manager.loadShardConfigFromGlobalTopo()
@@ -365,7 +365,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			}
 			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			defer manager.Shutdown()
+			defer manager.ShutdownForTest(t.Context())
 
 			// Set up mock query service for isInRecovery check during startup
 			mockQueryService := mock.NewQueryService()
@@ -750,7 +750,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
-				manager.Shutdown()
+				manager.ShutdownForTest(t.Context())
 			}
 		})
 	}
@@ -1011,7 +1011,7 @@ func TestPause_PreservesPublisher(t *testing.T) {
 
 	pm, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Shutdown() })
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 	// Inject a no-op query service so Open's heartbeat start doesn't panic
 	// on a nil pool. This test isn't exercising heartbeat behavior; it just
