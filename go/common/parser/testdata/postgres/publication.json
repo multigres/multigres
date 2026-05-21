@@ -1365,8 +1365,7 @@
   },
   {
     "comment": "publication - Statement 304",
-    "query": "CREATE PUBLICATION testpub4_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\"",
-    "expected": "CREATE PUBLICATION testpub4_forschema FOR TABLES IN SCHEMA CURRENT_SCHEMA"
+    "query": "CREATE PUBLICATION testpub4_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\""
   },
   {
     "comment": "publication - Statement 305",
@@ -1376,7 +1375,7 @@
   {
     "comment": "publication - Statement 306",
     "query": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\", CURRENT_SCHEMA",
-    "expected": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA CURRENT_SCHEMA"
+    "expected": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\""
   },
   {
     "comment": "publication - Statement 307",

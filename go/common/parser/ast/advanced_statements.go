@@ -267,7 +267,7 @@ func (n *MergeWhenClause) SqlString() string {
 			// If we have columns specified
 			columns := make([]string, len(n.TargetList))
 			for i, target := range n.TargetList {
-				columns[i] = target.Name
+				columns[i] = QuoteIdentifier(target.Name)
 			}
 			parts = append(parts, "("+strings.Join(columns, ", ")+")")
 		}
@@ -292,9 +292,9 @@ func (n *MergeWhenClause) SqlString() string {
 			for i, target := range n.TargetList {
 				// For UPDATE SET, format as "column = value" not "value AS column"
 				if target.Val != nil {
-					targets[i] = target.Name + " = " + target.Val.SqlString()
+					targets[i] = QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
 				} else {
-					targets[i] = target.Name
+					targets[i] = QuoteIdentifier(target.Name)
 				}
 			}
 			parts = append(parts, strings.Join(targets, ", "))
@@ -498,7 +498,7 @@ func (n *InferClause) String() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -524,7 +524,7 @@ func (n *InferClause) SqlString() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -672,7 +672,7 @@ func (n *TruncateStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))
@@ -1283,7 +1283,7 @@ func (n *RenameStmt) SqlString() string {
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_DOMCONSTRAINT:
 		// Domain constraint rename: ALTER DOMAIN domain_name RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
@@ -1292,13 +1292,13 @@ func (n *RenameStmt) SqlString() string {
 			// Use the helper function to format domain name properly
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_ATTRIBUTE:
 		// Type attribute rename: ALTER TYPE type_name RENAME ATTRIBUTE old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "ATTRIBUTE", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "ATTRIBUTE", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	default:
 		// Default rename: ALTER <type> old_name RENAME TO new_name
 		if n.Relation != nil {
@@ -1308,9 +1308,9 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		} else if n.Subname != "" {
 			// For DATABASE, SCHEMA, ROLE, etc., the old name might be in Subname
-			parts = append(parts, n.Subname)
+			parts = append(parts, QuoteIdentifier(n.Subname))
 		}
-		parts = append(parts, "RENAME", "TO", n.Newname)
+		parts = append(parts, "RENAME", "TO", QuoteIdentifier(n.Newname))
 	}
 
 	// Add CASCADE behavior if specified
@@ -1448,14 +1448,7 @@ func (n *RuleStmt) String() string {
 		parts = append(parts, "OR REPLACE")
 	}
 
-	// Get the proper table name from RangeVar
-	tableName := n.Relation.RelName
-	if n.Relation.SchemaName != "" {
-		tableName = n.Relation.SchemaName + "." + tableName
-	}
-	if n.Relation.CatalogName != "" {
-		tableName = n.Relation.CatalogName + "." + tableName
-	}
+	tableName := FormatFullyQualifiedName(n.Relation.CatalogName, n.Relation.SchemaName, n.Relation.RelName)
 
 	parts = append(parts, "RULE", QuoteIdentifier(n.Rulename), "AS ON", n.Event.String(), "TO", tableName)
 
@@ -1612,7 +1605,7 @@ func (n *LockStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))

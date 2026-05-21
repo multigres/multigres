@@ -207,7 +207,7 @@
   {
     "comment": "lock - Statement 48",
     "query": "LOCK TABLE ONLY lock_tbl1",
-    "expected": "LOCK TABLE lock_tbl1 IN ACCESS EXCLUSIVE MODE"
+    "expected": "LOCK TABLE ONLY lock_tbl1 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 49",
