@@ -25,7 +25,6 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -504,7 +503,8 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		"ConfigureSynchronousReplication called",
 		time.Now()).
 		withCohort(standbyIDs).
-		withOperation("configure")
+		withOperation("configure").
+		withSkipOutgoingQuorum()
 	if force {
 		update.withForce()
 	}
@@ -537,27 +537,6 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		"reload_config", reloadConfig)
 
 	return nil
-}
-
-// applyGUCsForSyncReplication sets the synchronous_commit and synchronous_standby_names
-// GUCs without the primary guardrail or rule-history write. Safe to call on a standby
-// (e.g., before pg_promote) so the promoted primary takes effect with the new config.
-// The caller must hold the action lock.
-func (pm *MultiPoolerManager) applyGUCsForSyncReplication(
-	ctx context.Context,
-	cfg *commonconsensus.SyncReplicationConfig,
-) error {
-	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
-	if err != nil {
-		return err
-	}
-	if err := pm.setSynchronousCommit(ctx, cfg.SyncCommit); err != nil {
-		return err
-	}
-	if err := pm.setSynchronousStandbyNames(ctx, cfg.SyncMethod, int32(cfg.NumSync), standbyNames); err != nil {
-		return err
-	}
-	return pm.reloadPostgresConfig(ctx)
 }
 
 // UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
@@ -605,28 +584,22 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 
 	// === Parse Current Configuration ===
 
-	// Get current synchronous replication configuration
-	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	// Read current cohort from the rule store (authoritative source of truth).
+	pos, err := pm.rules.observePosition(ctx)
 	if err != nil {
 		return err
 	}
+	currentCohort := pos.GetRule().GetCohortMembers()
 
 	// Check if synchronous replication is configured
-	if len(syncConfig.StandbyIds) == 0 {
+	if len(currentCohort) == 0 {
 		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
 	}
 
-	// Convert current config IDs to application names for set operations.
-	// These IDs were previously validated and written by us, so this cannot fail in practice.
-	currentApplicationNames, err := toPoolerIDs(syncConfig.StandbyIds)
-	if err != nil {
-		return err
-	}
-
-	// Build the current value string for comparison
-	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, currentApplicationNames)
+	// Convert current cohort IDs to pooler IDs for set operations.
+	currentApplicationNames, err := toPoolerIDs(currentCohort)
 	if err != nil {
 		return err
 	}
@@ -652,16 +625,8 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 			"resulting standby list cannot be empty after operation")
 	}
 
-	// === Build and Apply New Configuration ===
-
-	// Build new synchronous_standby_names value using shared helper
-	newValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, updatedStandbys)
-	if err != nil {
-		return err
-	}
-
-	// Check if there are any changes (idempotent)
-	if currentValue == newValue {
+	// Check if there are any changes (idempotent).
+	if poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
 		return nil
 	}
 
@@ -699,22 +664,10 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
-	// Apply the setting
-	if err = pm.applySynchronousStandbyNames(ctx, newValue); err != nil {
-		return err
-	}
-
-	// Reload Postgres config so the new synchronous_standby_names value
-	// takes effect immediately. Recording the cohort change in rule_history
-	// without applying it would leave the history out of step with the GUC.
-	if err := pm.reloadPostgresConfig(ctx); err != nil {
-		return err
-	}
-
 	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully",
 		"operation", operation,
-		"old_value", currentValue,
-		"new_value", newValue,
+		"old_cohort", currentCohort,
+		"new_cohort", updatedStandbyIDs,
 		"expected_outgoing_rule", expectedOutgoingRule)
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
@@ -1365,7 +1318,8 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		withLeader(pm.serviceID).
 		withCohort(cohortMemberIDs).
 		withAcceptedMembers(acceptedMemberIDs).
-		withWALPosition(finalLSN)
+		withWALPosition(finalLSN).
+		withSkipOutgoingQuorum()
 	if force {
 		promoteUpdate.withForce()
 	}

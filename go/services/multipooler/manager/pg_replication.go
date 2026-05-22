@@ -1244,6 +1244,24 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 	return updatedStandbys
 }
 
+// poolerIDSetEqual returns true if a and b contain the same set of pooler IDs
+// (order-independent comparison using appName as the key).
+func poolerIDSetEqual(a, b []poolerID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]struct{}, len(a))
+	for _, p := range a {
+		m[p.appName] = struct{}{}
+	}
+	for _, p := range b {
+		if _, ok := m[p.appName]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // ----------------------------------------------------------------------------
 // Primary-side Replication Queries
 // ----------------------------------------------------------------------------

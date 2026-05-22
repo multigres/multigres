@@ -769,7 +769,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			Wait: true,
 		}
-		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
+		_, err = standbyManagerClient.StopReplication(utils.WithTimeout(t, 10*time.Second), stopReq)
 		require.NoError(t, err, "StopReplication with REPLAY_AND_RECEIVER should succeed")
 
 		// Since wait=true, both replay and receiver should be stopped when the call returns

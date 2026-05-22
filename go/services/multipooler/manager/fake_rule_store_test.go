@@ -17,12 +17,14 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -35,6 +37,21 @@ func testBootstrapPolicy() *clustermetadatapb.DurabilityPolicy {
 	}
 }
 
+// noopSyncStandbyManager is a SyncStandbyManager test double that does nothing.
+type noopSyncStandbyManager struct{}
+
+func (noopSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) Clear(_ context.Context) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
+}
+
 // testBootstrapID returns a pooler ID suitable for the initial row's
 // coordinator_id in tests that call createRuleTables.
 func testBootstrapID() *clustermetadatapb.ID {
@@ -43,6 +60,31 @@ func testBootstrapID() *clustermetadatapb.ID {
 		Cell:      "zone1",
 		Name:      "bootstrap-pooler",
 	}
+}
+
+// failingSyncStandbyManager is a SyncStandbyManager test double whose SetPolicy
+// returns the configured error for each call in sequence. Used to exercise
+// updateRule's GUC failure paths (pre-promote / pre-write / post-write) without
+// a real postgres sync configuration. Pass nil at index i to make the i-th call
+// succeed; a shorter list means later calls succeed.
+type failingSyncStandbyManager struct {
+	setPolicyErrs  []error
+	setPolicyCalls int
+}
+
+func (f *failingSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	i := f.setPolicyCalls
+	f.setPolicyCalls++
+	if i < len(f.setPolicyErrs) {
+		return f.setPolicyErrs[i]
+	}
+	return nil
+}
+
+func (f *failingSyncStandbyManager) Clear(_ context.Context) error { return nil }
+
+func (f *failingSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
 }
 
 // fakeRuleStore is a test double for ruleStorer that returns a preset position
@@ -54,12 +96,16 @@ func testBootstrapID() *clustermetadatapb.ID {
 // the sequence is exhausted. This is useful for simulating a position that
 // changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu          sync.Mutex
-	pos         *clustermetadatapb.PoolerPosition
-	posSequence []*clustermetadatapb.PoolerPosition
-	observeErr  error
-	updateErr   error
-	updates     []*ruleUpdateBuilder
+	mu                 sync.Mutex
+	pos                *clustermetadatapb.PoolerPosition
+	posSequence        []*clustermetadatapb.PoolerPosition
+	observeErr         error
+	updateErr          error
+	updateErrAfterHook error
+	updates            []*ruleUpdateBuilder
+	inconsistentGUC    bool
+	reconcileGUCCalled bool
+	reconcileGUCErr    error
 }
 
 func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
@@ -89,14 +135,46 @@ func (f *fakeRuleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
 	return f.pos
 }
 
-func (f *fakeRuleStore) updateRule(_ context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+func (f *fakeRuleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+	f.mu.Lock()
+	f.updates = append(f.updates, update)
+	updateErr := f.updateErr
+	updateErrAfterHook := f.updateErrAfterHook
+	pos := f.pos
+	f.mu.Unlock()
+
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	// Mirror the real rule store's pre-hook durability policy validation.
+	if dp := update.durabilityPolicy; dp != nil {
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, fmt.Errorf("durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+	}
+	if update.promotionHook != nil {
+		if err := update.promotionHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if updateErrAfterHook != nil {
+		return nil, updateErrAfterHook
+	}
+	return pos, nil
+}
+
+func (f *fakeRuleStore) hasInconsistentGUC(_ context.Context) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.updates = append(f.updates, update)
-	if f.updateErr != nil {
-		return nil, f.updateErr
-	}
-	return f.pos, nil
+	return f.inconsistentGUC
+}
+
+func (f *fakeRuleStore) reconcileGUC(_ context.Context, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reconcileGUCCalled = true
+	return f.reconcileGUCErr
 }
 
 // assertPromoteRecorded asserts that exactly one updateRule call was made with

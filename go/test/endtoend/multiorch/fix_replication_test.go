@@ -269,13 +269,15 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient, inst *
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
+	currentTerm := shardsetup.MustGetCurrentTerm(t, ctx, client.Consensus)
+
 	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
 	_, err := client.Consensus.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               nil, // nil primary clears the connection
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
-		Force:                 true, // Force to bypass term check
+		CurrentTerm:           currentTerm,
 	})
 	require.NoError(t, err, "SetPrimaryConnInfo (clear) should succeed")
 	t.Log("Cleared primary_conninfo via RPC")

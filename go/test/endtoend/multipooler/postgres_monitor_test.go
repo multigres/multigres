@@ -15,6 +15,7 @@
 package multipooler
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +123,53 @@ func TestPostgresMonitorControl(t *testing.T) {
 
 		t.Logf("Postgres was successfully restarted after re-enabling restarts")
 	})
+}
+
+// TestGUCSelfHealing verifies that the pooler's postgres monitor detects and repairs
+// externally-corrupted synchronous_standby_names without any orchestrator intervention.
+// This test exercises the remedialActionReconcileGUC path in the monitor loop.
+func TestGUCSelfHealing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	setupPoolerTest(t, setup)
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+
+	pgClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	defer pgClient.Close()
+
+	ctx := utils.WithTimeout(t, 10*time.Second)
+
+	correctValue, err := shardsetup.QueryStringValue(ctx, pgClient, "SHOW synchronous_standby_names")
+	require.NoError(t, err)
+	if correctValue == "" {
+		t.Skip("synchronous_standby_names not configured")
+	}
+	t.Logf("Correct synchronous_standby_names: %q", correctValue)
+
+	// Corrupt the GUC. We use 'ANY 1 (*)' rather than a completely unknown name
+	// so that sync commits can still complete (the wildcard matches the real standby),
+	// allowing reconcileGUC's SELECT FOR UPDATE to commit without blocking.
+	_, err = pgClient.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_standby_names = 'ANY 1 (*)'", 1)
+	require.NoError(t, err)
+	shardsetup.ReloadConfig(ctx, t, pgClient, setup.PrimaryName)
+
+	require.Eventually(t, func() bool {
+		val, qerr := shardsetup.QueryStringValue(utils.WithShortDeadline(t), pgClient, "SHOW synchronous_standby_names")
+		return qerr == nil && val != correctValue
+	}, 5*time.Second, 50*time.Millisecond, "corrupted GUC should be visible after reload")
+
+	// The monitor runs every 5s, so allow up to one full tick plus
+	// action-lock acquisition and remediation latency for drift to be healed.
+	require.Eventually(t, func() bool {
+		val, qerr := shardsetup.QueryStringValue(utils.WithShortDeadline(t), pgClient, "SHOW synchronous_standby_names")
+		return qerr == nil && val == correctValue
+	}, 10*time.Second, 100*time.Millisecond, "postgres monitor should heal synchronous_standby_names drift")
+
+	t.Logf("GUC self-healing confirmed: synchronous_standby_names restored to %q", correctValue)
 }
 
 // TestPostgresMonitor_FixesPrimaryConnInfoDrift exercises the MonitorPostgres
