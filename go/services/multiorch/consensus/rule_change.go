@@ -366,6 +366,7 @@ func buildBootstrapProposal(
 			CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
 			CreationTime:     timestamppb.Now(),
 		},
+		SkipOutgoingQuorum: true,
 	}, nil
 }
 

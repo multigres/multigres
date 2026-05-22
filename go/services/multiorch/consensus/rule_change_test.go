@@ -201,6 +201,76 @@ func TestBuildFailoverProposal(t *testing.T) {
 	})
 }
 
+// ---- TestBuildBootstrapProposal ----
+
+func TestBuildBootstrapProposal(t *testing.T) {
+	makeID := func(name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      name,
+		}
+	}
+	makeAddr := func(name string) *clustermetadatapb.PoolerAddress {
+		return &clustermetadatapb.PoolerAddress{
+			Id:           makeID(name),
+			Host:         "localhost",
+			PostgresPort: 5432,
+		}
+	}
+	makeCS := func(name string) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{Id: makeID(name)}
+	}
+
+	cohortIDs := []*clustermetadatapb.ID{makeID("mp1"), makeID("mp2"), makeID("mp3")}
+	policy := &clustermetadatapb.DurabilityPolicy{
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+	rev := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
+	addressByID := map[string]*clustermetadatapb.PoolerAddress{
+		"zone1_mp1": makeAddr("mp1"),
+		"zone1_mp2": makeAddr("mp2"),
+		"zone1_mp3": makeAddr("mp3"),
+	}
+
+	t.Run("sets skip_outgoing_quorum and picks first eligible leader", func(t *testing.T) {
+		result := commonconsensus.RecruitmentResult{
+			TermRevocation:  rev,
+			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
+		}
+
+		proposal, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)
+		require.NoError(t, err)
+		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
+		assert.True(t, proposal.GetSkipOutgoingQuorum(),
+			"bootstrap proposals must set skip_outgoing_quorum so multipoolers apply the GUC without an outgoing-cohort quorum")
+		assert.Equal(t, int64(5), proposal.GetProposedRule().GetRuleNumber().GetCoordinatorTerm())
+	})
+
+	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
+		result := commonconsensus.RecruitmentResult{
+			TermRevocation:  rev,
+			EligibleLeaders: nil,
+		}
+
+		_, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no eligible leaders")
+	})
+
+	t.Run("leader missing from addressByID returns error", func(t *testing.T) {
+		result := commonconsensus.RecruitmentResult{
+			TermRevocation:  rev,
+			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("ghost")},
+		}
+
+		_, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in cohort")
+	})
+}
+
 // ---- TestRun ----
 
 func TestRun_Success(t *testing.T) {

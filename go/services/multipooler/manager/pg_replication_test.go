@@ -1391,7 +1391,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m)
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
@@ -1443,7 +1443,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m)
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1468,7 +1468,7 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m)
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
@@ -1500,13 +1500,37 @@ func TestPauseReplication(t *testing.T) {
 			errorContains: "failed to query pg_stat_wal_receiver",
 		},
 		{
+			// count > 0 but status=waiting with empty primary_conninfo should be
+			// treated as effectively disconnected: the walreceiver can't transition
+			// out of WAITING without a non-empty primary_conninfo, and we hold the
+			// action lock so nothing else can repopulate it.
+			name: "PauseReceiverOnly accepts WALRCV_WAITING+empty primary_conninfo as disconnected",
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+			wait: true,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult(
+					[]string{"count", "status", "primary_conninfo"},
+					[][]any{{int64(1), "waiting", ""}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/6000000", "", "f", "not paused", "2025-01-15 13:00:00+00", "", "waiting", nil, nil, nil}}))
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
+				assert.Equal(t, "0/6000000", status.LastReplayLsn)
+			},
+		},
+		{
 			name: "PauseReplayAndReceiver fails on pause",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				expectReloadConfig(m)
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
@@ -1546,6 +1570,57 @@ func TestPauseReplication(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestWaitForReceiverDisconnect_Timeout covers the diagnostic timeout branch
+// added with the better-diagnostics fix: when the wait budget expires, the
+// function should return the canonical DEADLINE_EXCEEDED error rather than
+// leaking a pool-context-expired wrapper. The 10s budget is hardcoded, but
+// shrinking the parent context shortens the effective deadline via the
+// min-deadline semantics of context.WithTimeout.
+func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
+	t.Run("deadline expires before first poll", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock("default", "0-inf")
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "timeout waiting for WAL receiver to disconnect")
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
+
+	t.Run("deadline expires after one poll returns still-streaming", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+		// Persistent (non-consumeOnce) pattern: the function may poll once or
+		// more before the deadline trips, depending on scheduling.
+		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
+			[]string{"count", "status", "primary_conninfo"},
+			[][]any{{int64(1), "streaming", "host=primary port=5432"}}))
+
+		// 600ms leaves room for at least one 500ms tick before the deadline trips.
+		ctx, cancel := context.WithTimeout(t.Context(), 600*time.Millisecond)
+		defer cancel()
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "timeout waiting for WAL receiver to disconnect")
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
+
+	t.Run("parent context cancelled surfaces cancellation, not timeout", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock("default", "0-inf")
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel() // cancel immediately
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "context cancelled while waiting for WAL receiver to disconnect")
+		assert.NotEqual(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
 }
 
 func TestResetPrimaryConnInfo(t *testing.T) {
