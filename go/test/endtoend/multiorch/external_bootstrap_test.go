@@ -14,12 +14,12 @@
 
 // Package multiorch contains end-to-end tests for multiorch behavior.
 //
-// TestBootstrap_ViaCLI verifies the manual-bootstrap path:
+// TestBootstrap_ViaExternalAPI verifies the manual-bootstrap path:
 // multiadmin.ApplyCertifiedRuleChange installs the initial shard rule when
-// multiorch's automatic recovery is disabled. This is the same path the
-// `multigres cluster apply-rule-change` CLI takes and the path a provisioner
-// would use to bring up a fresh shard without relying on multiorch's
-// auto-bootstrap.
+// multiorch's automatic recovery is disabled. This is the same RPC the
+// `multigres cluster apply-rule-change` CLI invokes, and the path a
+// provisioner would use to bring up a fresh shard without relying on
+// multiorch's auto-bootstrap.
 package multiorch
 
 import (
@@ -44,9 +44,9 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestBootstrap_ViaCLI brings up an uninitialized 3-node cluster with
-// multiorch's automatic recovery disabled, then bootstraps the shard by
-// calling multiadmin.ApplyCertifiedRuleChange (the same RPC the
+// TestBootstrap_ViaExternalAPI brings up an uninitialized 3-node cluster
+// with multiorch's automatic recovery disabled, then bootstraps the shard
+// by calling multiadmin.ApplyCertifiedRuleChange (the same RPC the
 // `multigres cluster apply-rule-change` CLI invokes). After the RPC
 // returns, the test asserts that the cohort is initialized at term 1
 // with the chosen leader and synchronous replication configured.
@@ -57,7 +57,7 @@ import (
 // started before any pooler registers — so its first recovery cycles have
 // no work to do. DisableRecovery is called before the multipoolers come
 // up, so no auto-bootstrap can fire after registration.
-func TestBootstrap_ViaCLI(t *testing.T) {
+func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end bootstrap test (short mode)")
 	}
