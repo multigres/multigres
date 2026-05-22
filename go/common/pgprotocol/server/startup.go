@@ -19,8 +19,11 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -127,6 +130,16 @@ func (c *Conn) readAndDispatchStartup() error {
 		if c.requireTLS && !c.tlsHandshakeComplete {
 			c.logger.Warn("rejecting plaintext connection: TLS required",
 				"remote_addr", c.RemoteAddr())
+			// Distinguish the two ways a client can hit this gate so the
+			// fleet-validation alert (MUL-420) can tell "client never
+			// asked for TLS" from "server declined the SSLRequest" — the
+			// latter would indicate misconfiguration that --pg-require-ssl
+			// alone won't catch.
+			reason := PlaintextRejectedReasonNoSSLRequest
+			if c.sslDone {
+				reason = PlaintextRejectedReasonTLSDisabledByServer
+			}
+			c.metrics().RecordPlaintextRejected(c.ctx, reason)
 			// Returning a *PgDiagnostic lets serve() emit the FATAL
 			// ErrorResponse via its standard startup-error path (which
 			// also clears the auth deadline and closes the connection).
@@ -151,6 +164,7 @@ func (c *Conn) handleSSLRequest() error {
 	if c.tlsConfig == nil {
 		// No TLS configured, decline SSL.
 		c.logger.Debug("client requested SSL, declining (no TLS config)")
+		c.metrics().RecordSSLRequestDeclined(c.ctx)
 		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
@@ -184,11 +198,24 @@ func (c *Conn) handleSSLRequest() error {
 	// fallback below and skip the wrapper.
 	handshakeCfg := wrapTLSConfigForCertCapture(c.tlsConfig, c.captureTLSServerCert)
 
-	// Perform TLS handshake.
+	// Perform TLS handshake. Time it for mg.gateway.tls.handshake.duration
+	// and classify the outcome so the fleet-validation alert can tell a
+	// crypto failure from a client tear-down. net.ErrClosed / io.EOF map
+	// to client_aborted; everything else is treated as a handshake_failure.
 	tlsConn := tls.Server(c.conn, handshakeCfg)
+	handshakeStart := time.Now()
 	if err := tlsConn.Handshake(); err != nil {
+		outcome := TLSOutcomeHandshakeFailure
+		if isClientAbortError(err) {
+			outcome = TLSOutcomeClientAborted
+		}
+		c.metrics().RecordTLSHandshake(c.ctx, outcome, time.Since(handshakeStart))
 		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
+	handshakeDuration := time.Since(handshakeStart)
+	c.metrics().RecordTLSHandshake(c.ctx, TLSOutcomeSuccess, handshakeDuration)
+	connState := tlsConn.ConnectionState()
+	c.metrics().RecordTLSConnection(c.ctx, connState.Version, connState.CipherSuite)
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
@@ -468,16 +495,31 @@ var errAuthRejected = errors.New("auth rejected; FATAL already sent")
 // replication clients. libpq, pgx, and JDBC all accept ErrorResponse at this
 // stage either way — the wire-visible difference is one fewer frame and no
 // successful-handshake-then-rejection optic for the client.
-func (c *Conn) authenticate() error {
+func (c *Conn) authenticate() (err error) {
+	// Track the outcome label for mg.gateway.auth.attempts. Each rejection
+	// site below assigns a specific value before returning so we don't lose
+	// the cause when sendAuthError-style helpers fold it into errAuthRejected.
+	outcome := AuthOutcomeSuccess
+	defer func() {
+		c.metrics().RecordAuthAttempt(c.ctx, outcome)
+	}()
+
 	// Check if trust auth is allowed for this connection. errAuthRejected
 	// is propagated unchanged so serve() can short-circuit out of the
 	// startup phase without entering the command loop.
 	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
-		if err := c.authenticateTrust(); err != nil {
+		if err = c.authenticateTrust(); err != nil {
+			outcome = classifyAuthError(err)
 			return err
 		}
 	} else {
-		if err := c.authenticateSCRAM(); err != nil {
+		// authenticateSCRAM returns a specific outcome label alongside
+		// the error so this caller doesn't have to reverse-engineer it
+		// from errAuthRejected (which folds the cause).
+		var scramOutcome string
+		scramOutcome, err = c.authenticateSCRAM()
+		outcome = scramOutcome
+		if err != nil {
 			return err
 		}
 	}
@@ -485,11 +527,43 @@ func (c *Conn) authenticate() error {
 	// Replication startup parameter requires rolreplication=true on the role.
 	// Done post-auth so we don't leak which roles exist for unauthenticated
 	// clients.
-	if err := c.verifyReplicationRole(); err != nil {
+	if err = c.verifyReplicationRole(); err != nil {
+		// SCRAM succeeded but the role lacks rolreplication. Tagged as
+		// its own outcome so MUL-420's fleet validation alert can
+		// distinguish role-attribute rejections from login_disabled
+		// without scanning logs.
+		outcome = AuthOutcomeReplicationRoleRequired
 		return err
 	}
 
 	return c.finishAuth()
+}
+
+// classifyAuthError maps an auth-path error to the closed set of outcome
+// labels used by mg.gateway.auth.attempts and mg.gateway.auth.scram.duration.
+// Order matters: the SCRAM sentinels must be checked before the generic
+// errAuthRejected fallback so cause-specific labels survive the wrapping
+// done by sendAuthError / sendScramFatal.
+func classifyAuthError(err error) string {
+	switch {
+	case err == nil:
+		return AuthOutcomeSuccess
+	case errors.Is(err, scram.ErrAuthenticationFailed):
+		return AuthOutcomeBadPassword
+	case errors.Is(err, scram.ErrUserNotFound):
+		return AuthOutcomeUserNotFound
+	case errors.Is(err, scram.ErrLoginDisabled):
+		return AuthOutcomeLoginDisabled
+	case errors.Is(err, scram.ErrPasswordExpired):
+		return AuthOutcomePasswordExpired
+	case errors.Is(err, scram.ErrSASLProtocol),
+		errors.Is(err, scram.ErrChannelBindingNegotiation),
+		errors.Is(err, scram.ErrChannelBindingCheck),
+		errors.Is(err, scram.ErrAuthzidNotSupported):
+		return AuthOutcomeProtocolError
+	default:
+		return AuthOutcomeInternal
+	}
 }
 
 // authenticateTrust performs trust authentication (no password required).
@@ -622,7 +696,16 @@ func (c *Conn) sendReplicationRoleError() error {
 // for both. Lookup-time sentinels (login-disabled, expired, missing user)
 // are mapped to the matching native-PG error here, before any SASL frames
 // are emitted, so we don't reveal which case applied.
-func (c *Conn) authenticateSCRAM() error {
+//
+// Returns the outcome label for mg.gateway.auth.attempts alongside the
+// error. The label survives the errAuthRejected wrapping that
+// sendAuthError-style helpers apply, so the caller does not have to
+// reverse-engineer the cause from the returned error. The SCRAM handshake
+// duration (client-first to server-final) is recorded only on paths that
+// actually exchange SASL frames; credential-lookup failures exit before
+// any frame is emitted and are observed via the separate
+// mg.gateway.auth.credential_lookup.duration metric.
+func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 	c.logger.Debug("authenticating client", "method", "scram-sha-256")
 
 	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
@@ -631,18 +714,18 @@ func (c *Conn) authenticateSCRAM() error {
 		// (invalid_authorization_specification), matching native PG.
 		if errors.Is(err, scram.ErrLoginDisabled) {
 			c.logger.Warn("authentication failed: role not permitted to log in", "user", c.user)
-			return c.sendLoginDisabledError()
+			return AuthOutcomeLoginDisabled, c.sendLoginDisabledError()
 		}
 		// Expired rolvaliduntil and unknown-user both surface as the opaque
 		// "password authentication failed" message (28P01), matching PG's
 		// convention of not disclosing why auth failed.
 		if errors.Is(err, scram.ErrUserNotFound) {
 			c.logger.Warn("authentication failed: user not found", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomeUserNotFound, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if errors.Is(err, scram.ErrPasswordExpired) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		// Generic credential-lookup failure (pooler unreachable, parse
 		// error, transport error not carrying a PgDiagnostic). Fail
@@ -650,9 +733,17 @@ func (c *Conn) authenticateSCRAM() error {
 		// passwords so the client does not learn whether the user
 		// exists; operators see the underlying cause in the logs.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
-		return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		return AuthOutcomeLookupError, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 	}
 	c.credentials = creds
+
+	// Start the SCRAM handshake timer here so the histogram captures only
+	// the SASL exchange (client-first → server-final), not the upstream
+	// credential lookup which has its own metric.
+	scramStart := time.Now()
+	defer func() {
+		c.metrics().RecordSCRAMDuration(c.ctx, outcome, time.Since(scramStart))
+	}()
 
 	// Create the SCRAM authenticator with the pre-fetched hash.
 	auth := scram.NewScramAuthenticator(creds.Hash, c.database)
@@ -686,16 +777,16 @@ func (c *Conn) authenticateSCRAM() error {
 		advertised[m] = struct{}{}
 	}
 	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASL: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASL: %w", err)
 	}
 	if err := c.flush(); err != nil {
-		return fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
 	}
 
 	// Read SASLInitialResponse (chosen mechanism + client-first-message).
 	selectedMechanism, clientFirstMessage, err := c.readSASLInitialResponse(advertised)
 	if err != nil {
-		return fmt.Errorf("failed to read SASLInitialResponse: %w", err)
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to read SASLInitialResponse: %w", err)
 	}
 
 	// Process client-first-message and generate server-first-message.
@@ -705,23 +796,23 @@ func (c *Conn) authenticateSCRAM() error {
 	if err != nil {
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
 			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "err", err)
-			return ferr
+			return AuthOutcomeProtocolError, ferr
 		}
-		return fmt.Errorf("failed to handle client-first-message: %w", err)
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-first-message: %w", err)
 	}
 
 	// Send AuthenticationSASLContinue with server-first-message.
 	if err := c.sendAuthenticationSASLContinue(serverFirstMessage); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
 	}
 	if err := c.flush(); err != nil {
-		return fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
 	}
 
 	// Read SASLResponse (contains client-final-message).
 	clientFinalMessage, err := c.readSASLResponse()
 	if err != nil {
-		return fmt.Errorf("failed to read SASLResponse: %w", err)
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to read SASLResponse: %w", err)
 	}
 
 	// Verify client proof and generate server signature.
@@ -729,13 +820,13 @@ func (c *Conn) authenticateSCRAM() error {
 	if err != nil {
 		if errors.Is(err, scram.ErrAuthenticationFailed) {
 			c.logger.Warn("authentication failed: invalid password", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomeBadPassword, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
 			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "err", err)
-			return ferr
+			return AuthOutcomeProtocolError, ferr
 		}
-		return fmt.Errorf("failed to handle client-final-message: %w", err)
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-final-message: %w", err)
 	}
 
 	// Capture keys for SCRAM passthrough to the backing PostgreSQL.
@@ -745,11 +836,11 @@ func (c *Conn) authenticateSCRAM() error {
 	// the caller (authenticate) continues with the post-auth role-attribute
 	// check and the AuthenticationOk → ReadyForQuery completion sequence.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
 	}
 
 	c.logger.Debug("scram authentication succeeded", "user", c.user)
-	return nil
+	return AuthOutcomeSuccess, nil
 }
 
 // sendAuthenticationSASL sends AuthenticationSASL message with supported mechanisms.
@@ -1001,6 +1092,28 @@ func (c *Conn) sendParameterStatus(name, value string) error {
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
 	return c.writePacket(buf, pos)
+}
+
+// isClientAbortError reports whether a TLS handshake error looks like the
+// client closed the connection (network teardown, EOF, or use of an already-
+// closed socket) rather than a server-side or crypto failure. Used to split
+// the tls.handshake.duration outcome label so the fleet-validation alert
+// can suppress noise from clients that hang up mid-handshake.
+//
+// Timeouts are intentionally excluded: a deadline-exceeded error during
+// the TLS handshake is ambiguous between a stalled client and the server's
+// own authentication_timeout firing on c.conn. Tagging timeouts as
+// handshake_failure (the default) is more accurate than blaming the
+// client; operators alerting on a sustained handshake_failure rate will
+// still spot stalled-client patterns via the timing distribution.
+func isClientAbortError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return false
 }
 
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.

@@ -717,7 +717,7 @@ func (c *CurrentOfExpr) SqlString() string {
 	if c.CursorName == "" {
 		return "CURRENT OF <unnamed>"
 	}
-	return "CURRENT OF " + c.CursorName
+	return "CURRENT OF " + QuoteIdentifier(c.CursorName)
 }
 
 // NewCurrentOfExpr creates a new CurrentOfExpr node.

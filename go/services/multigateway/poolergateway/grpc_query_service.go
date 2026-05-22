@@ -366,9 +366,16 @@ func (g *grpcQueryService) CopyReady(
 		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive READY response")
 	}
 
-	// Check for ERROR response
+	// Check for ERROR response. When the multipooler rejects the COPY at
+	// initiation (e.g., PG raised "column does not exist") but the underlying
+	// reserved connection is still alive — typically because it was already
+	// reserved for an unrelated reason such as a transaction or temp tables —
+	// it sends an ERROR phase response carrying the surviving ReservedState.
+	// Propagate that state to the caller so the gateway keeps tracking the
+	// reserved connection; if no state was attached, the connection is gone
+	// and the gateway should clear its tracking.
 	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
-		return 0, nil, nil, fmt.Errorf("COPY initiation failed: %s", resp.Error)
+		return 0, nil, resp.GetReservedState(), fmt.Errorf("COPY initiation failed: %s", resp.Error)
 	}
 
 	// Validate READY response
@@ -486,9 +493,13 @@ func (g *grpcQueryService) CopyFinalize(
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive RESULT response")
 	}
 
-	// Check for ERROR response
+	// Check for ERROR response. The multipooler attaches the surviving
+	// ReservedState when CopyFinalize hit a PG error (e.g., constraint
+	// violation) but the underlying reserved connection is still alive
+	// because of another reason such as a transaction. Forward that state
+	// so the gateway keeps tracking the connection instead of clearing it.
 	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
-		return nil, nil, fmt.Errorf("COPY finalization failed: %s", resp.Error)
+		return nil, resp.GetReservedState(), fmt.Errorf("COPY finalization failed: %s", resp.Error)
 	}
 
 	// Validate RESULT response
@@ -584,19 +595,25 @@ func (g *grpcQueryService) ConcludeTransaction(
 	target *querypb.Target,
 	options *querypb.ExecuteOptions,
 	conclusion multipoolerservice.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"conclusion", conclusion.String(),
-		"reserved_conn_id", options.ReservedConnectionId)
+		"reserved_conn_id", options.ReservedConnectionId,
+		"release_portal_names", releasePortalNames,
+		"release_all_portals", releaseAllPortals)
 
 	// Create the request
 	req := &multipoolerservice.ConcludeTransactionRequest{
-		Target:     target,
-		Options:    options,
-		Conclusion: conclusion,
+		Target:             target,
+		Options:            options,
+		Conclusion:         conclusion,
+		ReleasePortalNames: releasePortalNames,
+		ReleaseAllPortals:  releaseAllPortals,
 	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic

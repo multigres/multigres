@@ -383,10 +383,19 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 
+	// Initialize gateway-wide OTel metrics up front so the credential
+	// provider and listener can share the same sink. Failures here are
+	// non-fatal: the auth and TLS code paths tolerate a nil/noop recorder
+	// and we don't want metric init to block startup.
+	gatewayMetrics, err := NewGatewayMetrics()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
+	}
+
 	// Create the credential provider for SCRAM authentication and the
 	// replication-role gate. A single GetAuthCredentials RPC feeds both,
 	// so admitting a replication connection never costs two pooler hops.
-	credentialProvider := auth.NewPoolerCredentialProvider(mg.poolerGateway)
+	credentialProvider := auth.NewPoolerCredentialProvider(mg.poolerGateway, gatewayMetrics)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
@@ -505,6 +514,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		TLSConfig:             pgTLSConfig,
 		RequireTLS:            requireSSL,
 		AuthenticationTimeout: mg.authenticationTimeout.Get(),
+		AuthMetrics:           gatewayMetrics,
 		Logger:                logger,
 	})
 	if err != nil {
@@ -527,6 +537,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			TLSConfig:             pgTLSConfig,
 			RequireTLS:            requireSSL,
 			AuthenticationTimeout: mg.authenticationTimeout.Get(),
+			AuthMetrics:           gatewayMetrics,
 			Logger:                logger,
 		})
 		if err != nil {
@@ -539,11 +550,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		}
 	}
 
-	// Register client connection metrics.
-	gatewayMetrics, err := NewGatewayMetrics()
-	if err != nil {
-		logger.WarnContext(ctx, "failed to initialize gateway metrics", "error", err)
-	}
+	// Register client connection metrics. The gatewayMetrics instance was
+	// constructed earlier so the credential provider and listeners share it.
 	if gatewayMetrics != nil {
 		var replicaConnCount func() int
 		if mg.pgReplicaListener != nil {

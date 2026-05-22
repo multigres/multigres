@@ -81,21 +81,21 @@ type discoverer func(
 type quorumMode int
 
 const (
-	// requireTransitionQuorum requires that enough members of the
+	// requireOutgoingQuorum requires that enough members of the
 	// current/outgoing cohort (identified from the highest recorded rule
 	// across the recruited nodes) have accepted the term revocation. This is
 	// the standard safety check for normal failover: the existing cohort must
 	// consent to the leadership transition. validateProposal additionally
 	// verifies the proposed (incoming) cohort has sufficient recruited members.
-	requireTransitionQuorum quorumMode = iota
+	requireOutgoingQuorum quorumMode = iota
 
-	// onlyRequireIncomingQuorum skips the outgoing-cohort transition check and
+	// skipOutgoingQuorum skips the outgoing-cohort transition check and
 	// relies solely on validateProposal to verify that enough members of the
 	// PROPOSED (incoming) cohort have been recruited. Used for bootstrap and
 	// externally certified recovery where the outgoing cohort cannot be
 	// consulted (so transition consent comes from a cert or is unnecessary
 	// because there is no prior cohort).
-	onlyRequireIncomingQuorum
+	skipOutgoingQuorum
 )
 
 // BuildSafeProposal validates that the recruited nodes allow a safe
@@ -127,7 +127,7 @@ func BuildSafeProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	return buildProposalCore(revocation, recruited, requireTransitionQuorum, discoverMostAdvancedTimeline, buildProposal)
+	return buildProposalCore(revocation, recruited, requireOutgoingQuorum, discoverMostAdvancedTimeline, buildProposal)
 }
 
 // CheckProposalPossible checks whether a safe leadership proposal is possible
@@ -149,14 +149,14 @@ func CheckProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	_, err := buildProposalCore(revocation, candidates, requireTransitionQuorum, discoverMostAdvancedTimeline, buildProposal)
+	_, err := buildProposalCore(revocation, candidates, requireOutgoingQuorum, discoverMostAdvancedTimeline, buildProposal)
 	return err
 }
 
 // CheckExternallyCertifiedProposalPossible checks whether an externally certified
 // proposal is possible given the current observed statuses, without requiring
 // nodes to have already accepted the revocation. It is the externally-certified
-// counterpart of CheckProposalPossible: it uses onlyRequireIncomingQuorum so that
+// counterpart of CheckProposalPossible: it uses skipOutgoingQuorum so that
 // bootstrap scenarios with no recorded rule (no OutgoingRule) are handled correctly.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
@@ -178,7 +178,7 @@ func CheckExternallyCertifiedProposalPossible(
 	if err != nil {
 		return err
 	}
-	_, err = buildProposalCore(revocation, candidates, onlyRequireIncomingQuorum, discover, buildProposal)
+	_, err = buildProposalCore(revocation, candidates, skipOutgoingQuorum, discover, buildProposal)
 	return err
 }
 
@@ -217,7 +217,7 @@ func BuildExternallyCertifiedProposal(
 	if err != nil {
 		return nil, err
 	}
-	return buildProposalCore(revocation, recruited, onlyRequireIncomingQuorum, discover, buildProposal)
+	return buildProposalCore(revocation, recruited, skipOutgoingQuorum, discover, buildProposal)
 }
 
 // newExternallyCertifiedDiscoverer validates cert against the given nodes and returns a
@@ -236,7 +236,7 @@ func BuildExternallyCertifiedProposal(
 // occurred beyond frozen_lsn under term_revocation.outgoing_rule. Any node
 // whose LSN ≥ frozen_lsn therefore holds every committed transaction up to
 // that frozen point — which is why buildProposalCore is safe to skip the
-// outgoing-cohort quorum check for this discoverer (onlyRequireIncomingQuorum).
+// outgoing-cohort quorum check for this discoverer (skipOutgoingQuorum).
 func newExternallyCertifiedDiscoverer(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	nodes []*clustermetadatapb.ConsensusStatus,
@@ -274,9 +274,9 @@ func newExternallyCertifiedDiscoverer(
 // CheckProposalPossible, and BuildExternallyCertifiedProposal. Callers are responsible
 // for pre-filtering and deduplicating statuses before calling this.
 //
-// With requireTransitionQuorum: validates that the current/outgoing cohort has
+// With requireOutgoingQuorum: validates that the current/outgoing cohort has
 // sufficient recruited members before building the proposal.
-// With onlyRequireIncomingQuorum: skips that check and relies on validateProposal to
+// With skipOutgoingQuorum: skips that check and relies on validateProposal to
 // verify the proposed (incoming) cohort has sufficient recruited members.
 func buildProposalCore(
 	revocation *clustermetadatapb.TermRevocation,
@@ -325,7 +325,7 @@ func buildProposalCore(
 	}
 
 	switch mode {
-	case requireTransitionQuorum:
+	case requireOutgoingQuorum:
 		// Validate revocation of the outgoing cohort: no parallel quorum can still
 		// form among the non-recruited nodes. outgoingRule must be known to identify
 		// the cohort. A nil here means no recruit reported a rule matching the
@@ -345,7 +345,7 @@ func buildProposalCore(
 		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
-	case onlyRequireIncomingQuorum:
+	case skipOutgoingQuorum:
 		// Outgoing-cohort quorum is not required. The incoming cohort is checked
 		// below after the proposal is built.
 	}
@@ -385,9 +385,9 @@ func buildProposalCore(
 // rule number if one is known, otherwise across all recruits (fresh bootstrap).
 //
 // Safety contract: buildProposalCore's outgoing-cohort quorum check (run with
-// requireTransitionQuorum) guarantees recruits intersect every committing
+// requireOutgoingQuorum) guarantees recruits intersect every committing
 // N-subset of the outgoing cohort, so the most-advanced recruit holds every
-// committed transaction. With onlyRequireIncomingQuorum (no outgoing quorum
+// committed transaction. With skipOutgoingQuorum (no outgoing quorum
 // guarantee), this discoverer is unsafe — use newExternallyCertifiedDiscoverer instead.
 //
 // Callers are expected to pre-filter via filterByValidPosition; nodes with
@@ -426,7 +426,7 @@ func discoverMostAdvancedTimeline(
 // validateProposal checks structural validity and cohort quorum for the proposal.
 // The proposed leader must be among the eligible leaders, the proposed rule and
 // durability policy must be valid, and the cohort must satisfy achievability and
-// (in onlyRequireIncomingQuorum) sufficient-recruitment constraints.
+// (in skipOutgoingQuorum) sufficient-recruitment constraints.
 func validateProposal(
 	proposal *consensusdatapb.CoordinatorProposal,
 	result RecruitmentResult,
@@ -439,7 +439,7 @@ func validateProposal(
 
 	// skip_outgoing_quorum may only be set by the externally-certified path:
 	// regular safe proposals always have a known outgoing cohort to drain.
-	if proposal.GetSkipOutgoingQuorum() && mode != onlyRequireIncomingQuorum {
+	if proposal.GetSkipOutgoingQuorum() && mode != skipOutgoingQuorum {
 		return errors.New("skip_outgoing_quorum is only valid for externally-certified proposals")
 	}
 
@@ -484,7 +484,7 @@ func validateProposal(
 	if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
-	if mode == onlyRequireIncomingQuorum {
+	if mode == skipOutgoingQuorum {
 		// Coordinator-retry safety: multiple coordinators may attempt externally
 		// certified proposals (e.g. repeated bootstrap attempts with different proposed
 		// leaders). Sufficient recruitment (majority overlap) ensures any two

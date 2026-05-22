@@ -2150,7 +2150,7 @@
   {
     "comment": "foreign_key - Statement 454",
     "query": "set constraints fkpart3.fkey deferred",
-    "expected": "SET CONSTRAINTS fkey DEFERRED"
+    "expected": "SET CONSTRAINTS fkpart3.fkey DEFERRED"
   },
   {
     "comment": "foreign_key - Statement 455",

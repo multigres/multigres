@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
@@ -48,8 +49,12 @@ type PoolManager interface {
 	// PgUser returns the configured PostgreSQL user for system queries.
 	PgUser() string
 
-	// PgPassword returns the configured PostgreSQL password for system queries.
-	PgPassword() string
+	// PgPassword returns the resolved PostgreSQL password and an "ok" flag
+	// indicating whether a password source was successfully resolved at
+	// startup. !ok means ResolvePgPassword has not run successfully and
+	// should be treated as an invariant violation by callers (production
+	// startup guarantees Resolve runs first).
+	PgPassword() (string, bool)
 
 	// --- Admin Pool Operations ---
 
@@ -105,6 +110,20 @@ type PoolManager interface {
 
 	// Stats returns statistics for all pools.
 	Stats() ManagerStats
+
+	// CredentialQueryRecorder returns a narrow recorder for auth-path
+	// observations made by the gRPC service. May return nil when the
+	// manager is unopened or metric init failed; the underlying *Metrics
+	// receiver is nil-safe, so callers can treat nil as the noop sink.
+	CredentialQueryRecorder() CredentialQueryRecorder
+}
+
+// CredentialQueryRecorder records credential-query latency and error-type
+// labels. Implemented by *Metrics; declared as an interface so callers
+// (e.g. grpcpoolerservice) do not couple to the full pool-manager metrics
+// surface.
+type CredentialQueryRecorder interface {
+	RecordCredentialQuery(ctx context.Context, d time.Duration, errorType string)
 }
 
 // Compile-time check that Manager implements PoolManager.

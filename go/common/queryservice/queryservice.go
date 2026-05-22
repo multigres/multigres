@@ -201,6 +201,14 @@ type QueryService interface {
 	//   target: Target specifying tablegroup, shard, and pooler type
 	//   options: Execute options including reserved connection ID
 	//   conclusion: COMMIT or ROLLBACK
+	//   releasePortalNames: cursor names to unpin (used only on ROLLBACK when
+	//     releaseAllPortals is false) — typically the WITH HOLD cursors
+	//     declared inside the rolled-back transaction block. Cursors declared
+	//     outside the block survive PG's ROLLBACK and must NOT appear here.
+	//   releaseAllPortals: when true on a ROLLBACK, the multipooler drops every
+	//     pin on the reserved connection (historical "release all" semantics).
+	//     When false, only the named pins in releasePortalNames are released.
+	//     Ignored on COMMIT.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
 	ConcludeTransaction(
@@ -208,6 +216,8 @@ type QueryService interface {
 		target *query.Target,
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
+		releasePortalNames []string,
+		releaseAllPortals bool,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes

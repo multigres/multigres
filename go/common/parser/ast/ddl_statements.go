@@ -625,7 +625,7 @@ func (r *RoleSpec) String() string {
 func (r *RoleSpec) SqlString() string {
 	switch r.Roletype {
 	case ROLESPEC_CSTRING:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	case ROLESPEC_CURRENT_USER:
 		return "CURRENT_USER"
 	case ROLESPEC_SESSION_USER:
@@ -635,7 +635,7 @@ func (r *RoleSpec) SqlString() string {
 	case ROLESPEC_PUBLIC:
 		return "PUBLIC"
 	default:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	}
 }
 
@@ -1298,7 +1298,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_PRIMARY:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "PRIMARY KEY"
 		if c.Keys != nil && c.Keys.Len() > 0 {
@@ -1311,7 +1311,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_UNIQUE:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "UNIQUE"
 		if c.Keys != nil && c.Keys.Len() > 0 {
@@ -1324,7 +1324,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_CHECK:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "CHECK"
 		if c.RawExpr != nil {
@@ -1345,7 +1345,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_FOREIGN:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 
 		// For column-level constraints, don't include "FOREIGN KEY"
@@ -1428,13 +1428,13 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_EXCLUSION:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "EXCLUDE"
 
 		// Add access method if specified
 		if c.AccessMethod != "" {
-			result += " USING " + c.AccessMethod
+			result += " USING " + QuoteIdentifier(c.AccessMethod)
 		}
 
 		// Add exclusion elements (column WITH operator pairs)
@@ -1539,7 +1539,7 @@ func (r *ReplicaIdentityStmt) SqlString() string {
 	case REPLICA_IDENTITY_DEFAULT:
 		return "REPLICA IDENTITY DEFAULT"
 	case REPLICA_IDENTITY_INDEX:
-		return "REPLICA IDENTITY USING INDEX " + r.Name
+		return "REPLICA IDENTITY USING INDEX " + QuoteIdentifier(r.Name)
 	default:
 		return "REPLICA IDENTITY"
 	}
@@ -1596,36 +1596,22 @@ func (a *AlterTableMoveAllStmt) SqlString() string {
 	}
 
 	// Add ALL IN TABLESPACE
-	parts = append(parts, "ALL IN TABLESPACE", a.OrigTablespacename)
+	parts = append(parts, "ALL IN TABLESPACE", QuoteIdentifier(a.OrigTablespacename))
 
 	// Add OWNED BY if roles specified
 	if a.Roles != nil && a.Roles.Len() > 0 {
 		parts = append(parts, "OWNED BY")
-		// Extract role names from the NodeList
 		roleNames := make([]string, 0, a.Roles.Len())
 		for _, item := range a.Roles.Items {
 			if roleSpec, ok := item.(*RoleSpec); ok {
-				// Handle different role types
-				if roleSpec.Rolename != "" {
-					roleNames = append(roleNames, roleSpec.Rolename)
-				} else {
-					// Handle special roles like CURRENT_USER, etc.
-					switch roleSpec.Roletype {
-					case ROLESPEC_CURRENT_USER:
-						roleNames = append(roleNames, "CURRENT_USER")
-					case ROLESPEC_CURRENT_ROLE:
-						roleNames = append(roleNames, "CURRENT_ROLE")
-					case ROLESPEC_SESSION_USER:
-						roleNames = append(roleNames, "SESSION_USER")
-					}
-				}
+				roleNames = append(roleNames, roleSpec.SqlString())
 			}
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
 
 	// Add SET TABLESPACE
-	parts = append(parts, "SET TABLESPACE", a.NewTablespacename)
+	parts = append(parts, "SET TABLESPACE", QuoteIdentifier(a.NewTablespacename))
 
 	// Add NOWAIT if specified
 	if a.Nowait {
@@ -2065,7 +2051,7 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		} else if a.Name != "" {
-			parts = append(parts, "REPLICA IDENTITY USING INDEX", a.Name)
+			parts = append(parts, "REPLICA IDENTITY USING INDEX", QuoteIdentifier(a.Name))
 		} else {
 			parts = append(parts, "REPLICA IDENTITY")
 		}
@@ -2074,7 +2060,7 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "ALTER CONSTRAINT")
 		if constraint, ok := a.Def.(*Constraint); ok && constraint != nil {
 			if constraint.Conname != "" {
-				parts = append(parts, constraint.Conname)
+				parts = append(parts, QuoteIdentifier(constraint.Conname))
 			}
 			// Add DEFERRABLE and INITIALLY DEFERRED attributes
 			if constraint.Deferrable {
@@ -2128,7 +2114,7 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_SetAccessMethod:
 		parts = append(parts, "SET ACCESS METHOD")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		} else {
 			// When Name is empty, it means DEFAULT was explicitly specified
 			parts = append(parts, "DEFAULT")
@@ -2777,7 +2763,7 @@ func (a *AlterDomainStmt) SqlString() string {
 			parts = append(parts, "IF EXISTS")
 		}
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
@@ -2785,7 +2771,7 @@ func (a *AlterDomainStmt) SqlString() string {
 	case 'V': // VALIDATE CONSTRAINT
 		parts = append(parts, "VALIDATE CONSTRAINT")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 	}
 
@@ -3337,7 +3323,7 @@ func (i *IndexStmt) SqlString() string {
 
 	// Add access method if specified
 	if i.AccessMethod != "" {
-		parts = append(parts, "USING", i.AccessMethod)
+		parts = append(parts, "USING", QuoteIdentifier(i.AccessMethod))
 	}
 
 	// Add index columns
@@ -3427,7 +3413,7 @@ func (c *CreateFdwStmt) String() string {
 // SqlString returns the SQL representation of CreateFdwStmt
 func (c *CreateFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", c.FdwName)
+	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", QuoteIdentifier(c.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if c.FuncOptions != nil && c.FuncOptions.Len() > 0 {
@@ -3522,7 +3508,7 @@ func (a *AlterFdwStmt) String() string {
 // SqlString returns the SQL representation of AlterFdwStmt
 func (a *AlterFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", a.FdwName)
+	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", QuoteIdentifier(a.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if a.FuncOptions != nil && a.FuncOptions.Len() > 0 {
@@ -3645,10 +3631,10 @@ func (a *AlterForeignServerStmt) String() string {
 // SqlString returns the SQL representation of AlterForeignServerStmt
 func (a *AlterForeignServerStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER SERVER", a.Servername)
+	parts = append(parts, "ALTER SERVER", QuoteIdentifier(a.Servername))
 
 	if a.HasVersion && a.Version != "" {
-		parts = append(parts, "VERSION", "'"+a.Version+"'")
+		parts = append(parts, "VERSION", QuoteStringLiteral(a.Version))
 	}
 
 	// Add OPTIONS clause
@@ -3720,7 +3706,7 @@ func (a *AlterUserMappingStmt) String() string {
 // SqlString returns the SQL representation of AlterUserMappingStmt
 func (a *AlterUserMappingStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", a.Servername)
+	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", QuoteIdentifier(a.Servername))
 
 	// Add OPTIONS clause
 	if a.Options != nil && a.Options.Len() > 0 {
@@ -3797,7 +3783,7 @@ func (d *DropUserMappingStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", d.Servername)
+	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", QuoteIdentifier(d.Servername))
 
 	return strings.Join(parts, " ")
 }
@@ -3848,7 +3834,7 @@ func (c *CreateEventTrigStmt) String() string {
 // SqlString returns the SQL representation of CreateEventTrigStmt
 func (c *CreateEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE EVENT TRIGGER", c.TrigName, "ON", c.EventName)
+	parts = append(parts, "CREATE EVENT TRIGGER", QuoteIdentifier(c.TrigName), "ON", QuoteIdentifier(c.EventName))
 
 	// Add WHEN clause if present
 	if c.WhenClause != nil && c.WhenClause.Len() > 0 {
@@ -3916,7 +3902,7 @@ func (a *AlterEventTrigStmt) String() string {
 // SqlString returns the SQL representation of AlterEventTrigStmt
 func (a *AlterEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER EVENT TRIGGER", a.TrigName)
+	parts = append(parts, "ALTER EVENT TRIGGER", QuoteIdentifier(a.TrigName))
 
 	switch a.TgEnabled {
 	case TRIGGER_FIRES_ON_ORIGIN:
@@ -3964,7 +3950,7 @@ func (c *CreatedbStmt) String() string {
 // SqlString returns the SQL representation of CreatedbStmt
 func (c *CreatedbStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE DATABASE", c.Dbname)
+	parts = append(parts, "CREATE DATABASE", QuoteIdentifier(c.Dbname))
 
 	// Add options if present
 	if c.Options != nil && c.Options.Len() > 0 {
@@ -4061,7 +4047,7 @@ func (d *DropdbStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Dbname)
+	parts = append(parts, QuoteIdentifier(d.Dbname))
 
 	// Add options if present (e.g., FORCE)
 	if d.Options != nil && d.Options.Len() > 0 {
@@ -4119,7 +4105,7 @@ func (d *DropTableSpaceStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Tablespacename)
+	parts = append(parts, QuoteIdentifier(d.Tablespacename))
 
 	return strings.Join(parts, " ")
 }

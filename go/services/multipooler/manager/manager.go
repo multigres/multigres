@@ -899,8 +899,20 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pgPort := int(pm.multipooler.PortMap["postgres"])
 		socketDir := filepath.Join(pm.multipooler.PoolerDir, "pg_sockets")
 		pg1User := constants.DefaultPostgresUser
+		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
 		if pm.connPoolMgr != nil {
 			pg1User = pm.connPoolMgr.PgUser()
+			// PgPassword() returns the password resolved at startup (file →
+			// env) and an ok flag. !ok means ResolvePgPassword never ran
+			// successfully — surface that via setStateError so the manager
+			// goroutine bails out cleanly instead of writing an empty pgpass
+			// file that fails auth later.
+			pw, ok := pm.connPoolMgr.PgPassword()
+			if !ok {
+				pm.setStateError(errors.New("pgbackrest pgpass: postgres password not resolved (ResolvePgPassword must run before pgbackrest setup)"))
+				return
+			}
+			pg1Password = pw
 		}
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.multipooler.PoolerDir,
@@ -923,7 +935,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		// temp directory because pgbackrest needs to be able to read it after
 		// we exec (and the temp file would be cleaned up when closed).
 		pgpassPath := filepath.Join(pm.multipooler.PoolerDir, "pgbackrest", "pgbackrest.pgpass")
-		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, os.Getenv("POSTGRES_PASSWORD"))
+		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
 		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
 			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
 			return

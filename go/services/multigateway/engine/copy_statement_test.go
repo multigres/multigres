@@ -146,6 +146,8 @@ func (m *mockIExecute) ConcludeTransaction(
 	*server.Conn,
 	*handler.MultiGatewayConnectionState,
 	multipoolerpb.TransactionConclusion,
+	[]string,
+	bool,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	return nil
@@ -253,8 +255,12 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
 }
 
-// TestCopyStatement_CopyFinalizeError tests that CopyAbort is called
-// when CopyFinalize fails (via defer).
+// TestCopyStatement_CopyFinalizeError tests that CopyAbort is NOT called
+// when CopyFinalize fails. CopyFinalize owns the full tail-end lifecycle:
+// it drains ReadyForQuery, updates reserved-state tracking via the gateway,
+// and either releases the connection or keeps it alive for other reasons
+// (e.g., a wrapping transaction). Running CopyAbort on top would either be
+// a no-op or actively clobber the surviving reserved-state tracking.
 func TestCopyStatement_CopyFinalizeError(t *testing.T) {
 	mockExec := &mockIExecute{
 		copyInitiateFormat:  0,
@@ -281,8 +287,7 @@ func TestCopyStatement_CopyFinalizeError(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "finalize failed")
-	// CopyAbort should be called via defer (even though CopyFinalize already cleaned up map)
-	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
+	require.Equal(t, int32(0), mockExec.copyAbortCalled.Load())
 }
 
 // TestCopyStatement_CopyFailMessage tests that CopyAbort is called

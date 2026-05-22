@@ -322,3 +322,68 @@ func TestSilenceUsage(t *testing.T) {
 		assert.NotContains(t, outBuf.String(), "Usage:", "usage should be suppressed for runtime errors")
 	})
 }
+
+// writePwFileForRoot creates a password file inside a fresh temp dir and
+// returns its path. Local helper to keep these tests independent of any
+// other file in the package.
+func writePwFileForRoot(t *testing.T, contents string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "postgres-password")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	return path
+}
+
+// Row 2a (pgctld): file path set, file content empty. Resolver must error
+// and NOT fall through to env. Mirrors the multipooler behavior in
+// connpoolmanager.Config.ResolvePgPassword.
+func TestGetPostgresPassword_FileEmpty_Errors(t *testing.T) {
+	t.Setenv(constants.PgPasswordFileEnvVar, writePwFileForRoot(t, ""))
+	// Distinct env value so a regression would surface as a wrong source/value.
+	t.Setenv(constants.PgPasswordEnvVar, "from-env-should-be-ignored")
+
+	_, pc := GetRootCommand()
+	_, _, _, err := pc.GetPostgresPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is empty")
+}
+
+// Row 2b (pgctld): POSTGRES_PASSWORD_FILE explicitly set to "". That's
+// "operator wrote POSTGRES_PASSWORD_FILE= in a manifest" — distinct from
+// "unset" via os.LookupEnv.
+func TestGetPostgresPassword_FilePathEnvSetEmpty_Errors(t *testing.T) {
+	t.Setenv(constants.PgPasswordFileEnvVar, "")
+	t.Setenv(constants.PgPasswordEnvVar, "from-env-should-be-ignored")
+
+	_, pc := GetRootCommand()
+	_, _, _, err := pc.GetPostgresPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "file path is set to the empty string")
+}
+
+// POSTGRES_PASSWORD set to the empty string (POSTGRES_PASSWORD= in an env
+// file or kubectl manifest) is a deliberate misconfiguration, not "unset".
+// Resolver must reject it explicitly rather than silently treat it as unset.
+func TestGetPostgresPassword_EnvSetToEmpty(t *testing.T) {
+	// Ensure no file path is configured so we exercise the env branch.
+	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
+	t.Setenv(constants.PgPasswordEnvVar, "")
+
+	_, pc := GetRootCommand()
+	_, _, _, err := pc.GetPostgresPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), constants.PgPasswordEnvVar)
+	assert.Contains(t, err.Error(), "empty string")
+}
+
+// No source configured at all: POSTGRES_PASSWORD_FILE unset, POSTGRES_PASSWORD
+// unset. Resolver returns the documented "must be set" error.
+func TestGetPostgresPassword_NoSourceConfigured(t *testing.T) {
+	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
+	require.NoError(t, os.Unsetenv(constants.PgPasswordEnvVar))
+
+	_, pc := GetRootCommand()
+	_, _, _, err := pc.GetPostgresPassword()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "postgres password must be set")
+}

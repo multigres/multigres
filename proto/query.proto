@@ -365,4 +365,21 @@ message ReservationOptions {
   // multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
   // If empty and transaction reason is set, defaults to "BEGIN".
   string begin_query = 2;
+
+  // pin_portal_names lists named portals (cursors) that must be pinned to the
+  // reserved connection for the lifetime of the named portal — used for
+  // DECLARE ... WITH HOLD, where the cursor must survive COMMIT. The
+  // multipooler calls ReserveForPortal(name) for each entry, which adds
+  // ReasonPortal to the reservation bitmask and registers the name in the
+  // per-connection portal set. Independent of `reasons` — the multipooler
+  // sets ReasonPortal implicitly when this list is non-empty.
+  repeated string pin_portal_names = 3;
+
+  // release_portal_names lists named portals (cursors) to unpin from the
+  // reserved connection — used for CLOSE <name> / CLOSE ALL on a WITH HOLD
+  // cursor. The multipooler calls ReleasePortal(name) for each entry; if
+  // the call drains the final ReasonPortal bit AND no other reasons remain,
+  // the connection is released back to the pool and the returned
+  // ReservedState has connection_id == 0.
+  repeated string release_portal_names = 4;
 }
