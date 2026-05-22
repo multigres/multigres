@@ -19,7 +19,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -57,10 +56,13 @@ type applyRuleChangeCmd struct {
 // recovery (cohort has a rule but quorum is unreachable — pass the
 // outgoing rule's term and frozen LSN, or use --unsafe-derive-cert-from-reachable
 // to have multiadmin probe the proposed cohort and derive them).
-func AddApplyRuleChangeCommand(clusterCmd *cobra.Command) {
+// newApplyRuleChangeCmd constructs the applyRuleChangeCmd struct with all its
+// viperutil.Value flag handles. Shared by the public command constructor and
+// by tests that need a struct whose .Set methods feed into buildRequest's
+// .Get reads.
+func newApplyRuleChangeCmd() *applyRuleChangeCmd {
 	reg := viperutil.NewRegistry()
-
-	a := &applyRuleChangeCmd{
+	return &applyRuleChangeCmd{
 		database: viperutil.Configure(reg, "database", viperutil.Options[string]{
 			Default: "postgres", FlagName: "database",
 		}),
@@ -101,6 +103,10 @@ func AddApplyRuleChangeCommand(clusterCmd *cobra.Command) {
 			Default: 30 * time.Second, FlagName: "timeout",
 		}),
 	}
+}
+
+func AddApplyRuleChangeCommand(clusterCmd *cobra.Command) {
+	a := newApplyRuleChangeCmd()
 
 	cmd := &cobra.Command{
 		Use:   "apply-rule-change",
@@ -165,38 +171,42 @@ Examples:
 	clusterCmd.AddCommand(cmd)
 }
 
-func (a *applyRuleChangeCmd) run(cmd *cobra.Command, _ []string) error {
+// buildRequest validates the configured flags and assembles the
+// ApplyCertifiedRuleChangeRequest the CLI sends to multiadmin. Extracted from
+// run so the flag validation + cert-vs-derive switch can be unit-tested
+// without dialing multiadmin or reading stdin.
+func (a *applyRuleChangeCmd) buildRequest() (*multiadminpb.ApplyCertifiedRuleChangeRequest, error) {
 	leader := a.leader.Get()
 	cohortRaw := a.cohort.Get()
 	durabilityName := a.durability.Get()
 	if leader == "" || len(cohortRaw) == 0 || durabilityName == "" {
-		return errors.New("--leader, --cohort, and --durability are required")
+		return nil, errors.New("--leader, --cohort, and --durability are required")
 	}
 	unsafeDerive := a.unsafeDeriveCert.Get()
 	frozenLSN := a.frozenLSN.Get()
 	if !unsafeDerive && frozenLSN == "" {
-		return errors.New("--frozen-lsn is required unless --unsafe-derive-cert-from-reachable is set (use '0/0' for initial appointment)")
+		return nil, errors.New("--frozen-lsn is required unless --unsafe-derive-cert-from-reachable is set (use '0/0' for initial appointment)")
 	}
 	if unsafeDerive && frozenLSN != "" {
-		return errors.New("--frozen-lsn and --unsafe-derive-cert-from-reachable are mutually exclusive")
+		return nil, errors.New("--frozen-lsn and --unsafe-derive-cert-from-reachable are mutually exclusive")
 	}
 
 	leaderID, err := parsePoolerID(leader)
 	if err != nil {
-		return fmt.Errorf("invalid --leader: %w", err)
+		return nil, fmt.Errorf("invalid --leader: %w", err)
 	}
 	cohortIDs := make([]*clustermetadatapb.ID, 0, len(cohortRaw))
 	for _, raw := range cohortRaw {
 		id, err := parsePoolerID(raw)
 		if err != nil {
-			return fmt.Errorf("invalid --cohort entry %q: %w", raw, err)
+			return nil, fmt.Errorf("invalid --cohort entry %q: %w", raw, err)
 		}
 		cohortIDs = append(cohortIDs, id)
 	}
 
 	durability, err := consensus.ParseUserSpecifiedDurabilityPolicy(durabilityName)
 	if err != nil {
-		return fmt.Errorf("invalid --durability: %w", err)
+		return nil, fmt.Errorf("invalid --durability: %w", err)
 	}
 
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
@@ -228,6 +238,14 @@ func (a *applyRuleChangeCmd) run(cmd *cobra.Command, _ []string) error {
 				FrozenLsn: frozenLSN,
 			},
 		}
+	}
+	return req, nil
+}
+
+func (a *applyRuleChangeCmd) run(cmd *cobra.Command, _ []string) error {
+	req, err := a.buildRequest()
+	if err != nil {
+		return err
 	}
 
 	if !a.yes.Get() {
@@ -303,7 +321,7 @@ func confirm(cmd *cobra.Command, req *multiadminpb.ApplyCertifiedRuleChangeReque
 		"and accept writes under the outgoing rule, data loss may occur.\n\n")
 	cmd.Printf("Type the shard name (%s) to confirm: ", sk.GetShard())
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(cmd.InOrStdin())
 	if !scanner.Scan() {
 		return errors.New("aborted")
 	}
