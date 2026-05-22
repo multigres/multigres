@@ -41,9 +41,11 @@ type ruleStorer interface {
 	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
 	// createRuleTables creates multigres.current_rule and multigres.rule_history
 	// if they do not already exist, and inserts the initial row for the default
-	// shard, populated with the given durability policy. It is idempotent and
-	// safe to call multiple times.
-	createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error
+	// shard, populated with the given durability policy. bootstrapID is recorded
+	// as the initial row's coordinator_id, analogous to how a pooler is the
+	// coordinator for leader-led rule changes. It is idempotent and safe to
+	// call multiple times.
+	createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error
 	// cachedPosition returns the most recently observed or written PoolerPosition
 	// from memory, without querying postgres. Returns nil if no position has been
 	// cached yet (e.g. before the first observePosition or updateRule call).
@@ -195,13 +197,20 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int6
 // policy is written into the initial row so all subsequent rule reads have a
 // non-nil DurabilityPolicy; operations that do not change the policy (e.g.
 // Promote) carry it forward via COALESCE in updateRule.
-func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
+//
+// bootstrapID becomes the initial row's coordinator_id. The pooler that
+// initializes the schema acts as the coordinator for the initial row —
+// analogous to how a pooler is the coordinator for leader-led rule changes.
+func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error {
 	if policy == nil {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "durability policy required to initialize rule tables")
 	}
 	if policy.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || policy.RequiredCount <= 0 {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"invalid durability policy: quorum_type=%v required_count=%d", policy.QuorumType, policy.RequiredCount)
+	}
+	if bootstrapID == nil {
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "bootstrapID is required to initialize rule tables")
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -212,7 +221,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetada
 		coordinator_term          BIGINT NOT NULL,
 		leader_subterm            BIGINT NOT NULL,
 		leader_id                 TEXT,
-		coordinator_id            TEXT,
+		coordinator_id            TEXT NOT NULL,
 		cohort_members            TEXT[] NOT NULL,
 		durability_policy_name    TEXT NOT NULL,
 		durability_quorum_type    TEXT NOT NULL,
@@ -224,10 +233,10 @@ func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetada
 
 	if _, err := rs.queryService.QueryArgs(execCtx, `
 		INSERT INTO multigres.current_rule
-		  (shard_id, coordinator_term, leader_subterm, cohort_members,
+		  (shard_id, coordinator_term, leader_subterm, coordinator_id, cohort_members,
 		   durability_policy_name, durability_quorum_type, durability_required_count, created_at)
-		VALUES ($1, 0, 0, '{}', $2, $3, $4, now())`,
-		[]byte("0"), policy.PolicyName, policy.QuorumType.String(), int64(policy.RequiredCount)); err != nil {
+		VALUES ($1, 0, 0, $2, '{}', $3, $4, $5, now())`,
+		[]byte("0"), topoclient.ClusterIDString(bootstrapID), policy.PolicyName, policy.QuorumType.String(), int64(policy.RequiredCount)); err != nil {
 		return mterrors.Wrap(err, "failed to initialize current_rule")
 	}
 
@@ -239,7 +248,7 @@ func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetada
 		leader_subterm            BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
 		leader_id                 TEXT,
-		coordinator_id            TEXT,
+		coordinator_id            TEXT NOT NULL,
 		wal_position              TEXT,
 		accepted_members          TEXT[],
 		reason                    TEXT NOT NULL,
@@ -491,7 +500,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		    SET coordinator_term          = params.coordinator_term,
 		        leader_subterm            = locked.next_leader_subterm,
 		        leader_id                 = COALESCE(NULLIF(params.leader_id, ''), locked.leader_id),
-		        coordinator_id            = NULLIF(params.coordinator_id, ''),
+		        coordinator_id            = params.coordinator_id,
 		        cohort_members            = COALESCE(params.cohort_members, locked.cohort_members),
 		        durability_policy_name    = COALESCE(NULLIF(params.durability_policy_name, ''), locked.durability_policy_name),
 		        durability_quorum_type    = COALESCE(NULLIF(params.durability_quorum_type, ''), locked.durability_quorum_type),
