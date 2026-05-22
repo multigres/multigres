@@ -157,3 +157,153 @@ func TestApplyCertifiedRuleChange_RejectsMissingTermRevocationFields(t *testing.
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "accepted_coordinator_id")
 }
+
+// TestValidateCertifiedRuleChange exercises validateCertifiedRuleChange's
+// per-field guards directly. The branches go through ApplyCertifiedRuleChange
+// in other tests too, but this avoids the cohort-lookup setup for each case.
+func TestValidateCertifiedRuleChange(t *testing.T) {
+	orchID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "coord-1"}
+	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
+	// Use factories so each subtest gets fresh, independent proto messages —
+	// mutating a shared instance bleeds state across cases.
+	makeShardKey := func() *clustermetadatapb.ShardKey {
+		return &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"}
+	}
+	makeRule := func() *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{
+			RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			LeaderId:      leaderID,
+			CohortMembers: []*clustermetadatapb.ID{leaderID},
+			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+				PolicyName:    "AT_LEAST_1",
+				PolicyVersion: 1,
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: 1,
+			},
+			CoordinatorId: orchID,
+			CreationTime:  timestamppb.Now(),
+		}
+	}
+	makeCert := func() *clustermetadatapb.ExternallyCertifiedRevocation {
+		return &clustermetadatapb.ExternallyCertifiedRevocation{
+			FrozenLsn: "0/0",
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       1,
+				AcceptedCoordinatorId:  orchID,
+				CoordinatorInitiatedAt: timestamppb.Now(),
+				OutgoingRule:           &clustermetadatapb.RuleNumber{},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		mutate    func(sk **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, cert *clustermetadatapb.ExternallyCertifiedRevocation)
+		wantMatch string
+	}{
+		{
+			name: "shard_key empty database",
+			mutate: func(sk **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				(*sk).Database = ""
+			},
+			wantMatch: "shard_key is required",
+		},
+		{
+			name: "shard_key empty table_group",
+			mutate: func(sk **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				(*sk).TableGroup = ""
+			},
+			wantMatch: "shard_key is required",
+		},
+		{
+			name: "shard_key empty shard",
+			mutate: func(sk **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				(*sk).Shard = ""
+			},
+			wantMatch: "shard_key is required",
+		},
+		{
+			name: "proposed_rule.leader_id missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.LeaderId = nil
+			},
+			wantMatch: "proposed_rule.leader_id is required",
+		},
+		{
+			name: "proposed_rule.cohort_members empty",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.CohortMembers = nil
+			},
+			wantMatch: "cohort_members",
+		},
+		{
+			name: "proposed_rule.durability_policy missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.DurabilityPolicy = nil
+			},
+			wantMatch: "durability_policy",
+		},
+		{
+			name: "proposed_rule.rule_number missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.RuleNumber = nil
+			},
+			wantMatch: "rule_number is required",
+		},
+		{
+			name: "proposed_rule.coordinator_id missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.CoordinatorId = nil
+			},
+			wantMatch: "proposed_rule.coordinator_id",
+		},
+		{
+			name: "proposed_rule.creation_time missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, rule *clustermetadatapb.ShardRule, _ *clustermetadatapb.ExternallyCertifiedRevocation) {
+				rule.CreationTime = nil
+			},
+			wantMatch: "creation_time",
+		},
+		{
+			name: "cert.term_revocation missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, cert *clustermetadatapb.ExternallyCertifiedRevocation) {
+				cert.TermRevocation = nil
+			},
+			wantMatch: "term_revocation is required",
+		},
+		{
+			name: "cert.term_revocation.outgoing_rule missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, cert *clustermetadatapb.ExternallyCertifiedRevocation) {
+				cert.TermRevocation.OutgoingRule = nil
+			},
+			wantMatch: "outgoing_rule is required",
+		},
+		{
+			name: "cert.term_revocation.revoked_below_term non-positive",
+			mutate: func(_ **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, cert *clustermetadatapb.ExternallyCertifiedRevocation) {
+				cert.TermRevocation.RevokedBelowTerm = 0
+			},
+			wantMatch: "revoked_below_term must be positive",
+		},
+		{
+			name: "cert.term_revocation.coordinator_initiated_at missing",
+			mutate: func(_ **clustermetadatapb.ShardKey, _ *clustermetadatapb.ShardRule, cert *clustermetadatapb.ExternallyCertifiedRevocation) {
+				cert.TermRevocation.CoordinatorInitiatedAt = nil
+			},
+			wantMatch: "coordinator_initiated_at is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk := makeShardKey()
+			rule := makeRule()
+			cert := makeCert()
+			tt.mutate(&sk, rule, cert)
+
+			err := validateCertifiedRuleChange(sk, rule, cert)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
+			assert.Contains(t, err.Error(), tt.wantMatch)
+		})
+	}
+}

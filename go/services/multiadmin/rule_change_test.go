@@ -345,3 +345,115 @@ func TestApplyCertifiedRuleChange_RejectsMissingCertSource(t *testing.T) {
 func mpKey(id *clustermetadatapb.ID) string {
 	return topoclient.MultiPoolerIDString(id)
 }
+
+// ---- buildCert ----
+
+func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
+	s := newTestServer(t)
+	original := &clustermetadatapb.ExternallyCertifiedRevocation{
+		FrozenLsn: "0/100",
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+		},
+	}
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: original},
+	}
+
+	got, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	require.NoError(t, err)
+	assert.Equal(t, "0/100", got.GetFrozenLsn())
+	assert.Equal(t, int64(3), got.GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm())
+
+	// Mutating the result must not affect the caller's input.
+	got.FrozenLsn = "9/9999"
+	assert.Equal(t, "0/100", original.GetFrozenLsn(), "buildCert should clone, not alias")
+}
+
+func TestBuildCert_ExplicitCert_Nil(t *testing.T) {
+	s := newTestServer(t)
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: nil},
+	}
+	_, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "cert source is empty")
+}
+
+func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	mp2 := makePooler("cell1", "mp2")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
+
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+				Lsn:  "0/200",
+			},
+		},
+	})
+	fc.SetStatusResponse(mpKey(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp2.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+				Lsn:  "0/300",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert{
+			UnsafeDeriveCert: &multiadminpb.UnsafeDeriveCertOptions{},
+		},
+	}
+	rule := &clustermetadatapb.ShardRule{
+		CohortMembers:    []*clustermetadatapb.ID{mp1.Id, mp2.Id},
+		DurabilityPolicy: atLeastN(2),
+	}
+
+	got, err := s.buildCert(ctx, req, rule)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), got.GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm())
+	assert.Equal(t, "0/300", got.GetFrozenLsn(), "frozen_lsn should be the highest LSN among cohort responses")
+}
+
+func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+	s.SetRPCClient(rpcclient.NewFakeClient())
+
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert{
+			UnsafeDeriveCert: &multiadminpb.UnsafeDeriveCertOptions{},
+		},
+	}
+	rule := &clustermetadatapb.ShardRule{
+		CohortMembers:    []*clustermetadatapb.ID{poolerID("cell1", "missing")},
+		DurabilityPolicy: atLeastN(1),
+	}
+
+	_, err := s.buildCert(ctx, req, rule)
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+func TestBuildCert_NilCertSource(t *testing.T) {
+	s := newTestServer(t)
+	_, err := s.buildCert(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{}, &clustermetadatapb.ShardRule{})
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "unknown cert_source variant")
+}
