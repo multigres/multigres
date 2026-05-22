@@ -15,9 +15,12 @@
 package multiadmin
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +29,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -33,7 +37,9 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/prototest"
 )
 
 func newTestServer(t *testing.T, cells ...string) *MultiAdminServer {
@@ -362,8 +368,7 @@ func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
 
 	got, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
 	require.NoError(t, err)
-	assert.Equal(t, "0/100", got.GetFrozenLsn())
-	assert.Equal(t, int64(3), got.GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm())
+	prototest.AssertEqual(t, original, got)
 
 	// Mutating the result must not affect the caller's input.
 	got.FrozenLsn = "9/9999"
@@ -424,8 +429,12 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 
 	got, err := s.buildCert(ctx, req, rule)
 	require.NoError(t, err)
-	assert.Equal(t, int64(4), got.GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm())
-	assert.Equal(t, "0/300", got.GetFrozenLsn(), "frozen_lsn should be the highest LSN among cohort responses")
+	prototest.AssertEqual(t, &clustermetadatapb.ExternallyCertifiedRevocation{
+		FrozenLsn: "0/300",
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+		},
+	}, got)
 }
 
 func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
@@ -456,4 +465,147 @@ func TestBuildCert_NilCertSource(t *testing.T) {
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 	assert.Contains(t, st.Message(), "unknown cert_source variant")
+}
+
+// ---- end-to-end ApplyCertifiedRuleChange forwarding ----
+
+// fakeMultiOrchServer captures the last ApplyCertifiedRuleChange request the
+// multiadmin forwarded, and returns either success or a configured error.
+type fakeMultiOrchServer struct {
+	multiorchpb.UnimplementedMultiOrchServiceServer
+	mu       sync.Mutex
+	received *multiorchpb.ApplyCertifiedRuleChangeRequest
+	err      error
+}
+
+func (f *fakeMultiOrchServer) ApplyCertifiedRuleChange(_ context.Context, req *multiorchpb.ApplyCertifiedRuleChangeRequest) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.received = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &multiorchpb.ApplyCertifiedRuleChangeResponse{}, nil
+}
+
+// startFakeOrch spins up a bufconn-backed gRPC server hosting the fake orch
+// and returns a gatewayDialer that routes through it. The server is stopped
+// via t.Cleanup.
+func startFakeOrch(t *testing.T, fake *fakeMultiOrchServer) func(context.Context, string) (*grpc.ClientConn, error) {
+	t.Helper()
+	lis := bufconn.Listen(1024 * 1024)
+	grpcServer := grpc.NewServer()
+	multiorchpb.RegisterMultiOrchServiceServer(grpcServer, fake)
+	go func() { _ = grpcServer.Serve(lis) }()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		_ = lis.Close()
+	})
+	return func(_ context.Context, _ string) (*grpc.ClientConn, error) {
+		return grpc.NewClient(
+			"passthrough:///bufnet",
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+				return lis.Dial()
+			}),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+	}
+}
+
+// validApplyRequest returns a complete multiadmin request that should pass
+// validation and reach the orch.
+func validApplyRequest(leader *clustermetadatapb.ID, cohort []*clustermetadatapb.ID) *multiadminpb.ApplyCertifiedRuleChangeRequest {
+	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ProposedRule: &clustermetadatapb.ShardRule{
+			LeaderId:         leader,
+			CohortMembers:    cohort,
+			DurabilityPolicy: atLeastN(2),
+		},
+		Reason: "test forward",
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
+			Cert: &clustermetadatapb.ExternallyCertifiedRevocation{
+				FrozenLsn: "0/100",
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+				},
+			},
+		},
+	}
+}
+
+func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t, "cell1")
+
+	mp1 := makePooler("cell1", "mp1")
+	mp2 := makePooler("cell1", "mp2")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
+	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+
+	fake := &fakeMultiOrchServer{}
+	s.gatewayDialer = startFakeOrch(t, fake)
+
+	req := validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id, mp2.Id})
+	resp, err := s.ApplyCertifiedRuleChange(ctx, req)
+	require.NoError(t, err)
+
+	// Response echoes back the multiorch-bound proposed rule + cert.
+	require.NotNil(t, resp.GetInstalledRule())
+	assert.Equal(t, "mp1", resp.GetInstalledRule().GetLeaderId().GetName())
+	require.NotNil(t, resp.GetCertUsed())
+
+	// The orch saw the forwarded request with identity/timing fields filled.
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	require.NotNil(t, fake.received, "orch should have been called")
+	forwardedRule := fake.received.GetProposedRule()
+	require.NotNil(t, forwardedRule.GetCoordinatorId(), "fillIdentityFields should have populated coordinator_id")
+	assert.Equal(t, "cell1", forwardedRule.GetCoordinatorId().GetCell())
+	assert.Equal(t, "orch1", forwardedRule.GetCoordinatorId().GetName())
+	require.NotNil(t, forwardedRule.GetCreationTime(), "fillIdentityFields should have populated creation_time")
+	require.NotNil(t, forwardedRule.GetRuleNumber(), "fillIdentityFields should have populated rule_number")
+	assert.Equal(t, int64(3), forwardedRule.GetRuleNumber().GetCoordinatorTerm(),
+		"derived from cert outgoing_rule (term 2) + 1")
+
+	rev := fake.received.GetCert().GetTermRevocation()
+	require.NotNil(t, rev)
+	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm())
+	require.NotNil(t, rev.GetAcceptedCoordinatorId())
+	assert.Equal(t, "orch1", rev.GetAcceptedCoordinatorId().GetName())
+}
+
+func TestApplyCertifiedRuleChange_PropagatesOrchError(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t, "cell1")
+
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+
+	fake := &fakeMultiOrchServer{
+		err: status.Error(codes.FailedPrecondition, "cohort not ready"),
+	}
+	s.gatewayDialer = startFakeOrch(t, fake)
+
+	_, err := s.ApplyCertifiedRuleChange(ctx, validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id}))
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Contains(t, st.Message(), "cohort not ready")
+}
+
+func TestApplyCertifiedRuleChange_NoOrchAvailable(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t, "cell1")
+
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	// No multiorch registered → pickOrch should fail before we attempt to dial.
+
+	_, err := s.ApplyCertifiedRuleChange(ctx, validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id}))
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
 }
