@@ -674,6 +674,136 @@ func (x *TriggerRecoveryNowResponse) GetRemainingProblemCodes() []string {
 	return nil
 }
 
+// ApplyCertifiedRuleChangeRequest installs a new shard rule using an externally
+// certified revocation. Multiorch acts as a pure executor: it validates the
+// inputs, runs the Recruit + Propose flow against the proposed cohort, and
+// returns success or failure. The caller is responsible for populating every
+// identity and timing field; multiorch never invents one.
+//
+// The cert is the caller's load-bearing safety attestation: by submitting it,
+// the caller asserts that no member of the outgoing cohort will commit further
+// writes past cert.outgoing_rule_number, and that any candidate leader has
+// reached at least cert.frozen_lsn under that rule. Pooler-side
+// ValidateRevocation enforces this at the WAL level (a node that resumes with
+// progress past the certified rule will refuse the new rule), but callers
+// should not rely on that floor for correctness — the cert is the primary
+// safety contract.
+type ApplyCertifiedRuleChangeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Shard to apply the rule change to.
+	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	// The rule to install. All fields must be populated, including rule_number,
+	// coordinator_id, and creation_time. rule_number.coordinator_term must
+	// equal cert.term_revocation.revoked_below_term.
+	ProposedRule *clustermetadata.ShardRule `protobuf:"bytes,2,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
+	// Externally certified revocation of the outgoing cohort. All fields must
+	// be populated, including term_revocation. The cert's term_revocation is
+	// what each pooler will record on disk via Recruit.
+	//
+	// For initial leader appointment (no prior rule), set
+	// outgoing_rule_number to a zero RuleNumber (coordinator_term=0,
+	// leader_subterm=0) and frozen_lsn to "0/0".
+	Cert *clustermetadata.ExternallyCertifiedRevocation `protobuf:"bytes,3,opt,name=cert,proto3" json:"cert,omitempty"`
+	// Free-text, recorded in rule_history for audit.
+	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) Reset() {
+	*x = ApplyCertifiedRuleChangeRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyCertifiedRuleChangeRequest) ProtoMessage() {}
+
+func (x *ApplyCertifiedRuleChangeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyCertifiedRuleChangeRequest.ProtoReflect.Descriptor instead.
+func (*ApplyCertifiedRuleChangeRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKey {
+	if x != nil {
+		return x.ShardKey
+	}
+	return nil
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) GetProposedRule() *clustermetadata.ShardRule {
+	if x != nil {
+		return x.ProposedRule
+	}
+	return nil
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) GetCert() *clustermetadata.ExternallyCertifiedRevocation {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
+func (x *ApplyCertifiedRuleChangeRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ApplyCertifiedRuleChangeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyCertifiedRuleChangeResponse) Reset() {
+	*x = ApplyCertifiedRuleChangeResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyCertifiedRuleChangeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyCertifiedRuleChangeResponse) ProtoMessage() {}
+
+func (x *ApplyCertifiedRuleChangeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyCertifiedRuleChangeResponse.ProtoReflect.Descriptor instead.
+func (*ApplyCertifiedRuleChangeResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{13}
+}
+
 var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
@@ -719,13 +849,20 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"max_cycles\x18\x01 \x01(\rR\tmaxCycles\"T\n" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
-	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes2\xe1\x03\n" +
+	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\xf6\x01\n" +
+	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
+	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12?\n" +
+	"\rproposed_rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\x12B\n" +
+	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\x04cert\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\"\n" +
+	" ApplyCertifiedRuleChangeResponse2\xd8\x04\n" +
 	"\x10MultiOrchService\x12Q\n" +
 	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00\x12Z\n" +
 	"\x0fDisableRecovery\x12!.multiorch.DisableRecoveryRequest\x1a\".multiorch.DisableRecoveryResponse\"\x00\x12W\n" +
 	"\x0eEnableRecovery\x12 .multiorch.EnableRecoveryRequest\x1a!.multiorch.EnableRecoveryResponse\"\x00\x12`\n" +
 	"\x11GetRecoveryStatus\x12#.multiorch.GetRecoveryStatusRequest\x1a$.multiorch.GetRecoveryStatusResponse\"\x00\x12c\n" +
-	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
+	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00\x12u\n" +
+	"\x18ApplyCertifiedRuleChange\x12*.multiorch.ApplyCertifiedRuleChangeRequest\x1a+.multiorch.ApplyCertifiedRuleChangeResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
 
 var (
 	file_multiorchservice_proto_rawDescOnce sync.Once
@@ -739,48 +876,57 @@ func file_multiorchservice_proto_rawDescGZIP() []byte {
 	return file_multiorchservice_proto_rawDescData
 }
 
-var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_multiorchservice_proto_goTypes = []any{
-	(*ShardStatusRequest)(nil),         // 0: multiorch.ShardStatusRequest
-	(*ShardStatusResponse)(nil),        // 1: multiorch.ShardStatusResponse
-	(*DetectedProblem)(nil),            // 2: multiorch.DetectedProblem
-	(*PoolerHealth)(nil),               // 3: multiorch.PoolerHealth
-	(*DisableRecoveryRequest)(nil),     // 4: multiorch.DisableRecoveryRequest
-	(*DisableRecoveryResponse)(nil),    // 5: multiorch.DisableRecoveryResponse
-	(*EnableRecoveryRequest)(nil),      // 6: multiorch.EnableRecoveryRequest
-	(*EnableRecoveryResponse)(nil),     // 7: multiorch.EnableRecoveryResponse
-	(*GetRecoveryStatusRequest)(nil),   // 8: multiorch.GetRecoveryStatusRequest
-	(*GetRecoveryStatusResponse)(nil),  // 9: multiorch.GetRecoveryStatusResponse
-	(*TriggerRecoveryNowRequest)(nil),  // 10: multiorch.TriggerRecoveryNowRequest
-	(*TriggerRecoveryNowResponse)(nil), // 11: multiorch.TriggerRecoveryNowResponse
-	(*clustermetadata.ShardKey)(nil),   // 12: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),         // 13: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),      // 14: google.protobuf.Timestamp
+	(*ShardStatusRequest)(nil),                            // 0: multiorch.ShardStatusRequest
+	(*ShardStatusResponse)(nil),                           // 1: multiorch.ShardStatusResponse
+	(*DetectedProblem)(nil),                               // 2: multiorch.DetectedProblem
+	(*PoolerHealth)(nil),                                  // 3: multiorch.PoolerHealth
+	(*DisableRecoveryRequest)(nil),                        // 4: multiorch.DisableRecoveryRequest
+	(*DisableRecoveryResponse)(nil),                       // 5: multiorch.DisableRecoveryResponse
+	(*EnableRecoveryRequest)(nil),                         // 6: multiorch.EnableRecoveryRequest
+	(*EnableRecoveryResponse)(nil),                        // 7: multiorch.EnableRecoveryResponse
+	(*GetRecoveryStatusRequest)(nil),                      // 8: multiorch.GetRecoveryStatusRequest
+	(*GetRecoveryStatusResponse)(nil),                     // 9: multiorch.GetRecoveryStatusResponse
+	(*TriggerRecoveryNowRequest)(nil),                     // 10: multiorch.TriggerRecoveryNowRequest
+	(*TriggerRecoveryNowResponse)(nil),                    // 11: multiorch.TriggerRecoveryNowResponse
+	(*ApplyCertifiedRuleChangeRequest)(nil),               // 12: multiorch.ApplyCertifiedRuleChangeRequest
+	(*ApplyCertifiedRuleChangeResponse)(nil),              // 13: multiorch.ApplyCertifiedRuleChangeResponse
+	(*clustermetadata.ShardKey)(nil),                      // 14: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),                            // 15: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),                         // 16: google.protobuf.Timestamp
+	(*clustermetadata.ShardRule)(nil),                     // 17: clustermetadata.ShardRule
+	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 18: clustermetadata.ExternallyCertifiedRevocation
 }
 var file_multiorchservice_proto_depIdxs = []int32{
-	12, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
+	14, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
 	2,  // 1: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
 	3,  // 2: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
-	13, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	12, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
-	14, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
-	13, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
-	14, // 7: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
-	0,  // 8: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 9: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 10: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 11: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 12: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	1,  // 13: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 14: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 15: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 16: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 17: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	15, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
+	14, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
+	16, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
+	15, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
+	16, // 7: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
+	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
+	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_rule:type_name -> clustermetadata.ShardRule
+	18, // 10: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
+	0,  // 11: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 12: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 13: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	12, // 16: multiorch.MultiOrchService.ApplyCertifiedRuleChange:input_type -> multiorch.ApplyCertifiedRuleChangeRequest
+	1,  // 17: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 18: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 19: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 20: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 21: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	13, // 22: multiorch.MultiOrchService.ApplyCertifiedRuleChange:output_type -> multiorch.ApplyCertifiedRuleChangeResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }
@@ -794,7 +940,7 @@ func file_multiorchservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiorchservice_proto_rawDesc), len(file_multiorchservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

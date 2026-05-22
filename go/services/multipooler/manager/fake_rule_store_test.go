@@ -35,6 +35,16 @@ func testBootstrapPolicy() *clustermetadatapb.DurabilityPolicy {
 	}
 }
 
+// testBootstrapID returns a pooler ID suitable for the initial row's
+// coordinator_id in tests that call createRuleTables.
+func testBootstrapID() *clustermetadatapb.ID {
+	return &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "bootstrap-pooler",
+	}
+}
+
 // fakeRuleStore is a test double for ruleStorer that returns a preset position
 // without hitting postgres. Both observePosition and updateRule return pos
 // (or observeErr/updateErr when set). updateRule records all calls in updates.
@@ -69,7 +79,7 @@ func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.P
 	return f.pos, f.observeErr
 }
 
-func (f *fakeRuleStore) createRuleTables(_ context.Context, _ *clustermetadatapb.DurabilityPolicy) error {
+func (f *fakeRuleStore) createRuleTables(_ context.Context, _ *clustermetadatapb.DurabilityPolicy, _ *clustermetadatapb.ID) error {
 	return nil
 }
 

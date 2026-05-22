@@ -200,7 +200,7 @@ func (mo *MultiOrch) Init() error {
 
 	// Register gRPC service after recovery engine is ready
 	mo.senv.OnRun(func() {
-		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, logger)
+		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, coord, logger)
 		mo.multiorchServer.RegisterWithGRPCServer(mo.grpcServer.Server)
 	})
 

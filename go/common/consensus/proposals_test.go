@@ -17,6 +17,7 @@ package consensus
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,10 @@ func makeRule(num *clustermetadatapb.RuleNumber, policy *clustermetadatapb.Durab
 		LeaderId:         leader,
 		CohortMembers:    cohort,
 		DurabilityPolicy: policy,
+		// validateProposal requires these; fill in plausible defaults so tests
+		// that don't care about identity/timing don't have to set them.
+		CoordinatorId: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "test-coord"},
+		CreationTime:  timestamppb.New(time.Unix(1700000000, 0)),
 	}
 }
 
@@ -800,6 +805,10 @@ func TestBuildProposalCore(t *testing.T) {
 							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 							LeaderId:      zone1.a,
 							CohortMembers: cohort,
+							// Identity/timing fields populated so validation
+							// progresses to the durability-policy check.
+							CoordinatorId: makeID("zone1", "test-coord"),
+							CreationTime:  timestamppb.New(time.Unix(1700000000, 0)),
 						},
 					}, nil
 				},
@@ -944,6 +953,8 @@ func TestBuildProposalCore(t *testing.T) {
 							CohortMembers:    cohort,
 							DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN},
 							LeaderId:         leader.GetId(),
+							CoordinatorId:    makeID("zone1", "test-coord"),
+							CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
 						},
 					}, nil
 				},
@@ -1419,6 +1430,8 @@ func TestBuildSafeProposal_ProposedPolicyNotAchievable(t *testing.T) {
 		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 		CohortMembers:    []*clustermetadatapb.ID{zone1.a},
 		DurabilityPolicy: topoclient.AtLeastN(2),
+		CoordinatorId:    makeID("zone1", "test-coord"),
+		CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
 	}
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
@@ -1683,6 +1696,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	a, b, c := makeID("zone1", "a"), makeID("zone1", "b"), makeID("zone1", "c")
 	cohort := []*clustermetadatapb.ID{a, b, c}
 
+	testCoordID := makeID("zone1", "test-coord")
 	// initialRule mirrors what createSidecarSchema writes during initdb: term
 	// and subterm both 0, real durability policy. Every recruited node carries
 	// at least this rule, so test fixtures use it rather than nil when no
@@ -1699,6 +1713,8 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 				CohortMembers:    cohort,
 				DurabilityPolicy: topoclient.AtLeastN(2),
 				LeaderId:         leader.GetId(),
+				CoordinatorId:    testCoordID,
+				CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
 			},
 		}, nil
 	}
@@ -1808,6 +1824,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	incomingCohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
 
+	testCoordID := makeID("zone1", "test-coord")
 	// initialRule mirrors what createSidecarSchema writes during initdb: term
 	// and subterm both 0, real durability policy. Every recruited node carries
 	// at least this rule, so test fixtures use it rather than nil when no
@@ -1825,6 +1842,8 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 				CohortMembers:    incomingCohort,
 				DurabilityPolicy: topoclient.AtLeastN(2),
 				LeaderId:         leader.GetId(),
+				CoordinatorId:    testCoordID,
+				CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
 			},
 		}, nil
 	}
