@@ -713,12 +713,22 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 	stdoutDone := make(chan struct{})
 	stderrDone := make(chan struct{})
 
+	// scanErr captures a scanner error (e.g. bufio.ErrTooLong for lines
+	// exceeding the default 64 KiB buffer) so silent truncation surfaces
+	// to the caller instead of looking like clean EOF. Writes happen
+	// before the corresponding Done channel closes; the close()-then-
+	// channel-receive ordering through stdoutDone/stderrDone → lines →
+	// the consumer loop establishes the happens-before edge that lets
+	// the caller read these without a separate lock.
+	var stdoutScanErr, stderrScanErr error
+
 	go func() {
 		defer close(stdoutDone)
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			lines <- scanner.Text() + "\n"
 		}
+		stdoutScanErr = scanner.Err()
 	}()
 
 	go func() {
@@ -727,6 +737,7 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 		for scanner.Scan() {
 			lines <- scanner.Text() + "\n"
 		}
+		stderrScanErr = scanner.Err()
 	}()
 
 	go func() {
@@ -740,7 +751,20 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 		combinedBuf.WriteString(line)
 	}
 
-	return combinedBuf.String(), cmd.Wait()
+	// cmd.Wait's exit code is the operational signal, so it takes
+	// precedence. If the process exited cleanly but a scanner failed
+	// (e.g. ErrTooLong), surface that so a silently-truncated output
+	// doesn't look successful.
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return combinedBuf.String(), waitErr
+	}
+	if stdoutScanErr != nil {
+		return combinedBuf.String(), fmt.Errorf("stdout scan: %w", stdoutScanErr)
+	}
+	if stderrScanErr != nil {
+		return combinedBuf.String(), fmt.Errorf("stderr scan: %w", stderrScanErr)
+	}
+	return combinedBuf.String(), nil
 }
 
 // findBackupByJobID finds a backup by matching the job_id annotation
