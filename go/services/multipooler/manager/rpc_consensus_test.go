@@ -43,6 +43,11 @@ import (
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
 var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 
+// ruleCreatedTS is a distinct timestamp used for ShardRule.CreationTime in
+// Propose test cases. Kept different from recruitTS on purpose: if any code
+// path reads one field but stores the other, the assertion catches it.
+var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
 // observePositionRow builds a mock result row for the observePosition query
 // where the rule names primaryAppName (e.g. "zone1_stale-primary") as the
 // primary with the given coordinator term.
@@ -50,11 +55,14 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	cols := []string{
 		"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 		"durability_policy_name", "durability_quorum_type", "durability_required_count",
+		"created_at",
 		"current_lsn",
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "0/1",
+		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2),
+		recruitTS.AsTime().Format("2006-01-02 15:04:05.999999-07"),
+		"0/1",
 	}}
 	return cols, row
 }
@@ -460,7 +468,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 			tt.setupQueryMock(mockQueryService)
 			pm.qsc = &mockPoolerController{queryService: mockQueryService}
-			pm.rules = newRuleStore(logger, mockQueryService)
+			pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			pm.Start(senv)
@@ -565,7 +573,7 @@ func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo s
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
 	// waitForReceiverDisconnect
-	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
+	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
@@ -872,8 +880,9 @@ func expectStandbyReadyMocks(m *mock.QueryService) {
 
 // expectLeaderProposeMocks sets up the postgres query expectations for the leader
 // Propose path: check recovery state, pg_promote, wait for promotion, reset conninfo,
-// reload config, then get the primary WAL position.
-func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
+// reload config. The WAL position is read from the rule store's cached LSN
+// (via beforeStatus.GetCurrentPosition().GetLsn()), not from a separate pg_current_wal_lsn query.
+func expectLeaderProposeMocks(m *mock.QueryService) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
@@ -886,9 +895,6 @@ func expectLeaderProposeMocks(m *mock.QueryService, lsn string) {
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
-	// getPrimaryLSN
-	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
 }
 
 func TestPropose(t *testing.T) {
@@ -923,6 +929,8 @@ func TestPropose(t *testing.T) {
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
 		CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+		CoordinatorId: coordinatorA,
+		CreationTime:  ruleCreatedTS,
 	}
 
 	makeLeaderReq := func() *consensusdatapb.ProposeRequest {
@@ -1103,7 +1111,7 @@ func TestPropose(t *testing.T) {
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
 			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
-				expectLeaderProposeMocks(m, "0/5000000")
+				expectLeaderProposeMocks(m)
 			},
 			// Verify the promotion was recorded with the right coordinator term and WAL
 			// position, and that the health streamer was updated for write traffic.
@@ -1119,7 +1127,9 @@ func TestPropose(t *testing.T) {
 				assert.True(t, proto.Equal(coordinatorA, update.coordinatorID))
 				assert.True(t, proto.Equal(selfID, update.leaderID))
 				assert.Len(t, update.cohortMembers, 2)
-				assert.Equal(t, "0/5000000", update.walPosition)
+				// walPosition comes from beforeStatus.GetCurrentPosition().GetLsn(),
+				// which is the rule store's cached LSN at the time of the Propose call.
+				assert.Equal(t, makeRulePosition(0).Lsn, update.walPosition)
 				assert.Nil(t, update.durabilityPolicy)
 				assert.Empty(t, update.acceptedMembers)
 
@@ -1144,41 +1154,23 @@ func TestPropose(t *testing.T) {
 			},
 		},
 		{
-			// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
-			// A misconfigured GUC would allow the primary to accept writes without the
-			// required sync acknowledgment, so the failure is fatal.
+			// GUC application (syncStandby.SetPolicy inside updateRule) fails before
+			// pg_promote is called. Propose must return an error without promoting, since
+			// a misconfigured GUC would allow the primary to accept writes without the
+			// required sync acknowledgment. GUC application now lives inside updateRule,
+			// so we simulate the failure via fakeRuleStore.updateErr.
 			name:        "LeaderGUCFailure",
 			initialTerm: recruitedTerm,
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req: &consensusdatapb.ProposeRequest{
-				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: recruitedTerm,
-					ProposalLeader: &clustermetadatapb.PoolerAddress{
-						Id:           selfID,
-						Host:         "pg-primary.internal",
-						PostgresPort: 5432,
-					},
-					// Include a durability policy so syncConfigFromProposedRule
-					// succeeds and applyGUCsForSyncReplication is actually invoked.
-					ProposedRule: &clustermetadatapb.ShardRule{
-						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
-						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
-							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-							RequiredCount: 2,
-						},
-					},
-				},
-			},
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0), updateErr: errors.New("pre-promote GUC: GUC write failed")},
+			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectStandbyReadyMocks(m)
-				// checkPromotionState: standby.
+				// checkPromotionState: standby. updateRule then fails (no pg_promote called).
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// applyGUCsForSyncReplication fails: Propose returns an error without promoting.
-				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_commit", errors.New("GUC write failed"))
 			},
 			expectError:       true,
-			expectErrContains: "failed to pre-configure sync replication",
+			expectErrContains: "propose failed: could not write rule",
 		},
 		{
 			// postgres is already primary (not in recovery): the standby-state
@@ -1242,6 +1234,8 @@ func TestPropose(t *testing.T) {
 					},
 					ProposedRule: &clustermetadatapb.ShardRule{
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						CoordinatorId: coordinatorA,
+						CreationTime:  ruleCreatedTS,
 						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 							RequiredCount: 0,
@@ -1256,10 +1250,10 @@ func TestPropose(t *testing.T) {
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
 			expectError:       true,
-			expectErrContains: "cannot derive sync config",
+			expectErrContains: "durability policy has missing or invalid fields",
 		},
 		{
-			// fakeRuleStore.updateRule returns an error after the postgres
+			// fakeRuleStore.updateErrAfterHook returns an error after the postgres
 			// promote has already happened. Propose must propagate that error
 			// rather than mark the promotion successful — the rule write is
 			// the durability gate, and a failure here means the new primary
@@ -1267,12 +1261,12 @@ func TestPropose(t *testing.T) {
 			name:        "UpdateRuleFails",
 			initialTerm: recruitedTerm,
 			ruleStore: &fakeRuleStore{
-				pos:       makeRulePosition(0),
-				updateErr: errors.New("rule store offline"),
+				pos:                makeRulePosition(0),
+				updateErrAfterHook: errors.New("rule store offline"),
 			},
 			req: makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
-				expectLeaderProposeMocks(m, "0/5000000")
+				expectLeaderProposeMocks(m)
 			},
 			expectError:       true,
 			expectErrContains: "propose failed: could not write rule",

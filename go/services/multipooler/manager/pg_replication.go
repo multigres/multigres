@@ -16,7 +16,9 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -533,33 +535,82 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Track the latest poll snapshot so a timeout has diagnostic detail without
+	// needing another query after the ctx has already expired.
+	var (
+		lastCount    int64 = -1 // -1 = not yet polled
+		lastStatus   string
+		lastConnInfo string
+	)
+
+	timedOut := func(cause error) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+		pm.logger.ErrorContext(ctx, "WAL receiver did not disconnect",
+			"cause", cause,
+			"last_receiver_count", lastCount,
+			"last_walreceiver_status", lastStatus,
+			"last_primary_conninfo", lastConnInfo)
+		if errors.Is(cause, context.DeadlineExceeded) {
+			return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+		}
+		return nil, mterrors.Wrap(cause, "context cancelled while waiting for WAL receiver to disconnect")
+	}
+
 	for {
 		select {
 		case <-waitCtx.Done():
-			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
-			}
-			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL receiver to disconnect")
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
+			return timedOut(waitCtx.Err())
 
 		case <-ticker.C:
-			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
-			result, err := pm.query(waitCtx, "SELECT COUNT(*) FROM pg_stat_wal_receiver")
+			// Re-check waitCtx before issuing a query: when waitCtx expires at the
+			// same tick boundary, select may pick this branch and the subsequent
+			// pm.query would surface an opaque "pool ctx expired" instead of the
+			// real timeout cause.
+			if err := waitCtx.Err(); err != nil {
+				return timedOut(err)
+			}
+
+			// Pull the count, the walreceiver status, and the live primary_conninfo
+			// in a single query so each poll is also a diagnostic snapshot.
+			result, err := pm.query(waitCtx, `SELECT
+				(SELECT COUNT(*) FROM pg_stat_wal_receiver),
+				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
+				current_setting('primary_conninfo')`)
 			if err != nil {
+				// If waitCtx expired between the pre-check and the Pool.Get
+				// ctx.Err() check, surface the cleaner timeout cause instead of
+				// an opaque "pool ctx expired" wrapper.
+				if waitErr := waitCtx.Err(); waitErr != nil {
+					return timedOut(waitErr)
+				}
 				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
 				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
 			}
-
-			var receiverCount int64
-			if err := executor.ScanSingleRow(result, &receiverCount); err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan receiver count", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver count")
+			if err := executor.ScanSingleRow(result, &lastCount, &lastStatus, &lastConnInfo); err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to scan pg_stat_wal_receiver row", "error", err)
+				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
 			}
 
-			// Once receiver is disconnected, query final replication status
-			if receiverCount == 0 {
-				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
+			// Done when either the walreceiver slot is gone, OR it's sitting
+			// in WALRCV_WAITING with primary_conninfo empty. The latter is
+			// safe because:
+			//
+			//   - We hold the action lock, so no other in-process path can
+			//     write primary_conninfo during this wait.
+			//   - WAITING → STREAMING requires the startup process to call
+			//     RequestXLogStreaming, which only fires when primary_conninfo
+			//     is non-empty.
+			//   - We can't actively terminate a walreceiver from SQL —
+			//     pg_terminate_backend only works on regular backends, not
+			//     auxiliary processes like the walreceiver. The walreceiver
+			//     only exits when its in-flight libpq call returns, which is
+			//     bounded by connect_timeout (potentially tens of seconds).
+			//     Treating WAITING+empty as done lets us proceed without
+			//     waiting out that timeout.
+			done := lastCount == 0 || (lastStatus == "waiting" && lastConnInfo == "")
+			if done {
+				pm.logger.InfoContext(ctx, "WAL receiver has disconnected",
+					"last_receiver_count", lastCount,
+					"last_walreceiver_status", lastStatus)
 
 				// Get the final replication status
 				status, err := pm.queryReplicationStatus(waitCtx)
@@ -702,10 +753,14 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 // clearing primary_conninfo) should still poll, but they can do so knowing
 // the new config is loaded server-side rather than racing with postmaster's
 // signal handler.
-func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.InternalQueryService) error {
+	if qs == nil {
+		return errors.New("internal query service not available")
+	}
+
 	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer loadTimeCancel()
-	result, err := pm.query(loadTimeCtx, "SELECT pg_conf_load_time()")
+	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read pg_conf_load_time before reload")
 	}
@@ -714,11 +769,11 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
 	}
 
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+	logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
 	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer reloadCancel()
-	if err := pm.exec(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
+		logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
@@ -734,7 +789,7 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
 		}
 		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
-		result, err := pm.query(queryCtx, "SELECT pg_conf_load_time()")
+		result, err := qs.Query(queryCtx, "SELECT pg_conf_load_time()")
 		queryCancel()
 		if err != nil {
 			return mterrors.Wrap(err, "failed to poll pg_conf_load_time after reload")
@@ -749,6 +804,12 @@ func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
 	}
 	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
 	return mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
+}
+
+// reloadPostgresConfig is a convenience wrapper around the package-level
+// reloadPostgresConfig helper bound to this manager's query service and logger.
+func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+	return reloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
@@ -1166,6 +1227,24 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 		}
 	}
 	return updatedStandbys
+}
+
+// poolerIDSetEqual returns true if a and b contain the same set of pooler IDs
+// (order-independent comparison using appName as the key).
+func poolerIDSetEqual(a, b []poolerID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]struct{}, len(a))
+	for _, p := range a {
+		m[p.appName] = struct{}{}
+	}
+	for _, p := range b {
+		if _, ok := m[p.appName]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ----------------------------------------------------------------------------

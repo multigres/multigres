@@ -348,11 +348,13 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Preserve the consensus term file across restore. The term records the
-	// highest revocation this pooler has accepted — it gates which Recruit
-	// requests this node will honor, independent of what PGDATA participated
-	// in. A node that already accepted term N must not accept a Recruit at
-	// term < N just because its data was rolled back to an earlier snapshot.
+	// Clear the in-memory leader observation. The restored PGDATA may have been
+	// from a different point in time, so the previously observed leader may no
+	// longer be accurate. The term revocation is intentionally preserved: it is
+	// monotonically increasing and the restore does not change who is allowed to
+	// lead — only a coordinator with a term >= the revocation term may configure
+	// this node, which is exactly the right safety property.
+	pm.healthStreamer.UpdateLeaderObservation(nil)
 
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
 		return pm.reopenPoolerManager(ctx)

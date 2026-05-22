@@ -155,7 +155,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 4. Clears sync replication config
 	// 5. Updates topology to REPLICA
 	informReq := &consensusdatapb.SetTermPrimaryRequest{
-		Leader: poolerAddressFor(correctLeader.MultiPooler),
+		Leader: topoclient.PoolerAddressFor(correctLeader.MultiPooler),
 		Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
 	if _, err := a.rpcClient.SetTermPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {

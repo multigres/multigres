@@ -209,8 +209,7 @@
   },
   {
     "comment": "SHOW ALL",
-    "query": "SHOW ALL",
-    "expected": "SHOW \"all\""
+    "query": "SHOW ALL"
   },
   {
     "comment": "SHOW timezone",
@@ -298,7 +297,8 @@
   },
   {
     "comment": "REINDEX with options",
-    "query": "REINDEX (verbose) INDEX idx_users_email"
+    "query": "REINDEX (verbose) INDEX idx_users_email",
+    "expected": "REINDEX (VERBOSE) INDEX idx_users_email"
   },
   {
     "comment": "REINDEX CONCURRENTLY",
@@ -306,7 +306,8 @@
   },
   {
     "comment": "REINDEX with options and CONCURRENTLY",
-    "query": "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email"
+    "query": "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email",
+    "expected": "REINDEX (VERBOSE) INDEX CONCURRENTLY idx_users_email"
   },
   {
     "comment": "CHECKPOINT",
@@ -992,5 +993,73 @@
     "comment": "COMMENT ON TRIGGER with schema-qualified table",
     "query": "COMMENT ON TRIGGER \"trigger_update_customers_hashed_in\" ON \"public\".\"customers\" IS 'Trigger to update hashed_id column before insert'",
     "expected": "COMMENT ON TRIGGER trigger_update_customers_hashed_in ON public.customers IS 'Trigger to update hashed_id column before insert'"
+  },
+  {
+    "comment": "DECLARE CURSOR quotes portal name",
+    "query": "DECLARE \"weird cursor\" CURSOR FOR SELECT 1"
+  },
+  {
+    "comment": "FETCH FROM quotes portal name",
+    "query": "FETCH FROM \"weird cursor\""
+  },
+  {
+    "comment": "CLOSE quotes portal name",
+    "query": "CLOSE \"weird cursor\""
+  },
+  {
+    "comment": "PREPARE quotes statement name",
+    "query": "PREPARE \"weird stmt\" AS SELECT 1"
+  },
+  {
+    "comment": "EXECUTE quotes statement name",
+    "query": "EXECUTE \"weird stmt\""
+  },
+  {
+    "comment": "DEALLOCATE quotes statement name",
+    "query": "DEALLOCATE \"weird stmt\""
+  },
+  {
+    "comment": "NOTIFY quotes channel name",
+    "query": "NOTIFY \"weird channel\""
+  },
+  {
+    "comment": "NOTIFY with payload quotes channel name and escapes string",
+    "query": "NOTIFY \"weird channel\", 'hi'"
+  },
+  {
+    "comment": "LISTEN quotes channel name",
+    "query": "LISTEN \"weird channel\""
+  },
+  {
+    "comment": "UNLISTEN quotes channel name",
+    "query": "UNLISTEN \"weird channel\""
+  },
+  {
+    "comment": "SAVEPOINT quotes name",
+    "query": "SAVEPOINT \"weird sp\""
+  },
+  {
+    "comment": "RELEASE SAVEPOINT quotes name",
+    "query": "RELEASE SAVEPOINT \"weird sp\""
+  },
+  {
+    "comment": "ROLLBACK TO SAVEPOINT quotes name",
+    "query": "ROLLBACK TO SAVEPOINT \"weird sp\""
+  },
+  {
+    "comment": "REINDEX TABLE preserves schema qualification with quoted names",
+    "query": "REINDEX TABLE \"weird schema\".\"weird table\""
+  },
+  {
+    "comment": "REINDEX SCHEMA quotes schema name",
+    "query": "REINDEX SCHEMA \"weird schema\""
+  },
+  {
+    "comment": "SET CONSTRAINTS quotes constraint list",
+    "query": "SET CONSTRAINTS \"weird c1\", \"weird c2\" DEFERRED"
+  },
+  {
+    "comment": "LOCK TABLE quotes relation list",
+    "query": "LOCK TABLE \"weird t1\", \"weird t2\" IN ACCESS EXCLUSIVE MODE"
   }
 ]

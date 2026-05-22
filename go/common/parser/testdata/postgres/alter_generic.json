@@ -543,7 +543,7 @@
   {
     "comment": "alter_generic - Statement 123",
     "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1 (int4, int2) , OPERATOR 2 (int4, int2) , OPERATOR 3 (int4, int2) , OPERATOR 4 (int4, int2) , OPERATOR 5 (int4, int2) , FUNCTION 1 (int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1  (int4, int2), OPERATOR 2  (int4, int2), OPERATOR 3  (int4, int2), OPERATOR 4  (int4, int2), OPERATOR 5  (int4, int2), FUNCTION 1 (int4, int2)"
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1 (int4, int2), OPERATOR 2 (int4, int2), OPERATOR 3 (int4, int2), OPERATOR 4 (int4, int2), OPERATOR 5 (int4, int2), FUNCTION 1 (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 124",
@@ -645,8 +645,7 @@
   },
   {
     "comment": "alter_generic - Statement 147",
-    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1 (int4, int2, int8)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1  (int4, int2, int8)"
+    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1 (int4, int2, int8)"
   },
   {
     "comment": "alter_generic - Statement 148",
@@ -702,8 +701,7 @@
   },
   {
     "comment": "alter_generic - Statement 160",
-    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1  (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1 (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 161",
@@ -828,8 +826,7 @@
   },
   {
     "comment": "alter_generic - Statement 188",
-    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1  (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1 (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 189",

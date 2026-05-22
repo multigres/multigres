@@ -203,7 +203,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	// Configure primary_conninfo on the replica via SetTermPrimary.
 	informReq := &consensusdatapb.SetTermPrimaryRequest{
-		Leader: poolerAddressFor(primary.MultiPooler),
+		Leader: topoclient.PoolerAddressFor(primary.MultiPooler),
 		Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
 	if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {

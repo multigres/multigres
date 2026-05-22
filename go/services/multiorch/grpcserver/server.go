@@ -26,8 +26,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 )
 
@@ -36,15 +38,17 @@ import (
 // including detected problems and shard health status.
 type MultiOrchServer struct {
 	multiorchpb.UnimplementedMultiOrchServiceServer
-	engine *recovery.Engine
-	logger *slog.Logger
+	engine      *recovery.Engine
+	coordinator *consensus.Coordinator
+	logger      *slog.Logger
 }
 
 // NewMultiOrchServer creates a new MultiOrchServer instance.
-func NewMultiOrchServer(engine *recovery.Engine, logger *slog.Logger) *MultiOrchServer {
+func NewMultiOrchServer(engine *recovery.Engine, coordinator *consensus.Coordinator, logger *slog.Logger) *MultiOrchServer {
 	return &MultiOrchServer{
-		engine: engine,
-		logger: logger,
+		engine:      engine,
+		coordinator: coordinator,
+		logger:      logger,
 	}
 }
 
@@ -159,6 +163,29 @@ func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorch
 	return &multiorchpb.TriggerRecoveryNowResponse{
 		RemainingProblemCodes: problemCodes,
 	}, nil
+}
+
+// ApplyCertifiedRuleChange installs a new shard rule using a fully-populated
+// externally certified revocation. See proto/multiorchservice.proto for the
+// shape contract — multiorch is a pure executor and the caller must populate
+// every identity and timing field.
+func (s *MultiOrchServer) ApplyCertifiedRuleChange(
+	ctx context.Context,
+	req *multiorchpb.ApplyCertifiedRuleChangeRequest,
+) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
+	if req.GetShardKey() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "shard_key is required")
+	}
+	sk := req.GetShardKey()
+	if !s.engine.IsWatchingShard(sk.Database, sk.TableGroup, sk.Shard) {
+		return nil, status.Errorf(codes.NotFound,
+			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
+	}
+
+	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedRule(), req.GetCert(), req.GetReason()); err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multiorchpb.ApplyCertifiedRuleChangeResponse{}, nil
 }
 
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.

@@ -101,6 +101,8 @@ func (m *txMockIExecute) ConcludeTransaction(
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
+	_ []string,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.concludeTransactionCount++

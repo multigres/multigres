@@ -84,6 +84,19 @@ func MultiPoolerIDString(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
+// PoolerAddressFor projects a MultiPooler into the contact-info subset the
+// consensus RPCs (SetTermPrimary, Propose) take. Returns nil if mp is nil.
+func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
+	if mp == nil {
+		return nil
+	}
+	return &clustermetadatapb.PoolerAddress{
+		Id:           mp.GetId(),
+		Host:         mp.GetHostname(),
+		PostgresPort: mp.GetPortMap()["postgres"],
+	}
+}
+
 // GetMultiPooler is a high level function to read multipooler data.
 func (ts *store) GetMultiPooler(ctx context.Context, id *clustermetadatapb.ID) (*MultiPoolerInfo, error) {
 	conn, err := ts.ConnForCell(ctx, id.Cell)

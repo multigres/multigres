@@ -98,6 +98,11 @@ message CoordinatorProposal {
   // The full proposed rule. This can either be an entirely new rule or an
   // existing rule that hasn't yet finished propagating to durability.
   clustermetadata.ShardRule proposed_rule = 3;
+
+  // When true, the leader must apply the incoming cohort GUC directly without
+  // first satisfying the outgoing cohort quorum. Only valid for externally-
+  // certified proposals (bootstrap, etc.).
+  bool skip_outgoing_quorum = 4;
 }
 
 // RecruitRequest asks a pooler to revoke all terms below the one in the

@@ -56,53 +56,43 @@
   },
   {
     "comment": "tablespace - Statement 13",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_am",
-    "expected": "REINDEX (tablespace) TABLE pg_am"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_am"
   },
   {
     "comment": "tablespace - Statement 14",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_am",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_am"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_am"
   },
   {
     "comment": "tablespace - Statement 15",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_authid",
-    "expected": "REINDEX (tablespace) TABLE pg_authid"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_authid"
   },
   {
     "comment": "tablespace - Statement 16",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_authid",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_authid"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_authid"
   },
   {
     "comment": "tablespace - Statement 17",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX pg_toast.pg_toast_1260_index",
-    "expected": "REINDEX (tablespace) INDEX pg_toast_1260_index"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX pg_toast.pg_toast_1260_index"
   },
   {
     "comment": "tablespace - Statement 18",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX CONCURRENTLY pg_toast.pg_toast_1260_index",
-    "expected": "REINDEX (tablespace) INDEX CONCURRENTLY pg_toast_1260_index"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX CONCURRENTLY pg_toast.pg_toast_1260_index"
   },
   {
     "comment": "tablespace - Statement 19",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_toast.pg_toast_1260",
-    "expected": "REINDEX (tablespace) TABLE pg_toast_1260"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_toast.pg_toast_1260"
   },
   {
     "comment": "tablespace - Statement 20",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_toast.pg_toast_1260",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_toast_1260"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_toast.pg_toast_1260"
   },
   {
     "comment": "tablespace - Statement 21",
-    "query": "REINDEX (TABLESPACE pg_global) TABLE pg_authid",
-    "expected": "REINDEX (tablespace) TABLE pg_authid"
+    "query": "REINDEX (TABLESPACE pg_global) TABLE pg_authid"
   },
   {
     "comment": "tablespace - Statement 22",
-    "query": "REINDEX (TABLESPACE pg_global) TABLE CONCURRENTLY pg_authid",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_authid"
+    "query": "REINDEX (TABLESPACE pg_global) TABLE CONCURRENTLY pg_authid"
   },
   {
     "comment": "tablespace - Statement 23",
@@ -121,13 +111,11 @@
   },
   {
     "comment": "tablespace - Statement 26",
-    "query": "REINDEX (TABLESPACE pg_global) INDEX regress_tblspace_test_tbl_idx",
-    "expected": "REINDEX (tablespace) INDEX regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE pg_global) INDEX regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 27",
-    "query": "REINDEX (TABLESPACE pg_global) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx",
-    "expected": "REINDEX (tablespace) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE pg_global) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 28",
@@ -135,13 +123,11 @@
   },
   {
     "comment": "tablespace - Statement 29",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX regress_tblspace_test_tbl_idx",
-    "expected": "REINDEX (tablespace) INDEX regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 30",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE regress_tblspace_test_tbl",
-    "expected": "REINDEX (tablespace) TABLE regress_tblspace_test_tbl"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE regress_tblspace_test_tbl"
   },
   {
     "comment": "tablespace - Statement 31",
@@ -182,7 +168,7 @@
   {
     "comment": "tablespace - Statement 39",
     "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE regress_tblspace_test_tbl",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY regress_tblspace_test_tbl"
+    "expected": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY regress_tblspace_test_tbl"
   },
   {
     "comment": "tablespace - Statement 40",
@@ -270,7 +256,7 @@
   {
     "comment": "tablespace - Statement 59",
     "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tbspace_reindex_part",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY tbspace_reindex_part"
+    "expected": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY tbspace_reindex_part"
   },
   {
     "comment": "tablespace - Statement 60",
@@ -710,13 +696,12 @@
   },
   {
     "comment": "tablespace - Statement 155",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE tablespace_table",
-    "expected": "REINDEX (tablespace) TABLE tablespace_table"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE tablespace_table"
   },
   {
     "comment": "tablespace - Statement 156",
     "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tablespace_table",
-    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY tablespace_table"
+    "expected": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY tablespace_table"
   },
   {
     "comment": "tablespace - Statement 157",

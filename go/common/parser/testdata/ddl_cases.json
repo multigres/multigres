@@ -2751,8 +2751,7 @@
   },
   {
     "comment": "ALTER OPERATOR FAMILY DROP",
-    "query": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1  (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)"
   },
   {
     "comment": "CREATE TRANSFORM basic",
@@ -2957,5 +2956,249 @@
     "comment": "CREATE FUNCTION with plpgsql body",
     "query": "create function batch_processing.get_batch_process_details(batch_process text)\nreturns table (\n    process_id int\n    , api_url text\n    , user_email text\n    , user_password text\n    , anon_key text\n)\nas $$\ndeclare \n    query text;\n    api_url text;\n    user_password_vault_id uuid;\n    user_email text;\n    user_password text;\n    anon_key text;\n    process_id int;\n    process_run_id int;\n    next_run_data jsonb;\nbegin\n\n    -- get batch process\n    select\n      bp.id\n      , bp.url\n      , bp.supabase_user_password_vault_id\n      , bp.supabase_user_email\n    into\n      process_id\n      , api_url\n      , user_password_vault_id\n      , user_email\n    from\n      batch_processing.batch_processes bp\n    where\n      status_id = (\n        select id from batch_processing.batch_process_status\n          where batch_processing.batch_process_status.status='active'\n      )\n      and process = batch_process;\n\n    if process_id is null then\n      raise exception 'No active batch process found.';\n    end if;\n\n    if user_email is null then\n      raise exception 'No supabase user email found.';\n    end if;\n\n     -- get supabase user password from vault\n    select decrypted_secret\n    into user_password\n    from vault.decrypted_secrets\n    where id = user_password_vault_id;\n\n    if user_password is null then\n      raise exception 'No supabase user password found';\n    end if;\n\n    -- get anon key from vault\n    select decrypted_secret\n    into anon_key\n    from vault.decrypted_secrets\n    where \"name\" = 'anon_key';\n\n    return query select process_id, api_url, user_email, user_password, anon_key;\nend;\n$$ language plpgsql;",
     "expected": "CREATE FUNCTION batch_processing.get_batch_process_details (batch_process TEXT) RETURNS TABLE (process_id INT, api_url TEXT, user_email TEXT, user_password TEXT, anon_key TEXT) AS $$\ndeclare \n    query text;\n    api_url text;\n    user_password_vault_id uuid;\n    user_email text;\n    user_password text;\n    anon_key text;\n    process_id int;\n    process_run_id int;\n    next_run_data jsonb;\nbegin\n\n    -- get batch process\n    select\n      bp.id\n      , bp.url\n      , bp.supabase_user_password_vault_id\n      , bp.supabase_user_email\n    into\n      process_id\n      , api_url\n      , user_password_vault_id\n      , user_email\n    from\n      batch_processing.batch_processes bp\n    where\n      status_id = (\n        select id from batch_processing.batch_process_status\n          where batch_processing.batch_process_status.status='active'\n      )\n      and process = batch_process;\n\n    if process_id is null then\n      raise exception 'No active batch process found.';\n    end if;\n\n    if user_email is null then\n      raise exception 'No supabase user email found.';\n    end if;\n\n     -- get supabase user password from vault\n    select decrypted_secret\n    into user_password\n    from vault.decrypted_secrets\n    where id = user_password_vault_id;\n\n    if user_password is null then\n      raise exception 'No supabase user password found';\n    end if;\n\n    -- get anon key from vault\n    select decrypted_secret\n    into anon_key\n    from vault.decrypted_secrets\n    where \"name\" = 'anon_key';\n\n    return query select process_id, api_url, user_email, user_password, anon_key;\nend;\n$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "CHECK constraint name with spaces is quoted on deparse",
+    "query": "CREATE TABLE t (resource_id TEXT NULL, CONSTRAINT \"resource_id not empty\" CHECK (resource_id IS NULL OR char_length(resource_id) > 0))"
+  },
+  {
+    "comment": "PRIMARY KEY constraint name with spaces is quoted on deparse",
+    "query": "CREATE TABLE t (id UUID, CONSTRAINT \"primary key\" PRIMARY KEY (id))"
+  },
+  {
+    "comment": "UNIQUE constraint name with spaces is quoted on deparse",
+    "query": "CREATE TABLE t (a INT, CONSTRAINT \"unique a\" UNIQUE (a))"
+  },
+  {
+    "comment": "FOREIGN KEY constraint name with spaces is quoted on deparse",
+    "query": "CREATE TABLE t (parent_id UUID, CONSTRAINT \"fk to parent\" FOREIGN KEY (parent_id) REFERENCES parents(id))"
+  },
+  {
+    "comment": "EXCLUDE constraint name with spaces is quoted on deparse",
+    "query": "CREATE TABLE t (during tsrange, CONSTRAINT \"no overlap\" EXCLUDE USING gist (during WITH &&))"
+  },
+  {
+    "comment": "ALTER TABLE RENAME CONSTRAINT quotes both old and new names",
+    "query": "ALTER TABLE t RENAME CONSTRAINT \"old name\" TO \"new name\""
+  },
+  {
+    "comment": "ALTER DOMAIN DROP CONSTRAINT quotes constraint name",
+    "query": "ALTER DOMAIN d DROP CONSTRAINT \"bad value\""
+  },
+  {
+    "comment": "ALTER DOMAIN VALIDATE CONSTRAINT quotes constraint name",
+    "query": "ALTER DOMAIN d VALIDATE CONSTRAINT \"bad value\""
+  },
+  {
+    "comment": "CREATE TABLESPACE quotes tablespace name with spaces",
+    "query": "CREATE TABLESPACE \"my space\" LOCATION '/data/ts'"
+  },
+  {
+    "comment": "ALTER TABLESPACE quotes tablespace name with spaces",
+    "query": "ALTER TABLESPACE \"my space\" SET ( seq_page_cost = 1.5 )"
+  },
+  {
+    "comment": "DROP TABLESPACE quotes tablespace name with spaces",
+    "query": "DROP TABLESPACE \"my space\""
+  },
+  {
+    "comment": "ALTER TABLE ALL IN TABLESPACE quotes both tablespace names",
+    "query": "ALTER TABLE ALL IN TABLESPACE \"old space\" SET TABLESPACE \"new space\""
+  },
+  {
+    "comment": "ALTER TABLE ALL IN TABLESPACE OWNED BY quotes role name",
+    "query": "ALTER TABLE ALL IN TABLESPACE \"old space\" OWNED BY \"weird role\" SET TABLESPACE \"new space\""
+  },
+  {
+    "comment": "GRANT ROLE quotes both granted and grantee role names",
+    "query": "GRANT \"weird role\" TO \"another role\""
+  },
+  {
+    "comment": "CLUSTER USING quotes index name with spaces",
+    "query": "CLUSTER t USING \"weird index\""
+  },
+  {
+    "comment": "CREATE INDEX USING quotes custom access method",
+    "query": "CREATE INDEX ON t USING \"weird am\" ( a )"
+  },
+  {
+    "comment": "ALTER TYPE RENAME ATTRIBUTE quotes both attribute names",
+    "query": "ALTER TYPE t RENAME ATTRIBUTE \"old attr\" TO \"new attr\""
+  },
+  {
+    "comment": "ALTER DATABASE RENAME quotes both database names",
+    "query": "ALTER DATABASE \"old db\" RENAME TO \"new db\""
+  },
+  {
+    "comment": "ALTER TABLE OWNER TO quotes role name with spaces",
+    "query": "ALTER TABLE t OWNER TO \"weird role\""
+  },
+  {
+    "comment": "CREATE DATABASE quotes name with spaces",
+    "query": "CREATE DATABASE \"weird db\""
+  },
+  {
+    "comment": "DROP DATABASE quotes name with spaces",
+    "query": "DROP DATABASE \"weird db\""
+  },
+  {
+    "comment": "ALTER DATABASE RENAME quotes both names",
+    "query": "ALTER DATABASE \"old db\" RENAME TO \"new db\""
+  },
+  {
+    "comment": "ALTER SCHEMA RENAME quotes both names",
+    "query": "ALTER SCHEMA \"old s\" RENAME TO \"new s\""
+  },
+  {
+    "comment": "ALTER ROLE RENAME quotes both names",
+    "query": "ALTER ROLE \"old r\" RENAME TO \"new r\""
+  },
+  {
+    "comment": "DROP ROLE quotes role list",
+    "query": "DROP ROLE \"weird r1\", \"weird r2\""
+  },
+  {
+    "comment": "ALTER GROUP ADD USER quotes user list",
+    "query": "ALTER GROUP testgroup ADD USER \"weird u1\", \"weird u2\""
+  },
+  {
+    "comment": "REVOKE ADMIN OPTION FOR quotes both granted and grantee roles",
+    "query": "REVOKE ADMIN OPTION FOR \"weird r1\" FROM \"weird r2\""
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER quotes trigger and event names",
+    "query": "CREATE EVENT TRIGGER \"weird trig\" ON \"weird event\" EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER quotes name",
+    "query": "ALTER EVENT TRIGGER \"weird trig\" ENABLE"
+  },
+  {
+    "comment": "CREATE TRIGGER quotes name",
+    "query": "CREATE TRIGGER \"weird trig\" BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE TRIGGER UPDATE OF quotes column list",
+    "query": "CREATE TRIGGER trg BEFORE UPDATE OF \"weird col\" ON t FOR EACH ROW EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE TRIGGER REFERENCING transition AS quotes name",
+    "query": "CREATE TRIGGER trg AFTER UPDATE ON t REFERENCING NEW TABLE AS \"weird t\" EXECUTE FUNCTION f()"
+  },
+  {
+    "comment": "CREATE FDW quotes name",
+    "query": "CREATE FOREIGN DATA WRAPPER \"weird fdw\""
+  },
+  {
+    "comment": "ALTER FDW quotes name",
+    "query": "ALTER FOREIGN DATA WRAPPER \"weird fdw\" OPTIONS (ADD k 'v')"
+  },
+  {
+    "comment": "CREATE SERVER quotes server and FDW names",
+    "query": "CREATE SERVER \"weird srv\" FOREIGN DATA WRAPPER \"weird fdw\""
+  },
+  {
+    "comment": "ALTER SERVER quotes name and emits VERSION as string literal",
+    "query": "ALTER SERVER \"weird srv\" VERSION '1.0'"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE SERVER quotes server name",
+    "query": "CREATE FOREIGN TABLE ft (a INT) SERVER \"weird srv\""
+  },
+  {
+    "comment": "CREATE USER MAPPING quotes server name",
+    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER \"weird srv\""
+  },
+  {
+    "comment": "ALTER USER MAPPING quotes server name",
+    "query": "ALTER USER MAPPING FOR CURRENT_USER SERVER \"weird srv\" OPTIONS (ADD k 'v')"
+  },
+  {
+    "comment": "DROP USER MAPPING quotes server name",
+    "query": "DROP USER MAPPING FOR CURRENT_USER SERVER \"weird srv\""
+  },
+  {
+    "comment": "CREATE ACCESS METHOD quotes name",
+    "query": "CREATE ACCESS METHOD \"weird am\" TYPE INDEX HANDLER my_handler"
+  },
+  {
+    "comment": "CREATE OPERATOR CLASS quotes access method",
+    "query": "CREATE OPERATOR CLASS my_class FOR TYPE INT USING \"weird am\" AS OPERATOR 1 <"
+  },
+  {
+    "comment": "CREATE OPERATOR FAMILY quotes access method",
+    "query": "CREATE OPERATOR FAMILY my_family USING \"weird am\""
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY quotes access method",
+    "query": "ALTER OPERATOR FAMILY my_family USING \"weird am\" ADD OPERATOR 1 <"
+  },
+  {
+    "comment": "CREATE PUBLICATION quotes name",
+    "query": "CREATE PUBLICATION \"weird pub\" FOR ALL TABLES"
+  },
+  {
+    "comment": "CREATE PUBLICATION FOR TABLES IN SCHEMA quotes schema name",
+    "query": "CREATE PUBLICATION pub FOR TABLES IN SCHEMA \"weird schema\""
+  },
+  {
+    "comment": "ALTER PUBLICATION quotes name",
+    "query": "ALTER PUBLICATION \"weird pub\" ADD TABLE t"
+  },
+  {
+    "comment": "ALTER PUBLICATION ADD TABLES IN SCHEMA quotes schema name",
+    "query": "ALTER PUBLICATION pub ADD TABLES IN SCHEMA \"weird schema\""
+  },
+  {
+    "comment": "CREATE SUBSCRIPTION quotes name and emits CONNECTION as string literal",
+    "query": "CREATE SUBSCRIPTION \"weird sub\" CONNECTION 'host=h' PUBLICATION p"
+  },
+  {
+    "comment": "ALTER SUBSCRIPTION quotes name",
+    "query": "ALTER SUBSCRIPTION \"weird sub\" ENABLE"
+  },
+  {
+    "comment": "CREATE TRUSTED LANGUAGE quotes language name",
+    "query": "CREATE TRUSTED LANGUAGE \"weird lang\" HANDLER plpgsql_call_handler"
+  },
+  {
+    "comment": "ALTER POLICY quotes policy name",
+    "query": "ALTER POLICY \"weird policy\" ON t TO PUBLIC"
+  },
+  {
+    "comment": "ALTER TABLE SET ACCESS METHOD quotes name",
+    "query": "ALTER TABLE t SET ACCESS METHOD \"weird am\""
+  },
+  {
+    "comment": "ALTER TABLE REPLICA IDENTITY USING INDEX quotes name",
+    "query": "ALTER TABLE t REPLICA IDENTITY USING INDEX \"weird idx\""
+  },
+  {
+    "comment": "CREATE FUNCTION quotes parameter name",
+    "query": "CREATE FUNCTION f (\"weird p\" INT) RETURNS INT LANGUAGE sql AS $$select 1$$"
+  },
+  {
+    "comment": "CREATE STATISTICS ON quotes column reference",
+    "query": "CREATE STATISTICS s ON \"weird col\" FROM t"
+  },
+  {
+    "comment": "CREATE TABLE AS USING quotes access method",
+    "query": "CREATE TABLE t USING \"weird am\" AS SELECT 1"
+  },
+  {
+    "comment": "CREATE TABLE quotes TABLESPACE name",
+    "query": "CREATE TABLE t (a INT) TABLESPACE \"weird ts\""
+  },
+  {
+    "comment": "CREATE TABLESPACE LOCATION escapes embedded apostrophes",
+    "query": "CREATE TABLESPACE ts LOCATION '/data/o''brien'"
+  },
+  {
+    "comment": "ALTER SUBSCRIPTION CONNECTION escapes embedded apostrophes",
+    "query": "ALTER SUBSCRIPTION sub CONNECTION 'host=h pwd=o''brien'"
+  },
+  {
+    "comment": "CREATE SUBSCRIPTION CONNECTION escapes embedded apostrophes",
+    "query": "CREATE SUBSCRIPTION sub CONNECTION 'host=h pwd=o''brien' PUBLICATION p"
   }
 ]

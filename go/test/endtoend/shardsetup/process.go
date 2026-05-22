@@ -87,10 +87,21 @@ type ProcessInstance struct {
 	// target database when InitDataDir runs on this pgctld instance.
 	InitdbSQLFiles []string
 
+	// InitdbSQLDirs is a list of role:path entries; each dir's .sql files run
+	// under SET SESSION AUTHORIZATION <role> after initdb (pgctld --pg-initdb-sql-dirs).
+	InitdbSQLDirs []string
+
 	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets appended to
 	// the generated config at init time (pgctld --pg-initdb-extra-conf).
 	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
 	PgInitdbExtraConfFiles []string
+
+	// PgInitdbArgs is forwarded to pgctld via --pg-initdb-args. Used by the
+	// pgregress harness to pass `--no-locale --encoding=SQL_ASCII` so locale-
+	// sensitive output (char/varchar sort, to_char 'L' currency, etc.) matches
+	// upstream pg_regress fixtures, which initdb the regression cluster in C
+	// locale.
+	PgInitdbArgs string
 
 	// PgHbaTemplate is an alternate pg_hba.conf template path passed to pgctld
 	// via --pg-hba-template. Used by WithMultipoolerPGTLS to relax auth on
@@ -205,15 +216,11 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
 
-// startPgctld starts a pgctld instance (server only, PostgreSQL init/start done separately).
-// Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
-	t.Helper()
-
-	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
-	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.PoolerDir, p.GrpcPort, p.PgPort)
-
-	// Build pgctld server command with pgBackRest configuration
+// buildPgctldServerArgs assembles the argv passed to `pgctld server`
+// from this instance's configuration. Extracted from startPgctld so the
+// flag-forwarding logic (initdb args, extra conf, SQL files/dirs) is
+// unit-testable without spawning a real pgctld binary.
+func buildPgctldServerArgs(p *ProcessInstance) []string {
 	args := []string{
 		"server",
 		"--pooler-dir", p.PoolerDir,
@@ -224,7 +231,6 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"--log-output", p.LogFile,
 	}
 
-	// Add pgBackRest configuration if provided
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
@@ -235,14 +241,30 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	for _, file := range p.InitdbSQLFiles {
 		args = append(args, "--pg-initdb-sql-files", file)
 	}
-
+	for _, dir := range p.InitdbSQLDirs {
+		args = append(args, "--pg-initdb-sql-dirs", dir)
+	}
 	for _, file := range p.PgInitdbExtraConfFiles {
 		args = append(args, "--pg-initdb-extra-conf", file)
 	}
-
+	if p.PgInitdbArgs != "" {
+		args = append(args, "--pg-initdb-args", p.PgInitdbArgs)
+	}
 	if p.PgHbaTemplate != "" {
 		args = append(args, "--pg-hba-template", p.PgHbaTemplate)
 	}
+	return args
+}
+
+// startPgctld starts a pgctld instance (server only, PostgreSQL init/start done separately).
+// Copied from multipooler/setup_test.go.
+func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
+	t.Helper()
+
+	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
+	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.PoolerDir, p.GrpcPort, p.PgPort)
+
+	args := buildPgctldServerArgs(p)
 
 	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 

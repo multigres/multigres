@@ -329,7 +329,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService(), newSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -899,8 +899,20 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pgPort := int(pm.multipooler.PortMap["postgres"])
 		socketDir := filepath.Join(pm.multipooler.PoolerDir, "pg_sockets")
 		pg1User := constants.DefaultPostgresUser
+		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
 		if pm.connPoolMgr != nil {
 			pg1User = pm.connPoolMgr.PgUser()
+			// PgPassword() returns the password resolved at startup (file →
+			// env) and an ok flag. !ok means ResolvePgPassword never ran
+			// successfully — surface that via setStateError so the manager
+			// goroutine bails out cleanly instead of writing an empty pgpass
+			// file that fails auth later.
+			pw, ok := pm.connPoolMgr.PgPassword()
+			if !ok {
+				pm.setStateError(errors.New("pgbackrest pgpass: postgres password not resolved (ResolvePgPassword must run before pgbackrest setup)"))
+				return
+			}
+			pg1Password = pw
 		}
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.multipooler.PoolerDir,
@@ -923,7 +935,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		// temp directory because pgbackrest needs to be able to read it after
 		// we exec (and the temp file would be cleaned up when closed).
 		pgpassPath := filepath.Join(pm.multipooler.PoolerDir, "pgbackrest", "pgbackrest.pgpass")
-		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, os.Getenv("POSTGRES_PASSWORD"))
+		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
 		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
 			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
 			return
@@ -1592,6 +1604,7 @@ const (
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
 	remedialActionCreateFirstBackup
+	remedialActionReconcileGUC
 	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
 	// topology says REPLICA, but primary_conninfo doesn't match the primary
 	// recorded in ConsensusState.ReplicationPrimary (the most recent
@@ -1640,7 +1653,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Determine what remediation is needed
-	action := pm.determineRemedialAction(currentState)
+	action := pm.determineRemedialAction(ctx, currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
 		if currentState.postgresRunning {
@@ -1677,7 +1690,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Re-determine action based on current state
-	action = pm.determineRemedialAction(currentState)
+	action = pm.determineRemedialAction(lockCtx, currentState)
 
 	// Take remedial action with lock held
 	pm.takeRemedialAction(lockCtx, action, currentState)
@@ -1843,7 +1856,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
-func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
+func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
 	// Pgctld unavailable: No action possible
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
@@ -1887,7 +1900,13 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			// pg_rewind dry-run before re-establishing replication. Cheap
 			// when no divergence, conclusive when there is.
 		}
-		return remedialActionNone // Pooler type already matches
+		// Pooler type already matches; check for a stale GUC that needs re-applying.
+		// Only reconcile the GUC when actually running as primary: synchronous_standby_names
+		// has no effect on a standby, and setting it there leaks state.
+		if currentState.isPrimary && pm.rules.hasInconsistentGUC(ctx) {
+			return remedialActionReconcileGUC
+		}
+		return remedialActionNone
 	}
 
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
@@ -2023,6 +2042,13 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			if err := pm.restoreAndStartPostgres(ctx); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 			}
+		}
+
+	case remedialActionReconcileGUC:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
+		if err := pm.rules.reconcileGUC(ctx, !state.isPrimary); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
 		}
 	}
 }

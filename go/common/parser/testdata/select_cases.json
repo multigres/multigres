@@ -2368,5 +2368,17 @@
   {
     "comment": "WITH CTE referenced from VALUES at top level (MUL-391)",
     "query": "WITH cte(foo) AS (VALUES (42)) VALUES ((SELECT foo FROM cte))"
+  },
+  {
+    "comment": "Named function argument quotes parameter name",
+    "query": "SELECT f(\"weird arg\" => 1)"
+  },
+  {
+    "comment": "WINDOW clause quotes window name",
+    "query": "SELECT x FROM t WINDOW \"weird w\" AS ()"
+  },
+  {
+    "comment": "OVER references quoted window name",
+    "query": "SELECT ROW_NUMBER() OVER \"weird w\" FROM t WINDOW \"weird w\" AS ()"
   }
 ]

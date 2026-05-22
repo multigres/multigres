@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 
@@ -28,6 +29,18 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
+
+// CredentialLookupRecorder is the metric sink for credential-lookup latency
+// and rate. It is a subset of pgprotocol/server.AuthMetricsRecorder kept
+// aligned with that interface — drift between the two would silently no-op
+// metric emission. Declared here (not imported from the server package) to
+// avoid the import cycle that pulling the multigateway package into
+// go/services/multigateway/auth would create. A nil receiver is acceptable —
+// the gateway init wires a real implementation, but tests and the trust-auth
+// path can leave it unset.
+type CredentialLookupRecorder interface {
+	RecordCredentialLookup(ctx context.Context, d time.Duration)
+}
 
 // PoolerSystemClient is the interface for system-level operations on multipooler.
 // This is used for authentication and other tasks that act as the system rather
@@ -44,15 +57,18 @@ type PoolerSystemClient interface {
 // the gateway does not need a second round-trip to admit a replication
 // connection.
 type PoolerCredentialProvider struct {
-	client PoolerSystemClient
+	client  PoolerSystemClient
+	metrics CredentialLookupRecorder
 }
 
 // NewPoolerCredentialProvider creates a new PoolerCredentialProvider.
 // The client is typically a PoolerGateway, which handles pooler selection
-// and failover buffering internally.
-func NewPoolerCredentialProvider(client PoolerSystemClient) *PoolerCredentialProvider {
+// and failover buffering internally. metrics is optional — pass nil to
+// disable mg.gateway.auth.credential_lookup.* recording (e.g. in tests).
+func NewPoolerCredentialProvider(client PoolerSystemClient, metrics CredentialLookupRecorder) *PoolerCredentialProvider {
 	return &PoolerCredentialProvider{
-		client: client,
+		client:  client,
+		metrics: metrics,
 	}
 }
 
@@ -71,6 +87,18 @@ func NewPoolerCredentialProvider(client PoolerSystemClient) *PoolerCredentialPro
 // also used by gRPC auth interceptors for mTLS / authz failures, so keying
 // on code alone would misclassify those transport errors as user auth errors.
 func (p *PoolerCredentialProvider) GetCredentials(ctx context.Context, username, database string) (*server.Credentials, error) {
+	// Time every lookup — success and failure both feed
+	// mg.gateway.auth.credential_lookup.duration so the future
+	// password-hash cache work has a baseline including tail-latency
+	// from pooler failover events. Increment the rate counter on the
+	// same defer to keep the two signals correlated.
+	start := time.Now()
+	defer func() {
+		if p.metrics != nil {
+			p.metrics.RecordCredentialLookup(ctx, time.Since(start))
+		}
+	}()
+
 	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,

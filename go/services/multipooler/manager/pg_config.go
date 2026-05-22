@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -44,9 +45,9 @@ type SyncStandbyConfig struct {
 // Example: "us-west_replica-1" -> ID{Component: MULTIPOOLER, Cell: "us-west", Name: "replica-1"}
 //
 // For decoding non-pooler IDs that happen to share the cell_name encoding
-// (e.g. coordinator_id in rule_history), use splitCellName directly.
+// (e.g. coordinator_id in rule_history), use topoclient.SplitClusterID directly.
 func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
-	cell, name, err := splitCellName(appName)
+	cell, name, err := topoclient.SplitClusterID(appName)
 	if err != nil {
 		return nil, err
 	}
@@ -55,23 +56,6 @@ func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
 		Cell:      cell,
 		Name:      name,
 	}, nil
-}
-
-// splitCellName splits the {cell}_{name} encoding shared by application_names
-// and rule_history ID columns. Returns an error for malformed input.
-func splitCellName(s string) (cell, name string, err error) {
-	parts := strings.SplitN(s, "_", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid cell_name format: %q (expected cell_name)", s)
-	}
-	cell, name = parts[0], parts[1]
-	if cell == "" {
-		return "", "", fmt.Errorf("invalid cell_name: cell cannot be empty in %q", s)
-	}
-	if name == "" {
-		return "", "", fmt.Errorf("invalid cell_name: name cannot be empty in %q", s)
-	}
-	return cell, name, nil
 }
 
 // parseSynchronousStandbyNames parses a PostgreSQL synchronous_standby_names string

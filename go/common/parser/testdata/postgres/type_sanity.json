@@ -22,7 +22,7 @@
   {
     "comment": "type_sanity - Statement 5",
     "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typtype not in ('p') AND t1.typname NOT LIKE E'\\\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type as t2 WHERE t2.typname = ('_' || t1.typname)::name AND t2.typelem = t1.oid and t1.typarray = t2.oid) ORDER BY t1.oid",
-    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typtype NOT IN ('p') AND t1.typname LIKE '\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type AS t2 WHERE t2.typname = CAST(('_' || t1.typname) AS name) AND t2.typelem = t1.oid AND t1.typarray = t2.oid) ORDER BY t1.oid"
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typtype NOT IN ('p') AND t1.typname NOT LIKE '\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type AS t2 WHERE t2.typname = CAST(('_' || t1.typname) AS name) AND t2.typelem = t1.oid AND t1.typarray = t2.oid) ORDER BY t1.oid"
   },
   {
     "comment": "type_sanity - Statement 6",

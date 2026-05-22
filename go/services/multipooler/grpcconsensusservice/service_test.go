@@ -87,11 +87,17 @@ func TestConsensusService_Status(t *testing.T) {
 
 	multipooler.PoolerDir = tmpDir
 
+	// ConnPoolConfig now requires ResolvePgPassword to run before any pool is
+	// opened; seed POSTGRES_PASSWORD so the env path resolves cleanly. The
+	// value is irrelevant — fake postgres uses trust auth.
+	t.Setenv(constants.PgPasswordEnvVar, "test-password")
+	connPoolConfig := connpoolmanager.NewConfig(viperutil.NewRegistry())
+	require.NoError(t, connPoolConfig.ResolvePgPassword())
 	config := &manager.Config{
 		TopoClient:       ts,
 		PgctldAddr:       pgctldAddr,
 		ConsensusEnabled: true,
-		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
+		ConnPoolConfig:   connPoolConfig,
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
@@ -171,11 +177,17 @@ func TestConsensusService_AllMethods(t *testing.T) {
 
 	multipooler.PoolerDir = tmpDir
 
+	// ConnPoolConfig now requires ResolvePgPassword to run before any pool is
+	// opened; seed POSTGRES_PASSWORD so the env path resolves cleanly. The
+	// value is irrelevant — fake postgres uses trust auth.
+	t.Setenv(constants.PgPasswordEnvVar, "test-password")
+	connPoolConfig := connpoolmanager.NewConfig(viperutil.NewRegistry())
+	require.NoError(t, connPoolConfig.ResolvePgPassword())
 	config := &manager.Config{
 		TopoClient:       ts,
 		PgctldAddr:       pgctldAddr,
 		ConsensusEnabled: true,
-		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
+		ConnPoolConfig:   connPoolConfig,
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
