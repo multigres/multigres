@@ -297,7 +297,8 @@
   },
   {
     "comment": "REINDEX with options",
-    "query": "REINDEX (verbose) INDEX idx_users_email"
+    "query": "REINDEX (verbose) INDEX idx_users_email",
+    "expected": "REINDEX (VERBOSE) INDEX idx_users_email"
   },
   {
     "comment": "REINDEX CONCURRENTLY",
@@ -305,7 +306,8 @@
   },
   {
     "comment": "REINDEX with options and CONCURRENTLY",
-    "query": "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email"
+    "query": "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email",
+    "expected": "REINDEX (VERBOSE) INDEX CONCURRENTLY idx_users_email"
   },
   {
     "comment": "CHECKPOINT",

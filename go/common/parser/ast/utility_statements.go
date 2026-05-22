@@ -2648,12 +2648,33 @@ func (rs *ReindexStmt) SqlString() string {
 	if rs.Params != nil && rs.Params.Len() > 0 {
 		var options []string
 		for _, param := range rs.Params.Items {
-			if defElem, ok := param.(*DefElem); ok {
-				if defElem.Defname == "concurrently" {
-					hasConcurrently = true
-				} else {
-					options = append(options, defElem.Defname)
+			defElem, ok := param.(*DefElem)
+			if !ok {
+				continue
+			}
+			if defElem.Defname == "concurrently" {
+				hasConcurrently = true
+				continue
+			}
+			name := strings.ToUpper(defElem.Defname)
+			if defElem.Arg == nil {
+				options = append(options, name)
+				continue
+			}
+			var argStr string
+			switch arg := defElem.Arg.(type) {
+			case *String:
+				// REINDEX's only string-valued option is TABLESPACE; the arg is an identifier.
+				argStr = QuoteIdentifier(arg.SVal)
+			default:
+				if stringer, ok := arg.(interface{ SqlString() string }); ok {
+					argStr = stringer.SqlString()
 				}
+			}
+			if argStr == "" {
+				options = append(options, name)
+			} else {
+				options = append(options, name+" "+argStr)
 			}
 		}
 		if len(options) > 0 {
