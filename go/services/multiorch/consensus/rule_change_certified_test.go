@@ -16,6 +16,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -26,8 +27,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
@@ -306,4 +309,125 @@ func TestValidateCertifiedRuleChange(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantMatch)
 		})
 	}
+}
+
+// poolerWithShard is a makePoolerState variant that tags the underlying
+// MultiPooler with the canonical test shard. Required for
+// refreshShardConsensusStatuses to enumerate it.
+func poolerWithShard(cell, name string) *clustermetadatapb.MultiPooler {
+	mp := makePoolerState(cell, name).MultiPooler
+	mp.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   "db1",
+		TableGroup: "default",
+		Shard:      "0-inf",
+	}
+	return mp
+}
+
+func TestResolveCohort(t *testing.T) {
+	mp1 := makePoolerState("zone1", "mp1").MultiPooler
+	mp2 := makePoolerState("zone1", "mp2").MultiPooler
+	c, _ := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(),
+		[]*clustermetadatapb.MultiPooler{mp1, mp2})
+
+	t.Run("resolves all members", func(t *testing.T) {
+		addressByID, cohort, err := c.resolveCohort(t.Context(),
+			[]*clustermetadatapb.ID{mp1.Id, mp2.Id})
+		require.NoError(t, err)
+
+		// Address map keyed by ClusterIDString.
+		require.Len(t, addressByID, 2)
+		assert.Equal(t, mp1.Hostname, addressByID[topoclient.ClusterIDString(mp1.Id)].GetHost())
+		assert.Equal(t, mp1.GetPortMap()["postgres"], addressByID[topoclient.ClusterIDString(mp1.Id)].GetPostgresPort())
+		assert.Equal(t, mp2.Hostname, addressByID[topoclient.ClusterIDString(mp2.Id)].GetHost())
+
+		// Cohort slice preserves order and carries each MultiPooler.
+		require.Len(t, cohort, 2)
+		assert.Equal(t, mp1.Id.Name, cohort[0].MultiPooler.Id.Name)
+		assert.Equal(t, mp2.Id.Name, cohort[1].MultiPooler.Id.Name)
+	})
+
+	t.Run("unknown member returns error", func(t *testing.T) {
+		unknown := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "ghost"}
+		_, _, err := c.resolveCohort(t.Context(),
+			[]*clustermetadatapb.ID{mp1.Id, unknown})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to look up cohort member")
+		assert.Contains(t, err.Error(), "ghost")
+	})
+
+	t.Run("empty cohort returns empty result", func(t *testing.T) {
+		addressByID, cohort, err := c.resolveCohort(t.Context(), nil)
+		require.NoError(t, err)
+		assert.Empty(t, addressByID)
+		assert.Empty(t, cohort)
+	})
+}
+
+func TestRefreshShardConsensusStatuses(t *testing.T) {
+	mp1 := poolerWithShard("zone1", "mp1")
+	mp2 := poolerWithShard("zone1", "mp2")
+	// A pooler in a different shard that should NOT appear in the result.
+	mp3OtherShard := makePoolerState("zone1", "mp3").MultiPooler
+	mp3OtherShard.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   "db1",
+		TableGroup: "default",
+		Shard:      "other",
+	}
+
+	fc := rpcclient.NewFakeClient()
+	fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp1.Id)] = &consensusdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+				Lsn:  "0/100",
+			},
+		},
+	}
+	fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp2.Id)] = &consensusdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp2.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+				Lsn:  "0/200",
+			},
+		},
+	}
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"}
+
+	t.Run("returns statuses for matching-shard poolers only", func(t *testing.T) {
+		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1, mp2, mp3OtherShard})
+		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)
+		require.NoError(t, err)
+
+		require.Len(t, statuses, 2, "non-matching shard pooler should be filtered out")
+		assert.Equal(t, "0/100", statuses[topoclient.ClusterIDString(mp1.Id)].GetCurrentPosition().GetLsn())
+		assert.Equal(t, "0/200", statuses[topoclient.ClusterIDString(mp2.Id)].GetCurrentPosition().GetLsn())
+		assert.NotContains(t, statuses, topoclient.ClusterIDString(mp3OtherShard.Id))
+	})
+
+	t.Run("unreachable pooler is absent, not an error", func(t *testing.T) {
+		fc := rpcclient.NewFakeClient()
+		fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp1.Id)] = &consensusdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id},
+		}
+		// mp2 errors — it should silently drop out.
+		fc.Errors[topoclient.MultiPoolerIDString(mp2.Id)] = errors.New("network down")
+
+		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1, mp2})
+		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)
+		require.NoError(t, err, "unreachable poolers should be reported as absent, not failure")
+
+		require.Len(t, statuses, 1)
+		assert.Contains(t, statuses, topoclient.ClusterIDString(mp1.Id))
+	})
+
+	t.Run("no poolers in shard returns empty map", func(t *testing.T) {
+		c, _ := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), nil)
+		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)
+		require.NoError(t, err)
+		assert.Empty(t, statuses)
+	})
 }
