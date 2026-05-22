@@ -127,7 +127,10 @@ func TestBootstrap_ViaCLI(t *testing.T) {
 		Cell:      setup.CellName,
 		Name:      "multiorch",
 	}
-	now := timestamppb.Now()
+	// Truncate to microsecond before sending so the round-trip through
+	// postgres TIMESTAMP (microsecond-precision, rounds half-up at the
+	// nanosecond boundary) is exact and assertion-friendly.
+	now := timestamppb.New(time.Now().UTC().Truncate(time.Microsecond))
 	durability, err := commonconsensus.ParseUserSpecifiedDurabilityPolicy("AT_LEAST_2")
 	require.NoError(t, err)
 
