@@ -97,10 +97,11 @@ func TestReadCopyDoneResponse_Success(t *testing.T) {
 
 	c := newTestReadOnlyConn(input.Bytes())
 
-	tag, rows, err := c.ReadCopyDoneResponse(context.Background())
+	tag, rows, notices, err := c.ReadCopyDoneResponse(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "COPY 7", tag)
 	assert.Equal(t, uint64(7), rows)
+	assert.Empty(t, notices, "no notices on the success path")
 	assert.Equal(t, protocol.TxnStatusIdle, c.txnStatus,
 		"txnStatus must be updated from the trailing ReadyForQuery on the success path")
 }
@@ -118,10 +119,11 @@ func TestReadCopyDoneResponse_ErrorResponseDrainsReadyForQuery(t *testing.T) {
 
 	c := newTestReadOnlyConn(input.Bytes())
 
-	tag, rows, err := c.ReadCopyDoneResponse(context.Background())
+	tag, rows, notices, err := c.ReadCopyDoneResponse(context.Background())
 	require.Error(t, err)
 	assert.Empty(t, tag)
 	assert.Equal(t, uint64(0), rows)
+	assert.Empty(t, notices, "no preceding notices in this fixture")
 
 	// Underlying error should be the PgDiagnostic from the ErrorResponse.
 	var diag *mterrors.PgDiagnostic
@@ -138,10 +140,12 @@ func TestReadCopyDoneResponse_ErrorResponseDrainsReadyForQuery(t *testing.T) {
 		"txnStatus must be updated from the drained ReadyForQuery on the error path")
 }
 
-func TestReadCopyDoneResponse_IgnoresNotices(t *testing.T) {
+func TestReadCopyDoneResponse_CapturesNotices(t *testing.T) {
 	var input bytes.Buffer
-	// NoticeResponse uses the same wire shape as ErrorResponse and must be
-	// skipped silently before the CommandComplete.
+	// NoticeResponse uses the same wire shape as ErrorResponse and arrives
+	// between CopyDone and CommandComplete when triggers fire during the COPY.
+	// Trigger / progress notices must be captured and surfaced to the
+	// gateway so the client sees the expected NOTICE / INFO lines.
 	var notice bytes.Buffer
 	notice.WriteByte('S')
 	notice.WriteString("NOTICE")
@@ -156,10 +160,13 @@ func TestReadCopyDoneResponse_IgnoresNotices(t *testing.T) {
 
 	c := newTestReadOnlyConn(input.Bytes())
 
-	tag, rows, err := c.ReadCopyDoneResponse(context.Background())
+	tag, rows, notices, err := c.ReadCopyDoneResponse(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "COPY 3", tag)
 	assert.Equal(t, uint64(3), rows)
+	require.Len(t, notices, 1, "trigger NOTICE between CopyDone and CommandComplete must be captured")
+	assert.Equal(t, "NOTICE", notices[0].Severity)
+	assert.Equal(t, "hello", notices[0].Message)
 	assert.Equal(t, protocol.TxnStatusInBlock, c.txnStatus)
 }
 
@@ -169,7 +176,7 @@ func TestReadCopyDoneResponse_ReadyForQueryWithoutCommandComplete(t *testing.T) 
 	// than silently returning empty success.
 	c := newTestReadOnlyConn(buildReadyForQuery(protocol.TxnStatusIdle))
 
-	_, _, err := c.ReadCopyDoneResponse(context.Background())
+	_, _, _, err := c.ReadCopyDoneResponse(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ReadyForQuery without CommandComplete")
 }

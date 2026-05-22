@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -287,6 +288,51 @@ func (pg *PoolerGateway) CopyReady(
 		return err
 	})
 	return format, colFormats, state, err
+}
+
+// CopyOutReady implements queryservice.QueryService.
+// It initiates a COPY ... TO STDOUT operation and returns format information
+// plus any pre-CopyOutResponse notices.
+func (pg *PoolerGateway) CopyOutReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
+) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
+	var (
+		format     int16
+		colFormats []int16
+		notices    []*mterrors.PgDiagnostic
+		state      *query.ReservedState
+	)
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+		var err error
+		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
+		return err
+	})
+	return format, colFormats, notices, state, err
+}
+
+// CopyOutStream implements queryservice.QueryService.
+// Pumps CopyData / NoticeResponse frames from the multipooler back through
+// the supplied callback until RESULT/ERROR.
+func (pg *PoolerGateway) CopyOutStream(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	onMessage func(client.CopyOutMessage) error,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	var (
+		result *sqltypes.Result
+		state  *query.ReservedState
+	)
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+		var err error
+		result, state, err = conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
+		return err
+	})
+	return result, state, err
 }
 
 // Close implements queryservice.QueryService.

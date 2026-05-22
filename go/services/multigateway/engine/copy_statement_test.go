@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -142,6 +143,28 @@ func (m *mockIExecute) CopyAbort(
 	return m.copyAbortErr
 }
 
+func (m *mockIExecute) CopyOutInitiate(
+	context.Context,
+	*server.Conn,
+	string,
+	string,
+	string,
+	*handler.MultiGatewayConnectionState,
+) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	return 0, nil, nil, nil
+}
+
+func (m *mockIExecute) CopyOutStream(
+	context.Context,
+	*server.Conn,
+	string,
+	string,
+	*handler.MultiGatewayConnectionState,
+	func(pgClient.CopyOutMessage) error,
+) (*sqltypes.Result, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) ConcludeTransaction(
 	context.Context,
 	*server.Conn,
@@ -189,7 +212,9 @@ func TestCopyStatement_CopyInitiateError(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to initiate COPY")
+	// CopyStatement now surfaces the underlying error un-wrapped so the
+	// gateway re-emits a verbatim ErrorResponse to the client.
+	require.Equal(t, "initiate failed", err.Error())
 	// CopyAbort should NOT be called since CopyInitiate failed before defer is set up
 	require.Equal(t, int32(0), mockExec.copyAbortCalled.Load())
 }
@@ -251,7 +276,9 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to send COPY data")
+	// CopySendData errors surface un-wrapped — gateway re-emits the
+	// verbatim PG ErrorResponse.
+	require.Equal(t, "send data failed", err.Error())
 	// CopyAbort should be called via defer
 	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
 }

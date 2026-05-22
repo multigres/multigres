@@ -91,23 +91,3 @@
  -- source and target names the same
  MERGE INTO target
  USING target
-@@ -155,7 +137,7 @@
- MERGE INTO target USING source ON (true)
- WHEN MATCHED THEN DELETE
- ) TO stdout;
--ERROR: COPY query must have a RETURNING clause
-+ERROR: COPY TO STDOUT not yet supported
- -- unsupported relation types
- -- materialized view
- CREATE MATERIALIZED VIEW mv AS SELECT * FROM target;
-@@ -1520,9 +1502,7 @@
- DELETE
- RETURNING merge_action(), t.*
- ) TO stdout;
--DELETE 1 100
--UPDATE 2 220
--INSERT 4 40
-+ERROR: COPY TO STDOUT not yet supported
- ROLLBACK;
- -- SQL function with MERGE ... RETURNING
- BEGIN;

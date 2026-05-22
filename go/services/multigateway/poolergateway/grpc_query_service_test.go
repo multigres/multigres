@@ -254,7 +254,9 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "COPY initiation failed")
+	// CopyReady now surfaces the underlying PG error un-wrapped so the gateway
+	// re-emits a verbatim ErrorResponse. Without a PgDiagnostic attached the
+	// fallback path returns the bare resp.Error text.
 	require.Contains(t, err.Error(), "some backend error")
 	require.Nil(t, rs, "ReservedState should be nil when multipooler did not attach one")
 	// Verify cleanup was called
