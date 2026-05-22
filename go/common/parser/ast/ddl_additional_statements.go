@@ -338,6 +338,87 @@ func NewPublicationObjSpec(objType PublicationObjSpecType) *PublicationObjSpec {
 	}
 }
 
+// preprocessPubObjList resolves PUBLICATIONOBJ_CONTINUATION entries — emitted
+// by the grammar because LALR(1) cannot distinguish "TABLE x, y" from
+// "TABLES IN SCHEMA a, b" until a later token — to the type of the preceding
+// explicit entry. Mirrors preprocess_pubobj_list in postgres/src/backend/commands/publicationcmds.c.
+func preprocessPubObjList(pubObjects *NodeList) {
+	if pubObjects == nil {
+		return
+	}
+	prev := PUBLICATIONOBJ_CONTINUATION
+	for _, item := range pubObjects.Items {
+		pubObj, ok := item.(*PublicationObjSpec)
+		if !ok {
+			continue
+		}
+		if pubObj.PubObjType == PUBLICATIONOBJ_CONTINUATION {
+			switch prev {
+			case PUBLICATIONOBJ_TABLE:
+				if pubObj.PubTable == nil && pubObj.Name != "" {
+					pubObj.PubTable = NewPublicationTable(NewRangeVar(pubObj.Name, "", ""), nil, nil)
+					pubObj.Name = ""
+				}
+				pubObj.PubObjType = PUBLICATIONOBJ_TABLE
+			case PUBLICATIONOBJ_TABLES_IN_SCHEMA, PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
+				if pubObj.Name == "" && pubObj.PubTable == nil {
+					pubObj.PubObjType = PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA
+				} else {
+					pubObj.PubObjType = PUBLICATIONOBJ_TABLES_IN_SCHEMA
+				}
+			}
+		}
+		prev = pubObj.PubObjType
+	}
+}
+
+func formatPubTable(pt *PublicationTable) string {
+	s := pt.Relation.SqlString()
+	if pt.Columns != nil && pt.Columns.Len() > 0 {
+		cols := make([]string, 0, pt.Columns.Len())
+		for _, item := range pt.Columns.Items {
+			if str, ok := item.(*String); ok {
+				cols = append(cols, QuoteIdentifier(str.SVal))
+			}
+		}
+		s += " (" + strings.Join(cols, ", ") + ")"
+	}
+	if pt.WhereClause != nil {
+		s += " WHERE (" + pt.WhereClause.SqlString() + ")"
+	}
+	return s
+}
+
+func formatPubObjList(pubObjects *NodeList) string {
+	var tableObjs, schemaObjs []string
+	for _, item := range pubObjects.Items {
+		pubObj, ok := item.(*PublicationObjSpec)
+		if !ok {
+			continue
+		}
+		switch pubObj.PubObjType {
+		case PUBLICATIONOBJ_TABLE:
+			if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+				tableObjs = append(tableObjs, formatPubTable(pubObj.PubTable))
+			}
+		case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
+			if pubObj.Name != "" {
+				schemaObjs = append(schemaObjs, QuoteIdentifier(pubObj.Name))
+			}
+		case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
+			schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
+		}
+	}
+	var groups []string
+	if len(tableObjs) > 0 {
+		groups = append(groups, "TABLE "+strings.Join(tableObjs, ", "))
+	}
+	if len(schemaObjs) > 0 {
+		groups = append(groups, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
+	}
+	return strings.Join(groups, ", ")
+}
+
 // CreatePublicationStmt represents CREATE PUBLICATION statement
 type CreatePublicationStmt struct {
 	BaseNode
@@ -348,6 +429,7 @@ type CreatePublicationStmt struct {
 }
 
 func NewCreatePublicationStmt(name string, objects *NodeList, forAllTables bool, options *NodeList) *CreatePublicationStmt {
+	preprocessPubObjList(objects)
 	return &CreatePublicationStmt{
 		BaseNode:     BaseNode{Tag: T_CreatePublicationStmt},
 		PubName:      name,
@@ -373,43 +455,8 @@ func (c *CreatePublicationStmt) SqlString() string {
 	if c.ForAllTables {
 		parts = append(parts, "FOR ALL TABLES")
 	} else if c.PubObjects != nil && c.PubObjects.Len() > 0 {
-		// Build the FOR clause with proper handling of different object types
-		var forParts []string
-		forParts = append(forParts, "FOR")
-
-		// Group objects by type and build the output
-		var tableObjs []string
-		var schemaObjs []string
-
-		for i := 0; i < c.PubObjects.Len(); i++ {
-			if pubObj, ok := c.PubObjects.Items[i].(*PublicationObjSpec); ok {
-				switch pubObj.PubObjType {
-				case PUBLICATIONOBJ_TABLE:
-					if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						tableObjs = append(tableObjs, pubObj.PubTable.Relation.SqlString())
-					}
-				case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
-					if pubObj.Name != "" {
-						schemaObjs = append(schemaObjs, QuoteIdentifier(pubObj.Name))
-					}
-				case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
-					schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
-				}
-			}
-		}
-
-		// Build the object list
-		var objParts []string
-		if len(tableObjs) > 0 {
-			objParts = append(objParts, "TABLE "+strings.Join(tableObjs, ", "))
-		}
-		if len(schemaObjs) > 0 {
-			objParts = append(objParts, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
-		}
-
-		if len(objParts) > 0 {
-			forParts = append(forParts, strings.Join(objParts, ", "))
-			parts = append(parts, strings.Join(forParts, " "))
+		if list := formatPubObjList(c.PubObjects); list != "" {
+			parts = append(parts, "FOR "+list)
 		}
 	}
 
@@ -438,6 +485,7 @@ type AlterPublicationStmt struct {
 }
 
 func NewAlterPublicationStmt(name string, options, objects *NodeList, action AlterPublicationType) *AlterPublicationStmt {
+	preprocessPubObjList(objects)
 	return &AlterPublicationStmt{
 		BaseNode:   BaseNode{Tag: T_AlterPublicationStmt},
 		PubName:    name,
@@ -473,84 +521,15 @@ func (a *AlterPublicationStmt) SqlString() string {
 		}
 	case AP_AddObjects:
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			// Check if we have TABLES IN SCHEMA
-			hasTablesInSchema := false
-			var schemaNames []string
-			var tableObjects []string
-
-			for i := 0; i < a.PubObjects.Len(); i++ {
-				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
-						hasTablesInSchema = true
-						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
-					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
-					}
-				}
-			}
-
-			if hasTablesInSchema {
-				parts = append(parts, "ADD TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
-			} else {
-				parts = append(parts, "ADD TABLE")
-				if len(tableObjects) > 0 {
-					parts = append(parts, strings.Join(tableObjects, ", "))
-				}
-			}
+			parts = append(parts, "ADD "+formatPubObjList(a.PubObjects))
 		}
 	case AP_SetObjects:
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			// Check if we have TABLES IN SCHEMA
-			hasTablesInSchema := false
-			var schemaNames []string
-			var tableObjects []string
-
-			for i := 0; i < a.PubObjects.Len(); i++ {
-				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
-						hasTablesInSchema = true
-						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
-					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
-					}
-				}
-			}
-
-			if hasTablesInSchema {
-				parts = append(parts, "SET TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
-			} else {
-				parts = append(parts, "SET TABLE")
-				if len(tableObjects) > 0 {
-					parts = append(parts, strings.Join(tableObjects, ", "))
-				}
-			}
+			parts = append(parts, "SET "+formatPubObjList(a.PubObjects))
 		}
 	case AP_DropObjects:
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			// Check if we have TABLES IN SCHEMA
-			hasTablesInSchema := false
-			var schemaNames []string
-			var tableObjects []string
-
-			for i := 0; i < a.PubObjects.Len(); i++ {
-				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
-						hasTablesInSchema = true
-						schemaNames = append(schemaNames, QuoteIdentifier(pubObj.Name))
-					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
-					}
-				}
-			}
-
-			if hasTablesInSchema {
-				parts = append(parts, "DROP TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
-			} else {
-				parts = append(parts, "DROP TABLE")
-				if len(tableObjects) > 0 {
-					parts = append(parts, strings.Join(tableObjects, ", "))
-				}
-			}
+			parts = append(parts, "DROP "+formatPubObjList(a.PubObjects))
 		}
 	}
 
