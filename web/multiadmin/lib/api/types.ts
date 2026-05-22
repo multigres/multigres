@@ -195,7 +195,9 @@ export interface PoolerStatus {
   is_initialized?: boolean;
   has_data_directory?: boolean;
   postgres_running?: boolean;
+  postgres_ready?: boolean;
   postgres_role?: string;
+  postgres_status?: string;
   wal_position?: string;
   consensus_term?: string;
   shard_id?: string;
@@ -213,6 +215,15 @@ export interface SyncReplicationConfig {
   synchronous_method?: string;
   num_sync?: number;
   standby_ids?: ID[];
+  standby_application_names?: string[];
+}
+
+export interface PrimaryConnInfo {
+  host?: string;
+  port?: number;
+  user?: string;
+  application_name?: string;
+  raw?: string;
 }
 
 export interface StandbyReplicationStatus {
@@ -222,6 +233,11 @@ export interface StandbyReplicationStatus {
   wal_replay_pause_state?: string;
   lag?: string; // Duration as string (e.g., "5s")
   last_xact_replay_timestamp?: string;
+  primary_conn_info?: PrimaryConnInfo;
+  wal_receiver_status?: string;
+  last_msg_receive_time?: string;
+  wal_receiver_status_interval?: string;
+  wal_receiver_timeout?: string;
 }
 
 // Gateway diagnostics types — match proto/multigatewaymanagerdata.proto.

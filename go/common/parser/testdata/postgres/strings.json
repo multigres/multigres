@@ -418,12 +418,12 @@
   {
     "comment": "strings - Statement 85",
     "query": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '#' AS false",
-    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' AS \"false\""
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 86",
     "query": "SELECT 'abcd%' SIMILAR TO '_bcd#%' ESCAPE '#' AS true",
-    "expected": "SELECT 'abcd%' SIMILAR TO '_bcd#%' AS \"true\""
+    "expected": "SELECT 'abcd%' SIMILAR TO '_bcd#%' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 87",
@@ -433,17 +433,16 @@
   {
     "comment": "strings - Statement 88",
     "query": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' ESCAPE '' AS true",
-    "expected": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' AS \"true\""
+    "expected": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' ESCAPE '' AS \"true\""
   },
   {
     "comment": "strings - Statement 89",
     "query": "SELECT 'abcdefg' SIMILAR TO '_bcd%' ESCAPE NULL AS null",
-    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd%' AS \"null\""
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd%' ESCAPE NULL AS \"null\""
   },
   {
     "comment": "strings - Statement 90",
-    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '##' AS error",
-    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' AS error"
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '##' AS error"
   },
   {
     "comment": "strings - Statement 91",
@@ -945,8 +944,7 @@
   },
   {
     "comment": "strings - Statement 208",
-    "query": "SELECT 'hawkeye' NOT LIKE 'h%' AS \"false\"",
-    "expected": "SELECT 'hawkeye' LIKE 'h%' AS \"false\""
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%' AS \"false\""
   },
   {
     "comment": "strings - Statement 209",
@@ -954,8 +952,7 @@
   },
   {
     "comment": "strings - Statement 210",
-    "query": "SELECT 'hawkeye' NOT LIKE 'H%' AS \"true\"",
-    "expected": "SELECT 'hawkeye' LIKE 'H%' AS \"true\""
+    "query": "SELECT 'hawkeye' NOT LIKE 'H%' AS \"true\""
   },
   {
     "comment": "strings - Statement 211",
@@ -963,8 +960,7 @@
   },
   {
     "comment": "strings - Statement 212",
-    "query": "SELECT 'hawkeye' NOT LIKE 'indio%' AS \"true\"",
-    "expected": "SELECT 'hawkeye' LIKE 'indio%' AS \"true\""
+    "query": "SELECT 'hawkeye' NOT LIKE 'indio%' AS \"true\""
   },
   {
     "comment": "strings - Statement 213",
@@ -972,8 +968,7 @@
   },
   {
     "comment": "strings - Statement 214",
-    "query": "SELECT 'hawkeye' NOT LIKE 'h%eye' AS \"false\"",
-    "expected": "SELECT 'hawkeye' LIKE 'h%eye' AS \"false\""
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%eye' AS \"false\""
   },
   {
     "comment": "strings - Statement 215",
@@ -981,8 +976,7 @@
   },
   {
     "comment": "strings - Statement 216",
-    "query": "SELECT 'indio' NOT LIKE '_ndio' AS \"false\"",
-    "expected": "SELECT 'indio' LIKE '_ndio' AS \"false\""
+    "query": "SELECT 'indio' NOT LIKE '_ndio' AS \"false\""
   },
   {
     "comment": "strings - Statement 217",
@@ -990,8 +984,7 @@
   },
   {
     "comment": "strings - Statement 218",
-    "query": "SELECT 'indio' NOT LIKE 'in__o' AS \"false\"",
-    "expected": "SELECT 'indio' LIKE 'in__o' AS \"false\""
+    "query": "SELECT 'indio' NOT LIKE 'in__o' AS \"false\""
   },
   {
     "comment": "strings - Statement 219",
@@ -999,8 +992,7 @@
   },
   {
     "comment": "strings - Statement 220",
-    "query": "SELECT 'indio' NOT LIKE 'in_o' AS \"true\"",
-    "expected": "SELECT 'indio' LIKE 'in_o' AS \"true\""
+    "query": "SELECT 'indio' NOT LIKE 'in_o' AS \"true\""
   },
   {
     "comment": "strings - Statement 221",
@@ -1010,7 +1002,7 @@
   {
     "comment": "strings - Statement 222",
     "query": "SELECT 'abc'::name NOT LIKE '_b_' AS \"false\"",
-    "expected": "SELECT CAST('abc' AS name) LIKE '_b_' AS \"false\""
+    "expected": "SELECT CAST('abc' AS name) NOT LIKE '_b_' AS \"false\""
   },
   {
     "comment": "strings - Statement 223",
@@ -1020,167 +1012,137 @@
   {
     "comment": "strings - Statement 224",
     "query": "SELECT 'abc'::bytea NOT LIKE '_b_'::bytea AS \"false\"",
-    "expected": "SELECT CAST('abc' AS BYTEA) LIKE CAST('_b_' AS BYTEA) AS \"false\""
+    "expected": "SELECT CAST('abc' AS BYTEA) NOT LIKE CAST('_b_' AS BYTEA) AS \"false\""
   },
   {
     "comment": "strings - Statement 225",
-    "query": "SELECT 'hawkeye' LIKE 'h%' ESCAPE '#' AS \"true\"",
-    "expected": "SELECT 'hawkeye' LIKE like_escape('h%', '#') AS \"true\""
+    "query": "SELECT 'hawkeye' LIKE 'h%' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 226",
-    "query": "SELECT 'hawkeye' NOT LIKE 'h%' ESCAPE '#' AS \"false\"",
-    "expected": "SELECT 'hawkeye' LIKE like_escape('h%', '#') AS \"false\""
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 227",
-    "query": "SELECT 'indio' LIKE 'ind_o' ESCAPE '$' AS \"true\"",
-    "expected": "SELECT 'indio' LIKE like_escape('ind_o', '$') AS \"true\""
+    "query": "SELECT 'indio' LIKE 'ind_o' ESCAPE '$' AS \"true\""
   },
   {
     "comment": "strings - Statement 228",
-    "query": "SELECT 'indio' NOT LIKE 'ind_o' ESCAPE '$' AS \"false\"",
-    "expected": "SELECT 'indio' LIKE like_escape('ind_o', '$') AS \"false\""
+    "query": "SELECT 'indio' NOT LIKE 'ind_o' ESCAPE '$' AS \"false\""
   },
   {
     "comment": "strings - Statement 229",
-    "query": "SELECT 'h%' LIKE 'h#%' ESCAPE '#' AS \"true\"",
-    "expected": "SELECT 'h%' LIKE like_escape('h#%', '#') AS \"true\""
+    "query": "SELECT 'h%' LIKE 'h#%' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 230",
-    "query": "SELECT 'h%' NOT LIKE 'h#%' ESCAPE '#' AS \"false\"",
-    "expected": "SELECT 'h%' LIKE like_escape('h#%', '#') AS \"false\""
+    "query": "SELECT 'h%' NOT LIKE 'h#%' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 231",
-    "query": "SELECT 'h%wkeye' LIKE 'h#%' ESCAPE '#' AS \"false\"",
-    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%', '#') AS \"false\""
+    "query": "SELECT 'h%wkeye' LIKE 'h#%' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 232",
-    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%' ESCAPE '#' AS \"true\"",
-    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%', '#') AS \"true\""
+    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 233",
-    "query": "SELECT 'h%wkeye' LIKE 'h#%%' ESCAPE '#' AS \"true\"",
-    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%%', '#') AS \"true\""
+    "query": "SELECT 'h%wkeye' LIKE 'h#%%' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 234",
-    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%%' ESCAPE '#' AS \"false\"",
-    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%%', '#') AS \"false\""
+    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%%' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 235",
-    "query": "SELECT 'h%awkeye' LIKE 'h#%a%k%e' ESCAPE '#' AS \"true\"",
-    "expected": "SELECT 'h%awkeye' LIKE like_escape('h#%a%k%e', '#') AS \"true\""
+    "query": "SELECT 'h%awkeye' LIKE 'h#%a%k%e' ESCAPE '#' AS \"true\""
   },
   {
     "comment": "strings - Statement 236",
-    "query": "SELECT 'h%awkeye' NOT LIKE 'h#%a%k%e' ESCAPE '#' AS \"false\"",
-    "expected": "SELECT 'h%awkeye' LIKE like_escape('h#%a%k%e', '#') AS \"false\""
+    "query": "SELECT 'h%awkeye' NOT LIKE 'h#%a%k%e' ESCAPE '#' AS \"false\""
   },
   {
     "comment": "strings - Statement 237",
-    "query": "SELECT 'indio' LIKE '_ndio' ESCAPE '$' AS \"true\"",
-    "expected": "SELECT 'indio' LIKE like_escape('_ndio', '$') AS \"true\""
+    "query": "SELECT 'indio' LIKE '_ndio' ESCAPE '$' AS \"true\""
   },
   {
     "comment": "strings - Statement 238",
-    "query": "SELECT 'indio' NOT LIKE '_ndio' ESCAPE '$' AS \"false\"",
-    "expected": "SELECT 'indio' LIKE like_escape('_ndio', '$') AS \"false\""
+    "query": "SELECT 'indio' NOT LIKE '_ndio' ESCAPE '$' AS \"false\""
   },
   {
     "comment": "strings - Statement 239",
-    "query": "SELECT 'i_dio' LIKE 'i$_d_o' ESCAPE '$' AS \"true\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d_o', '$') AS \"true\""
+    "query": "SELECT 'i_dio' LIKE 'i$_d_o' ESCAPE '$' AS \"true\""
   },
   {
     "comment": "strings - Statement 240",
-    "query": "SELECT 'i_dio' NOT LIKE 'i$_d_o' ESCAPE '$' AS \"false\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d_o', '$') AS \"false\""
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_d_o' ESCAPE '$' AS \"false\""
   },
   {
     "comment": "strings - Statement 241",
-    "query": "SELECT 'i_dio' LIKE 'i$_nd_o' ESCAPE '$' AS \"false\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_nd_o', '$') AS \"false\""
+    "query": "SELECT 'i_dio' LIKE 'i$_nd_o' ESCAPE '$' AS \"false\""
   },
   {
     "comment": "strings - Statement 242",
-    "query": "SELECT 'i_dio' NOT LIKE 'i$_nd_o' ESCAPE '$' AS \"true\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_nd_o', '$') AS \"true\""
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_nd_o' ESCAPE '$' AS \"true\""
   },
   {
     "comment": "strings - Statement 243",
-    "query": "SELECT 'i_dio' LIKE 'i$_d%o' ESCAPE '$' AS \"true\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d%o', '$') AS \"true\""
+    "query": "SELECT 'i_dio' LIKE 'i$_d%o' ESCAPE '$' AS \"true\""
   },
   {
     "comment": "strings - Statement 244",
-    "query": "SELECT 'i_dio' NOT LIKE 'i$_d%o' ESCAPE '$' AS \"false\"",
-    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d%o', '$') AS \"false\""
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_d%o' ESCAPE '$' AS \"false\""
   },
   {
     "comment": "strings - Statement 245",
     "query": "SELECT 'a_c'::bytea LIKE 'a$__'::bytea ESCAPE '$'::bytea AS \"true\"",
-    "expected": "SELECT CAST('a_c' AS BYTEA) LIKE like_escape(CAST('a$__' AS BYTEA), CAST('$' AS BYTEA)) AS \"true\""
+    "expected": "SELECT CAST('a_c' AS BYTEA) LIKE CAST('a$__' AS BYTEA) ESCAPE CAST('$' AS BYTEA) AS \"true\""
   },
   {
     "comment": "strings - Statement 246",
     "query": "SELECT 'a_c'::bytea NOT LIKE 'a$__'::bytea ESCAPE '$'::bytea AS \"false\"",
-    "expected": "SELECT CAST('a_c' AS BYTEA) LIKE like_escape(CAST('a$__' AS BYTEA), CAST('$' AS BYTEA)) AS \"false\""
+    "expected": "SELECT CAST('a_c' AS BYTEA) NOT LIKE CAST('a$__' AS BYTEA) ESCAPE CAST('$' AS BYTEA) AS \"false\""
   },
   {
     "comment": "strings - Statement 247",
-    "query": "SELECT 'maca' LIKE 'm%aca' ESCAPE '%' AS \"true\"",
-    "expected": "SELECT 'maca' LIKE like_escape('m%aca', '%') AS \"true\""
+    "query": "SELECT 'maca' LIKE 'm%aca' ESCAPE '%' AS \"true\""
   },
   {
     "comment": "strings - Statement 248",
-    "query": "SELECT 'maca' NOT LIKE 'm%aca' ESCAPE '%' AS \"false\"",
-    "expected": "SELECT 'maca' LIKE like_escape('m%aca', '%') AS \"false\""
+    "query": "SELECT 'maca' NOT LIKE 'm%aca' ESCAPE '%' AS \"false\""
   },
   {
     "comment": "strings - Statement 249",
-    "query": "SELECT 'ma%a' LIKE 'm%a%%a' ESCAPE '%' AS \"true\"",
-    "expected": "SELECT 'ma%a' LIKE like_escape('m%a%%a', '%') AS \"true\""
+    "query": "SELECT 'ma%a' LIKE 'm%a%%a' ESCAPE '%' AS \"true\""
   },
   {
     "comment": "strings - Statement 250",
-    "query": "SELECT 'ma%a' NOT LIKE 'm%a%%a' ESCAPE '%' AS \"false\"",
-    "expected": "SELECT 'ma%a' LIKE like_escape('m%a%%a', '%') AS \"false\""
+    "query": "SELECT 'ma%a' NOT LIKE 'm%a%%a' ESCAPE '%' AS \"false\""
   },
   {
     "comment": "strings - Statement 251",
-    "query": "SELECT 'bear' LIKE 'b_ear' ESCAPE '_' AS \"true\"",
-    "expected": "SELECT 'bear' LIKE like_escape('b_ear', '_') AS \"true\""
+    "query": "SELECT 'bear' LIKE 'b_ear' ESCAPE '_' AS \"true\""
   },
   {
     "comment": "strings - Statement 252",
-    "query": "SELECT 'bear' NOT LIKE 'b_ear' ESCAPE '_' AS \"false\"",
-    "expected": "SELECT 'bear' LIKE like_escape('b_ear', '_') AS \"false\""
+    "query": "SELECT 'bear' NOT LIKE 'b_ear' ESCAPE '_' AS \"false\""
   },
   {
     "comment": "strings - Statement 253",
-    "query": "SELECT 'be_r' LIKE 'b_e__r' ESCAPE '_' AS \"true\"",
-    "expected": "SELECT 'be_r' LIKE like_escape('b_e__r', '_') AS \"true\""
+    "query": "SELECT 'be_r' LIKE 'b_e__r' ESCAPE '_' AS \"true\""
   },
   {
     "comment": "strings - Statement 254",
-    "query": "SELECT 'be_r' NOT LIKE 'b_e__r' ESCAPE '_' AS \"false\"",
-    "expected": "SELECT 'be_r' LIKE like_escape('b_e__r', '_') AS \"false\""
+    "query": "SELECT 'be_r' NOT LIKE 'b_e__r' ESCAPE '_' AS \"false\""
   },
   {
     "comment": "strings - Statement 255",
-    "query": "SELECT 'be_r' LIKE '__e__r' ESCAPE '_' AS \"false\"",
-    "expected": "SELECT 'be_r' LIKE like_escape('__e__r', '_') AS \"false\""
+    "query": "SELECT 'be_r' LIKE '__e__r' ESCAPE '_' AS \"false\""
   },
   {
     "comment": "strings - Statement 256",
-    "query": "SELECT 'be_r' NOT LIKE '__e__r' ESCAPE '_' AS \"true\"",
-    "expected": "SELECT 'be_r' LIKE like_escape('__e__r', '_') AS \"true\""
+    "query": "SELECT 'be_r' NOT LIKE '__e__r' ESCAPE '_' AS \"true\""
   },
   {
     "comment": "strings - Statement 257",
@@ -1188,8 +1150,7 @@
   },
   {
     "comment": "strings - Statement 258",
-    "query": "SELECT 'hawkeye' NOT ILIKE 'h%' AS \"false\"",
-    "expected": "SELECT 'hawkeye' ILIKE 'h%' AS \"false\""
+    "query": "SELECT 'hawkeye' NOT ILIKE 'h%' AS \"false\""
   },
   {
     "comment": "strings - Statement 259",
@@ -1197,8 +1158,7 @@
   },
   {
     "comment": "strings - Statement 260",
-    "query": "SELECT 'hawkeye' NOT ILIKE 'H%Eye' AS \"false\"",
-    "expected": "SELECT 'hawkeye' ILIKE 'H%Eye' AS \"false\""
+    "query": "SELECT 'hawkeye' NOT ILIKE 'H%Eye' AS \"false\""
   },
   {
     "comment": "strings - Statement 261",
@@ -1208,7 +1168,7 @@
   {
     "comment": "strings - Statement 262",
     "query": "SELECT 'ABC'::name NOT ILIKE '_b_' AS \"false\"",
-    "expected": "SELECT CAST('ABC' AS name) ILIKE '_b_' AS \"false\""
+    "expected": "SELECT CAST('ABC' AS name) NOT ILIKE '_b_' AS \"false\""
   },
   {
     "comment": "strings - Statement 263",

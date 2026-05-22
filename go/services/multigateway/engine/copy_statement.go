@@ -110,12 +110,19 @@ func (c *CopyStatement) StreamExecute(
 			if err := conn.ReadCopyDoneMessage(length); err != nil {
 				return err
 			}
-			// Phase 3: DONE - Finalize (no buffered data in streaming mode)
-			if err := exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback); err != nil {
-				return err
-			}
-			completed = true // Mark after successful completion
-			return nil
+			// Phase 3: DONE - Finalize (no buffered data in streaming mode).
+			// CopyFinalize owns the full lifecycle of the COPY's tail end:
+			// it sends CopyDone to PG, reads the response, and on a PG-level
+			// error (e.g., constraint violation) drains ReadyForQuery and
+			// updates the gateway's reserved-state tracking with whatever
+			// state the multipooler returned. Mark the COPY completed before
+			// returning the error so the deferred CopyAbort doesn't run on
+			// top of an already-cleaned-up flow — running it would clear
+			// gateway state for a connection the multipooler intentionally
+			// kept alive (e.g., because a transaction reason remains).
+			finalizeErr := exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback)
+			completed = true
+			return finalizeErr
 
 		case protocol.MsgCopyFail:
 			errMsg, err := conn.ReadCopyFailMessage(length)

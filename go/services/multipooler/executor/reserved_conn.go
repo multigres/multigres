@@ -34,6 +34,18 @@ type reservedConnAPI interface {
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
+	// ReserveForPortal pins the named portal/cursor on this reserved
+	// connection. Used for DECLARE … WITH HOLD so the cursor survives
+	// COMMIT — the multipooler's reservation bitmask keeps ReasonPortal
+	// set until every pinned portal is released or the session ends.
+	ReserveForPortal(portalName string)
+	// ReleasePortal drops the named portal from the pin set. Returns true
+	// when the last pin clears AND no other reservation reasons remain —
+	// callers should then release the backend to the pool.
+	ReleasePortal(portalName string) bool
+	// Release returns the backend to the pool, recording the reason in the
+	// reserved-pool telemetry.
+	Release(reason reserved.ReleaseReason)
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.

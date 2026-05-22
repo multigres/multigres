@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -31,6 +32,16 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
+
+// resolveTestPgPassword wires a benign password source into the Config so
+// Manager.Open does not panic on the missing-Resolve invariant. The fake
+// server uses trust authentication, so the value itself is never consulted —
+// only the source string matters to satisfy the invariant.
+func resolveTestPgPassword(t *testing.T, config *Config) {
+	t.Helper()
+	t.Setenv(constants.PgPasswordEnvVar, "test-password")
+	require.NoError(t, config.ResolvePgPassword())
+}
 
 // newTestManager creates a Manager configured for testing with the given fake server.
 // No password configuration is needed since fakepgserver uses trust authentication,
@@ -40,6 +51,7 @@ func newTestManager(t *testing.T, server *fakepgserver.Server) *Manager {
 
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
 
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{
@@ -904,6 +916,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
 	defer manager.Close()
@@ -927,6 +940,7 @@ func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
 func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
 	defer manager.Close()

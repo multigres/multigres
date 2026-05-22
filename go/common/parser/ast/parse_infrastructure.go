@@ -119,6 +119,49 @@ func (a *A_Expr) String() string {
 	return fmt.Sprintf("A_Expr{kind=%d}@%d", a.Kind, a.Location())
 }
 
+// opName returns the operator string (e.g. "~~", "!~~", "!~") stored in Name.
+// Empty when Name is unset.
+func (a *A_Expr) opName() string {
+	if a.Name == nil || a.Name.Len() == 0 {
+		return ""
+	}
+	if str, ok := a.Name.Items[0].(*String); ok {
+		return str.SVal
+	}
+	return ""
+}
+
+// unwrapLikeEscape returns the (pattern, escape) pair from a
+// `pg_catalog.<wrapper>(pattern[, escape])` FuncCall, where wrapper is one of
+// "like_escape" or "similar_to_escape". The parser folds LIKE/ILIKE/SIMILAR
+// TO patterns through these wrappers when an ESCAPE clause is present (and
+// always for SIMILAR TO so the engine can compile the SQL-spec pattern to a
+// POSIX regex). For deparse we have to peel the wrapper back off; otherwise
+// `x LIKE 'p' ESCAPE '#'` round-trips to `x LIKE pg_catalog.like_escape(...)`
+// which sends a FuncCall as the pattern instead of the SQL-spec form, and the
+// backend sees a different semantics. Returns ("", "") when expr is not the
+// expected wrapper so callers can fall back to the raw deparse.
+func unwrapLikeEscape(expr Node, wrapper string) (pattern string, escape string) {
+	funcCall, ok := expr.(*FuncCall)
+	if !ok || funcCall.Funcname == nil || funcCall.Funcname.Len() < 2 {
+		return "", ""
+	}
+	items := funcCall.Funcname.Items
+	str1, ok1 := items[0].(*String)
+	str2, ok2 := items[1].(*String)
+	if !ok1 || !ok2 || str1.SVal != "pg_catalog" || str2.SVal != wrapper {
+		return "", ""
+	}
+	if funcCall.Args == nil || funcCall.Args.Len() == 0 {
+		return "", ""
+	}
+	pattern = funcCall.Args.Items[0].SqlString()
+	if funcCall.Args.Len() >= 2 {
+		escape = funcCall.Args.Items[1].SqlString()
+	}
+	return pattern, escape
+}
+
 // SqlString returns the SQL representation of the A_Expr
 func (a *A_Expr) SqlString() string {
 	switch a.Kind {
@@ -214,15 +257,35 @@ func (a *A_Expr) SqlString() string {
 	case AEXPR_LIKE:
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
-			rightStr := a.Rexpr.SqlString()
-			return fmt.Sprintf("%s LIKE %s", leftStr, rightStr)
+			pattern, escape := unwrapLikeEscape(a.Rexpr, "like_escape")
+			if pattern == "" {
+				pattern = a.Rexpr.SqlString()
+			}
+			op := "LIKE"
+			if a.opName() == "!~~" {
+				op = "NOT LIKE"
+			}
+			if escape != "" {
+				return fmt.Sprintf("%s %s %s ESCAPE %s", leftStr, op, pattern, escape)
+			}
+			return fmt.Sprintf("%s %s %s", leftStr, op, pattern)
 		}
 
 	case AEXPR_ILIKE:
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
-			rightStr := a.Rexpr.SqlString()
-			return fmt.Sprintf("%s ILIKE %s", leftStr, rightStr)
+			pattern, escape := unwrapLikeEscape(a.Rexpr, "like_escape")
+			if pattern == "" {
+				pattern = a.Rexpr.SqlString()
+			}
+			op := "ILIKE"
+			if a.opName() == "!~~*" {
+				op = "NOT ILIKE"
+			}
+			if escape != "" {
+				return fmt.Sprintf("%s %s %s ESCAPE %s", leftStr, op, pattern, escape)
+			}
+			return fmt.Sprintf("%s %s %s", leftStr, op, pattern)
 		}
 
 	case AEXPR_OP_ANY:
@@ -338,36 +401,19 @@ func (a *A_Expr) SqlString() string {
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
 
-			// Check if the right expression is a similar_to_escape function call
-			// If it is, extract just the argument instead of the whole function call
-			rightStr := ""
-			if funcCall, ok := a.Rexpr.(*FuncCall); ok {
-				// Check if it's pg_catalog.similar_to_escape
-				if funcCall.Funcname != nil && funcCall.Funcname.Len() >= 2 {
-					items := funcCall.Funcname.Items
-					if str1, ok1 := items[0].(*String); ok1 && str1.SVal == "pg_catalog" {
-						if str2, ok2 := items[1].(*String); ok2 && str2.SVal == "similar_to_escape" {
-							// It's similar_to_escape, extract the first argument
-							if funcCall.Args != nil && funcCall.Args.Len() > 0 {
-								rightStr = funcCall.Args.Items[0].SqlString()
-							}
-						}
-					}
-				}
+			pattern, escape := unwrapLikeEscape(a.Rexpr, "similar_to_escape")
+			if pattern == "" {
+				pattern = a.Rexpr.SqlString()
 			}
 
-			// If we didn't find similar_to_escape, use the full expression
-			if rightStr == "" {
-				rightStr = a.Rexpr.SqlString()
+			op := "SIMILAR TO"
+			if a.opName() == "!~" {
+				op = "NOT SIMILAR TO"
 			}
-
-			// Check if it's NOT SIMILAR TO based on the operator
-			if a.Name != nil && a.Name.Len() > 0 {
-				if str, ok := a.Name.Items[0].(*String); ok && str.SVal == "!~" {
-					return fmt.Sprintf("%s NOT SIMILAR TO %s", leftStr, rightStr)
-				}
+			if escape != "" {
+				return fmt.Sprintf("%s %s %s ESCAPE %s", leftStr, op, pattern, escape)
 			}
-			return fmt.Sprintf("%s SIMILAR TO %s", leftStr, rightStr)
+			return fmt.Sprintf("%s %s %s", leftStr, op, pattern)
 		}
 		return "SIMILAR_EXPR"
 
@@ -1591,7 +1637,7 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 
 	// Add window reference if present
 	if w.Refname != "" {
-		parts = append(parts, w.Refname)
+		parts = append(parts, QuoteIdentifier(w.Refname))
 	}
 
 	// Add PARTITION BY clause
@@ -2031,7 +2077,7 @@ func (p *PartitionElem) SqlString() string {
 	var result string
 
 	if p.Name != "" {
-		result = p.Name
+		result = QuoteIdentifier(p.Name)
 	} else if p.Expr != nil {
 		result = p.Expr.SqlString()
 	} else {

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pubsub"
@@ -179,12 +181,28 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
 	}
 
+	// Time the full credential-query path (admin acquire + pg_authid
+	// lookup + decode) for mg.pooler.auth.credential_query.duration so
+	// admin-pool contention shows up before it cascades into
+	// gateway-visible auth latency. The duration is recorded on every
+	// exit, error or not; the error counter only fires on failures so
+	// the success rate is implicit.
+	recorder := poolManager.CredentialQueryRecorder()
+	start := time.Now()
+	var errorType string
+	defer func() {
+		if recorder != nil {
+			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
+		}
+	}()
+
 	// An admin connection:
 	// - has permission to read password hashes
 	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
 	//   to figure out if the caller should have access to that role-specific connection.
 	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
+		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
 		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
 	}
 	defer conn.Recycle()
@@ -195,6 +213,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
+			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 		case errors.Is(err, admin.ErrLoginDisabled):
 			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
@@ -203,6 +222,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// codes.Unauthenticated for transport failures; keying on code
 			// alone would misclassify an mTLS or authz error as an app-level
 			// "role not permitted to log in" rejection to the end user.
+			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSInvalidAuthSpec,
 				fmt.Sprintf("role %q is not permitted to log in", req.Username),
@@ -212,12 +232,18 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// SQLSTATE 28P01 matches PG's opaque "password authentication
 			// failed" error for expired passwords. PgDiagnostic detail
 			// survives the gRPC round trip and the gateway matches on it.
+			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSAuthFailed,
 				fmt.Sprintf("password authentication failed for user %q", req.Username),
 				"",
 			))
 		default:
+			// Genuine DB-level failure (SQL error, unexpected result shape,
+			// connection drop mid-query). Tagged db_error so operators can
+			// alert on it without false positives from the user_not_found
+			// baseline.
+			errorType = connpoolmanager.CredentialQueryErrorDB
 			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
 	}
@@ -352,6 +378,20 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
 	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options, req.ReservationOptions)
 	if err != nil {
+		// CopyReady returns a non-nil reservedState when the COPY query was
+		// rejected by PostgreSQL (e.g., invalid column, conflicting options)
+		// but the existing reserved connection is still alive and holding
+		// other reasons. Forward that state to the gateway via an ERROR phase
+		// response so the gateway keeps tracking the reserved conn; without
+		// this, the gateway would see only the gRPC status error and the next
+		// statement would fail with "reserved connection not found".
+		if reservedState != nil {
+			_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
+				Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error:         err.Error(),
+				ReservedState: reservedState,
+			})
+		}
 		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
 	}
 
@@ -432,15 +472,19 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			// Phase 2b: DONE - Finalize COPY operation
 			result, reservedState, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
 			if err != nil {
-				// Abort to ensure protocol cleanup
-				// (even though connection might already be closed in Finalize)
-				abortState, _ := exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
-
-				// Send ERROR response with reserved state from abort
+				// CopyFinalize has already done its own cleanup:
+				//   - PG ErrorResponse: ReadyForQuery was drained, the COPY
+				//     reason was removed, and the conn was either released
+				//     (no other reasons) or kept with the returned state.
+				//   - Connection-level failure: conn was released, state is nil.
+				// Either way, calling CopyAbort here would either be a no-op
+				// (conn already released) or actively poison a clean conn by
+				// writing CopyFail on a backend already back in RFQ. Forward
+				// the state CopyFinalize returned.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:         err.Error(),
-					ReservedState: abortState,
+					ReservedState: reservedState,
 				}
 				_ = stream.Send(errorResp)
 				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
@@ -507,8 +551,14 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	// Conclude the transaction
-	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
+	// Conclude the transaction. Forward the per-txn portal-release diff so the
+	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
+	// (or fall back to ReleaseAllPortals when release_all_portals is true,
+	// e.g. for older gateways that don't compute the diff).
+	result, reservedState, err := executor.ConcludeTransaction(
+		ctx, req.Target, req.Options, req.Conclusion,
+		req.GetReleasePortalNames(), req.GetReleaseAllPortals(),
+	)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

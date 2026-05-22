@@ -146,6 +146,16 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 		"PGOPTIONS="+pgOptions,
+		// PG_TEST_TIMEOUT_DEFAULT (in seconds) caps how long isolationtester
+		// waits per step before cancelling. Upstream default is 180 →
+		// max_step_wait = 360 s with hard-exit at 720 s, which lets a
+		// single compat-incompatible spec burn ~12 minutes of the suite
+		// ctx and starve the rest of the schedule. The cap applies per
+		// step and a multi-permutation spec where every permutation
+		// hangs scales linearly. 5 s gives 10 s cancel / 20 s hard-exit
+		// per step, ~500x headroom over the 10 ms poll interval used to
+		// detect legitimate blocking.
+		"PG_TEST_TIMEOUT_DEFAULT=5",
 	)
 
 	// Capture stdout for result parsing while still printing to the terminal.
@@ -408,7 +418,7 @@ func findExpectedFile(regressDir, name string) string {
 // Expected output lives in the source tree (prep_buildtree does not symlink
 // .out files into the build tree). Actual output is written by pg_regress
 // into the build tree's results/ directory.
-func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir string) error {
+func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir, outputDir string) error {
 	t.Helper()
 	mode := GetPatchMode()
 	patchDir := PatchesDir()
@@ -425,6 +435,14 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 	t.Logf("Patch-based verification: mode=%s patches=%s", mode, patchDir)
 	t.Logf("  expected source: %s", sourceRegressDir)
 	t.Logf("  actual source:   %s", buildRegressDir)
+
+	// Per-test residual diffs are written under outputDir/diffs/ for inclusion
+	// in the CI artifact. Concatenated failures.diffs is written at the end.
+	diffsDir := ""
+	if outputDir != "" {
+		diffsDir = filepath.Join(outputDir, "diffs")
+	}
+	var aggregated bytes.Buffer
 
 	// Recompute aggregates from the per-test results after verification.
 	// We intentionally discard pg_regress's TAP-derived aggregates because
@@ -475,12 +493,35 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 
 		if outcome.Status == "pass" {
 			passed++
+			continue
+		}
+		failed++
+		failures = append(failures, TestFailure{
+			TestName: test.Name,
+			Error:    outcome.Reason,
+		})
+
+		if outcome.Diff == "" || diffsDir == "" {
+			continue
+		}
+		if err := os.MkdirAll(diffsDir, 0o755); err != nil {
+			t.Logf("Warning: mkdir %s: %v", diffsDir, err)
+			continue
+		}
+		diffPath := filepath.Join(diffsDir, test.Name+".diff")
+		if err := os.WriteFile(diffPath, []byte(outcome.Diff), 0o644); err != nil {
+			t.Logf("Warning: write %s: %v", diffPath, err)
+			continue
+		}
+		fmt.Fprintf(&aggregated, "=== %s ===\n%s\n", test.Name, outcome.Diff)
+	}
+
+	if outputDir != "" && aggregated.Len() > 0 {
+		aggPath := filepath.Join(outputDir, "failures.diffs")
+		if err := os.WriteFile(aggPath, aggregated.Bytes(), 0o644); err != nil {
+			t.Logf("Warning: write %s: %v", aggPath, err)
 		} else {
-			failed++
-			failures = append(failures, TestFailure{
-				TestName: test.Name,
-				Error:    outcome.Reason,
-			})
+			t.Logf("Residual failure diffs: %s (per-test files in %s)", aggPath, diffsDir)
 		}
 	}
 
@@ -646,10 +687,126 @@ func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) 
 	return resultsPath, nil
 }
 
+// patchIsolationtester rewrites two pieces of
+// src/test/isolation/isolationtester.c so the harness works against
+// multigateway:
+//
+//  1. Per-session application_name setup. Upstream sends
+//     PQexecParams("SELECT set_config('application_name',
+//     current_setting('application_name') || '/' || $1, false)", ...),
+//     which the multigateway planner rejects (the value must be a literal
+//     constant for is_local=false set_config so the pooler can track it).
+//     The replacement reads PGAPPNAME (set by isolation_main.c per test),
+//     concatenates the session name client-side, escapes via
+//     PQescapeLiteral, and sends a simple-protocol PQexec.
+//
+//  2. Lock-wait probe function name. Upstream prepares
+//     `pg_catalog.pg_isolation_test_session_is_blocked(...)`. Replacing
+//     that builtin C function with a PL/pgSQL shim via CREATE OR REPLACE
+//     proved unreliable (fresh backends were observed to still bind the
+//     C entry, returning false for every probe and hanging every
+//     blocking spec at max_step_wait). We point the harness at our own
+//     function `public.multigres_test_session_is_blocked` (installed by
+//     installPIDMappingFunction) with explicit arg casts so PG resolves
+//     it under extended-protocol Parse with paramTypes=NULL.
+//
+// Idempotent: source is reset via `git checkout` before patching, so
+// repeat invocations against the cached checkout produce the same
+// result.
+func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Context) error {
+	t.Helper()
+	rel := filepath.Join("src", "test", "isolation", "isolationtester.c")
+	abs := filepath.Join(pb.SourceDir, rel)
+
+	reset := executil.Command(ctx, "git", "-C", pb.SourceDir, "checkout", "--", rel)
+	if out, err := reset.CombinedOutput(); err != nil {
+		return fmt.Errorf("reset %s: %w\n%s", rel, err, out)
+	}
+
+	src, err := os.ReadFile(abs)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", abs, err)
+	}
+
+	appNameOrig := "\t\tres = PQexecParams(conns[i].conn,\n" +
+		"\t\t\t\t\t\t   \"SELECT set_config('application_name',\\n\"\n" +
+		"\t\t\t\t\t\t   \"  current_setting('application_name') || '/' || $1,\\n\"\n" +
+		"\t\t\t\t\t\t   \"  false)\",\n" +
+		"\t\t\t\t\t\t   1, NULL,\n" +
+		"\t\t\t\t\t\t   &sessionname,\n" +
+		"\t\t\t\t\t\t   NULL, NULL, 0);"
+
+	appNameReplacement := "\t\t/*\n" +
+		"\t\t * multigres patch: build the application_name literal client-side\n" +
+		"\t\t * and send it via the simple protocol. The multigateway planner\n" +
+		"\t\t * rejects set_config() when the value is a non-literal expression\n" +
+		"\t\t * or bound parameter (the pooler tracks the literal value), so we\n" +
+		"\t\t * cannot use PQexecParams + current_setting() here.\n" +
+		"\t\t */\n" +
+		"\t\t{\n" +
+		"\t\t\tconst char *appname_prefix = getenv(\"PGAPPNAME\");\n" +
+		"\t\t\tchar\t   *combined;\n" +
+		"\t\t\tchar\t   *escaped;\n" +
+		"\t\t\tchar\t   *appname_query;\n" +
+		"\n" +
+		"\t\t\tif (appname_prefix == NULL)\n" +
+		"\t\t\t\tappname_prefix = \"\";\n" +
+		"\t\t\tcombined = psprintf(\"%s/%s\", appname_prefix, sessionname);\n" +
+		"\t\t\tescaped = PQescapeLiteral(conns[i].conn, combined, strlen(combined));\n" +
+		"\t\t\tfree(combined);\n" +
+		"\t\t\tif (escaped == NULL)\n" +
+		"\t\t\t{\n" +
+		"\t\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
+		"\t\t\t\t\t\tPQerrorMessage(conns[i].conn));\n" +
+		"\t\t\t\texit(1);\n" +
+		"\t\t\t}\n" +
+		"\t\t\tappname_query = psprintf(\n" +
+		"\t\t\t\t\"SELECT set_config('application_name', %s, false)\", escaped);\n" +
+		"\t\t\tPQfreemem(escaped);\n" +
+		"\t\t\tres = PQexec(conns[i].conn, appname_query);\n" +
+		"\t\t\tfree(appname_query);\n" +
+		"\t\t}"
+
+	if !bytes.Contains(src, []byte(appNameOrig)) {
+		return fmt.Errorf("%s: original set_config block not found (PG version drift?)", rel)
+	}
+	patched := bytes.Replace(src, []byte(appNameOrig), []byte(appNameReplacement), 1)
+
+	// Add explicit type casts on both args. isolationtester PQprepares the
+	// wait-query with paramTypes=NULL so $1 enters parse as UNKNOWN, and the
+	// '{...}' literal is also UNKNOWN. PG resolves this for the pg_catalog
+	// C builtin via implicit catalog priority but fails for a public
+	// PL/pgSQL function with "function public.X(unknown, unknown) does not
+	// exist". Casting to int4 / int4[] removes the ambiguity.
+	waitFnOrig := "\"SELECT pg_catalog.pg_isolation_test_session_is_blocked($1, '{\""
+	waitFnReplacement := "\"SELECT public.multigres_test_session_is_blocked($1::int4, '{\""
+	if !bytes.Contains(patched, []byte(waitFnOrig)) {
+		return fmt.Errorf("%s: wait-query function reference not found (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(waitFnOrig), []byte(waitFnReplacement), 1)
+
+	waitFnSuffixOrig := "appendPQExpBufferStr(&wait_query, \"}')\");"
+	waitFnSuffixReplacement := "appendPQExpBufferStr(&wait_query, \"}'::int4[])\");"
+	if !bytes.Contains(patched, []byte(waitFnSuffixOrig)) {
+		return fmt.Errorf("%s: wait-query suffix not found (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(waitFnSuffixOrig), []byte(waitFnSuffixReplacement), 1)
+
+	if err := os.WriteFile(abs, patched, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", abs, err)
+	}
+	t.Logf("Patched %s: literal application_name + public.multigres_test_session_is_blocked", rel)
+	return nil
+}
+
 // BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and
 // pg_isolation_regress). Must be called after Build().
 func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) error {
 	t.Helper()
+
+	if err := pb.patchIsolationtester(t, ctx); err != nil {
+		return fmt.Errorf("patch isolationtester: %w", err)
+	}
 
 	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
 

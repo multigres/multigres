@@ -193,7 +193,7 @@ func (fp *FunctionParameter) SqlString() string {
 
 	// Parameter name
 	if fp.Name != "" {
-		parts = append(parts, fp.Name)
+		parts = append(parts, QuoteIdentifier(fp.Name))
 	}
 
 	// Parameter type
@@ -757,8 +757,13 @@ func (oci *CreateOpClassItem) SqlString() string {
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
 			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
 			nameStr = strings.ReplaceAll(nameStr, "INT", "int4")
-			// Add space before opening parenthesis
-			nameStr = strings.ReplaceAll(nameStr, "(", " (")
+			// Add a space between the operator name and the argument list,
+			// e.g. "=(int4, int4)" -> "= (int4, int4)". If there is no operator
+			// name (DROP OPERATOR), nameStr starts with "(" and we must not
+			// emit a leading space — that produces a double space when joined.
+			if !strings.HasPrefix(nameStr, "(") {
+				nameStr = strings.ReplaceAll(nameStr, "(", " (")
+			}
 		case OPCLASS_ITEM_FUNCTION:
 			// Fix type normalization in function arguments (order matters!)
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
@@ -907,7 +912,7 @@ func (cocs *CreateOpClassStmt) SqlString() string {
 		parts = append(parts, typeName)
 	}
 
-	parts = append(parts, "USING", cocs.AmName)
+	parts = append(parts, "USING", QuoteIdentifier(cocs.AmName))
 
 	if cocs.OpFamilyName != nil && cocs.OpFamilyName.Len() > 0 {
 		familyStrs := make([]string, 0, cocs.OpFamilyName.Len())
@@ -970,7 +975,7 @@ func (cocs *CreateOpClassStmt) String() string {
 		}
 	}
 
-	parts = append(parts, "USING", cocs.AmName)
+	parts = append(parts, "USING", QuoteIdentifier(cocs.AmName))
 
 	if cocs.OpFamilyName != nil && cocs.OpFamilyName.Len() > 0 {
 		var familyStrs []string
@@ -1031,7 +1036,7 @@ func (cofs *CreateOpFamilyStmt) SqlString() string {
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 
-	parts = append(parts, "USING", cofs.AmName)
+	parts = append(parts, "USING", QuoteIdentifier(cofs.AmName))
 
 	return strings.Join(parts, " ")
 }
@@ -1052,7 +1057,7 @@ func (cofs *CreateOpFamilyStmt) String() string {
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 
-	parts = append(parts, "USING", cofs.AmName)
+	parts = append(parts, "USING", QuoteIdentifier(cofs.AmName))
 
 	return strings.Join(parts, " ")
 }
@@ -1685,7 +1690,7 @@ func (dcs *DeclareCursorStmt) StatementType() string {
 // SqlString returns the SQL representation of the DECLARE CURSOR statement
 func (dcs *DeclareCursorStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "DECLARE", dcs.PortalName)
+	parts = append(parts, "DECLARE", QuoteIdentifier(dcs.PortalName))
 
 	// Add cursor options
 	if dcs.Options&CURSOR_OPT_BINARY != 0 {
@@ -1809,7 +1814,7 @@ func (fs *FetchStmt) SqlString() string {
 		parts = append(parts, "RELATIVE", strconv.FormatInt(fs.HowMany, 10))
 	}
 
-	parts = append(parts, "FROM", fs.PortalName)
+	parts = append(parts, "FROM", QuoteIdentifier(fs.PortalName))
 	return strings.Join(parts, " ")
 }
 
@@ -1855,7 +1860,7 @@ func (cps *ClosePortalStmt) SqlString() string {
 	if cps.PortalName == "" {
 		return "CLOSE ALL"
 	}
-	return "CLOSE " + cps.PortalName
+	return "CLOSE " + QuoteIdentifier(cps.PortalName)
 }
 
 // NewClosePortalStmt creates a new ClosePortalStmt node
@@ -2382,7 +2387,7 @@ func (cpls *CreatePLangStmt) String() string {
 	if cpls.PLTrusted {
 		parts = append(parts, "TRUSTED")
 	}
-	parts = append(parts, "LANGUAGE", cpls.PLName)
+	parts = append(parts, "LANGUAGE", QuoteIdentifier(cpls.PLName))
 
 	if cpls.PLHandler != nil && len(cpls.PLHandler.Items) > 0 {
 		var handlerStrs []string
@@ -2433,7 +2438,7 @@ func (cpls *CreatePLangStmt) SqlString() string {
 		parts = append(parts, "TRUSTED")
 	}
 
-	parts = append(parts, "LANGUAGE", cpls.PLName)
+	parts = append(parts, "LANGUAGE", QuoteIdentifier(cpls.PLName))
 
 	if cpls.PLHandler != nil && cpls.PLHandler.Len() > 0 {
 		handlerStrs := make([]string, 0, cpls.PLHandler.Len())
@@ -2550,7 +2555,7 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 
 		// Add USING access method if present
 		if ctas.Into.AccessMethod != "" {
-			parts = append(parts, "USING", ctas.Into.AccessMethod)
+			parts = append(parts, "USING", QuoteIdentifier(ctas.Into.AccessMethod))
 		}
 
 		// Add WITH options if present

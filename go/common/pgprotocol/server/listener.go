@@ -69,6 +69,12 @@ type Listener struct {
 	// DefaultAuthenticationTimeout, so this field is never zero in practice.
 	authenticationTimeout time.Duration
 
+	// authMetrics is the sink for auth- and TLS-path metrics emitted during
+	// the startup phase. Always non-nil after NewListener — a noop
+	// implementation is substituted when the config leaves AuthMetrics unset,
+	// so call sites in startup.go can invoke methods unconditionally.
+	authMetrics AuthMetricsRecorder
+
 	// logger for logging.
 	logger *slog.Logger
 
@@ -197,6 +203,13 @@ type ListenerConfig struct {
 	// Negative disables the timeout.
 	AuthenticationTimeout time.Duration
 
+	// AuthMetrics receives auth- and TLS-path metric events during the
+	// startup phase. Nil means metrics are dropped (a noop sink is
+	// substituted internally). The pgprotocol/server package intentionally
+	// has no OTel dependency; production callers wire an OTel-backed
+	// implementation here.
+	AuthMetrics AuthMetricsRecorder
+
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
 }
@@ -235,6 +248,11 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		authTimeout = DefaultAuthenticationTimeout
 	}
 
+	authMetrics := config.AuthMetrics
+	if authMetrics == nil {
+		authMetrics = noopAuthMetrics{}
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
@@ -245,6 +263,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		tlsConfig:             config.TLSConfig,
 		requireTLS:            config.RequireTLS,
 		authenticationTimeout: authTimeout,
+		authMetrics:           authMetrics,
 		logger:                logger,
 		gatewayID:             config.GatewayID,
 		conns:                 make(map[uint32]*Conn),
@@ -308,6 +327,7 @@ func (l *Listener) Serve() error {
 		conn.trustAuthProvider = l.trustAuthProvider
 		conn.tlsConfig = l.tlsConfig
 		conn.requireTLS = l.requireTLS
+		conn.authMetrics = l.authMetrics
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

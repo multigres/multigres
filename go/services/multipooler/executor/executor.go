@@ -420,6 +420,19 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.AddReservationReason(nonBeginReasons)
 	}
 
+	// Register pin-portal entries from the gateway. Each name is a cursor
+	// declared with WITH HOLD; ReserveForPortal adds the name to the
+	// per-conn portal set and ORs ReasonPortal into the reservation
+	// bitmask (idempotent with the AddReservationReason call above).
+	// This path always releases the connection on QueryStreaming error
+	// (Release(ReleaseError) below), so a failed DECLARE never leaks a
+	// pin from the new-reservation branch — even without the explicit
+	// rollback dance that streamExecuteOnReservedConn performs for the
+	// existing-reservation case.
+	for _, name := range reservationOptions.GetPinPortalNames() {
+		reservedConn.ReserveForPortal(name)
+	}
+
 	// If this is a transaction reservation, execute BEGIN first.
 	// The BEGIN result is not sent to the callback — it's an internal setup detail.
 	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
@@ -491,9 +504,58 @@ func (e *Executor) streamExecuteOnReservedConn(
 		}
 	}
 
+	// Register pin-portal entries for DECLARE … WITH HOLD before running
+	// the DECLARE itself so the bitmask is consistent during the round
+	// trip. The gateway only records the cursor in OpenHoldCursors on
+	// DECLARE success, so we mirror that here: if PG rejects the
+	// DECLARE (outside-of-transaction, syntax error, table missing,
+	// duplicate name, etc.) we roll back every pin we just added so
+	// the multipooler-side bitmask matches what the gateway thinks is
+	// open. Without this, a failed DECLARE outside an explicit
+	// transaction block would leak ReasonPortal on the reserved
+	// connection until session disconnect.
+	pinNames := reservationOptions.GetPinPortalNames()
+	for _, name := range pinNames {
+		rc.ReserveForPortal(name)
+	}
+
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
-		// Query failed but connection still exists — return current state
+		// Roll back every pin we registered for this DECLARE — PG
+		// rejected the statement, so the gateway will never call
+		// AddOpenHoldCursor and any matching CLOSE will not arrive.
+		// ReleasePortal returns true iff the call drained the *last*
+		// reservation reason on the connection (the bool propagates
+		// IsEmpty(), not "ReasonPortal cleared"), so a single true
+		// is sufficient to know the conn should be released.
+		shouldRelease := false
+		for _, name := range pinNames {
+			if rc.ReleasePortal(name) {
+				shouldRelease = true
+			}
+		}
+		if shouldRelease {
+			rc.Release(reserved.ReleaseError)
+			return nil, wrapQueryError(err)
+		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
+	}
+
+	// Apply portal releases after the query succeeds. CLOSE forwards the
+	// statement to PG first; only on success do we unpin so the
+	// gateway's HOLD-cursor bookkeeping matches the server side.
+	// ReleasePortal returns true iff this call drained the last
+	// reservation reason on the connection — when that happens, return
+	// the backend to the pool and surface a zero ReservedState so the
+	// gateway clears its shard tracking.
+	shouldRelease := false
+	for _, name := range reservationOptions.GetReleasePortalNames() {
+		if rc.ReleasePortal(name) {
+			shouldRelease = true
+		}
+	}
+	if shouldRelease {
+		rc.Release(reserved.ReleasePortalComplete)
+		return nil, nil
 	}
 
 	return e.buildReservedStateFromAPI(rc), nil
@@ -901,8 +963,21 @@ func (e *Executor) CopyReady(
 		e.stampVpidOnReserved(ctx, reservedConn, options)
 		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
 		if err != nil {
-			reservedConn.Release(reserved.ReleaseError)
-			return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+			// InitiateCopyFromStdin distinguishes two failure modes:
+			//   - Connection-level error (broken socket): conn is dead, release it.
+			//   - PG ErrorResponse + drained ReadyForQuery (e.g., "column does
+			//     not exist", "conflicting options"): conn is back in a clean
+			//     'I'/'T'/'E' state and is safe to reuse. The reserved conn may
+			//     still be holding other reasons (transaction, temp table), so
+			//     destroying it here would orphan that state and force every
+			//     subsequent statement to fail with "reserved connection not
+			//     found". Return the current state alongside the error so the
+			//     gateway can keep tracking the conn.
+			if mterrors.IsConnectionError(err) {
+				reservedConn.Release(reserved.ReleaseError)
+				return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+			}
+			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 		}
 	} else {
 		// New reserved conn — wire BEGIN-if-needed and InitiateCopyFromStdin
@@ -1054,7 +1129,20 @@ func (e *Executor) CopyFinalize(
 	commandTag, rowsAffected, err := conn.ReadCopyDoneResponse(ctx)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
-		// Connection might be in bad state - close it instead of recycling
+		// For a PG ErrorResponse (e.g., constraint violation, type mismatch,
+		// missing column), ReadCopyDoneResponse drains the trailing
+		// ReadyForQuery so the socket is back in a clean state. The reserved
+		// conn may still be holding other reasons (transaction, temp table),
+		// so we mirror CopyAbort here: remove the COPY reason and release
+		// only if no other reasons remain. A connection-level failure (broken
+		// socket) still falls through to Release(ReleaseError).
+		if !mterrors.IsConnectionError(err) {
+			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+				reservedConn.Release(reserved.ReleasePortalComplete)
+				return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
+			}
+			return nil, e.buildReservedState(reservedConn), fmt.Errorf("COPY operation failed: %w", err)
+		}
 		reservedConn.Release(reserved.ReleaseError)
 		return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
 	}
@@ -1101,6 +1189,17 @@ func (e *Executor) CopyAbort(
 		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
 			"conn_id", options.ReservedConnectionId)
 		return nil, nil
+	}
+
+	// If the conn is no longer in COPY mode (CopyReady never added the reason,
+	// or CopyFinalize already removed it), the backend is back at RFQ and a
+	// CopyFail here would be a protocol violation. This happens on the
+	// gateway-side deferred abort that fires after CopyFinalize already
+	// completed its own cleanup. Just return the current state.
+	if !protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
+		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort",
+			"conn_id", options.ReservedConnectionId)
+		return e.buildReservedState(reservedConn), nil
 	}
 
 	e.logger.DebugContext(ctx, "aborting COPY",
@@ -1195,12 +1294,25 @@ func wrapQueryError(err error) error {
 
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+//
+// On ROLLBACK, the caller controls which portal pins are dropped via
+// releasePortalNames + releaseAllPortals. PostgreSQL closes only the
+// cursors created inside the rolled-back transaction block; cursors
+// declared outside the explicit block (under autocommit, before BEGIN)
+// survive the ROLLBACK. The gateway computes the per-txn diff and
+// passes the inside-txn cursor names so the multipooler unpins exactly
+// those, matching PG. When releaseAllPortals is true (or no diff is
+// supplied — e.g. by an older gateway that doesn't yet compute it), the
+// historical "drop every pin" semantics are used.
+//
 // Returns ReservedState with the authoritative reservation state.
 func (e *Executor) ConcludeTransaction(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
@@ -1238,6 +1350,20 @@ func (e *Executor) ConcludeTransaction(
 		if err := reservedConn.Rollback(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, nil, err
+		}
+		// PostgreSQL closes the cursors created inside this transaction
+		// block at ROLLBACK; cursors declared outside the block (under
+		// autocommit, before BEGIN) survive. Honor the caller's diff so
+		// the multipooler pin set tracks PG exactly. When the diff isn't
+		// supplied (releaseAllPortals==true), fall back to the historical
+		// "drop every pin" behavior — back-compat for callers that
+		// haven't been updated yet.
+		if releaseAllPortals {
+			reservedConn.ReleaseAllPortals()
+		} else {
+			for _, name := range releasePortalNames {
+				reservedConn.ReleasePortal(name)
+			}
 		}
 	default:
 		return nil, nil, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
