@@ -41,7 +41,7 @@ const (
 	// StanzaVerifyTimeout is the maximum time allowed for a full-stanza
 	// verify (no --set). Larger than VerifyTimeout because verify walks
 	// every backup + WAL segment in the repository.
-	StanzaVerifyTimeout = 30 * time.Minute
+	StanzaVerifyTimeout = 60 * time.Minute
 	// InfoTimeout is the maximum time allowed for querying backup information
 	InfoTimeout = 30 * time.Second
 	// ValidationTimeout is the maximum time allowed for S3 bucket validation
