@@ -994,87 +994,70 @@
   },
   {
     "comment": "DECLARE CURSOR quotes portal name",
-    "query": "declare \"weird cursor\" cursor for select 1",
-    "expected": "DECLARE \"weird cursor\" CURSOR FOR SELECT 1"
+    "query": "DECLARE \"weird cursor\" CURSOR FOR SELECT 1"
   },
   {
     "comment": "FETCH FROM quotes portal name",
-    "query": "fetch from \"weird cursor\"",
-    "expected": "FETCH FROM \"weird cursor\""
+    "query": "FETCH FROM \"weird cursor\""
   },
   {
     "comment": "CLOSE quotes portal name",
-    "query": "close \"weird cursor\"",
-    "expected": "CLOSE \"weird cursor\""
+    "query": "CLOSE \"weird cursor\""
   },
   {
     "comment": "PREPARE quotes statement name",
-    "query": "prepare \"weird stmt\" as select 1",
-    "expected": "PREPARE \"weird stmt\" AS SELECT 1"
+    "query": "PREPARE \"weird stmt\" AS SELECT 1"
   },
   {
     "comment": "EXECUTE quotes statement name",
-    "query": "execute \"weird stmt\"",
-    "expected": "EXECUTE \"weird stmt\""
+    "query": "EXECUTE \"weird stmt\""
   },
   {
     "comment": "DEALLOCATE quotes statement name",
-    "query": "deallocate \"weird stmt\"",
-    "expected": "DEALLOCATE \"weird stmt\""
+    "query": "DEALLOCATE \"weird stmt\""
   },
   {
     "comment": "NOTIFY quotes channel name",
-    "query": "notify \"weird channel\"",
-    "expected": "NOTIFY \"weird channel\""
+    "query": "NOTIFY \"weird channel\""
   },
   {
     "comment": "NOTIFY with payload quotes channel name and escapes string",
-    "query": "notify \"weird channel\", 'hi'",
-    "expected": "NOTIFY \"weird channel\", 'hi'"
+    "query": "NOTIFY \"weird channel\", 'hi'"
   },
   {
     "comment": "LISTEN quotes channel name",
-    "query": "listen \"weird channel\"",
-    "expected": "LISTEN \"weird channel\""
+    "query": "LISTEN \"weird channel\""
   },
   {
     "comment": "UNLISTEN quotes channel name",
-    "query": "unlisten \"weird channel\"",
-    "expected": "UNLISTEN \"weird channel\""
+    "query": "UNLISTEN \"weird channel\""
   },
   {
     "comment": "SAVEPOINT quotes name",
-    "query": "savepoint \"weird sp\"",
-    "expected": "SAVEPOINT \"weird sp\""
+    "query": "SAVEPOINT \"weird sp\""
   },
   {
     "comment": "RELEASE SAVEPOINT quotes name",
-    "query": "release savepoint \"weird sp\"",
-    "expected": "RELEASE SAVEPOINT \"weird sp\""
+    "query": "RELEASE SAVEPOINT \"weird sp\""
   },
   {
     "comment": "ROLLBACK TO SAVEPOINT quotes name",
-    "query": "rollback to savepoint \"weird sp\"",
-    "expected": "ROLLBACK TO SAVEPOINT \"weird sp\""
+    "query": "ROLLBACK TO SAVEPOINT \"weird sp\""
   },
   {
     "comment": "REINDEX TABLE preserves schema qualification with quoted names",
-    "query": "reindex table \"weird schema\".\"weird table\"",
-    "expected": "REINDEX TABLE \"weird schema\".\"weird table\""
+    "query": "REINDEX TABLE \"weird schema\".\"weird table\""
   },
   {
     "comment": "REINDEX SCHEMA quotes schema name",
-    "query": "reindex schema \"weird schema\"",
-    "expected": "REINDEX SCHEMA \"weird schema\""
+    "query": "REINDEX SCHEMA \"weird schema\""
   },
   {
     "comment": "SET CONSTRAINTS quotes constraint list",
-    "query": "set constraints \"weird c1\", \"weird c2\" deferred",
-    "expected": "SET CONSTRAINTS \"weird c1\", \"weird c2\" DEFERRED"
+    "query": "SET CONSTRAINTS \"weird c1\", \"weird c2\" DEFERRED"
   },
   {
     "comment": "LOCK TABLE quotes relation list",
-    "query": "lock table \"weird t1\", \"weird t2\" in access exclusive mode",
-    "expected": "LOCK TABLE \"weird t1\", \"weird t2\" IN ACCESS EXCLUSIVE MODE"
+    "query": "LOCK TABLE \"weird t1\", \"weird t2\" IN ACCESS EXCLUSIVE MODE"
   }
 ]

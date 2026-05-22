@@ -2371,17 +2371,14 @@
   },
   {
     "comment": "Named function argument quotes parameter name",
-    "query": "select f(\"weird arg\" => 1)",
-    "expected": "SELECT f(\"weird arg\" => 1)"
+    "query": "SELECT f(\"weird arg\" => 1)"
   },
   {
     "comment": "WINDOW clause quotes window name",
-    "query": "select x from t window \"weird w\" as ()",
-    "expected": "SELECT x FROM t WINDOW \"weird w\" AS ()"
+    "query": "SELECT x FROM t WINDOW \"weird w\" AS ()"
   },
   {
     "comment": "OVER references quoted window name",
-    "query": "select row_number() over \"weird w\" from t window \"weird w\" as ()",
-    "expected": "SELECT ROW_NUMBER() OVER \"weird w\" FROM t WINDOW \"weird w\" AS ()"
+    "query": "SELECT ROW_NUMBER() OVER \"weird w\" FROM t WINDOW \"weird w\" AS ()"
   }
 ]
