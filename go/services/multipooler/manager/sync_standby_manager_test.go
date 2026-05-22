@@ -384,6 +384,25 @@ func TestNeedsApply_FallsBackToCacheOnQueryError(t *testing.T) {
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
+func TestNeedsApply_FallsBackToCacheOnScanError(t *testing.T) {
+	// Parallel to FallsBackToCacheOnQueryError: when postgres returns a row
+	// of the wrong shape (e.g. one column instead of two), ScanSingleRow
+	// errors and NeedsApply falls back to the cache rather than failing.
+	mockQS := mock.NewQueryService()
+	ssm := newTestSSM(mockQS)
+	ssm.lastSyncCommit = "on"
+	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	// Return one column instead of the expected two — ScanSingleRow rejects.
+	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
+		[]string{"current_setting"},
+		[][]any{{"on"}},
+	))
+	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
+	require.NoError(t, err)
+	assert.False(t, needs)
+	require.NoError(t, mockQS.ExpectationsWereMet())
+}
+
 func TestNeedsApply_TrueWhenCacheColdAndQueryFails(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	ssm := newTestSSM(mockQS)
