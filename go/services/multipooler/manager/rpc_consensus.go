@@ -658,6 +658,21 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if proposedRule == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "proposal.proposed_rule is required")
 	}
+	// Identity and timing for the installed rule come from the proposed
+	// rule itself, not the revocation. The revocation's
+	// accepted_coordinator_id identifies who ran the recruit round; the
+	// rule's coordinator_id identifies the coordinator-of-record for this
+	// rule change. They are usually the same orch but the proposal is the
+	// authoritative source — falling back to time.Now() or the revocation
+	// would silently rewrite the caller's intent.
+	if proposedRule.GetCoordinatorId() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"proposal.proposed_rule.coordinator_id is required")
+	}
+	if proposedRule.GetCreationTime() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"proposal.proposed_rule.creation_time is required")
+	}
 
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 	coordinatorID := revocation.GetAcceptedCoordinatorId()
@@ -736,10 +751,10 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	}
 	ruleUpdate := newRuleUpdate(
 		revokedBelowTerm,
-		coordinatorID,
+		proposedRule.GetCoordinatorId(),
 		"promotion",
 		reason,
-		time.Now()).
+		proposedRule.GetCreationTime().AsTime()).
 		withLeader(pm.serviceID).
 		withCohort(proposedRule.GetCohortMembers()).
 		withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).

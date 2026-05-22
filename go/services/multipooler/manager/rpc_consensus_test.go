@@ -44,6 +44,11 @@ import (
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
 var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 
+// ruleCreatedTS is a distinct timestamp used for ShardRule.CreationTime in
+// Propose test cases. Kept different from recruitTS on purpose: if any code
+// path reads one field but stores the other, the assertion catches it.
+var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
 // observePositionRow builds a mock result row for the observePosition query
 // where the rule names primaryAppName (e.g. "zone1_stale-primary") as the
 // primary with the given coordinator term.
@@ -51,11 +56,14 @@ func observePositionRow(primaryAppName string, coordinatorTerm int64) ([]string,
 	cols := []string{
 		"coordinator_term", "leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 		"durability_policy_name", "durability_quorum_type", "durability_required_count",
+		"created_at",
 		"current_lsn",
 	}
 	row := [][]any{{
 		coordinatorTerm, int64(0), primaryAppName, primaryAppName, "{}",
-		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "0/1",
+		"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2),
+		recruitTS.AsTime().Format("2006-01-02 15:04:05.999999-07"),
+		"0/1",
 	}}
 	return cols, row
 }
@@ -1589,6 +1597,8 @@ func TestPropose(t *testing.T) {
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
 		CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+		CoordinatorId: coordinatorA,
+		CreationTime:  ruleCreatedTS,
 	}
 
 	makeLeaderReq := func() *consensusdatapb.ProposeRequest {
@@ -1892,6 +1902,8 @@ func TestPropose(t *testing.T) {
 					},
 					ProposedRule: &clustermetadatapb.ShardRule{
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						CoordinatorId: coordinatorA,
+						CreationTime:  ruleCreatedTS,
 						DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 							RequiredCount: 0,

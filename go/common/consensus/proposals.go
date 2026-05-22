@@ -464,6 +464,17 @@ func validateProposal(
 		return errors.New("no proposed rule")
 	}
 
+	// Identity and timing fields are caller-supplied attestations. We refuse
+	// to install a rule that drops them: a downstream consumer (rule_history,
+	// audit log, time-based ordering against external systems) would have no
+	// way to tell a missing field from a deliberate zero value.
+	if r.GetCoordinatorId() == nil {
+		return errors.New("proposed rule has no coordinator_id")
+	}
+	if r.GetCreationTime() == nil {
+		return errors.New("proposed rule has no creation_time")
+	}
+
 	// TODO: relax this to support re-proposing/propagating stuck rule changes.
 	// In that case a coordinator must recruit at a higher term and re-propagate
 	// a potentially lower-numbered pre-existing rule.

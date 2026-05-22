@@ -20,6 +20,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -264,25 +265,25 @@ func TestScanRuleHistoryRow_AcceptedInvalid(t *testing.T) {
 
 func TestBuildPoolerPosition_LeaderInvalid(t *testing.T) {
 	bad := "noseparator"
-	_, err := buildPoolerPosition(1, 0, &bad, "", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	_, err := buildPoolerPosition(1, 0, &bad, "", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse leader_id")
 }
 
 func TestBuildPoolerPosition_CoordinatorInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "noseparator", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	_, err := buildPoolerPosition(1, 0, nil, "noseparator", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse coordinator_id")
 }
 
 func TestBuildPoolerPosition_CohortInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, "0/0")
+	_, err := buildPoolerPosition(1, 0, nil, "", []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse cohort_members")
 }
 
 func TestBuildPoolerPosition_UnknownQuorumType(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2, "0/0")
+	_, err := buildPoolerPosition(1, 0, nil, "", nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2, time.Time{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown quorum_type")
 }

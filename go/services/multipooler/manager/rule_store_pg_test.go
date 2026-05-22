@@ -229,7 +229,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
-	if err := rs.createRuleTables(ctx, testBootstrapPolicy()); err != nil {
+	if err := rs.createRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create rule tables: %w", err)
 	}
@@ -267,7 +267,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
-	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy()))
+	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()))
 }
 
 // skipIfNoPG lazily starts the shared postgres fixture on first call and skips
