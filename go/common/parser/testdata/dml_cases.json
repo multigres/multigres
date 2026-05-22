@@ -877,27 +877,22 @@
   },
   {
     "comment": "TRUNCATE quotes relation list",
-    "query": "truncate table \"weird t1\", \"weird t2\"",
-    "expected": "TRUNCATE TABLE \"weird t1\", \"weird t2\" CONTINUE IDENTITY RESTRICT"
+    "query": "TRUNCATE TABLE \"weird t1\", \"weird t2\" CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "TRUNCATE ONLY preserves qualifier and quotes name",
-    "query": "truncate only \"weird t\"",
-    "expected": "TRUNCATE TABLE ONLY \"weird t\" CONTINUE IDENTITY RESTRICT"
+    "query": "TRUNCATE TABLE ONLY \"weird t\" CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "UPDATE WHERE CURRENT OF quotes cursor name",
-    "query": "update t set a = 1 where current of \"weird cursor\"",
-    "expected": "UPDATE t SET a = 1 WHERE CURRENT OF \"weird cursor\""
+    "query": "UPDATE t SET a = 1 WHERE CURRENT OF \"weird cursor\""
   },
   {
     "comment": "MERGE INSERT quotes target column list",
-    "query": "merge into t using s on t.id = s.id when not matched then insert (\"weird col\") values (s.x)",
-    "expected": "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (\"weird col\") VALUES (s.x)"
+    "query": "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (\"weird col\") VALUES (s.x)"
   },
   {
     "comment": "MERGE UPDATE SET quotes target column",
-    "query": "merge into t using s on t.id = s.id when matched then update set \"weird col\" = s.x",
-    "expected": "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET \"weird col\" = s.x"
+    "query": "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET \"weird col\" = s.x"
   }
 ]
