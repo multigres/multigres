@@ -100,10 +100,10 @@ type MultiAdminServiceClient interface {
 	// certified revocation. Handles both initial leader appointment (term 0)
 	// and stuck-quorum recovery (term > 0).
 	//
-	// The cert can either be supplied explicitly by the caller or, if
-	// unsafe_derive_cert_from_reachable is set, derived by multiadmin from a
-	// Status probe of the proposed cohort. Multiadmin then forwards the request
-	// to the shard's multiorch.
+	// The cert is either supplied explicitly by the caller or, if
+	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
+	// the proposed cohort. Multiadmin then forwards the request to the shard's
+	// multiorch.
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 }
 
@@ -333,10 +333,10 @@ type MultiAdminServiceServer interface {
 	// certified revocation. Handles both initial leader appointment (term 0)
 	// and stuck-quorum recovery (term > 0).
 	//
-	// The cert can either be supplied explicitly by the caller or, if
-	// unsafe_derive_cert_from_reachable is set, derived by multiadmin from a
-	// Status probe of the proposed cohort. Multiadmin then forwards the request
-	// to the shard's multiorch.
+	// The cert is either supplied explicitly by the caller or, if
+	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
+	// the proposed cohort. Multiadmin then forwards the request to the shard's
+	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
