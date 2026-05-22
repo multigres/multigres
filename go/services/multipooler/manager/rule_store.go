@@ -695,7 +695,7 @@ func buildPoolerPosition(
 	if coordinatorIDStr != "" {
 		// Coordinator IDs are multiorch, not multipooler — parseApplicationName
 		// is pooler-specific, so decode the cell_name encoding directly.
-		cell, name, err := splitCellName(coordinatorIDStr)
+		cell, name, err := topoclient.SplitClusterID(coordinatorIDStr)
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse coordinator_id %q", coordinatorIDStr)
 		}

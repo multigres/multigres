@@ -26,7 +26,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -118,32 +120,32 @@ Examples:
 
   # Initial leader appointment on a fresh shard
   multigres cluster apply-rule-change \
-    --database=postgres --leader=zone1/mp1 \
-    --cohort=zone1/mp1,zone1/mp2,zone1/mp3 \
+    --database=postgres --leader=zone1_mp1 \
+    --cohort=zone1_mp1,zone1_mp2,zone1_mp3 \
     --durability=AT_LEAST_2 --frozen-lsn=0/0 \
     --reason="initial appointment"
 
   # Recovery from stuck quorum, explicit cert
   multigres cluster apply-rule-change \
-    --database=postgres --leader=zone1/mp1 \
-    --cohort=zone1/mp1 --durability=AT_LEAST_1 \
+    --database=postgres --leader=zone1_mp1 \
+    --cohort=zone1_mp1,zone1_mp2 --durability=AT_LEAST_2 \
     --outgoing-rule-term=5 --frozen-lsn=0/16D2A40 \
-    --reason="2 of 3 cohort members lost"
+    --reason="too many cohort members lost"
 
   # Recovery, multiadmin probes the proposed cohort to derive the cert
   multigres cluster apply-rule-change \
-    --database=postgres --leader=zone1/mp1 \
-    --cohort=zone1/mp1 --durability=AT_LEAST_1 \
+    --database=postgres --leader=zone1_mp1 \
+    --cohort=zone1_mp1,zone1_mp2 --durability=AT_LEAST_2 \
     --unsafe-derive-cert-from-reachable \
-    --reason="2 of 3 cohort members lost"`,
+    --reason="too many cohort members lost"`,
 		RunE: a.run,
 	}
 
 	cmd.Flags().String("database", a.database.Default(), "Database name")
 	cmd.Flags().String("table-group", a.tableGroup.Default(), "Table group name")
 	cmd.Flags().String("shard", a.shard.Default(), "Shard name")
-	cmd.Flags().String("leader", a.leader.Default(), "Proposed leader, format 'cell/name' (required)")
-	cmd.Flags().StringSlice("cohort", a.cohort.Default(), "Proposed cohort members, comma-separated 'cell/name' (required)")
+	cmd.Flags().String("leader", a.leader.Default(), "Proposed leader, format 'cell_name' (required)")
+	cmd.Flags().StringSlice("cohort", a.cohort.Default(), "Proposed cohort members, comma-separated 'cell_name' (required)")
 	cmd.Flags().String("durability", a.durability.Default(), "Durability policy, e.g. AT_LEAST_2 or MULTI_CELL_AT_LEAST_2 (required)")
 	cmd.Flags().Int64("outgoing-rule-term", a.outgoingRuleTerm.Default(), "Coordinator term of the outgoing rule being revoked (0 for initial appointment)")
 	cmd.Flags().Int64("outgoing-leader-subterm", a.outgoingLeaderSubterm.Default(), "Leader subterm of the outgoing rule")
@@ -192,7 +194,7 @@ func (a *applyRuleChangeCmd) run(cmd *cobra.Command, _ []string) error {
 		cohortIDs = append(cohortIDs, id)
 	}
 
-	durability, err := parseDurabilityPolicy(durabilityName)
+	durability, err := consensus.ParseUserSpecifiedDurabilityPolicy(durabilityName)
 	if err != nil {
 		return fmt.Errorf("invalid --durability: %w", err)
 	}
@@ -260,65 +262,18 @@ func (a *applyRuleChangeCmd) run(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// parsePoolerID accepts "cell/name" and returns a fully-qualified pooler ID.
+// parsePoolerID accepts "cell_name" (the canonical encoding used by
+// topoclient.ClusterIDString) and returns a fully-qualified MULTIPOOLER ID.
 func parsePoolerID(raw string) (*clustermetadatapb.ID, error) {
-	parts := strings.SplitN(strings.TrimSpace(raw), "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("expected 'cell/name', got %q", raw)
+	cell, name, err := topoclient.SplitClusterID(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, err
 	}
 	return &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      parts[0],
-		Name:      parts[1],
+		Cell:      cell,
+		Name:      name,
 	}, nil
-}
-
-// parseDurabilityPolicy maps a user-supplied policy name (e.g. "AT_LEAST_2")
-// to a DurabilityPolicy proto. Mirrors the names accepted by
-// ParseUserSpecifiedDurabilityPolicy in go/common/consensus/durability.go.
-func parseDurabilityPolicy(name string) (*clustermetadatapb.DurabilityPolicy, error) {
-	name = strings.TrimSpace(name)
-	if rest, ok := strings.CutPrefix(name, "MULTI_CELL_AT_LEAST_"); ok {
-		n, err := parseInt32(rest)
-		if err != nil {
-			return nil, fmt.Errorf("invalid MULTI_CELL_AT_LEAST count: %w", err)
-		}
-		return &clustermetadatapb.DurabilityPolicy{
-			PolicyName:    name,
-			PolicyVersion: 1,
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
-			RequiredCount: n,
-			Description:   fmt.Sprintf("at least %d cells", n),
-		}, nil
-	}
-	if rest, ok := strings.CutPrefix(name, "AT_LEAST_"); ok {
-		n, err := parseInt32(rest)
-		if err != nil {
-			return nil, fmt.Errorf("invalid AT_LEAST count: %w", err)
-		}
-		return &clustermetadatapb.DurabilityPolicy{
-			PolicyName:    name,
-			PolicyVersion: 1,
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: n,
-			Description:   fmt.Sprintf("at least %d nodes", n),
-		}, nil
-	}
-	return nil, fmt.Errorf("unsupported durability policy %q (expected AT_LEAST_N or MULTI_CELL_AT_LEAST_N)", name)
-}
-
-func parseInt32(s string) (int32, error) {
-	var n int32
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return 0, fmt.Errorf("not a positive integer: %q", s)
-		}
-		n = n*10 + (r - '0')
-	}
-	if n == 0 {
-		return 0, fmt.Errorf("must be positive: %q", s)
-	}
-	return n, nil
 }
 
 // confirm prints a summary of the operation and prompts the operator to type
