@@ -162,7 +162,8 @@ func TestGUCSelfHealing(t *testing.T) {
 		return qerr == nil && val != correctValue
 	}, 5*time.Second, 50*time.Millisecond, "corrupted GUC should be visible after reload")
 
-	// The monitor runs every 100ms; drift should be healed quickly.
+	// The monitor runs every 5s, so allow up to one full tick plus
+	// action-lock acquisition and remediation latency for drift to be healed.
 	require.Eventually(t, func() bool {
 		val, qerr := shardsetup.QueryStringValue(utils.WithShortDeadline(t), pgClient, "SHOW synchronous_standby_names")
 		return qerr == nil && val == correctValue
