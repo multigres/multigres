@@ -18,6 +18,7 @@ package multiadmin;
 
 import "clustermetadata.proto";
 import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
@@ -91,6 +92,14 @@ service MultiAdminService {
   rpc ExpireBackups(ExpireBackupsRequest) returns (ExpireBackupsResponse) {
     option (google.api.http) = {
       post: "/api/v1/backups/expire"
+      body: "*"
+    };
+  }
+
+  // VerifyBackups runs pgbackrest verify for a shard.
+  rpc VerifyBackups(VerifyBackupsRequest) returns (VerifyBackupsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups/verify"
       body: "*"
     };
   }
@@ -377,6 +386,22 @@ message ExpireBackupsRequest {
 message ExpireBackupsResponse {
   // IDs of backups that were removed by the expiration.
   repeated string expired_backup_ids = 1;
+}
+
+// VerifyBackupsRequest requests a stanza-wide verify run.
+message VerifyBackupsRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+message VerifyBackupsResponse {
+  google.protobuf.Duration duration = 1;
+  string raw_output = 2;
 }
 
 // BackupInfo contains information about a single backup artifact

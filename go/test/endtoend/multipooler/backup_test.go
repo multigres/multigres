@@ -365,6 +365,17 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 				t.Logf("Verified %d total backups exist", len(listResp.Backups))
 			})
+
+			t.Run("VerifyBackups", func(t *testing.T) {
+				t.Log("Running full-stanza pgbackrest verify...")
+				verifyCtx := utils.WithTimeout(t, 5*time.Minute)
+				resp, err := backupClient.VerifyBackups(verifyCtx, &multipoolermanagerdata.VerifyBackupsRequest{})
+				require.NoError(t, err, "VerifyBackups should succeed against a healthy stanza")
+				require.NotNil(t, resp, "VerifyBackups response should not be nil")
+				assert.Greater(t, resp.Duration.AsDuration(), time.Duration(0), "duration must be > 0")
+				assert.NotEmpty(t, resp.RawOutput, "raw_output must include pgbackrest verify output")
+				t.Logf("Verify completed in %s; output length=%d", resp.Duration.AsDuration(), len(resp.RawOutput))
+			})
 		})
 	}
 }

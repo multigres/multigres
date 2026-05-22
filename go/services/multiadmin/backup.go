@@ -419,3 +419,43 @@ func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 		ExpiredBackupIds: resp.ExpiredBackupIds,
 	}, nil
 }
+
+// VerifyBackups runs pgbackrest verify against the full stanza for a shard.
+// Synchronous: blocks until pgbackrest verify completes, then returns
+// duration + raw output. No job state to track.
+func (s *MultiAdminServer) VerifyBackups(ctx context.Context, req *multiadminpb.VerifyBackupsRequest) (*multiadminpb.VerifyBackupsResponse, error) {
+	s.logger.DebugContext(ctx, "VerifyBackups request received",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+	)
+
+	if req.Database == "" {
+		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
+	}
+	if req.TableGroup == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
+	}
+
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
+	}
+
+	resp, err := s.rpcClient.VerifyBackups(ctx, pooler, &multipoolermanagerdata.VerifyBackupsRequest{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "verify failed: %v", err)
+	}
+
+	s.logger.InfoContext(ctx, "VerifyBackups completed",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+		"duration", resp.Duration.AsDuration(),
+	)
+
+	return &multiadminpb.VerifyBackupsResponse{
+		Duration:  resp.Duration,
+		RawOutput: resp.RawOutput,
+	}, nil
+}
