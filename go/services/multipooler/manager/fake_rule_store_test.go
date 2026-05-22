@@ -62,6 +62,31 @@ func testBootstrapID() *clustermetadatapb.ID {
 	}
 }
 
+// failingSyncStandbyManager is a SyncStandbyManager test double whose SetPolicy
+// returns the configured error for each call in sequence. Used to exercise
+// updateRule's GUC failure paths (pre-promote / pre-write / post-write) without
+// a real postgres sync configuration. Pass nil at index i to make the i-th call
+// succeed; a shorter list means later calls succeed.
+type failingSyncStandbyManager struct {
+	setPolicyErrs  []error
+	setPolicyCalls int
+}
+
+func (f *failingSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	i := f.setPolicyCalls
+	f.setPolicyCalls++
+	if i < len(f.setPolicyErrs) {
+		return f.setPolicyErrs[i]
+	}
+	return nil
+}
+
+func (f *failingSyncStandbyManager) Clear(_ context.Context) error { return nil }
+
+func (f *failingSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
+}
+
 // fakeRuleStore is a test double for ruleStorer that returns a preset position
 // without hitting postgres. Both observePosition and updateRule return pos
 // (or observeErr/updateErr when set). updateRule records all calls in updates.

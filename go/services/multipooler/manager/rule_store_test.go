@@ -287,3 +287,34 @@ func TestBuildPoolerPosition_UnknownQuorumType(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown quorum_type")
 }
+
+func TestUpdateRule_ForceModeSkipsWrite(t *testing.T) {
+	// Force-mode short-circuits before any postgres interaction, so this test
+	// can use the mock QueryService — no real updateRule SQL would fire.
+	rs := newMockRuleStore(mock.NewQueryService())
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	update := newRuleUpdate(1, coordinatorID, "force_event", "test", time.Now()).withForce()
+
+	pos, err := rs.updateRule(withTestActionLock(t), update)
+	require.NoError(t, err)
+	assert.Nil(t, pos, "force-mode updateRule returns nil position to signal no write happened")
+}
+
+func TestUpdateRule_RequiresCoordinatorID(t *testing.T) {
+	rs := newMockRuleStore(mock.NewQueryService())
+	update := newRuleUpdate(1, nil /* coordinatorID */, "promotion", "test", time.Now())
+
+	_, err := rs.updateRule(withTestActionLock(t), update)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "updateRule requires a non-nil coordinator_id")
+}
+
+func TestUpdateRule_RequiresCreatedAt(t *testing.T) {
+	rs := newMockRuleStore(mock.NewQueryService())
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	update := newRuleUpdate(1, coordinatorID, "promotion", "test", time.Time{} /* zero */)
+
+	_, err := rs.updateRule(withTestActionLock(t), update)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "updateRule requires a non-zero created_at")
+}

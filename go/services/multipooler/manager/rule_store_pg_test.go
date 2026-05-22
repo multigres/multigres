@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1134,6 +1135,173 @@ func TestRuleStorePG_UpdateRule_RequiresActionLock(t *testing.T) {
 	_, err := rs.updateRule(t.Context(), newRuleUpdate(1, coordinatorID, "promotion", "no lock", time.Now()))
 	require.Error(t, err)
 	assert.EqualError(t, err, "updateRule: context does not hold an action lock")
+}
+
+// newTestRuleStoreWithFailingSSM creates a ruleStore backed by the shared
+// postgres fixture and a SyncStandbyManager that returns the given errors from
+// SetPolicy in order. Used by GUC-failure tests to exercise updateRule's
+// pre-promote / pre-write / post-write error paths.
+func newTestRuleStoreWithFailingSSM(t *testing.T, setPolicyErrs []error) (*ruleStore, *failingSyncStandbyManager) {
+	t.Helper()
+	conn, err := pgTestFixture.newClientConn(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ssm := &failingSyncStandbyManager{setPolicyErrs: setPolicyErrs}
+	rs := newRuleStore(logger, &connQueryService{conn: conn}, ssm)
+	return rs, ssm
+}
+
+func TestRuleStorePG_UpdateRule_PreWriteGUCFails(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{errors.New("alter system failed")})
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pre-write GUC")
+	assert.Contains(t, err.Error(), "alter system failed")
+}
+
+func TestRuleStorePG_UpdateRule_PrePromoteGUCFails(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{errors.New("alter system failed")})
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	hookCalled := false
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			withPromotionHook(func(context.Context) error {
+				hookCalled = true
+				return nil
+			}),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pre-promote GUC")
+	assert.Contains(t, err.Error(), "alter system failed")
+	assert.False(t, hookCalled, "promotion hook must not run after pre-promote GUC fails")
+}
+
+func TestRuleStorePG_UpdateRule_PromotionHookFails(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, _ := newTestRuleStoreWithFailingSSM(t, nil) // SetPolicy always succeeds
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			withPromotionHook(func(context.Context) error {
+				return errors.New("pg_promote refused")
+			}),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "promotion hook")
+	assert.Contains(t, err.Error(), "pg_promote refused")
+}
+
+func TestRuleStorePG_UpdateRule_PostWriteGUCFails(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	// First SetPolicy (pre-write) succeeds, second (post-write) fails.
+	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{nil, errors.New("post-write alter failed")})
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "post-write GUC")
+	assert.Contains(t, err.Error(), "post-write alter failed")
+}
+
+func TestRuleStorePG_UpdateRule_InvalidLeaderID(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	// Underscore in Name is rejected by newPoolerID (underscores are the
+	// cell_name delimiter).
+	badLeader := &clustermetadatapb.ID{Cell: "zone1", Name: "bad_name"}
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			withLeader(badLeader),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid leader ID")
+}
+
+func TestRuleStorePG_UpdateRule_InvalidCohortID(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	// First member is valid; second has an underscore in Name.
+	badCohort := []*clustermetadatapb.ID{
+		{Cell: "zone1", Name: "good"},
+		{Cell: "zone1", Name: "bad_name"},
+	}
+	_, err := rs.updateRule(ctx,
+		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			withCohort(badCohort),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid cohort member ID")
+}
+
+func TestRuleStorePG_ReconcileGUC_InvalidPolicy(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	// Bypass updateRule (which validates) and write QUORUM_TYPE_UNKNOWN
+	// directly. The string is a valid enum entry so buildPoolerPosition
+	// accepts it, but NewPolicyFromProto rejects it inside reconcileGUC.
+	qs := &connQueryService{conn: conn}
+	_, err := qs.QueryArgs(ctx,
+		"UPDATE multigres.current_rule SET durability_quorum_type = 'QUORUM_TYPE_UNKNOWN' WHERE shard_id = $1",
+		[]byte("0"))
+	require.NoError(t, err)
+
+	err = rs.reconcileGUC(ctx, false /* inRecovery */)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reconcileGUC: invalid durability policy")
+}
+
+func TestRuleStorePG_ReadCurrentRule_ParseFailureFromBogusQuorumType(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := t.Context()
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	// A quorum_type string that doesn't match any enum entry makes
+	// buildPoolerPosition fail with "unknown quorum_type", wrapped by
+	// readCurrentRule as "failed to parse current_rule".
+	qs := &connQueryService{conn: conn}
+	_, err := qs.QueryArgs(ctx,
+		"UPDATE multigres.current_rule SET durability_quorum_type = 'BOGUS_QUORUM_TYPE' WHERE shard_id = $1",
+		[]byte("0"))
+	require.NoError(t, err)
+
+	_, err = rs.observePosition(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse current_rule")
 }
 
 // mustNewPolicyFromProto is a test helper that constructs a consensus.Policy
