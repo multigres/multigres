@@ -229,6 +229,28 @@ func (c *CopyStatement) streamCopyOut(
 		return err
 	}
 
+	// CopyOutInitiate succeeded — the multipooler has reserved a backend
+	// conn and added the ReasonCopy reservation reason. If anything below
+	// returns before CopyOutStream removes it (notice callback,
+	// WriteCopyOutResponse, Flush, or a ReadCopyOutMessage error that
+	// the stream pump turns into a connection-level fail), we must run
+	// CopyAbort so the reservation is released and the backend isn't left
+	// stuck in COPY OUT pushing CopyData with no reader. CopyAbort sends
+	// CopyFail which isn't a legal frontend message during COPY OUT, but
+	// the resulting protocol error makes the multipooler release the
+	// reserved conn with ReleaseError — which is the cleanup we want.
+	//
+	// Mirrors the FROM-STDIN guard in StreamExecute. The flag is cleared
+	// once CopyOutStream returns successfully (at which point ReasonCopy
+	// is already removed inside the executor); anything failing after that
+	// is gateway-to-client write failure and the reservation is gone.
+	streamCompleted := false
+	defer func() {
+		if !streamCompleted {
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+		}
+	}()
+
 	// Forward any pre-CopyOutResponse notices to the client as standalone
 	// NoticeResponse frames via the callback (the per-result Conn writer
 	// emits NoticeResponse for every entry in result.Notices).
@@ -261,8 +283,17 @@ func (c *CopyStatement) streamCopyOut(
 		return nil
 	})
 	if err != nil {
+		// CopyOutStream's own error paths already drop ReasonCopy and
+		// release the conn (PG error → ReleasePortalComplete or kept-state;
+		// connection error → ReleaseError). Mark the stream complete so
+		// the deferred CopyAbort above doesn't run a second cleanup on
+		// top of an already-released conn.
+		streamCompleted = true
 		return err
 	}
+	// Success path — executor's CopyOutStream removed ReasonCopy and
+	// released (or kept-state) the conn. No deferred abort needed.
+	streamCompleted = true
 
 	// Trailing notices (between CopyDone and CommandComplete) — write them
 	// before CopyDone so the client sees NoticeResponse → CopyDone →
