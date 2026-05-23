@@ -577,7 +577,7 @@
   {
     "comment": "constraints - Statement 117",
     "query": "CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text)",
-    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE DEFERRABLE, t TEXT)"
   },
   {
     "comment": "constraints - Statement 118",
@@ -638,8 +638,7 @@
   },
   {
     "comment": "constraints - Statement 132",
-    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED",
-    "expected": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i)"
+    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED"
   },
   {
     "comment": "constraints - Statement 133",
@@ -672,7 +671,7 @@
   {
     "comment": "constraints - Statement 140",
     "query": "CREATE TABLE parted_uniq_tbl (i int UNIQUE DEFERRABLE) partition by range (i)",
-    "expected": "CREATE TABLE parted_uniq_tbl (i INT UNIQUE) PARTITION BY range (i)"
+    "expected": "CREATE TABLE parted_uniq_tbl (i INT UNIQUE DEFERRABLE) PARTITION BY range (i)"
   },
   {
     "comment": "constraints - Statement 141",
@@ -900,7 +899,7 @@
   {
     "comment": "constraints - Statement 190",
     "query": "CREATE TABLE deferred_excl ( f1 int, f2 int, CONSTRAINT deferred_excl_con EXCLUDE (f1 WITH =) INITIALLY DEFERRED )",
-    "expected": "CREATE TABLE deferred_excl (f1 INT, f2 INT, CONSTRAINT deferred_excl_con EXCLUDE USING btree (f1 WITH =))"
+    "expected": "CREATE TABLE deferred_excl (f1 INT, f2 INT, CONSTRAINT deferred_excl_con EXCLUDE USING btree (f1 WITH =) INITIALLY DEFERRED)"
   },
   {
     "comment": "constraints - Statement 191",

@@ -872,7 +872,7 @@
   {
     "comment": "aggregates - Statement 179",
     "query": "create temp table t3 (a int, b int, c int, primary key(a, b) deferrable)",
-    "expected": "CREATE TEMPORARY TABLE t3 (a INT, b INT, c INT, PRIMARY KEY (a, b))"
+    "expected": "CREATE TEMPORARY TABLE t3 (a INT, b INT, c INT, PRIMARY KEY (a, b) DEFERRABLE)"
   },
   {
     "comment": "aggregates - Statement 180",

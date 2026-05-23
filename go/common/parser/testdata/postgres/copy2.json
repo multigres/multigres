@@ -242,42 +242,42 @@
   {
     "comment": "copy2 - Statement 54",
     "query": "COPY x TO stdout WHERE a = 1",
-    "expected": "COPY x TO STDOUT"
+    "expected": "COPY x TO STDOUT WHERE a = 1"
   },
   {
     "comment": "copy2 - Statement 55",
     "query": "COPY x from stdin WHERE a = 50004",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = 50004"
   },
   {
     "comment": "copy2 - Statement 56",
     "query": "COPY x from stdin WHERE a \u003e 60003",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a \u003e 60003"
   },
   {
     "comment": "copy2 - Statement 57",
     "query": "COPY x from stdin WHERE f \u003e 60003",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE f \u003e 60003"
   },
   {
     "comment": "copy2 - Statement 58",
     "query": "COPY x from stdin WHERE a = max(x.b)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = MAX(x.b)"
   },
   {
     "comment": "copy2 - Statement 59",
     "query": "COPY x from stdin WHERE a IN (SELECT 1 FROM x)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a IN (SELECT 1 FROM x)"
   },
   {
     "comment": "copy2 - Statement 60",
     "query": "COPY x from stdin WHERE a IN (generate_series(1,5))",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a IN (generate_series(1, 5))"
   },
   {
     "comment": "copy2 - Statement 61",
     "query": "COPY x from stdin WHERE a = row_number() over(b)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = ROW_NUMBER() OVER b"
   },
   {
     "comment": "copy2 - Statement 62",

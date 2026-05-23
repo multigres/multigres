@@ -346,8 +346,7 @@
   },
   {
     "comment": "subscription - Statement 75",
-    "query": "ALTER SUBSCRIPTION regress_testsub DISABLE",
-    "expected": "ALTER SUBSCRIPTION regress_testsub ENABLE"
+    "query": "ALTER SUBSCRIPTION regress_testsub DISABLE"
   },
   {
     "comment": "subscription - Statement 76",

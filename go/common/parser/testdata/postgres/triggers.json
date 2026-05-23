@@ -2736,7 +2736,7 @@
   {
     "comment": "triggers - Statement 562",
     "query": "alter table trg_clone add constraint uniq unique (a) deferrable",
-    "expected": "ALTER TABLE trg_clone ADD CONSTRAINT uniq UNIQUE (a)"
+    "expected": "ALTER TABLE trg_clone ADD CONSTRAINT uniq UNIQUE (a) DEFERRABLE"
   },
   {
     "comment": "triggers - Statement 563",
@@ -3583,7 +3583,7 @@
   {
     "comment": "triggers - Statement 735",
     "query": "create table trig_table (fk int references refd_table initially deferred)",
-    "expected": "CREATE TABLE trig_table (fk INT REFERENCES refd_table)"
+    "expected": "CREATE TABLE trig_table (fk INT REFERENCES refd_table INITIALLY DEFERRED)"
   },
   {
     "comment": "triggers - Statement 736",

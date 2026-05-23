@@ -862,7 +862,7 @@
   {
     "comment": "foreign_key - Statement 173",
     "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE )",
-    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
+    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable DEFERRABLE)"
   },
   {
     "comment": "foreign_key - Statement 174",
@@ -895,7 +895,7 @@
   {
     "comment": "foreign_key - Statement 181",
     "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED )",
-    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
+    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable DEFERRABLE INITIALLY DEFERRED)"
   },
   {
     "comment": "foreign_key - Statement 182",
@@ -996,7 +996,7 @@
   {
     "comment": "foreign_key - Statement 204",
     "query": "CREATE TEMP TABLE fktable ( id int primary key, fk int references pktable deferrable initially deferred )",
-    "expected": "CREATE TEMPORARY TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
+    "expected": "CREATE TEMPORARY TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable DEFERRABLE INITIALLY DEFERRED)"
   },
   {
     "comment": "foreign_key - Statement 205",
@@ -1041,8 +1041,7 @@
   },
   {
     "comment": "foreign_key - Statement 215",
-    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED",
-    "expected": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE"
+    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED"
   },
   {
     "comment": "foreign_key - Statement 216",
@@ -1320,7 +1319,7 @@
   {
     "comment": "foreign_key - Statement 272",
     "query": "create table fktable2(f1 int references pktable2 deferrable initially deferred)",
-    "expected": "CREATE TABLE fktable2 (f1 INT REFERENCES pktable2)"
+    "expected": "CREATE TABLE fktable2 (f1 INT REFERENCES pktable2 DEFERRABLE INITIALLY DEFERRED)"
   },
   {
     "comment": "foreign_key - Statement 273",
@@ -2629,7 +2628,7 @@
   {
     "comment": "foreign_key - Statement 564",
     "query": "CREATE TABLE fk (a int REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE)",
-    "expected": "CREATE TABLE fk (a INT REFERENCES pk)"
+    "expected": "CREATE TABLE fk (a INT REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE)"
   },
   {
     "comment": "foreign_key - Statement 565",
@@ -2917,7 +2916,7 @@
   {
     "comment": "foreign_key - Statement 630",
     "query": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1(f1 int PRIMARY KEY) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) PARTITION BY RANGE(f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)",
-    "expected": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1) PARTITION BY range (f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)"
+    "expected": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) PARTITION BY range (f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)"
   },
   {
     "comment": "foreign_key - Statement 631",
@@ -2966,7 +2965,7 @@
   {
     "comment": "foreign_key - Statement 641",
     "query": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) CREATE TABLE tbl3(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4(f1 int REFERENCES tbl3 DEFERRABLE INITIALLY DEFERRED)",
-    "expected": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1) CREATE TABLE tbl3 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4 (f1 INT REFERENCES tbl3)"
+    "expected": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) CREATE TABLE tbl3 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4 (f1 INT REFERENCES tbl3 DEFERRABLE INITIALLY DEFERRED)"
   },
   {
     "comment": "foreign_key - Statement 642",

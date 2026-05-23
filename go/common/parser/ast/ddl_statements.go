@@ -1218,6 +1218,29 @@ func (c *Constraint) String() string {
 	return fmt.Sprintf("Constraint(%s %s)@%d", c.Contype, name, c.Location())
 }
 
+// indexConstraintTail renders the trailing clauses shared by PRIMARY KEY and
+// UNIQUE table constraints: INCLUDE non-key columns, an adopted index or index
+// tablespace, and deferrability.
+func (c *Constraint) indexConstraintTail() string {
+	result := ""
+	if c.Including != nil && c.Including.Len() > 0 {
+		result += " INCLUDE (" + strings.Join(nodeListToStrings(c.Including), ", ") + ")"
+	}
+	if c.Indexname != "" {
+		result += " USING INDEX " + QuoteIdentifier(c.Indexname)
+	}
+	if c.Indexspace != "" {
+		result += " USING INDEX TABLESPACE " + QuoteIdentifier(c.Indexspace)
+	}
+	if c.Deferrable {
+		result += " DEFERRABLE"
+	}
+	if c.Initdeferred {
+		result += " INITIALLY DEFERRED"
+	}
+	return result
+}
+
 // SqlString generates SQL representation of a constraint
 func (c *Constraint) SqlString() string {
 	switch c.Contype {
@@ -1304,9 +1327,7 @@ func (c *Constraint) SqlString() string {
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
-		if c.Indexname != "" {
-			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
-		}
+		result += c.indexConstraintTail()
 		return result
 	case CONSTR_UNIQUE:
 		result := ""
@@ -1317,9 +1338,7 @@ func (c *Constraint) SqlString() string {
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
-		if c.Indexname != "" {
-			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
-		}
+		result += c.indexConstraintTail()
 		return result
 	case CONSTR_CHECK:
 		result := ""
@@ -1460,12 +1479,37 @@ func (c *Constraint) SqlString() string {
 			}
 		}
 
+		// Add INCLUDE non-key columns if specified
+		if c.Including != nil && c.Including.Len() > 0 {
+			result += " INCLUDE (" + strings.Join(nodeListToStrings(c.Including), ", ") + ")"
+		}
+
 		// Add WHERE clause if specified
 		if c.WhereClause != nil {
 			result += " WHERE " + c.WhereClause.SqlString()
 		}
 
+		// Add deferrability
+		if c.Deferrable {
+			result += " DEFERRABLE"
+		}
+		if c.Initdeferred {
+			result += " INITIALLY DEFERRED"
+		}
+
 		return result
+
+	// Constraint attributes parsed as standalone nodes for column constraints
+	// (PostgreSQL merges these into the preceding constraint during analysis;
+	// at raw-parse time they are separate Constraint nodes).
+	case CONSTR_ATTR_DEFERRABLE:
+		return "DEFERRABLE"
+	case CONSTR_ATTR_NOT_DEFERRABLE:
+		return "NOT DEFERRABLE"
+	case CONSTR_ATTR_DEFERRED:
+		return "INITIALLY DEFERRED"
+	case CONSTR_ATTR_IMMEDIATE:
+		return "INITIALLY IMMEDIATE"
 	}
 	return ""
 }
@@ -2072,6 +2116,9 @@ func (a *AlterTableCmd) SqlString() string {
 				}
 			} else {
 				parts = append(parts, "NOT DEFERRABLE")
+				if constraint.Initdeferred {
+					parts = append(parts, "INITIALLY DEFERRED")
+				}
 			}
 		}
 

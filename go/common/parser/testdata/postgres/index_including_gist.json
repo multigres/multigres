@@ -120,7 +120,7 @@
   {
     "comment": "index_including_gist - Statement 26",
     "query": "/* * 6. EXCLUDE constraint. */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box, EXCLUDE USING gist (c4 WITH \u0026\u0026) INCLUDE (c1, c2, c3))",
-    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING gist (c4 WITH \u0026\u0026))"
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING gist (c4 WITH \u0026\u0026) INCLUDE (c1, c2, c3))"
   },
   {
     "comment": "index_including_gist - Statement 27",

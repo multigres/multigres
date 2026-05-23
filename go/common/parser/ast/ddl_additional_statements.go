@@ -761,7 +761,22 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			parts = append(parts, strings.Join(pubStrs, ", "))
 		}
 	case ALTER_SUBSCRIPTION_ENABLED:
-		parts = append(parts, "ENABLE")
+		// The "enabled" option carries whether this is ENABLE or DISABLE.
+		enabled := true
+		if a.Options != nil {
+			for _, item := range a.Options.Items {
+				if defElem, ok := item.(*DefElem); ok && defElem.Defname == "enabled" {
+					if b, ok := defElem.Arg.(*Boolean); ok {
+						enabled = b.BoolVal
+					}
+				}
+			}
+		}
+		if enabled {
+			parts = append(parts, "ENABLE")
+		} else {
+			parts = append(parts, "DISABLE")
+		}
 	case ALTER_SUBSCRIPTION_SKIP:
 		parts = append(parts, "SKIP")
 		if a.Options != nil && a.Options.Len() > 0 {

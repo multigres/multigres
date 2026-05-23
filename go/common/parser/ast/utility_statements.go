@@ -2294,6 +2294,11 @@ func (cs *CopyStmt) SqlString() string {
 		}
 	}
 
+	// Add WHERE clause (COPY FROM ... WHERE condition)
+	if cs.WhereClause != nil {
+		parts = append(parts, "WHERE", cs.WhereClause.SqlString())
+	}
+
 	return strings.Join(parts, " ")
 }
 

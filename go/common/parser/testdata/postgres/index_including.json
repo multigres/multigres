@@ -42,7 +42,7 @@
   {
     "comment": "index_including - Statement 9",
     "query": "ALTER TABLE tbl_include_unique1 add UNIQUE (c1, c2) INCLUDE (c3, c4)",
-    "expected": "ALTER TABLE tbl_include_unique1 ADD UNIQUE (c1, c2)"
+    "expected": "ALTER TABLE tbl_include_unique1 ADD UNIQUE (c1, c2) INCLUDE (c3, c4)"
   },
   {
     "comment": "index_including - Statement 10",
@@ -67,7 +67,7 @@
   {
     "comment": "index_including - Statement 14",
     "query": "ALTER TABLE tbl_include_unique2 add UNIQUE (c1, c2) INCLUDE (c3, c4)",
-    "expected": "ALTER TABLE tbl_include_unique2 ADD UNIQUE (c1, c2)"
+    "expected": "ALTER TABLE tbl_include_unique2 ADD UNIQUE (c1, c2) INCLUDE (c3, c4)"
   },
   {
     "comment": "index_including - Statement 15",
@@ -82,7 +82,7 @@
   {
     "comment": "index_including - Statement 17",
     "query": "ALTER TABLE tbl_include_pk add PRIMARY KEY (c1, c2) INCLUDE (c3, c4)",
-    "expected": "ALTER TABLE tbl_include_pk ADD PRIMARY KEY (c1, c2)"
+    "expected": "ALTER TABLE tbl_include_pk ADD PRIMARY KEY (c1, c2) INCLUDE (c3, c4)"
   },
   {
     "comment": "index_including - Statement 18",
@@ -127,12 +127,12 @@
   {
     "comment": "index_including - Statement 26",
     "query": "ALTER TABLE tbl_include_box_pk add PRIMARY KEY (c1, c2) INCLUDE (c3, c4)",
-    "expected": "ALTER TABLE tbl_include_box_pk ADD PRIMARY KEY (c1, c2)"
+    "expected": "ALTER TABLE tbl_include_box_pk ADD PRIMARY KEY (c1, c2) INCLUDE (c3, c4)"
   },
   {
     "comment": "index_including - Statement 27",
     "query": "/* * 2. Test CREATE TABLE with constraint */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, CONSTRAINT covering UNIQUE(c1,c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 28",
@@ -156,7 +156,7 @@
   {
     "comment": "index_including - Statement 32",
     "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, CONSTRAINT covering PRIMARY KEY(c1,c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering PRIMARY KEY (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering PRIMARY KEY (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 33",
@@ -199,12 +199,12 @@
   {
     "comment": "index_including - Statement 41",
     "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1,c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 42",
     "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, PRIMARY KEY(c1,c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, PRIMARY KEY (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, PRIMARY KEY (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 43",
@@ -214,7 +214,7 @@
   {
     "comment": "index_including - Statement 44",
     "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, EXCLUDE USING btree (c1 WITH =) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING btree (c1 WITH =))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING btree (c1 WITH =) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 45",
@@ -247,7 +247,7 @@
   {
     "comment": "index_including - Statement 51",
     "query": "/* * 3.2 Test ALTER TABLE DROP COLUMN. * Included column deletion leads to the index deletion. * AS well AS key columns deletion. It's explained in documentation. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 52",
@@ -282,7 +282,7 @@
   {
     "comment": "index_including - Statement 59",
     "query": "/* * 4. CREATE INDEX CONCURRENTLY */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 60",
@@ -297,7 +297,7 @@
   {
     "comment": "index_including - Statement 62",
     "query": "/* * 5. REINDEX */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 63",
@@ -381,7 +381,7 @@
   {
     "comment": "index_including - Statement 80",
     "query": "/* * 9. Alter column type. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
-    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2) INCLUDE (c3, c4))"
   },
   {
     "comment": "index_including - Statement 81",
