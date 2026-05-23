@@ -30,11 +30,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // ParseTest represents a single test case for the parser
@@ -223,6 +226,206 @@ func (s *parseTestSuite) TestParsing() {
 func (s *parseTestSuite) TestOne() {
 	// This can be used to test a single case file during development
 	s.testFile("onecase.json")
+}
+
+// boolOptionSpellings maps the non-canonical boolean spellings PostgreSQL
+// accepts as option values to the form the deparser emits. It only rewrites the
+// spelling (never removes the value), so a dropped option still fails the check.
+var boolOptionSpellings = map[string]string{
+	"on":  "true",
+	"off": "false",
+	"yes": "true",
+	"no":  "false",
+}
+
+// canonicalizeForRoundtrip rewrites stmt in place so that an AST and its
+// deparse→re-parse counterpart differ only when the deparser actually lost or
+// changed information (the "real bug" cases), not when it merely re-spelled
+// something in an equivalent canonical form. It also zeroes source locations.
+//
+// Each rule below is deliberately narrow and applied to *both* sides of the
+// comparison. Crucially, the rules only collapse node classes where the
+// deparser is loss-free (boolean option spellings and bare flags, the CROSS
+// JOIN spelling, the implicit pg_catalog type schema, the default IN parameter
+// mode, and order-independent ALTER DEFAULT PRIVILEGES options). They never
+// touch a clause whose absence would indicate information loss, so genuine
+// deparser bugs still surface.
+func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
+	result := ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		switch n := cursor.Node().(type) {
+		case *ast.DefElem:
+			// A bare boolean flag (VACUUM FULL) and its explicit "= true" form
+			// are equivalent; the deparser renders both as just the name. Only
+			// a *Boolean arg is collapsed: the grammar produces *Boolean solely
+			// for genuine boolean flags, whereas arbitrary option values (an FDW
+			// OPTIONS string, a reloption) are *String/*Integer and are left
+			// untouched so a dropped or changed value still fails the check.
+			if b, ok := n.Arg.(*ast.Boolean); ok && b.BoolVal {
+				n.Arg = nil
+			}
+		case *ast.String:
+			// Boolean option values are deparsed in canonical spelling
+			// (on->true, off->false). Only an option value is touched, never a
+			// data literal, and only the spelling changes, so a dropped option
+			// value still fails the check.
+			if _, ok := cursor.Parent().(*ast.DefElem); ok {
+				if v, isBool := boolOptionSpellings[strings.ToLower(n.SVal)]; isBool {
+					n.SVal = v
+				}
+			}
+		case *ast.JoinExpr:
+			// CROSS JOIN is deparsed as INNER JOIN ON TRUE.
+			if n.Jointype == ast.JOIN_INNER && !n.IsNatural &&
+				n.UsingClause == nil && isTrueConst(n.Quals) {
+				n.Quals = nil
+			}
+		case *ast.TypeName:
+			// pg_catalog is the implicit schema for built-in types, so
+			// `pg_catalog.int4` and `int4` are the same type. The deparser drops
+			// the explicit namespace (and canonicalizes the name), so strip a
+			// leading pg_catalog qualifier before comparing.
+			if n.Names != nil && len(n.Names.Items) > 1 {
+				if s, ok := n.Names.Items[0].(*ast.String); ok && s.SVal == "pg_catalog" {
+					n.Names.Items = n.Names.Items[1:]
+				}
+			}
+		case *ast.FunctionParameter:
+			// IN is the default parameter mode and PostgreSQL omits it when
+			// printing, so a parameter parsed as IN deparses without a mode and
+			// re-parses as DEFAULT. The two are documented as equivalent.
+			if n.Mode == ast.FUNC_PARAM_IN {
+				n.Mode = ast.FUNC_PARAM_DEFAULT
+			}
+		case *ast.AlterDefaultPrivilegesStmt:
+			// The IN SCHEMA and FOR ROLE options are order-independent but held
+			// in an ordered list; the deparser emits them in a canonical order.
+			// Sort by defname so the comparison ignores the original order.
+			if n.Options != nil {
+				sortDefElemsByName(n.Options.Items)
+			}
+		}
+		if n := cursor.Node(); n != nil {
+			n.SetLocation(0)
+		}
+		return true
+	}, nil)
+	return result.(ast.Stmt)
+}
+
+// sortDefElemsByName stably sorts a slice of DefElem nodes by their defname.
+// Items that are not DefElems are ordered by an empty key.
+func sortDefElemsByName(items []ast.Node) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return defElemName(items[i]) < defElemName(items[j])
+	})
+}
+
+func defElemName(n ast.Node) string {
+	if de, ok := n.(*ast.DefElem); ok {
+		return de.Defname
+	}
+	return ""
+}
+
+// isTrueConst reports whether n is the boolean constant TRUE.
+func isTrueConst(n ast.Node) bool {
+	c, ok := n.(*ast.A_Const)
+	if !ok {
+		return false
+	}
+	b, ok := c.Val.(*ast.Boolean)
+	return ok && b.BoolVal
+}
+
+// canonicalizeStmts applies canonicalizeForRoundtrip to each statement in place.
+// It must be called only after the statements have been deparsed, since
+// canonicalization mutates the tree (see canonicalizeForRoundtrip).
+func canonicalizeStmts(stmts []ast.Stmt) {
+	for i := range stmts {
+		stmts[i] = canonicalizeForRoundtrip(stmts[i])
+	}
+}
+
+// deparseStmts renders a slice of statements back to SQL, mirroring how
+// getParserOutput joins multiple statements.
+func deparseStmts(stmts []ast.Stmt) string {
+	var sqls string
+	for _, stmt := range stmts {
+		if sqls != "" {
+			sqls += "; "
+		}
+		sqls += stmt.SqlString()
+	}
+	return sqls
+}
+
+// roundtripFile runs AST round-trip checks for a single test file. For every
+// query that parses successfully it parses the query, deparses the resulting
+// AST, and parses the deparsed SQL again. The AST from the first parse must be
+// structurally identical to the AST from the second parse. This catches deparser
+// bugs where the emitted SQL is syntactically valid but does not reconstruct the
+// original tree.
+//
+// The pristine first parse is deparsed *before* canonicalization, because
+// canonicalization mutates the tree (e.g. collapses a boolean arg) in ways that
+// would change deparse output. Both trees are canonicalized only afterwards, for
+// the comparison.
+func (s *parseTestSuite) roundtripFile(filename string) {
+	s.T().Run(filename, func(t *testing.T) {
+		for _, tcase := range readJSONTests(filename) {
+			if tcase.Query == "" {
+				continue
+			}
+
+			firstStmts, err := ParseSQL(tcase.Query)
+			if err != nil {
+				// Queries that fail to parse are exercised by the parse tests;
+				// there is nothing to round-trip here.
+				continue
+			}
+
+			testName := tcase.Comment
+			if testName == "" {
+				testName = tcase.Query
+			}
+
+			t.Run(testName, func(t *testing.T) {
+				deparsed := deparseStmts(firstStmts)
+				secondStmts, err := ParseSQL(deparsed)
+				require.NoError(t, err,
+					"re-parsing the deparsed query failed\nquery:    %s\ndeparsed: %s",
+					tcase.Query, deparsed)
+
+				canonicalizeStmts(firstStmts)
+				canonicalizeStmts(secondStmts)
+				require.Equal(t, firstStmts, secondStmts,
+					"AST changed after round-trip\nquery:    %s\ndeparsed: %s",
+					tcase.Query, deparsed)
+			})
+		}
+	})
+}
+
+// TestParseDeparseRoundtrip verifies that parsing a query, deparsing it, and
+// parsing the result again yields a structurally identical AST. It covers both
+// the curated case files and the full PostgreSQL regression corpus.
+// canonicalizeForRoundtrip collapses the deparser's loss-free spellings so that
+// only genuine deparser bugs fail here.
+func (s *parseTestSuite) TestParseDeparseRoundtrip() {
+	s.roundtripFile("select_cases.json")
+	s.roundtripFile("misc_cases.json")
+	s.roundtripFile("ddl_cases.json")
+	s.roundtripFile("dml_cases.json")
+	s.roundtripFile("set_cases.json")
+
+	postgresDir := "testdata/postgres"
+	files, err := os.ReadDir(postgresDir)
+	require.NoError(s.T(), err, "failed to read postgres test directory")
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			s.roundtripFile(filepath.Join("postgres", file.Name()))
+		}
+	}
 }
 
 // TestPostgresTestsParsing runs tests from all PostgreSQL test files

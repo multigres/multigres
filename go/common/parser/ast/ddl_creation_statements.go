@@ -243,6 +243,9 @@ func (cfs *CreateFunctionStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (cfs *CreateFunctionStmt) SetLocation(int) {}
+
 // NodeTag returns the node's type tag
 func (cfs *CreateFunctionStmt) NodeTag() NodeTag {
 	return T_CreateFunctionStmt
@@ -1129,6 +1132,9 @@ func (ccs *CreateCastStmt) StatementType() string {
 func (ccs *CreateCastStmt) Location() int {
 	return 0
 }
+
+// SetLocation is a no-op; this node does not track source location yet.
+func (ccs *CreateCastStmt) SetLocation(int) {}
 
 func (ccs *CreateCastStmt) NodeTag() NodeTag {
 	return T_CreateCastStmt
@@ -2292,6 +2298,9 @@ func (css *CreateStatsStmt) Location() int {
 	return 0
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (css *CreateStatsStmt) SetLocation(int) {}
+
 func (css *CreateStatsStmt) NodeTag() NodeTag {
 	return T_CreateStatsStmt
 }
@@ -2502,6 +2511,9 @@ func (ctas *CreateTableAsStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (ctas *CreateTableAsStmt) SetLocation(int) {}
+
 // NodeTag returns the node's type tag
 func (ctas *CreateTableAsStmt) NodeTag() NodeTag {
 	return T_CreateTableAsStmt
@@ -2654,6 +2666,9 @@ func (rmvs *RefreshMatViewStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (rmvs *RefreshMatViewStmt) SetLocation(int) {}
+
 // NodeTag returns the node's type tag
 func (rmvs *RefreshMatViewStmt) NodeTag() NodeTag {
 	return T_RefreshMatViewStmt
@@ -2774,6 +2789,11 @@ func (n *CreateAssertionStmt) StatementType() string {
 // Location returns the statement's source location
 func (n *CreateAssertionStmt) Location() int {
 	return n.Loc
+}
+
+// SetLocation sets the statement's source location.
+func (n *CreateAssertionStmt) SetLocation(loc int) {
+	n.Loc = loc
 }
 
 // NodeTag returns the node's type tag
