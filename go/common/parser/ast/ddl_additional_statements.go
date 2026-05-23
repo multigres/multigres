@@ -389,8 +389,14 @@ func formatPubTable(pt *PublicationTable) string {
 	return s
 }
 
+// formatPubObjList renders a publication object list, preserving the original
+// order. A TABLE / TABLES IN SCHEMA keyword is emitted only when the object type
+// changes; consecutive same-type objects share the preceding keyword (the
+// inverse of preprocessPubObjList). Grouping the tables and schemas separately
+// would reorder the list and change the parsed tree.
 func formatPubObjList(pubObjects *NodeList) string {
-	var tableObjs, schemaObjs []string
+	var parts []string
+	prev := PUBLICATIONOBJ_CONTINUATION // sentinel: forces a keyword on the first object
 	for _, item := range pubObjects.Items {
 		pubObj, ok := item.(*PublicationObjSpec)
 		if !ok {
@@ -398,25 +404,39 @@ func formatPubObjList(pubObjects *NodeList) string {
 		}
 		switch pubObj.PubObjType {
 		case PUBLICATIONOBJ_TABLE:
-			if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-				tableObjs = append(tableObjs, formatPubTable(pubObj.PubTable))
+			if pubObj.PubTable == nil || pubObj.PubTable.Relation == nil {
+				continue
 			}
+			obj := formatPubTable(pubObj.PubTable)
+			if prev != PUBLICATIONOBJ_TABLE {
+				obj = "TABLE " + obj
+			}
+			parts = append(parts, obj)
 		case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
-			if pubObj.Name != "" {
-				schemaObjs = append(schemaObjs, QuoteIdentifier(pubObj.Name))
+			obj := QuoteIdentifier(pubObj.Name)
+			// A continuation entry can carry the name in PubTable instead.
+			if pubObj.Name == "" && pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+				obj = pubObj.PubTable.Relation.SqlString()
 			}
+			if obj == "" {
+				continue
+			}
+			if prev != PUBLICATIONOBJ_TABLES_IN_SCHEMA {
+				obj = "TABLES IN SCHEMA " + obj
+			}
+			parts = append(parts, obj)
 		case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
-			schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
+			obj := "CURRENT_SCHEMA"
+			if prev != PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA {
+				obj = "TABLES IN SCHEMA " + obj
+			}
+			parts = append(parts, obj)
+		default:
+			continue
 		}
+		prev = pubObj.PubObjType
 	}
-	var groups []string
-	if len(tableObjs) > 0 {
-		groups = append(groups, "TABLE "+strings.Join(tableObjs, ", "))
-	}
-	if len(schemaObjs) > 0 {
-		groups = append(groups, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
-	}
-	return strings.Join(groups, ", ")
+	return strings.Join(parts, ", ")
 }
 
 // CreatePublicationStmt represents CREATE PUBLICATION statement

@@ -3388,7 +3388,7 @@
   {
     "comment": "alter_table - Statement 708",
     "query": "begin; alter table alterlock set (toast.autovacuum_enabled = off)",
-    "expected": "BEGIN; ALTER TABLE alterlock SET (autovacuum_enabled = off)"
+    "expected": "BEGIN; ALTER TABLE alterlock SET (toast.autovacuum_enabled = off)"
   },
   {
     "comment": "alter_table - Statement 709",

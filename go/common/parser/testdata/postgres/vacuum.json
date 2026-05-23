@@ -393,13 +393,12 @@
   },
   {
     "comment": "vacuum - Statement 89",
-    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, toast.vacuum_index_cleanup = yes)",
-    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, vacuum_index_cleanup = yes)"
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, toast.vacuum_index_cleanup = yes)"
   },
   {
     "comment": "vacuum - Statement 90",
     "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = true, toast.vacuum_index_cleanup = false)",
-    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = 'true', vacuum_index_cleanup = 'false')"
+    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = 'true', toast.vacuum_index_cleanup = 'false')"
   },
   {
     "comment": "vacuum - Statement 91",
