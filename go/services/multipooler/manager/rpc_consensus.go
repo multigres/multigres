@@ -627,7 +627,7 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Honor the revocation promise we made via Recruit/BeginTerm. If the
+	// Honor the revocation promise we made via Recruit. If the
 	// incoming rule is revoked, ignore it: SetTermPrimary is a best-effort FYI and
 	// the cohort will reconverge as it makes progress. Returning the cached
 	// status keeps the response shape consistent with the "incoming rule
@@ -718,8 +718,8 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			return nil, err
 		}
 		// Ensure topology reflects REPLICA. This matters when postgres has
-		// already been demoted (e.g. by BeginTerm REVOKE or an external
-		// pg_promote-then-restart) but the pooler's topology entry still
+		// already been demoted (e.g. by a prior Recruit on this node or an
+		// external pg_promote-then-restart) but the pooler's topology entry still
 		// reads PRIMARY. Without this, the stale PRIMARY label causes the
 		// stale-leader analyzer to keep firing forever. Propose has the same
 		// step on its replica branch for the same reason.
