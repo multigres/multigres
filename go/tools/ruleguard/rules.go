@@ -143,3 +143,38 @@ func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
 		m.File().PkgPath.Matches(`common/consensus`)).
 		Report("maps.Keys/Values/All iterate in non-deterministic order; use sortedmaps.Keys/Values/All instead")
 }
+
+// disallowGoroutinesInConsensus flags `go` statements in production code under
+// common/consensus. Goroutine scheduling is non-deterministic; consensus logic
+// must remain step-driven and synchronous so simulation and tests are
+// reproducible.
+func disallowGoroutinesInConsensus(m dsl.Matcher) {
+	m.Match(`go $_($*_)`).
+		Where(
+			m.File().PkgPath.Matches(`common/consensus`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("goroutines introduce scheduling non-determinism; keep consensus logic step-driven and synchronous")
+}
+
+// disallowWallClockInConsensus flags reads of the wall clock in production
+// code under common/consensus. Consensus logic must be deterministic: time
+// should be supplied as a tick parameter or injected via a clock interface,
+// never read from the host clock. Pure constructors like time.Date, time.Unix,
+// and time.UTC are not flagged.
+func disallowWallClockInConsensus(m dsl.Matcher) {
+	m.Import("time")
+
+	m.Match(
+		`time.Now()`,
+		`time.Since($_)`,
+		`time.Until($_)`,
+		`time.After($_)`,
+		`time.Tick($_)`,
+		`time.Sleep($_)`,
+		`time.NewTimer($_)`,
+		`time.NewTicker($_)`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("reading wall-clock time breaks determinism; pass a tick from the caller or use an injected clock")
+}
