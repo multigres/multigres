@@ -85,10 +85,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// need to trigger failover.
 	//
 	// Note: this relies on the resign flow maintaining PoolerType_PRIMARY until
-	// DemoteStalePrimary completes. If a node somehow becomes the consensus leader
-	// while reporting PoolerType_REPLICA (e.g. a crash-restart as standby without
-	// going through the normal resign → appoint → demote flow), this check would
-	// miss it and proceed with an appointment unnecessarily.
+	// the stale-leader demotion completes. If a node somehow becomes the consensus
+	// leader while reporting PoolerType_REPLICA (e.g. a crash-restart as standby
+	// without going through the normal resign → appoint → demote flow), this check
+	// would miss it and proceed with an appointment unnecessarily.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||

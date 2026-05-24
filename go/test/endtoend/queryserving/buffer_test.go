@@ -259,7 +259,7 @@ func TestBufferMultipleFailovers(t *testing.T) {
 
 	// Use longer buffer timeouts than the single-failover tests. Consecutive
 	// failovers are slower because multiorch must detect the dead primary,
-	// run DemoteStalePrimary (pg_rewind), and restart it before the next
+	// demote it via SetTermPrimary (pg_rewind), and restart it before the next
 	// failover can proceed. On CI this can exceed the default 10s window.
 	setup, cleanup := newBufferTestClusterWithConfig(t,
 		"--buffer-enabled",

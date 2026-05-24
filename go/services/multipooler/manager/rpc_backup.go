@@ -863,9 +863,8 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 
 	// Replica poolers MUST have primary info to backup from primary. The
 	// canonical source is consensusState.ReplicationPrimary, populated by
-	// every RPC that informs this pooler of a primary (SetTermPrimary, the
-	// legacy SetPrimaryConnInfo / DemoteStalePrimary, and Propose's leader
-	// path for the rare self-as-primary case).
+	// every RPC that informs this pooler of a primary (SetTermPrimary and
+	// Propose's leader path for the rare self-as-primary case).
 	primary := pm.consensusState.GetReplicationPrimary().GetPrimary()
 	primaryHost := primary.GetHost()
 	primaryPort := primary.GetPostgresPort()

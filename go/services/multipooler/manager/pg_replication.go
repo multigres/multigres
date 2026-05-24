@@ -65,8 +65,8 @@ type poolerID struct {
 // newPoolerID generates the poolerID for a multipooler from its ID.
 // Format: {cell}_{name}
 // This is used consistently for:
-// - SetPrimaryConnInfo: standby's application_name when connecting to primary
-// - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+// - primary_conninfo: standby's application_name when connecting to primary
+// - synchronous_standby_names: standby identities on the primary
 //
 // On validation failure an approximate poolerID is returned alongside the error.
 // The approximate appName is "{cell}_{name}" with missing fields replaced by
@@ -1076,7 +1076,7 @@ func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) 
 	return pids, nil
 }
 
-// validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
+// validateSyncReplicationParams validates the parameters for setting synchronous_standby_names.
 func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) {
 	// Validate numSync is non-negative
 	if numSync < 0 {

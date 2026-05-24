@@ -163,7 +163,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 // 4. Write data to new primary to ensure timeline has diverged
 // 5. Leave P1's postgres stopped (it's still marked PRIMARY in topology with old term)
 // 6. Multiorch detects stale primary (both PRIMARY in topology, P1 has lower term)
-// 7. Multiorch calls DemoteStalePrimary which starts postgres, runs pg_rewind, restarts as standby
+// 7. Multiorch calls SetTermPrimary which starts postgres, runs pg_rewind, restarts as standby
 // 8. Multiorch configures replication from P2
 // 9. Verify P1 rejoins as a replica of P2
 //
@@ -337,12 +337,12 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
 
-	// Verify primary_term is 0 after DemoteStalePrimary (demoted node is no longer primary)
+	// Verify primary_term is 0 after stale-primary demotion (demoted node is no longer primary)
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
 	require.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
-		"Demoted stale primary %s should have primary_term=0 after DemoteStalePrimary", replicaName)
+		"Demoted stale primary %s should have primary_term=0 after demotion", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }
 

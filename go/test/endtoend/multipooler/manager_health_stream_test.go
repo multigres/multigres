@@ -117,7 +117,7 @@ func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
 			}
 			// Not a broadcast snapshot (e.g. a concurrent heartbeat); keep waiting.
 		case <-t.Context().Done():
-			t.Fatal("no broadcast snapshot received before test timeout — SetPrimaryConnInfo may not be triggering a broadcast")
+			t.Fatal("no broadcast snapshot received before test timeout — SetTermPrimary may not be triggering a broadcast")
 		}
 	}
 }

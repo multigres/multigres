@@ -223,9 +223,8 @@ func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term 
 	return nil
 }
 
-// clearResignedLeaderAtTerm clears the leadership demotion request. Called by
-// coordinator-driven promotion (Promote) when this node is explicitly
-// re-appointed as primary at a new term.
+// clearResignedLeaderAtTerm clears the leadership demotion request. Called when
+// this node is appointed as primary at a new term.
 // Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
@@ -560,13 +559,12 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 // SetTermPrimary is a successful no-op — this makes it safe under retries and under
 // out-of-order delivery from stale recovery rounds.
 //
-// When the receiver is a standby, SetTermPrimary rewrites primary_conninfo (same effect
-// as SetPrimaryConnInfo). When the receiver is currently acting as primary,
-// the caller knows about a more recent rule with a different leader, so this
-// node is a stale primary and gets demoted (same effect as DemoteStalePrimary).
+// When the receiver is a standby, SetTermPrimary rewrites primary_conninfo.
+// When the receiver is currently acting as primary, the caller knows about a
+// more recent rule with a different leader, so this node is a stale primary
+// and gets demoted via pg_rewind.
 //
-// Unlike SetPrimaryConnInfo and DemoteStalePrimary, SetTermPrimary does not perform
-// term validation — the rule comparison is the gate.
+// SetTermPrimary does not perform term validation — the rule comparison is the gate.
 //
 // TODO: when the rule comparison no-ops but WAL replay is paused
 // (pg_is_wal_replay_paused), the caller's intent ("ensure this replica is

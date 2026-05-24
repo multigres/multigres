@@ -46,8 +46,13 @@ var _ types.RecoveryAction = (*DemoteStaleLeaderAction)(nil)
 const StaleLeaderDrainTimeout = 5 * time.Second
 
 // DemoteStaleLeaderAction demotes a stale leader that was detected after failover.
-// It uses the DemoteStalePrimary RPC with the correct leader's term to force the stale leader
-// to accept the term and demote, preventing further writes.
+// It uses the SetTermPrimary RPC with the correct leader's rule to force the stale leader
+// to accept the new leader, run pg_rewind, and restart as a standby.
+//
+// TODO: this action and FixReplicationAction (which reconnects orphan replicas)
+// now both reduce to a single SetTermPrimary RPC against the misbehaving node.
+// They should eventually share one underlying action — detection can stay split
+// for metrics/monitoring, but the mutation path is identical.
 type DemoteStaleLeaderAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
@@ -96,16 +101,13 @@ func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	// The demote goes through SetTermPrimary, which is position-fenced: a
 	// leader that's only momentarily-stale would see its own rule >= the
 	// incoming rule and no-op without touching postgres. A spurious detection
-	// costs an RPC, not a wrongful demote, so the grace period that guarded
-	// the old destructive DemoteStalePrimary RPC is no longer needed.
+	// costs an RPC, not a wrongful demote, so no grace period is needed.
 	return nil
 }
 
-// Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct leader's term.
-// This is safer than Recruit because:
-// 1. We use the correct leader's term (not a new term), avoiding term inconsistency
-// 2. The stale leader accepts term >= its current term and demotes
-// 3. Both leaders end up with the same term (no term inconsistency)
+// Execute demotes the stale leader using SetTermPrimary with the correct leader's rule.
+// This is safer than Recruit because we use the correct leader's existing rule rather than
+// minting a new term, so both leaders end up agreeing on the same term and rule.
 func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
@@ -134,7 +136,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		return mterrors.Wrap(err, "failed to find correct leader")
 	}
 
-	a.logger.InfoContext(ctx, "demoting stale leader using DemoteStalePrimary RPC",
+	a.logger.InfoContext(ctx, "demoting stale leader via SetTermPrimary",
 		"stale_leader", poolerIDStr,
 		"correct_leader", correctLeader.MultiPooler.Id.Name,
 		"correct_leader_term", correctLeaderTerm)

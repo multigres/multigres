@@ -92,11 +92,10 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 //
 // Refuses with FAILED_PRECONDITION when StopReplication previously cleared
 // primary_conninfo and set the manual-stop flag — every conninfo writer
-// (orch's FixReplication via SetPrimaryConnInfo, SetTermPrimary's standby
-// branch, and the postgres-monitor self-heal) funnels through here, so this
-// single check is what keeps the admin pause honored against routine
-// reconciliation. Use StartReplication to clear the flag before rewriting
-// conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
+// (SetTermPrimary's standby branch and the postgres-monitor self-heal)
+// funnels through here, so this single check is what keeps the admin pause
+// honored against routine reconciliation. Use StartReplication to clear the
+// flag before rewriting conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
 // this point — a stale-primary detection is an escalated event that
 // supersedes an older admin pause.
 func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
@@ -121,7 +120,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	if isPrimary {
-		pm.logger.ErrorContext(ctx, "SetPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
+		pm.logger.ErrorContext(ctx, "setPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
@@ -164,7 +163,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	// Optionally start replication after making changes.
-	// Note: If replication was already running when calling SetPrimaryConnInfo,
+	// Note: If replication was already running when setPrimaryConnInfoLocked was called,
 	// even if we don't set startReplicationAfter to true, replication will be running.
 	if startReplicationAfter {
 		// Wait for database to be available after restart
@@ -179,7 +178,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "SetPrimaryConnInfo completed successfully",
+	pm.logger.InfoContext(ctx, "setPrimaryConnInfo completed successfully",
 		"host", host,
 		"port", port,
 		"stop_replication_before", stopReplicationBefore,
@@ -257,7 +256,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	// does not "self-heal" the cleared conninfo back to the recorded primary,
 	// and so this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE while
 	// stopped. Cleared the next time something re-establishes the primary
-	// link (SetTermPrimary / SetPrimaryConnInfo / demoteStalePrimaryLocked).
+	// link (SetTermPrimary / setPrimaryConnInfoLocked / demoteStalePrimaryLocked).
 	switch mode {
 	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
@@ -443,11 +442,12 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 	currentCohort := pos.GetRule().GetCohortMembers()
 
-	// Check if synchronous replication is configured
+	// Check if synchronous replication is configured (i.e. the primary already
+	// has a cohort recorded from a previous Propose/promotion).
 	if len(currentCohort) == 0 {
 		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
+			"empty cohort -- shard bootstrap needed")
 	}
 
 	// Convert current cohort IDs to pooler IDs for set operations.
@@ -656,39 +656,6 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 	return nil
 }
 
-// ChangeType changes the pooler type (PRIMARY/REPLICA)
-func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "ChangeType")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Validate pooler type
-	var newType clustermetadatapb.PoolerType
-	// TODO: For now allow to change type to PRIMARY, this is to make it easier
-	// to perform tests while we are still developing HA. Once, we have multiorch
-	// fully implemented, we shouldn't allow to change the type to Primary.
-	// This would happen organically as part of Promote workflow.
-	switch poolerType {
-	case "PRIMARY":
-		newType = clustermetadatapb.PoolerType_PRIMARY
-	case "REPLICA":
-		newType = clustermetadatapb.PoolerType_REPLICA
-	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid pooler type: %s, must be PRIMARY or REPLICA", poolerType))
-	}
-
-	// Call the locked version
-	return pm.changeTypeLocked(ctx, newType)
-}
-
 // emergencyDemoteLocked performs the core demotion logic.
 // REQUIRES: action lock must already be held by the caller.
 // This is used for emergency demote operations.
@@ -859,13 +826,11 @@ func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
 		"source_port", port)
 
 	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
-	// source for "who is the primary now." The new flow's SetTermPrimary
-	// passes the real rule; the legacy DemoteStalePrimary RPC synthesises one
-	// from its term parameter.
+	// source for "who is the primary now." SetTermPrimary passes the real rule.
 	pm.consensusState.RecordTermPrimary(rule, source)
 
 	// Call the locked version directly since we already hold the action lock
-	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
+	// (calling setPrimaryConnInfo without the suffix would deadlock trying to acquire the same lock)
 	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, false, false); err != nil {
 		return false, "", mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
@@ -1032,7 +997,7 @@ func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, re
 }
 
 // ====================================================================================
-// Helper methods for DemoteStalePrimary
+// Helper methods for stale-primary demotion (used by SetTermPrimary)
 // ====================================================================================
 
 // stopPostgresIfRunning stops postgres if it's currently running.

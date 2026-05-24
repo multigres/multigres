@@ -65,7 +65,7 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 // Idempotency:
 // This action is fully idempotent. If multiple multiorch instances race to fix
 // the same problem, the end result will be identical. The underlying RPC
-// operations (SetPrimaryConnInfo) are implemented as idempotent operations
+// operations (SetTermPrimary) are implemented as idempotent operations
 // at the pooler level and serialized by action locks on the poolers, so
 // concurrent calls are safe and produce the same final state.
 

@@ -187,8 +187,8 @@ type MultiPoolerManager struct {
 	// the recorded primary — the admin/test explicitly asked replication to
 	// stop. While set, this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE
 	// in its status so the coordinator does not try to include it in the
-	// cohort. Cleared by SetTermPrimary, SetPrimaryConnInfo, and
-	// demoteStalePrimaryLocked — anything that re-establishes a primary
+	// cohort. Cleared by SetTermPrimary and demoteStalePrimaryLocked —
+	// anything that re-establishes a primary
 	// link is interpreted as the admin signal expiring. Not persisted; a
 	// process restart implicitly clears it.
 	walReceiverManuallyStopped atomic.Bool
@@ -1308,7 +1308,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// TODO: this defer fires before configureReplicationAfterPromotion and
 	// rules.updateRule in the caller, so multiorch sees PRIMARY status while sync
 	// replication is not yet configured and rule history has not been written. If
-	// we want the PROMOTING window to cover the full Promote RPC (including the
+	// we want the PROMOTING window to cover the full promotion path (including the
 	// sync standby ack gate), the defer should move to the caller instead.
 	defer func() {
 		pm.promotionInProgress.Store(false)
