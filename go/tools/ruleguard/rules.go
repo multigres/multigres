@@ -114,3 +114,32 @@ func disallowDirectPgctldStopInTests(m dsl.Matcher) {
 				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
 		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
 }
+
+// requireSortedMapIteration flags direct map range loops in the consensus
+// package. Non-deterministic map iteration order can cause consensus tests
+// to pass or fail differently across Go runs, making failures hard to
+// reproduce. Use sortedmaps.All/Keys/Values instead.
+func requireSortedMapIteration(m dsl.Matcher) {
+	m.Match(
+		`for $k, $v := range $x { $*_ }`,
+		`for $k := range $x { $*_ }`,
+	).Where(
+		m["x"].Type.Is("map[$_]$_") &&
+			m.File().PkgPath.Matches(`common/consensus`)).
+		Report("map iteration is non-deterministic across Go runs; use sortedmaps.All/Keys/Values for deterministic iteration")
+}
+
+// requireSortedMapsOverStdlibMaps flags calls to stdlib maps.Keys/Values/All in
+// the consensus package. These functions return elements in non-deterministic
+// order; use sortedmaps.Keys/Values/All instead.
+func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
+	m.Import("maps")
+
+	m.Match(
+		`maps.Keys($x)`,
+		`maps.Values($x)`,
+		`maps.All($x)`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`)).
+		Report("maps.Keys/Values/All iterate in non-deterministic order; use sortedmaps.Keys/Values/All instead")
+}
