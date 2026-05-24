@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -41,20 +40,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// fakeConnPoolMgr is a minimal PoolManager stub for tests that only need to
-// control the superuser name visible to MultiPoolerManager (e.g. asserting the
-// rendered primary_conninfo). All other methods inherit the embedded nil
-// interface and will panic if called — keep usage scoped to tests that don't
-// exercise the real pool.
-type fakeConnPoolMgr struct {
-	connpoolmanager.PoolManager
-	user string
-}
-
-func (f *fakeConnPoolMgr) PgUser() string             { return f.user }
-func (f *fakeConnPoolMgr) PgPassword() (string, bool) { return "", false }
-func (f *fakeConnPoolMgr) Close()                     {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
@@ -259,22 +244,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		callMethod func(context.Context) error
 	}{
 		{
-			name:       "SetPrimaryConnInfo times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				primary := &clustermetadatapb.MultiPooler{
-					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER,
-						Cell:      "zone1",
-						Name:      "test-primary",
-					},
-					Hostname: "localhost",
-					PortMap:  map[string]int32{"postgres": 5432},
-				}
-				return manager.SetPrimaryConnInfo(ctx, primary, false, false, 1, true)
-			},
-		},
-		{
 			name:       "StartReplication times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
@@ -293,21 +262,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
 				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "ConfigureSynchronousReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.ConfigureSynchronousReplication(
-					ctx,
-					multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-					multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-					1,
-					[]*clustermetadatapb.ID{serviceID},
-					true,  // reloadConfig
-					false, // force
-				)
 			},
 		},
 		{
@@ -372,133 +326,6 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-}
-
-func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-replica",
-	}
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-	t.Cleanup(cleanupPgctld)
-
-	// Create the database in topology with backup location
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	// Create REPLICA multipooler
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	tmpDir := t.TempDir()
-	createPgDataDir(t, tmpDir)
-
-	multipooler.PoolerDir = tmpDir
-
-	config := &Config{
-		TopoClient: ts,
-		PgctldAddr: pgctldAddr,
-	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	defer pm.Shutdown()
-
-	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	err = pm.setInitialized()
-	require.NoError(t, err)
-
-	// Initialize consensus state
-	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
-	pm.mu.Unlock()
-
-	// Set up mock query service
-	mockQueryService := mock.NewQueryService()
-	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
-	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo — capture the full
-	// SQL so we can assert on the rendered libpq conninfo.
-	var capturedConnInfoSQL string
-	mockQueryService.AddQueryPatternWithCallback(
-		"ALTER SYSTEM SET primary_conninfo",
-		mock.MakeQueryResult(nil, nil),
-		func(sql string) { capturedConnInfoSQL = sql },
-	)
-	// SetPrimaryConnInfo executes pg_reload_conf()
-	expectReloadConfig(mockQueryService)
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Inject a fake pool manager so we can verify primary_conninfo uses the
-	// configured superuser name.
-	const testSuperuser = "admin"
-	pm.mu.Lock()
-	pm.connPoolMgr = &fakeConnPoolMgr{user: testSuperuser}
-	pm.mu.Unlock()
-
-	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
-	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
-	setTermForTest(t, tmpDir, term)
-	// Reload consensus state to pick up the term from file
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err, "Failed to load consensus state")
-
-	// Call SetPrimaryConnInfo with a specific primary MultiPooler
-	testPrimaryID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "primary-pooler-123",
-	}
-	primary := &clustermetadatapb.MultiPooler{
-		Id:       testPrimaryID,
-		Hostname: "primary-host",
-		PortMap:  map[string]int32{"postgres": 5432},
-	}
-	err = pm.SetPrimaryConnInfo(ctx, primary, false, false, 1, false)
-	require.NoError(t, err)
-
-	// Verify all mock expectations were met
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-
-	// Verify the rendered primary_conninfo wires the configured superuser into
-	// the user= slot. Regression guard for the bug where the database name was
-	// being passed here.
-	assert.Contains(t, capturedConnInfoSQL, "user="+testSuperuser,
-		"primary_conninfo must contain user=%s, got: %s", testSuperuser, capturedConnInfoSQL)
-
-	// Verify the primary's id is recorded in the canonical ReplicationPrimary.
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
-	require.NotNil(t, recorded, "primary should be recorded")
-	storedPrimaryPoolerID := recorded.GetId()
-	require.NotNil(t, storedPrimaryPoolerID, "primary id should be recorded")
-	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primary id component should match")
-	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primary id cell should match")
-	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primary id name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {
@@ -921,117 +748,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
 		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
 	})
-}
-
-func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *testing.T) {
-	// This test verifies that if updateRule fails,
-	// the synchronous_commit and synchronous_standby_names GUCs are NOT updated.
-	// This ensures that we only update GUCs if the rule update succeeds.
-
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-primary",
-	}
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	poolerDir := t.TempDir()
-	createPgDataDir(t, poolerDir)
-
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
-		Type:          clustermetadatapb.PoolerType_PRIMARY,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	multipooler.PoolerDir = poolerDir
-
-	// Set consensus term
-	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
-		RevokedBelowTerm: 1,
-	})
-
-	config := &Config{
-		TopoClient: ts,
-	}
-	manager, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	defer manager.Shutdown()
-
-	// Initialize consensus state so the manager can read the term
-	manager.mu.Lock()
-	manager.consensusState = NewConsensusState(poolerDir, serviceID)
-	manager.mu.Unlock()
-
-	// Load the term from file
-	_, err = manager.consensusState.Load()
-	require.NoError(t, err, "Failed to load consensus state")
-
-	// Set up mock query service
-	mockQueryService := mock.NewQueryService()
-
-	// Mock for startup: pg_is_in_recovery returns false (PRIMARY)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
-
-	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
-
-	// Mark as initialized
-	err = manager.setInitialized()
-	require.NoError(t, err)
-
-	// Start and wait for ready
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond)
-
-	// We do NOT add expectations for ALTER SYSTEM SET queries
-	// If they get called, ExpectationsWereMet() will fail
-
-	// Call ConfigureSynchronousReplication
-	standbyIDs := []*clustermetadatapb.ID{
-		{Cell: "zone1", Name: "replica-1"},
-		{Cell: "zone1", Name: "replica-2"},
-	}
-
-	err = manager.ConfigureSynchronousReplication(
-		ctx,
-		multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
-		multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-		1,
-		standbyIDs,
-		true,  // reloadConfig
-		false, // force
-	)
-
-	// Verify it failed with the expected error
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to record replication config history")
-
-	// CRITICAL: Verify that NO additional queries were executed beyond the INSERT
-	// This proves that setSynchronousCommit and setSynchronousStandbyNames were NOT called
-	assert.NoError(t, mockQueryService.ExpectationsWereMet(),
-		"If this fails, it means GUC update queries were called despite history insert failure")
 }
 
 func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {

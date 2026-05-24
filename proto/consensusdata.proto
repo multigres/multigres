@@ -17,54 +17,11 @@ syntax = "proto3";
 package consensusdata;
 
 import "clustermetadata.proto";
-import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
 
-// WAL position for tracking replication state
-message WALPosition {
-  // For primary: current write position from pg_current_wal_lsn()
-  // For standby: empty (use last_receive_lsn and last_replay_lsn instead)
-  string current_lsn = 1;
-
-  // For standby: last WAL position received from pg_last_wal_receive_lsn()
-  // For primary: empty
-  string last_receive_lsn = 2;
-
-  // For standby: last WAL position replayed from pg_last_wal_replay_lsn()
-  // For primary: empty
-  string last_replay_lsn = 3;
-
-  // Timestamp when this position was recorded
-  google.protobuf.Timestamp timestamp = 4;
-
-  // PostgreSQL timeline ID from pg_control_checkpoint().
-  // Retained for observability and as a secondary safety check during candidate
-  // selection (see leadership_term).
-  int64 timeline_id = 5;
-
-  // Term number from the most recent multigres.leadership_history record, read
-  // after WAL replay stabilizes during revoke. Used as the primary criterion for
-  // candidate selection: a node that has replicated a higher consensus term has
-  // applied more of the agreed WAL history, regardless of LSN.
-  // LSN is used as a tiebreaker only when both term and timeline are equal.
-  // 0 if the leadership_history table is empty (e.g. pre-bootstrap).
-  int64 leadership_term = 6;
-
-  // Cohort members from the most recent multigres.leadership_history record
-  // (application-name strings, same encoding as the table's cohort_members JSONB
-  // column). Empty if the table is empty. Allows the coordinator to see which
-  // cohort was active on each standby at the time of its last leadership event.
-  repeated string cohort_members = 7;
-}
-
 // Status returns the current status of a node
 message StatusRequest {
-  // Optional term to include in response
-  int64 term = 1;
-
-  // Shard ID to query status for
-  string shard_id = 2;
 }
 
 message StatusResponse {

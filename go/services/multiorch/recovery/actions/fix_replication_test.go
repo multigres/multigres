@@ -549,9 +549,6 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			},
 		},
 	}
-	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
-		"multipooler-cell1-replica1": {},
-	}
 	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}

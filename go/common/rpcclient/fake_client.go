@@ -64,7 +64,6 @@ type FakeClient struct {
 
 	// Manager service responses - keyed by pooler ID
 	WaitForLSNResponses          map[string]*multipoolermanagerdatapb.WaitForLSNResponse
-	SetPrimaryConnInfoResponses  map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
 	StartReplicationResponses    map[string]*multipoolermanagerdatapb.StartReplicationResponse
 	StopReplicationResponses     map[string]*multipoolermanagerdatapb.StopReplicationResponse
 	StatusResponses              map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]
@@ -102,7 +101,6 @@ func NewFakeClient() *FakeClient {
 		SetTermPrimaryResponses:             make(map[string]*consensusdatapb.SetTermPrimaryResponse),
 		ConsensusStatusResponses:            make(map[string]*consensusdatapb.StatusResponse),
 		WaitForLSNResponses:                 make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
-		SetPrimaryConnInfoResponses:         make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
 		StartReplicationResponses:           make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:            make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
 		StatusResponses:                     make(map[string]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
@@ -277,21 +275,6 @@ func (f *FakeClient) ConsensusStatus(ctx context.Context, pooler *clustermetadat
 	return &consensusdatapb.StatusResponse{}, nil
 }
 
-func (f *FakeClient) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("DemoteStalePrimary", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
-		Success:         true,
-		RewindPerformed: false,
-		LsnPosition:     "0/0",
-	}, nil
-}
-
 func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("UpdateConsensusRule", poolerID)
@@ -359,22 +342,6 @@ func (f *FakeClient) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.M
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.WaitForLSNResponse{}, nil
-}
-
-func (f *FakeClient) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("SetPrimaryConnInfo", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.SetPrimaryConnInfoResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
 func (f *FakeClient) StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error) {

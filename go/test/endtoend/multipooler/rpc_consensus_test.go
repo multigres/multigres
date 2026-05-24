@@ -69,9 +69,7 @@ func TestConsensus_Status(t *testing.T) {
 	t.Run("Status_Primary", func(t *testing.T) {
 		t.Log("Testing Status on primary multipooler...")
 
-		req := &consensusdatapb.StatusRequest{
-			ShardId: "test-shard",
-		}
+		req := &consensusdatapb.StatusRequest{}
 		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "Status should succeed on primary")
 		require.NotNil(t, resp, "Response should not be nil")
@@ -98,9 +96,7 @@ func TestConsensus_Status(t *testing.T) {
 	t.Run("Status_Standby", func(t *testing.T) {
 		t.Log("Testing Status on standby multipooler...")
 
-		req := &consensusdatapb.StatusRequest{
-			ShardId: "test-shard",
-		}
+		req := &consensusdatapb.StatusRequest{}
 		resp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "Status should succeed on standby")
 		require.NotNil(t, resp, "Response should not be nil")

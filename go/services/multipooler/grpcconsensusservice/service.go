@@ -71,15 +71,6 @@ func (s *consensusService) Status(ctx context.Context, req *consensusdata.Status
 	return resp, nil
 }
 
-// DemoteStalePrimary demotes a stale primary that came back after failover
-func (s *consensusService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // UpdateConsensusRule applies a cohort-membership change on the primary.
 func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	err := s.manager.UpdateConsensusRule(ctx,
@@ -91,20 +82,6 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
-}
-
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetPrimaryConnInfo(ctx,
-		req.Primary,
-		req.StopReplicationBefore,
-		req.StartReplicationAfter,
-		req.CurrentTerm,
-		req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
 // SetTermPrimary updates this pooler's replication settings to point at the supplied

@@ -105,28 +105,6 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-message SetPrimaryConnInfoRequest {
-  // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
-  // The postgres port is extracted from port_map["postgres"].
-  clustermetadata.MultiPooler primary = 1;
-
-  // Whether to stop replication before making changes
-  bool stop_replication_before = 2;
-
-  // Whether to start replication after making changes
-  bool start_replication_after = 3;
-
-  // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 4;
-
-  // Force the operation even if the term doesn't match
-  bool force = 5;
-}
-
-message SetPrimaryConnInfoResponse {
-}
-
 // StopReplication stops WAL replay on standby
 message StopReplicationRequest {
   // Mode specifying what aspect of replication to pause
@@ -377,35 +355,6 @@ message ManagerHealthSnapshot {
   SnapshotTrigger trigger = 3;
 }
 
-// DemoteStalePrimary demotes a stale primary that came back online after failover.
-// This is a complete operation that:
-// 1. Stops postgres if running
-// 2. Runs pg_rewind to sync with the correct primary
-// 3. Clears sync replication config
-// 4. Restarts as standby
-// 5. Updates topology to REPLICA
-message DemoteStalePrimaryRequest {
-  // Source multipooler (the correct primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
-
-  // Consensus term from the correct primary
-  int64 consensus_term = 2;
-
-  // Force the operation even if term validation fails
-  bool force = 3;
-}
-
-message DemoteStalePrimaryResponse {
-  // True if the operation completed successfully
-  bool success = 1;
-
-  // Whether pg_rewind was performed (servers were diverged)
-  bool rewind_performed = 2;
-
-  // LSN position after becoming standby
-  string lsn_position = 3;
-}
-
 // Replication pause mode - defines what aspect of replication to pause
 enum ReplicationPauseMode {
   // PAUSE_REPLAY_ONLY pauses WAL replay only (using pg_wal_replay_pause)
@@ -456,33 +405,6 @@ enum SynchronousCommitLevel {
 
   // REMOTE_APPLY waits for standby to receive, write, flush, and apply WAL
   SYNCHRONOUS_COMMIT_REMOTE_APPLY = 4;
-}
-
-// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-message ConfigureSynchronousReplicationRequest {
-  // Synchronous commit level (synchronous_commit setting)
-  SynchronousCommitLevel synchronous_commit = 1;
-
-  // Synchronization method (FIRST, ANY)
-  SynchronousMethod synchronous_method = 2;
-
-  // Number of standby servers to wait for (quorum count)
-  int32 num_sync = 3;
-
-  // List of standby multipooler IDs that can participate in synchronous replication
-  // The application names will be generated as {cell}_{name} from these IDs
-  repeated clustermetadata.ID standby_ids = 4;
-
-  // Whether to reload configuration immediately
-  bool reload_config = 5;
-
-  // Force configuration even if history record write times out.
-  // When true, treats write timeouts as warnings (useful for tests and emergency operations).
-  // When false, fails if history write blocks on sync replication (normal production behavior).
-  bool force = 6;
-}
-
-message ConfigureSynchronousReplicationResponse {
 }
 
 // UpdateConsensusRule applies a cohort-membership change on the primary.

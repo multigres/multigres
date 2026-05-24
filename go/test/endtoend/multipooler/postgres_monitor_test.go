@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -207,26 +208,28 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyClient.Close() })
 
-	// Configure replication AND record the (rule, primary) tuple. With the
-	// new flow this happens via SetTermPrimary; this test uses the legacy
-	// SetPrimaryConnInfo since the shared setup doesn't yet run multiorch.
-	// Both paths populate ReplicationPrimary, which is what the monitor reads.
-	primaryPooler := &clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      setup.CellName,
-			Name:      setup.PrimaryMultipooler.Name,
-		},
-		Hostname: "localhost",
-		PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+	// Configure replication AND record the (rule, primary) tuple. SetTermPrimary
+	// populates ReplicationPrimary, which is what the monitor reads.
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      setup.CellName,
+		Name:      setup.PrimaryMultipooler.Name,
 	}
-	_, err = standbyClient.Consensus.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               primaryPooler,
-		StopReplicationBefore: false,
-		StartReplicationAfter: true,
-		Force:                 true,
+	// Use a high coordinator term so the supplied rule is strictly higher than
+	// whatever the standby has observed, forcing SetTermPrimary's standby
+	// branch to apply.
+	_, err = standbyClient.Consensus.SetTermPrimary(t.Context(), &consensusdatapb.SetTermPrimaryRequest{
+		Leader: &clustermetadatapb.PoolerAddress{
+			Id:           primaryID,
+			Host:         "localhost",
+			PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+		},
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+			LeaderId:   primaryID,
+		},
 	})
-	require.NoError(t, err, "SetPrimaryConnInfo should succeed on standby")
+	require.NoError(t, err, "SetTermPrimary should succeed on standby")
 
 	// Snapshot the well-formed conninfo for the post-heal comparison. Read it
 	// directly from postgres rather than from the pooler's record so the

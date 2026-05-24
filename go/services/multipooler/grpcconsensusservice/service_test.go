@@ -125,9 +125,7 @@ func TestConsensusService_Status(t *testing.T) {
 	}
 
 	t.Run("Status returns node information", func(t *testing.T) {
-		req := &consensusdata.StatusRequest{
-			ShardId: "shard-1",
-		}
+		req := &consensusdata.StatusRequest{}
 
 		resp, err := svc.Status(ctx, req)
 
@@ -222,9 +220,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		{
 			name: "Status",
 			method: func() error {
-				req := &consensusdata.StatusRequest{
-					ShardId: "shard-1",
-				}
+				req := &consensusdata.StatusRequest{}
 				_, err := svc.Status(ctx, req)
 				return err
 			},

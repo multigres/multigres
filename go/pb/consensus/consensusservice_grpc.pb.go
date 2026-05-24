@@ -37,8 +37,6 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MultiPoolerConsensus_Status_FullMethodName              = "/consensus.MultiPoolerConsensus/Status"
 	MultiPoolerConsensus_UpdateConsensusRule_FullMethodName = "/consensus.MultiPoolerConsensus/UpdateConsensusRule"
-	MultiPoolerConsensus_DemoteStalePrimary_FullMethodName  = "/consensus.MultiPoolerConsensus/DemoteStalePrimary"
-	MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName  = "/consensus.MultiPoolerConsensus/SetPrimaryConnInfo"
 	MultiPoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultiPoolerConsensus/RewindToSource"
 	MultiPoolerConsensus_Recruit_FullMethodName             = "/consensus.MultiPoolerConsensus/Recruit"
 	MultiPoolerConsensus_Propose_FullMethodName             = "/consensus.MultiPoolerConsensus/Propose"
@@ -60,12 +58,6 @@ type MultiPoolerConsensusClient interface {
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
 	UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
-	// DemoteStalePrimary demotes a stale primary that came back after failover
-	// by rewinding to the correct primary and restarting as standby
-	// TODO: This will be replaced by informing a pooler of a newer rule version.
-	DemoteStalePrimary(ctx context.Context, in *multipoolermanagerdata.DemoteStalePrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error)
-	// SetPrimaryConnInfo sets the primary connection info for a standby server
-	SetPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
@@ -104,26 +96,6 @@ func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.UpdateConsensusRuleResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerConsensus_UpdateConsensusRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerConsensusClient) DemoteStalePrimary(ctx context.Context, in *multipoolermanagerdata.DemoteStalePrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.DemoteStalePrimaryResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_DemoteStalePrimary_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerConsensusClient) SetPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.SetPrimaryConnInfoResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,12 +157,6 @@ type MultiPoolerConsensusServer interface {
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
 	UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error)
-	// DemoteStalePrimary demotes a stale primary that came back after failover
-	// by rewinding to the correct primary and restarting as standby
-	// TODO: This will be replaced by informing a pooler of a newer rule version.
-	DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error)
-	// SetPrimaryConnInfo sets the primary connection info for a standby server
-	SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
 	// RewindToSource performs pg_rewind to synchronize this server with a source.
 	// This is used to repair diverged timelines after failover.
 	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
@@ -220,12 +186,6 @@ func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensu
 }
 func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConsensusRule not implemented")
-}
-func (UnimplementedMultiPoolerConsensusServer) DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DemoteStalePrimary not implemented")
-}
-func (UnimplementedMultiPoolerConsensusServer) SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetPrimaryConnInfo not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
@@ -292,42 +252,6 @@ func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateConsensusRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerConsensus_DemoteStalePrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.DemoteStalePrimaryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).DemoteStalePrimary(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerConsensus_DemoteStalePrimary_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).DemoteStalePrimary(ctx, req.(*multipoolermanagerdata.DemoteStalePrimaryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerConsensus_SetPrimaryConnInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.SetPrimaryConnInfoRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).SetPrimaryConnInfo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).SetPrimaryConnInfo(ctx, req.(*multipoolermanagerdata.SetPrimaryConnInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -418,14 +342,6 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateConsensusRule",
 			Handler:    _MultiPoolerConsensus_UpdateConsensusRule_Handler,
-		},
-		{
-			MethodName: "DemoteStalePrimary",
-			Handler:    _MultiPoolerConsensus_DemoteStalePrimary_Handler,
-		},
-		{
-			MethodName: "SetPrimaryConnInfo",
-			Handler:    _MultiPoolerConsensus_SetPrimaryConnInfo_Handler,
 		},
 		{
 			MethodName: "RewindToSource",
