@@ -266,7 +266,7 @@ func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
 	t.Run("empty statuses returns error", func(t *testing.T) {
-		rev, err := NewTermRevocation(nil, coord)
+		rev, err := NewTermRevocation(nil, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "statuses must be non-empty")
 		require.Nil(t, rev)
@@ -277,7 +277,7 @@ func TestNewTermRevocation(t *testing.T) {
 		// rule. NewTermRevocation refuses; the agent should construct the
 		// revocation directly with an explicit outgoing_rule.
 		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -291,7 +291,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -312,7 +312,7 @@ func TestNewTermRevocation(t *testing.T) {
 				CurrentPosition: positionAtCoordTerm(4),
 			},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
 		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
 		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
@@ -325,7 +325,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{CurrentPosition: positionAtCoordTerm(4)},
 			{CurrentPosition: positionAtCoordTerm(9)},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
 		require.Equal(t, int64(10), rev.GetRevokedBelowTerm())
 	})
@@ -335,7 +335,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6}},
 			{CurrentPosition: positionAtCoordTerm(11)},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
 		require.Equal(t, int64(12), rev.GetRevokedBelowTerm())
 	})
@@ -361,7 +361,7 @@ func TestNewTermRevocation(t *testing.T) {
 				Lsn: "16/B374D700",
 			}},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
 		got := rev.GetOutgoingRule()
 		require.NotNil(t, got)

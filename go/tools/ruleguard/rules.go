@@ -158,11 +158,12 @@ func disallowGoroutinesInConsensus(m dsl.Matcher) {
 
 // disallowWallClockInConsensus flags reads of the wall clock in production
 // code under common/consensus. Consensus logic must be deterministic: time
-// should be supplied as a tick parameter or injected via a clock interface,
-// never read from the host clock. Pure constructors like time.Date, time.Unix,
-// and time.UTC are not flagged.
+// should be supplied as a parameter from the caller (or injected via a clock
+// interface), never read from the host clock. Pure constructors like
+// time.Date, time.Unix, time.UTC, and timestamppb.New(t) are not flagged.
 func disallowWallClockInConsensus(m dsl.Matcher) {
 	m.Import("time")
+	m.Import("google.golang.org/protobuf/types/known/timestamppb")
 
 	m.Match(
 		`time.Now()`,
@@ -173,8 +174,9 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 		`time.Sleep($_)`,
 		`time.NewTimer($_)`,
 		`time.NewTicker($_)`,
+		`timestamppb.Now()`,
 	).Where(
 		m.File().PkgPath.Matches(`common/consensus`) &&
 			!m.File().Name.Matches(`_test\.go$`)).
-		Report("reading wall-clock time breaks determinism; pass a tick from the caller or use an injected clock")
+		Report("reading wall-clock time breaks determinism; pass the timestamp from the caller or use an injected clock")
 }
