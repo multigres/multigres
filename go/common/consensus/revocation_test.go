@@ -273,6 +273,16 @@ func TestNewTermRevocation(t *testing.T) {
 		require.Nil(t, rev)
 	})
 
+	t.Run("nil initiatedAt returns error", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{CurrentPosition: positionAtCoordTerm(4)},
+		}
+		rev, err := NewTermRevocation(statuses, coord, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "initiatedAt must be non-nil")
+		require.Nil(t, rev)
+	})
+
 	t.Run("no cohort member has a recorded rule returns error", func(t *testing.T) {
 		// Bootstrap-shaped scenario: cohort visible but nobody reports a
 		// rule. NewTermRevocation refuses; the agent should construct the
