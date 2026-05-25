@@ -1,6 +1,6 @@
 # PostgreSQL Compatibility Tests
 
-This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against a multigres cluster.
+This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against one or more frontends.
 
 ## Overview
 
@@ -10,12 +10,37 @@ The test performs the following steps:
 2. **Build with make**: Compiles PostgreSQL using traditional ./configure and make
 3. **Build isolation tools** (if enabled): Builds `isolationtester` and `pg_isolation_regress`
 4. **Configure PATH**: Prepends the built PostgreSQL bin directory to PATH
-5. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
-6. **Run regression tests** (if enabled): Executes PostgreSQL regression tests through multigateway
-7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
-8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
+5. **Per target**: Spins up the target's cluster (multigateway, pgbouncer-session, or pgbouncer-tx) and runs the enabled suites against it
+6. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
 
 **Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
+
+## Targets
+
+`PGREGRESS_TARGETS` is a comma-separated list of frontends the suites run against. Each target spins up its own PostgreSQL cluster so failures cannot leak across targets.
+
+| Target | Frontend | Backend | Purpose |
+|--------|----------|---------|---------|
+| `multigateway` (default) | multigres multigateway → multipooler | shardsetup PostgreSQL | Primary target. Patch-based verification is enabled for known multigres-vs-vanilla output differences. |
+| `pgbouncer-session` | pgbouncer (pool_mode=session) | standalone PostgreSQL | Near-vanilla pooler baseline. Almost identical behaviour to a direct PostgreSQL connection. |
+| `pgbouncer-tx` | pgbouncer (pool_mode=transaction) | standalone PostgreSQL | Strict pooler baseline. Session-scoped state (SET, LISTEN/NOTIFY, advisory locks, temp tables, etc.) is expected to break; the resulting failures are the signal. |
+
+The pgbouncer targets are a **control baseline**: they answer "is this failure unique to multigres, or does any pooler in this mode show it?" The patch directory under `testdata/pg17/patches` is intentionally not consulted for pgbouncer targets — every test runs raw against the rendered config.
+
+Regression detection and the Slack weekly summary read the **multigateway** target only. Pgbouncer columns exist in the report and the JSON results, but they are not part of the regression baseline.
+
+**Isolation tests are multigateway-only.** The harness patches `isolationtester` to route lock-wait probes through `public.multigres_test_session_is_blocked`, a shim that maps virtual PIDs to real backend PIDs via `application_name`. Pgbouncer does not propagate the `multigres_vpid:N` stamp that the shim looks for (session-scoped state), so most specs would hang waiting for lock-release detection that can never fire. Pgbouncer targets therefore skip the isolation suite entirely; their columns render blank in the isolation table.
+
+### Known pgbouncer-session limitations
+
+The session-mode target ships with `server_lifetime = 0` so every client connection forces a fresh PostgreSQL backend. That restores the test invariants the upstream regression suite relies on for temp tables, prepared statements, `LOAD`'ed extensions, and the `ON login` event trigger — and brings pgbouncer-session to **221/222 (99.5%)** against the upstream fixtures.
+
+The remaining fixed-cost failure is `event_trigger_login`:
+
+- The test counts how many times `ON login` fires after creating its trigger. Pgbouncer's own internal connections to the backend (`server_check_query` keepalives, pool setup, admin probes) each open a fresh backend with `server_lifetime = 0` and therefore each fire the user-defined login trigger, inflating the count by one or more before the test's `\c` even runs.
+- Avoiding this would require disabling pgbouncer's health-check machinery (`server_check_query = ''`), which trades a production-essential pooler reliability primitive for one test — not a trade we make.
+
+Treat `event_trigger_login` as the expected pgbouncer-session ceiling. Any pooler that probes its own backends will hit the same wall.
 
 ## Requirements
 
@@ -41,6 +66,27 @@ sudo apt-get install build-essential git
 # Xcode Command Line Tools (includes make, gcc, git)
 xcode-select --install
 ```
+
+### pgbouncer (only required for pgbouncer-* targets)
+
+The default `multigateway` target does not need pgbouncer. Install it only when running a comparison target locally. The harness pins a specific version (`PinnedPgbouncerVersion` in `pgbouncer.go`) and hard-fails if the installed binary differs — keeping fixture output reproducible across machines.
+
+```bash
+# macOS
+brew install pgbouncer
+pgbouncer --version   # must match PinnedPgbouncerVersion
+
+# Ubuntu / Debian (PGDG repo is the easiest way to get a current build)
+sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+  -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list
+sudo apt-get update
+sudo apt-get install -y pgbouncer
+pgbouncer --version
+```
+
+If the installed version differs from `PinnedPgbouncerVersion`, either bump the constant (and call it out in the PR) or pin your install to the matching version.
 
 ## Running Tests
 
@@ -77,6 +123,46 @@ PGREGRESS_TESTS="boolean char" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test
 
 # Run specific isolation tests only
 PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+```
+
+### Running the pooler comparison locally
+
+Pgbouncer comparison targets are opt-in via `PGREGRESS_TARGETS`. Install pgbouncer first (see the dependencies section above).
+
+```bash
+# All three targets (multigateway + both pgbouncer modes)
+PGREGRESS_TARGETS=multigateway,pgbouncer-session,pgbouncer-tx \
+RUN_PGREGRESS=1 RUN_PGISOLATION=1 \
+go test -v -timeout 180m ./go/test/endtoend/pgregresstest/...
+
+# Pgbouncer targets only (skip the multigres path for faster iteration)
+PGREGRESS_TARGETS=pgbouncer-session,pgbouncer-tx \
+RUN_PGREGRESS=1 \
+go test -v -timeout 120m ./go/test/endtoend/pgregresstest/...
+```
+
+Each target gets a separate 20-minute suite timeout, so a slow target cannot starve later ones. Bump `-timeout` on the outer `go test` invocation accordingly.
+
+### Triggering on GitHub
+
+`test-pgregress.yml` exposes the comparison-target run through `workflow_dispatch` only. The nightly cron, weekly cron, and the "Run Extended Query Serving Tests" PR label always run multigateway-only.
+
+To launch a comparison run from the GitHub UI:
+
+1. Navigate to **Actions → PostgreSQL Compatibility Tests**.
+2. Click **Run workflow**.
+3. Pick the branch and choose a value for **targets**:
+   - `multigateway` (default — same as cron)
+   - `multigateway,pgbouncer-session,pgbouncer-tx`
+   - `pgbouncer-session,pgbouncer-tx`
+4. Click the green **Run workflow** button.
+
+From the command line:
+
+```bash
+gh workflow run test-pgregress.yml \
+  -f targets="multigateway,pgbouncer-session,pgbouncer-tx" \
+  --ref <branch>
 ```
 
 ### First Run vs Cached Runs
@@ -227,13 +313,44 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 
 ```text
 go/test/endtoend/pgregresstest/
-├── README.md              # This file
-├── main_test.go          # TestMain, shared setup management
-├── postgres_builder.go   # PostgreSQL build and test execution
-└── pgregress_test.go     # Regression + isolation test implementation
+├── README.md                  # This file
+├── main_test.go               # TestMain, shared multigateway setup
+├── postgres_builder.go        # PostgreSQL build, suite execution, report writers
+├── pgregress_test.go          # Top-level test: target loop, suite drivers
+├── target_cluster_test.go     # Per-target cluster lifecycle (multigateway, pgbouncer-*)
+├── targets.go                 # Target enum + PGREGRESS_TARGETS parser
+├── pgbouncer.go               # Pgbouncer process management + version pin
+└── testdata/
+    ├── pg17/patches/          # Multigateway-target output patches (no patches for pgb-*)
+    └── pgbouncer/             # session.ini.tmpl + tx.ini.tmpl rendered per instance
 ```
 
 <!-- markdownlint-enable MD013 -->
+
+### Reading the comparison report
+
+`compatibility-report.md` (also pasted into `GITHUB_STEP_SUMMARY` on CI) has the following shape when more than one target ran:
+
+```text
+## PostgreSQL Compatibility Report
+
+**PostgreSQL Version:** `REL_17_6`
+**Pgbouncer Version:** `1.24.1`
+
+[Regression — multigateway badge] [Regression — pgbouncer-session badge] [Regression — pgbouncer-tx badge]
+
+### Regression Tests
+
+| # | Test     | multigateway | pgbouncer-session | pgbouncer-tx |
+|---|----------|--------------|-------------------|--------------|
+| 1 | boolean  | ✅           | ✅                 | ✅           |
+| 2 | char     | ✅           | ✅                 | ❌           |
+| 3 | numeric  | ❌           | ❌                 | -            |
+```
+
+- `✅` / `❌` / `⏭️` mean the test passed / failed / was skipped on that target.
+- `-` means the test did not run on that target (e.g. pgbouncer-tx timed out before reaching it).
+- A failure that appears in **every** target column is almost certainly a pooler-generic limitation — useful when triaging multigres-only failures.
 
 ## Contributing
 

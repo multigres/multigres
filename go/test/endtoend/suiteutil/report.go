@@ -17,8 +17,10 @@ package suiteutil
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // WriteJSON marshals v with two-space indent and writes it to
@@ -89,6 +91,30 @@ func BadgeColor(passed, total int) string {
 	}
 }
 
+// shieldsEscape encodes a label or value for the shields.io static badge path.
+//
+// shields.io splits the path by hyphens (LABEL-VALUE-COLOR) and applies these
+// in-segment rules before rendering text:
+//
+//	_   → space
+//	__  → _
+//	-   → segment separator (consumed)
+//	--  → -
+//
+// To pass arbitrary text through unchanged we therefore have to:
+//   - replace every literal `_` with `__` (preserve underscores)
+//   - replace every literal `-` with `--` (preserve hyphens, e.g. pgbouncer-session)
+//   - URL-escape the result so spaces, em-dashes, and other non-ASCII bytes
+//     don't break the HTTP URL.
+//
+// Order matters: hyphens have to be doubled *before* URL-escaping so the
+// percent signs we generate don't themselves get rewritten.
+func shieldsEscape(s string) string {
+	s = strings.ReplaceAll(s, "_", "__")
+	s = strings.ReplaceAll(s, "-", "--")
+	return url.PathEscape(s)
+}
+
 // BadgeMarkdown renders a shields.io badge as an `![alt](url)` markdown image.
 //
 // When expected > total, the badge reads "P/T_passed_(of_E)" so timed-out or
@@ -96,6 +122,10 @@ func BadgeColor(passed, total int) string {
 // A timed-out run is flagged with a "_(timed_out)" suffix and downgraded one
 // colour level from brightgreen so 100% timed-out runs don't visually appear
 // identical to a clean pass.
+//
+// The label is escaped through shieldsEscape so callers can pass arbitrary
+// text — including hyphens (e.g. "pgbouncer-session"), spaces, and non-ASCII
+// separators — without breaking the URL or shields.io's path parser.
 func BadgeMarkdown(label string, passed, total, expected int, timedOut bool) string {
 	colour := BadgeColor(passed, total)
 	value := fmt.Sprintf("%d%%2F%d_passed", passed, total)
@@ -108,5 +138,5 @@ func BadgeMarkdown(label string, passed, total, expected int, timedOut bool) str
 			colour = "yellow"
 		}
 	}
-	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, label, value, colour)
+	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, shieldsEscape(label), value, colour)
 }

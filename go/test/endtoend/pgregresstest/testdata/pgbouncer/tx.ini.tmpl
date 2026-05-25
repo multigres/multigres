@@ -1,0 +1,41 @@
+# pgbouncer config for the pgregress "pgbouncer-tx" comparison target.
+#
+# Transaction pooling returns the backend connection to the pool after every
+# COMMIT/ROLLBACK, so any session-scoped feature (SET, LISTEN/NOTIFY, advisory
+# locks, temp tables, WITH HOLD cursors, prepared statements created via
+# PREPARE/EXECUTE rather than the extended-query protocol) is expected to
+# break or silently misbehave. The whole purpose of this target is to surface
+# how many regression tests fall over under those restrictions, providing a
+# strict pooler baseline to compare multigateway against.
+#
+# max_prepared_statements enables pgbouncer's protocol-level prepared-statement
+# tracking (1.21+); without it the extended-query path used by libpq breaks
+# under transaction pooling.
+
+[databases]
+# Wildcard with no dbname=: pgbouncer forwards to the database name the client
+# requested. pg_regress connects to "postgres" to issue CREATE DATABASE
+# regression, then reconnects to "regression" to run the suite — both paths
+# need to work transparently through the pooler.
+* = host=127.0.0.1 port={{.BackendPort}} user=postgres password={{.Password}}
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = {{.ListenPort}}
+auth_type = any
+pool_mode = transaction
+max_client_conn = 500
+default_pool_size = 100
+max_prepared_statements = 200
+# Intentionally no server_lifetime = 0 here, unlike the session-mode
+# template. In transaction pooling the backend is already released per
+# COMMIT, so closing it on every release forces a full PostgreSQL
+# backend startup between every transaction. That tanked pgbouncer-tx
+# from 155/222 to 88/222 in a comparison run (multi-statement tests
+# could not maintain state across the rapid reconnects), so we keep
+# the default 3600s lifetime here and accept the backend reuse that
+# transaction pooling implies.
+server_reset_query = DISCARD ALL
+ignore_startup_parameters = extra_float_digits,options,application_name,search_path
+logfile = {{.LogPath}}
+unix_socket_dir =

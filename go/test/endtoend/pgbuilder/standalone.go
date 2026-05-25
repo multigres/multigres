@@ -53,17 +53,29 @@ type Standalone struct {
 	cmd    *executil.Cmd
 }
 
-// StartStandalone runs initdb into a fresh data directory under builder.OutputDir
-// and launches a postgres server on a free port. The returned Standalone
-// exposes connection parameters and a Stop method.
+// StartStandalone runs initdb into a fresh data directory under
+// builder.OutputDir/standalone and launches a postgres server on a free port.
+// Equivalent to StartStandaloneIn with subdir = "standalone".
+func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, password string) (*Standalone, error) {
+	return StartStandaloneIn(t, ctx, builder, "standalone", password)
+}
+
+// StartStandaloneIn runs initdb into a fresh data directory under
+// builder.OutputDir/<subdir> and launches a postgres server on a free port.
+// The returned Standalone exposes connection parameters and a Stop method.
 //
 // Callers should defer Stop. The server logs are written to LogPath and left
-// on disk after Stop to aid debugging.
-func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, password string) (*Standalone, error) {
+// on disk after Stop to aid debugging. Use subdir to host multiple
+// independent standalone instances under the same builder (e.g. one per
+// pgregress comparison target).
+func StartStandaloneIn(t *testing.T, ctx context.Context, builder *Builder, subdir, password string) (*Standalone, error) {
 	t.Helper()
 
 	if password == "" {
 		password = "pgbuilder"
+	}
+	if subdir == "" {
+		subdir = "standalone"
 	}
 
 	port, err := pickFreePort()
@@ -71,7 +83,7 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 		return nil, fmt.Errorf("pick free port: %w", err)
 	}
 
-	rootDir := filepath.Join(builder.OutputDir, "standalone")
+	rootDir := filepath.Join(builder.OutputDir, subdir)
 	dataDir := filepath.Join(rootDir, "data")
 	logPath := filepath.Join(rootDir, "postgres.log")
 	pwFile := filepath.Join(rootDir, "pwfile")
