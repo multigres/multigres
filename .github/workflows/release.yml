@@ -21,8 +21,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   verify-tag:
@@ -47,9 +46,12 @@ jobs:
 
       - name: Verify tag is on main
         if: github.event_name == 'push'
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
-            echo "::error::Tag ${{ github.ref_name }} does not point to a commit on main."
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $TAG_NAME does not point to a commit on main."
             exit 1
           fi
 
@@ -68,6 +70,7 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Build
         run: make build
@@ -79,6 +82,9 @@ jobs:
     name: Build Release Images
     needs: test-go
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
@@ -102,16 +108,20 @@ jobs:
 
       - name: Set release image tags
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
           IMAGE: ${{ matrix.image }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "RELEASE_TAG=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "RELEASE_TAG=$TAG_NAME" >> "$GITHUB_ENV"
             echo "PUSH_IMAGE=true" >> "$GITHUB_ENV"
           else
-            echo "RELEASE_TAG=snapshot-${{ github.sha }}" >> "$GITHUB_ENV"
+            echo "RELEASE_TAG=snapshot-$GITHUB_SHA" >> "$GITHUB_ENV"
             echo "PUSH_IMAGE=false" >> "$GITHUB_ENV"
           fi
-          echo "IMAGE_REF=ghcr.io/${{ github.repository_owner }}/${IMAGE}" >> "$GITHUB_ENV"
+          echo "IMAGE_REF=ghcr.io/${REPOSITORY_OWNER}/${IMAGE}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -147,6 +157,8 @@ jobs:
     name: Publish GitHub Release
     needs: build-release-images
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
       - name: Check out code
@@ -159,6 +171,7 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
