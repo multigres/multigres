@@ -115,7 +115,7 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	if !isPostgreSQLRunning(config) {
 		result.Status = statusStopped
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
