@@ -324,6 +324,124 @@ func TestFinishCopyToStdout(t *testing.T) {
 	})
 }
 
+// buildCopyOutResponse returns a serialized CopyOutResponse ('H') message
+// with the given overall format and column formats (text=0/binary=1 each).
+func buildCopyOutResponse(format int16, columnFormats []int16) []byte {
+	body := make([]byte, 0, 3+2*len(columnFormats))
+	body = append(body, byte(format))
+	body = append(body, byte(len(columnFormats)>>8), byte(len(columnFormats)))
+	for _, f := range columnFormats {
+		body = append(body, byte(f>>8), byte(f))
+	}
+	var out bytes.Buffer
+	writeRawMessage(&out, protocol.MsgCopyOutResponse, body)
+	return out.Bytes()
+}
+
+// newTestReadWriteConn builds a Conn where writes go to a discard buffer
+// and reads pull from the supplied response bytes. Suitable for testing
+// methods that send a query then read the response (InitiateCopyToStdout,
+// InitiateCopyFromStdin, etc.).
+func newTestReadWriteConn(response []byte) *Conn {
+	return &Conn{
+		conn:           &mockNetConn{buf: bytes.NewBuffer(nil)},
+		bufferedReader: bufio.NewReader(bytes.NewReader(response)),
+		bufferedWriter: bufio.NewWriter(bytes.NewBuffer(nil)),
+	}
+}
+
+// TestInitiateCopyToStdout covers the request/response flow of the
+// COPY TO STDOUT initiator: send a query, read CopyOutResponse, capture
+// any pre-CopyOutResponse notices, and surface PG ErrorResponse
+// un-wrapped on the error path.
+func TestInitiateCopyToStdout(t *testing.T) {
+	t.Run("success returns format, columns, notices", func(t *testing.T) {
+		var input bytes.Buffer
+		input.Write(buildNoticeResponse("NOTICE", "before-statement trigger"))
+		input.Write(buildCopyOutResponse(0, []int16{0, 0, 0}))
+
+		c := newTestReadWriteConn(input.Bytes())
+		format, columnFormats, notices, err := c.InitiateCopyToStdout(context.Background(), "COPY t TO STDOUT")
+		require.NoError(t, err)
+		assert.Equal(t, int16(0), format, "text format")
+		assert.Equal(t, []int16{0, 0, 0}, columnFormats)
+		require.Len(t, notices, 1)
+		assert.Equal(t, "before-statement trigger", notices[0].Message)
+	})
+
+	t.Run("ErrorResponse drains RFQ and returns PgDiagnostic", func(t *testing.T) {
+		// PG rejects the COPY (e.g. relation does not exist) before sending
+		// CopyOutResponse. The helper must parse the error, drain RFQ so the
+		// conn is reusable, and surface *PgDiagnostic via errors.As.
+		var input bytes.Buffer
+		input.Write(buildErrorResponse("42P01", "relation \"t\" does not exist"))
+		input.Write(buildReadyForQuery(protocol.TxnStatusIdle))
+
+		c := newTestReadWriteConn(input.Bytes())
+		_, _, _, err := c.InitiateCopyToStdout(context.Background(), "COPY t TO STDOUT")
+		require.Error(t, err)
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Equal(t, "42P01", diag.Code)
+		leftover, _ := c.bufferedReader.Peek(1)
+		assert.Empty(t, leftover, "trailing RFQ drained")
+	})
+
+	t.Run("ReadyForQuery before CopyOutResponse is an error", func(t *testing.T) {
+		// Defensive: server returned RFQ before CopyOutResponse / ErrorResponse.
+		c := newTestReadWriteConn(buildReadyForQuery(protocol.TxnStatusIdle))
+		_, _, _, err := c.InitiateCopyToStdout(context.Background(), "COPY t TO STDOUT")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ReadyForQuery before CopyOutResponse")
+	})
+}
+
+// buildCopyInResponse returns a serialized CopyInResponse ('G') message.
+func buildCopyInResponse(format int16, columnFormats []int16) []byte {
+	body := make([]byte, 0, 3+2*len(columnFormats))
+	body = append(body, byte(format))
+	body = append(body, byte(len(columnFormats)>>8), byte(len(columnFormats)))
+	for _, f := range columnFormats {
+		body = append(body, byte(f>>8), byte(f))
+	}
+	var out bytes.Buffer
+	writeRawMessage(&out, protocol.MsgCopyInResponse, body)
+	return out.Bytes()
+}
+
+// TestInitiateCopyFromStdin mirrors TestInitiateCopyToStdout for the
+// FROM STDIN direction. The PR adapted this method's return signature to
+// expose pre-CopyInResponse notices; this test pins both the success and
+// PG-error paths to that contract.
+func TestInitiateCopyFromStdin(t *testing.T) {
+	t.Run("success returns format, columns, notices", func(t *testing.T) {
+		var input bytes.Buffer
+		input.Write(buildNoticeResponse("NOTICE", "before-statement"))
+		input.Write(buildCopyInResponse(0, []int16{0}))
+
+		c := newTestReadWriteConn(input.Bytes())
+		format, columnFormats, notices, err := c.InitiateCopyFromStdin(context.Background(), "COPY t FROM STDIN")
+		require.NoError(t, err)
+		assert.Equal(t, int16(0), format)
+		assert.Equal(t, []int16{0}, columnFormats)
+		require.Len(t, notices, 1)
+		assert.Equal(t, "before-statement", notices[0].Message)
+	})
+
+	t.Run("ErrorResponse surfaces PgDiagnostic and drains RFQ", func(t *testing.T) {
+		var input bytes.Buffer
+		input.Write(buildErrorResponse("42703", "column \"xyz\" of relation \"t\" does not exist"))
+		input.Write(buildReadyForQuery(protocol.TxnStatusIdle))
+
+		c := newTestReadWriteConn(input.Bytes())
+		_, _, _, err := c.InitiateCopyFromStdin(context.Background(), "COPY t (xyz) FROM STDIN")
+		require.Error(t, err)
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Equal(t, "42703", diag.Code)
+	})
+}
+
 // TestReadCopyFailResponse_CapturesNotices verifies that NoticeResponse
 // diagnostics arriving between CopyFail and ReadyForQuery are returned to
 // the caller (rather than silently dropped) — symmetric with the notice
