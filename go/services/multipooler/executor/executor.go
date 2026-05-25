@@ -1398,13 +1398,29 @@ func (e *Executor) CopyOutStream(
 
 	conn := reservedConn.Conn()
 
+	// abortCopyOut releases the reserved conn with ReleaseError, which
+	// destroys the backend socket. This is the correct cleanup during a
+	// COPY ... TO STDOUT abort because PG is in copy-out mode and is NOT
+	// reading from the frontend — writing CopyFail (the FROM STDIN abort
+	// message) would only buffer in the kernel and a subsequent
+	// ReadCopyFailResponse would receive CopyData where ErrorResponse is
+	// expected, fail, and fall through to the same ReleaseError. Skipping
+	// the wasted round-trip avoids that I/O. Destroying the socket makes
+	// PG see EOF and abort the COPY on its own — the protocol-correct
+	// way for a frontend to cancel an in-progress COPY OUT (there is no
+	// in-band cancel; pg_cancel_backend on a separate session is the only
+	// other PG-blessed option).
+	abortCopyOut := func(reason string) {
+		e.logger.DebugContext(ctx, "aborting COPY TO STDOUT via socket destroy",
+			"conn_id", options.ReservedConnectionId,
+			"reason", reason)
+		reservedConn.Release(reserved.ReleaseError)
+	}
+
 	// Pump CopyData / NoticeResponse to the gateway until CopyDone.
 	for {
 		if err := ctx.Err(); err != nil {
-			// Caller canceled — abort the COPY so the backend doesn't
-			// keep streaming into a dead stream. Use the same shared
-			// CopyAbort cleanup as the FROM-STDIN path.
-			_, _ = e.CopyAbort(ctx, target, "stream canceled", options)
+			abortCopyOut("stream canceled: " + err.Error())
 			return nil, nil, err
 		}
 
@@ -1428,9 +1444,7 @@ func (e *Executor) CopyOutStream(
 		}
 
 		if cbErr := onMessage(msg); cbErr != nil {
-			// Caller (gateway grpc handler) couldn't forward — abort to
-			// keep the backend protocol position valid.
-			_, _ = e.CopyAbort(ctx, target, "callback failed: "+cbErr.Error(), options)
+			abortCopyOut("callback failed: " + cbErr.Error())
 			return nil, nil, cbErr
 		}
 	}
