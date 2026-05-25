@@ -1872,15 +1872,8 @@ func (g *GroupingSet) SqlString() string {
 							// Other grouping sets (ROLLUP, CUBE, etc)
 							sets = append(sets, gs.SqlString())
 						}
-					} else if _, ok := item.(*ParenExpr); ok {
-						// Parenthesized expression - already has parentheses
-						sets = append(sets, item.SqlString())
-					} else if _, ok := item.(*RowExpr); ok {
-						// Row expression - already has parentheses in its SqlString
-						sets = append(sets, item.SqlString())
 					} else {
-						// Simple expression - needs parentheses
-						sets = append(sets, fmt.Sprintf("(%s)", item.SqlString()))
+						sets = append(sets, item.SqlString())
 					}
 				}
 			}
