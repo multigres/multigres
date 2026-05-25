@@ -525,17 +525,17 @@
   {
     "comment": "create_view - Statement 115",
     "query": "create view view_of_joins_2b as select * from tbl1 join tbl1a using (a) as x",
-    "expected": "CREATE VIEW view_of_joins_2b AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2b AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a) AS x"
   },
   {
     "comment": "create_view - Statement 116",
     "query": "create view view_of_joins_2c as select * from (tbl1 join tbl1a using (a)) as y",
-    "expected": "CREATE VIEW view_of_joins_2c AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2c AS SELECT * FROM (tbl1 INNER JOIN tbl1a USING (a)) AS y"
   },
   {
     "comment": "create_view - Statement 117",
     "query": "create view view_of_joins_2d as select * from (tbl1 join tbl1a using (a) as x) as y",
-    "expected": "CREATE VIEW view_of_joins_2d AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2d AS SELECT * FROM (tbl1 INNER JOIN tbl1a USING (a) AS x) AS y"
   },
   {
     "comment": "create_view - Statement 118",
@@ -580,7 +580,7 @@
   {
     "comment": "create_view - Statement 126",
     "query": "create view v1a as select * from (tt2 natural join tt3) j",
-    "expected": "CREATE VIEW v1a AS SELECT * FROM tt2 NATURAL JOIN tt3"
+    "expected": "CREATE VIEW v1a AS SELECT * FROM (tt2 NATURAL JOIN tt3) AS j"
   },
   {
     "comment": "create_view - Statement 127",
@@ -590,7 +590,7 @@
   {
     "comment": "create_view - Statement 128",
     "query": "create view v2a as select * from (tt2 join tt3 using (b,c) join tt4 using (b)) j",
-    "expected": "CREATE VIEW v2a AS SELECT * FROM tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)"
+    "expected": "CREATE VIEW v2a AS SELECT * FROM (tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)) AS j"
   },
   {
     "comment": "create_view - Statement 129",
@@ -665,7 +665,7 @@
   {
     "comment": "create_view - Statement 143",
     "query": "create view vv1 as select * from (tt5 cross join tt6) j(aa,bb,cc,dd)",
-    "expected": "CREATE VIEW vv1 AS SELECT * FROM tt5 INNER JOIN tt6 ON TRUE"
+    "expected": "CREATE VIEW vv1 AS SELECT * FROM (tt5 INNER JOIN tt6 ON TRUE) AS j(aa, bb, cc, dd)"
   },
   {
     "comment": "create_view - Statement 144",

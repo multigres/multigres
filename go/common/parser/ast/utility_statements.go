@@ -648,12 +648,15 @@ func (grs *GrantRoleStmt) SqlString() string {
 				optStr := strings.ToUpper(defElem.Defname)
 				if defElem.Arg != nil {
 					if boolVal, ok := defElem.Arg.(*Boolean); ok {
-						// For admin, set, and inherit options, use "OPTION" suffix for both GRANT and REVOKE
-						if defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit" {
+						isMembershipOpt := defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit"
+						switch {
+						case isMembershipOpt && !grs.IsGrant:
+							// REVOKE [ADMIN|INHERIT|SET] OPTION FOR <role> ...
 							optStr += " OPTION"
-						} else if boolVal.BoolVal {
+						case boolVal.BoolVal:
+							// GRANT ... WITH { ADMIN | INHERIT | SET } TRUE
 							optStr += " TRUE"
-						} else {
+						default:
 							optStr += " FALSE"
 						}
 					} else {

@@ -94,15 +94,18 @@
   },
   {
     "comment": "privileges - Statement 24",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 25",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE GRANTED BY regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 26",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE GRANTED BY regress_priv_user3"
   },
   {
     "comment": "privileges - Statement 27",
@@ -179,7 +182,8 @@
   },
   {
     "comment": "privileges - Statement 44",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 45",
@@ -195,7 +199,8 @@
   },
   {
     "comment": "privileges - Statement 48",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 49",
@@ -219,7 +224,8 @@
   },
   {
     "comment": "privileges - Statement 54",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION",
+    "expected": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 55",
@@ -232,7 +238,8 @@
   },
   {
     "comment": "privileges - Statement 57",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION",
+    "expected": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 58",
@@ -279,8 +286,7 @@
   },
   {
     "comment": "privileges - Statement 68",
-    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE",
-    "expected": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET OPTION"
+    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE"
   },
   {
     "comment": "privileges - Statement 69",
@@ -384,7 +390,8 @@
   },
   {
     "comment": "privileges - Statement 91",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 92",
@@ -398,11 +405,13 @@
   },
   {
     "comment": "privileges - Statement 94",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role"
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role",
+    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY regress_priv_role"
   },
   {
     "comment": "privileges - Statement 95",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE"
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE",
+    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY CURRENT_ROLE"
   },
   {
     "comment": "privileges - Statement 96",
@@ -754,8 +763,7 @@
   },
   {
     "comment": "privileges - Statement 174",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE",
-    "expected": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT OPTION"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE"
   },
   {
     "comment": "privileges - Statement 175",
@@ -911,47 +919,47 @@
   {
     "comment": "privileges - Statement 209",
     "query": "SELECT * FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT * FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT * FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 210",
     "query": "SELECT j.* FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT j.* FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT j.* FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 211",
     "query": "SELECT (j.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT (j.*) IS NULL FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT (j.*) IS NULL FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 212",
     "query": "SELECT one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT one FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT one FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 213",
     "query": "SELECT j.one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.one FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.one FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 214",
     "query": "SELECT two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT two FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT two FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 215",
     "query": "SELECT j.two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.two FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.two FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 216",
     "query": "SELECT y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT y FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT y FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 217",
     "query": "SELECT j.y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.y FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.y FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 218",
@@ -3488,8 +3496,7 @@
   },
   {
     "comment": "privileges - Statement 786",
-    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE",
-    "expected": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT OPTION, ADMIN OPTION"
+    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 787",
@@ -3556,13 +3563,11 @@
   },
   {
     "comment": "privileges - Statement 802",
-    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE",
-    "expected": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
+    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE"
   },
   {
     "comment": "privileges - Statement 803",
-    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE",
-    "expected": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
+    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE"
   },
   {
     "comment": "privileges - Statement 804",
