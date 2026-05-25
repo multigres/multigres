@@ -212,7 +212,6 @@ message Status {
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
   bool postgres_ready = 14;
-
 }
 
 // PostgresStatus is the observed state of the PostgreSQL server process.

@@ -349,6 +349,95 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 		primaryName, len(resp.Status.PrimaryStatus.ConnectedFollowers))
 }
 
+// TestStandbyGracefulShutdownLifecycleShutdown verifies the end-to-end
+// shutdown path of a standby:
+//
+//   - The standby's topology entry stays in place but its
+//     LifecycleStatus.Status transitions to LIFECYCLE_SHUTDOWN (with
+//     Type=DRAINED and ServingStatus=NOT_SERVING) once the OnClose
+//     unregisterFunc has run. This is the signal the orchestrator's
+//     pooler watcher reacts to in order to tear down the per-pooler
+//     health stream; the durable entry itself is left for the 4 h
+//     unseen-instance bookkeeping to evict.
+//
+//   - No spurious failover: the primary stays the same. A standby
+//     transitioning to LIFECYCLE_SHUTDOWN is not the same as resigning
+//     leadership; the existing LeaderResigned path remains the only
+//     trigger for failover.
+func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping integration test (no postgres binaries)")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
+
+	setup.StartMultiOrchs(t.Context(), t)
+	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
+
+	primaryName := setup.PrimaryName
+	require.NotEmpty(t, primaryName)
+	t.Logf("Initial primary: %s", primaryName)
+
+	// Pick a standby to terminate.
+	var terminatedStandby string
+	for name := range setup.Multipoolers {
+		if name != primaryName {
+			terminatedStandby = name
+			break
+		}
+	}
+	require.NotEmpty(t, terminatedStandby)
+
+	standbyID := setup.GetMultipoolerID(terminatedStandby)
+	require.NotNil(t, standbyID, "expected to resolve standby ID")
+
+	// Sanity check: before SIGTERM, the standby's lifecycle should NOT be
+	// SHUTDOWN — the assertion below would be trivially vacuous otherwise.
+	pre, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+	require.NoError(t, err)
+	require.NotEqual(t,
+		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		pre.GetLifecycleStatus().GetStatus(),
+		"precondition: standby %s should not already be SHUTDOWN before SIGTERM (was %v)",
+		terminatedStandby, pre.GetLifecycleStatus().GetStatus())
+
+	t.Logf("Terminating standby %s", terminatedStandby)
+	terminateMultipoolerGracefully(t, setup.Multipoolers[terminatedStandby], 90*time.Second)
+
+	// The unregisterFunc runs after GracefulShutdown returns. Within a few
+	// seconds the topology entry must read LIFECYCLE_SHUTDOWN + DRAINED;
+	// 30 s is a generous bound that catches regressions in the unregister
+	// path while still leaving headroom for slower-responsive GitHub Actions
+	// runners.
+	require.Eventually(t, func() bool {
+		mp, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+		if err != nil {
+			return false
+		}
+		return mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN &&
+			mp.Type == clustermetadatapb.PoolerType_DRAINED
+	}, 30*time.Second, 500*time.Millisecond,
+		"standby %s should have lifecycle=SHUTDOWN and type=DRAINED in topology after graceful shutdown",
+		terminatedStandby)
+	t.Logf("Standby %s lifecycle is SHUTDOWN + DRAINED in topology", terminatedStandby)
+
+	// No spurious failover.
+	current := setup.RefreshPrimary(t)
+	require.NotNil(t, current)
+	require.Equal(t, primaryName, current.Name,
+		"primary must remain unchanged after standby graceful shutdown")
+}
+
 // TestSequentialGracefulShutdowns verifies that the graceful-shutdown sequence
 // runs correctly across two back-to-back SIGTERMs:
 //

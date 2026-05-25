@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -73,10 +74,36 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	}
 	defer pm.actionLock.Release(lockCtx)
 
+	// Announce STOPPING in topology before any blocking work. Operators see
+	// the announcement immediately; the actual teardown happens in the rest
+	// of this function and in the StopTopoRegistration call that follows in
+	// OnClose. STOPPING is observability-only — the orchestrator does not
+	// react to this value behaviourally; the authoritative cleanup signal is
+	// LIFECYCLE_SHUTDOWN written by StopTopoRegistration. The Mutate
+	// schedules an async publish; a transient publish failure is recovered
+	// by the publisher's 30 s retry tick.
+	if err := pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
+		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STOPPING,
+			Reason:  "shutting down",
+			Updated: timestamppb.Now(),
+		}
+	}); err != nil {
+		pm.logger.WarnContext(lockCtx, "failed to announce STOPPING lifecycle",
+			"error", err)
+	}
+
 	// Transition to NOT_SERVING so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
-	// --connpool-drain-grace-period). Best-effort: a failure here is logged but
-	// doesn't block the rest of shutdown.
+	// --connpool-drain-grace-period). SetState fans out OnStateChange to the
+	// in-process components (query service, connection pool, heartbeat,
+	// health streamer) and routes the topology update through record.Mutate
+	// so the publisher reflects NOT_SERVING during the drain window —
+	// without it, the entry would still read SERVING in topology until the
+	// OnClose StopTopoRegistration runs at the very end of shutdown.
+	//
+	// Best-effort: a failure here is logged but doesn't block the rest of
+	// shutdown.
 	if pm.servingState != nil {
 		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
