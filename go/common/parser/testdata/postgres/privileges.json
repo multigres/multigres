@@ -1556,18 +1556,15 @@
   },
   {
     "comment": "privileges - Statement 352",
-    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user1",
-    "expected": "GRANT USAGE ON sql TO regress_priv_user1"
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 353",
-    "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC",
-    "expected": "GRANT USAGE ON c TO PUBLIC"
+    "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 354",
-    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user2",
-    "expected": "GRANT USAGE ON sql TO regress_priv_user2"
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 355",
@@ -1709,7 +1706,7 @@
   {
     "comment": "privileges - Statement 383",
     "query": "GRANT ALL PRIVILEGES ON LANGUAGE sql TO PUBLIC",
-    "expected": "GRANT ALL ON sql TO PUBLIC"
+    "expected": "GRANT ALL ON LANGUAGE sql TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 384",
@@ -1735,8 +1732,7 @@
   },
   {
     "comment": "privileges - Statement 389",
-    "query": "GRANT USAGE ON DOMAIN priv_testtype1 TO regress_priv_user2",
-    "expected": "GRANT USAGE ON priv_testtype1 TO regress_priv_user2"
+    "query": "GRANT USAGE ON DOMAIN priv_testtype1 TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 390",
@@ -1746,12 +1742,11 @@
   {
     "comment": "privileges - Statement 391",
     "query": "REVOKE USAGE on DOMAIN priv_testdomain1 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON priv_testdomain1 FROM PUBLIC"
+    "expected": "REVOKE USAGE ON DOMAIN priv_testdomain1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 392",
-    "query": "GRANT USAGE ON DOMAIN priv_testdomain1 TO regress_priv_user2",
-    "expected": "GRANT USAGE ON priv_testdomain1 TO regress_priv_user2"
+    "query": "GRANT USAGE ON DOMAIN priv_testdomain1 TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 393",
@@ -3343,8 +3338,7 @@
   },
   {
     "comment": "privileges - Statement 752",
-    "query": "REVOKE USAGE ON LANGUAGE sql FROM regress_priv_user1",
-    "expected": "REVOKE USAGE ON sql FROM regress_priv_user1"
+    "query": "REVOKE USAGE ON LANGUAGE sql FROM regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 753",

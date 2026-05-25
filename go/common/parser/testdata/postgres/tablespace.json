@@ -642,8 +642,7 @@
   },
   {
     "comment": "tablespace - Statement 144",
-    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC",
-    "expected": "GRANT ALL ON regress_tblspace TO PUBLIC"
+    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC"
   },
   {
     "comment": "tablespace - Statement 145",

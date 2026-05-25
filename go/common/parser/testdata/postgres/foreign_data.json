@@ -270,13 +270,11 @@
   },
   {
     "comment": "foreign_data - Statement 66",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role",
-    "expected": "GRANT USAGE ON foo TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 67",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect",
-    "expected": "GRANT USAGE ON foo TO regress_test_indirect"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect"
   },
   {
     "comment": "foreign_data - Statement 68",
@@ -313,13 +311,11 @@
   },
   {
     "comment": "foreign_data - Statement 76",
-    "query": "GRANT USAGE ON FOREIGN SERVER s1 TO regress_test_role",
-    "expected": "GRANT USAGE ON s1 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s1 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 77",
-    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION",
-    "expected": "GRANT USAGE ON s6 TO regress_test_role2 WITH GRANT OPTION"
+    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION"
   },
   {
     "comment": "foreign_data - Statement 78",
@@ -1032,18 +1028,15 @@
   },
   {
     "comment": "foreign_data - Statement 239",
-    "query": "GRANT USAGE ON FOREIGN SERVER s8 TO regress_test_role",
-    "expected": "GRANT USAGE ON s8 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s8 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 240",
-    "query": "REVOKE USAGE ON FOREIGN SERVER s8 FROM regress_test_role",
-    "expected": "REVOKE USAGE ON s8 FROM regress_test_role"
+    "query": "REVOKE USAGE ON FOREIGN SERVER s8 FROM regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 241",
-    "query": "GRANT USAGE ON FOREIGN SERVER s4 TO regress_test_role",
-    "expected": "GRANT USAGE ON s4 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s4 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 242",
@@ -1110,18 +1103,15 @@
   },
   {
     "comment": "foreign_data - Statement 257",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_unprivileged_role",
-    "expected": "GRANT USAGE ON postgresql TO regress_unprivileged_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 258",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_unprivileged_role WITH GRANT OPTION",
-    "expected": "GRANT USAGE ON foo TO regress_unprivileged_role WITH GRANT OPTION"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_unprivileged_role WITH GRANT OPTION"
   },
   {
     "comment": "foreign_data - Statement 259",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role",
-    "expected": "GRANT USAGE ON postgresql TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 260",
@@ -1137,13 +1127,11 @@
   },
   {
     "comment": "foreign_data - Statement 263",
-    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role",
-    "expected": "GRANT USAGE ON s6 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 264",
-    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_test_role",
-    "expected": "GRANT USAGE ON s9 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 265",
@@ -1157,13 +1145,11 @@
   },
   {
     "comment": "foreign_data - Statement 267",
-    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role",
-    "expected": "REVOKE USAGE ON foo FROM regress_unprivileged_role"
+    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 268",
-    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role CASCADE",
-    "expected": "REVOKE USAGE ON foo FROM regress_unprivileged_role CASCADE"
+    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role CASCADE"
   },
   {
     "comment": "foreign_data - Statement 269",
@@ -1184,8 +1170,7 @@
   },
   {
     "comment": "foreign_data - Statement 273",
-    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_unprivileged_role",
-    "expected": "GRANT USAGE ON s9 TO regress_unprivileged_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 274",
@@ -1250,23 +1235,19 @@
   },
   {
     "comment": "foreign_data - Statement 288",
-    "query": "DROP TRIGGER trigtest_before_stmt ON foreign_schema.foreign_table_1",
-    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
+    "query": "DROP TRIGGER trigtest_before_stmt ON foreign_schema.foreign_table_1"
   },
   {
     "comment": "foreign_data - Statement 289",
-    "query": "DROP TRIGGER trigtest_before_row ON foreign_schema.foreign_table_1",
-    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
+    "query": "DROP TRIGGER trigtest_before_row ON foreign_schema.foreign_table_1"
   },
   {
     "comment": "foreign_data - Statement 290",
-    "query": "DROP TRIGGER trigtest_after_stmt ON foreign_schema.foreign_table_1",
-    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
+    "query": "DROP TRIGGER trigtest_after_stmt ON foreign_schema.foreign_table_1"
   },
   {
     "comment": "foreign_data - Statement 291",
-    "query": "DROP TRIGGER trigtest_after_row ON foreign_schema.foreign_table_1",
-    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
+    "query": "DROP TRIGGER trigtest_after_row ON foreign_schema.foreign_table_1"
   },
   {
     "comment": "foreign_data - Statement 292",
@@ -1563,8 +1544,7 @@
   },
   {
     "comment": "foreign_data - Statement 360",
-    "query": "REVOKE ALL ON FOREIGN DATA WRAPPER postgresql FROM regress_unprivileged_role",
-    "expected": "REVOKE ALL ON postgresql FROM regress_unprivileged_role"
+    "query": "REVOKE ALL ON FOREIGN DATA WRAPPER postgresql FROM regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 361",

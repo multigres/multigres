@@ -2058,38 +2058,20 @@ func (d *DropStmt) sqlStringForDropOnTable() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	// For RULE/TRIGGER/POLICY, Objects contains: [table_name, object_name]
-	// We need to format as: DROP TYPE object_name ON table_name
+	// For RULE/TRIGGER/POLICY the object is one flat qualified name whose last
+	// part is the rule/trigger/policy name and whose preceding parts form the
+	// (optionally schema-qualified) table: DROP TRIGGER <name> ON <table>.
 	if d.Objects != nil && len(d.Objects.Items) >= 2 {
-		// The first item is the table, the second is the rule/trigger/policy name
-		tableName := ""
-		objectName := ""
-
-		// First item should be the table (from any_name)
-		if nodeList, ok := d.Objects.Items[0].(*NodeList); ok {
-			var qualParts []string
-			for _, nameItem := range nodeList.Items {
-				if strVal, ok := nameItem.(*String); ok {
-					qualParts = append(qualParts, strVal.SVal)
-				}
+		var nameParts []string
+		for _, item := range d.Objects.Items {
+			if strVal, ok := item.(*String); ok {
+				nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 			}
-			if len(qualParts) > 0 {
-				tableName = strings.Join(qualParts, ".")
-			}
-		} else if strVal, ok := d.Objects.Items[0].(*String); ok {
-			tableName = strVal.SVal
 		}
-
-		// Second item should be the object name
-		if strVal, ok := d.Objects.Items[1].(*String); ok {
-			objectName = strVal.SVal
-		}
-
-		if objectName != "" {
-			parts = append(parts, QuoteIdentifier(objectName))
-		}
-		if tableName != "" {
-			parts = append(parts, "ON", tableName)
+		if len(nameParts) >= 2 {
+			objectName := nameParts[len(nameParts)-1]
+			tableName := strings.Join(nameParts[:len(nameParts)-1], ".")
+			parts = append(parts, objectName, "ON", tableName)
 		}
 	}
 

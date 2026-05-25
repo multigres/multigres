@@ -300,13 +300,11 @@
   },
   {
     "comment": "drop_if_exists - Statement 70",
-    "query": "DROP TRIGGER test_trigger_exists ON no_such_schema.no_such_table",
-    "expected": "DROP TRIGGER no_such_table ON no_such_schema"
+    "query": "DROP TRIGGER test_trigger_exists ON no_such_schema.no_such_table"
   },
   {
     "comment": "drop_if_exists - Statement 71",
-    "query": "DROP TRIGGER IF EXISTS test_trigger_exists ON no_such_schema.no_such_table",
-    "expected": "DROP TRIGGER IF EXISTS no_such_table ON no_such_schema"
+    "query": "DROP TRIGGER IF EXISTS test_trigger_exists ON no_such_schema.no_such_table"
   },
   {
     "comment": "drop_if_exists - Statement 72",
@@ -331,13 +329,11 @@
   },
   {
     "comment": "drop_if_exists - Statement 77",
-    "query": "DROP RULE test_rule_exists ON no_such_schema.no_such_table",
-    "expected": "DROP RULE no_such_table ON no_such_schema"
+    "query": "DROP RULE test_rule_exists ON no_such_schema.no_such_table"
   },
   {
     "comment": "drop_if_exists - Statement 78",
-    "query": "DROP RULE IF EXISTS test_rule_exists ON no_such_schema.no_such_table",
-    "expected": "DROP RULE IF EXISTS no_such_table ON no_such_schema"
+    "query": "DROP RULE IF EXISTS test_rule_exists ON no_such_schema.no_such_table"
   },
   {
     "comment": "drop_if_exists - Statement 79",
@@ -509,8 +505,7 @@
   },
   {
     "comment": "drop_if_exists - Statement 116",
-    "query": "DROP RULE IF EXISTS foo ON no_such_schema.bar",
-    "expected": "DROP RULE IF EXISTS bar ON no_such_schema"
+    "query": "DROP RULE IF EXISTS foo ON no_such_schema.bar"
   },
   {
     "comment": "drop_if_exists - Statement 117",
@@ -538,8 +533,7 @@
   },
   {
     "comment": "drop_if_exists - Statement 123",
-    "query": "DROP TRIGGER IF EXISTS foo ON no_such_schema.bar",
-    "expected": "DROP TRIGGER IF EXISTS bar ON no_such_schema"
+    "query": "DROP TRIGGER IF EXISTS foo ON no_such_schema.bar"
   },
   {
     "comment": "drop_if_exists - Statement 124",

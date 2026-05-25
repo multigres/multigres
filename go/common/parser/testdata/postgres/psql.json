@@ -757,8 +757,7 @@
   },
   {
     "comment": "psql - Statement 163",
-    "query": "REVOKE ALL ON DOMAIN regress_zeropriv_domain FROM CURRENT_USER, PUBLIC",
-    "expected": "REVOKE ALL ON regress_zeropriv_domain FROM CURRENT_USER, PUBLIC"
+    "query": "REVOKE ALL ON DOMAIN regress_zeropriv_domain FROM CURRENT_USER, PUBLIC"
   },
   {
     "comment": "psql - Statement 164",

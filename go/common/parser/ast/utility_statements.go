@@ -509,8 +509,22 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "PROCEDURE")
 		case OBJECT_TYPE:
 			parts = append(parts, "TYPE")
+		case OBJECT_DOMAIN:
+			parts = append(parts, "DOMAIN")
 		case OBJECT_LARGEOBJECT:
 			parts = append(parts, "LARGE", "OBJECT")
+		case OBJECT_LANGUAGE:
+			parts = append(parts, "LANGUAGE")
+		case OBJECT_ROUTINE:
+			parts = append(parts, "ROUTINE")
+		case OBJECT_TABLESPACE:
+			parts = append(parts, "TABLESPACE")
+		case OBJECT_FDW:
+			parts = append(parts, "FOREIGN", "DATA", "WRAPPER")
+		case OBJECT_FOREIGN_SERVER:
+			parts = append(parts, "FOREIGN", "SERVER")
+		case OBJECT_PARAMETER_ACL:
+			parts = append(parts, "PARAMETER")
 		case OBJECT_TABLE:
 			// TABLE is optional, but we can add it for clarity in certain contexts
 			// parts = append(parts, "TABLE")
