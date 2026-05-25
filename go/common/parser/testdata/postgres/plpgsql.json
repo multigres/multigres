@@ -1427,12 +1427,12 @@
   {
     "comment": "plpgsql - Statement 286",
     "query": "SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int)",
-    "expected": "SELECT * FROM test_ret_set_rec_dyn(1500)"
+    "expected": "SELECT * FROM test_ret_set_rec_dyn(1500) AS (a INT, b INT, c INT)"
   },
   {
     "comment": "plpgsql - Statement 287",
     "query": "SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text)",
-    "expected": "SELECT * FROM test_ret_set_rec_dyn(5)"
+    "expected": "SELECT * FROM test_ret_set_rec_dyn(5) AS (a INT, b NUMERIC, c TEXT)"
   },
   {
     "comment": "plpgsql - Statement 288",
@@ -1442,12 +1442,12 @@
   {
     "comment": "plpgsql - Statement 289",
     "query": "SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int)",
-    "expected": "SELECT * FROM test_ret_rec_dyn(1500)"
+    "expected": "SELECT * FROM test_ret_rec_dyn(1500) AS (a INT, b INT, c INT)"
   },
   {
     "comment": "plpgsql - Statement 290",
     "query": "SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text)",
-    "expected": "SELECT * FROM test_ret_rec_dyn(5)"
+    "expected": "SELECT * FROM test_ret_rec_dyn(5) AS (a INT, b NUMERIC, c TEXT)"
   },
   {
     "comment": "plpgsql - Statement 291",

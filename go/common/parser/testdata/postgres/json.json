@@ -1456,7 +1456,7 @@
   {
     "comment": "json - Statement 297",
     "query": "SELECT * FROM json_populate_record(null::record, '{\"x\": 776}') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_record(CAST(NULL AS record), '{\"x\": 776}')"
+    "expected": "SELECT * FROM json_populate_record(CAST(NULL AS record), '{\"x\": 776}') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 298",
@@ -1521,7 +1521,7 @@
   {
     "comment": "json - Statement 310",
     "query": "SELECT * FROM json_populate_recordset(null::record, '[{\"x\": 776}]') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[{\"x\": 776}]')"
+    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[{\"x\": 776}]') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 311",
@@ -1541,7 +1541,7 @@
   {
     "comment": "json - Statement 314",
     "query": "SELECT * FROM json_populate_recordset(null::record, '[]') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[]')"
+    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[]') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 315",
@@ -1561,22 +1561,22 @@
   {
     "comment": "json - Statement 318",
     "query": "select * from json_populate_recordset(row(0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 319",
     "query": "select * from json_populate_recordset(row(0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 320",
     "query": "select * from json_populate_recordset(row(0::int,0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 321",
     "query": "select * from json_populate_recordset(row(1000000000::int,50::int),'[{\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(1000000000 AS INT), CAST(50 AS INT)), '[{\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(1000000000 AS INT), CAST(50 AS INT)), '[{\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 322",
@@ -1877,102 +1877,102 @@
   {
     "comment": "json - Statement 386",
     "query": "select * from json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') as x(a int, b text, d text)",
-    "expected": "SELECT * FROM json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') AS x (a INT, b TEXT, d TEXT)"
   },
   {
     "comment": "json - Statement 387",
     "query": "select * from json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') as x(a int, b text, c boolean)",
-    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') AS x"
+    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') AS x (a INT, b TEXT, c BOOLEAN)"
   },
   {
     "comment": "json - Statement 388",
     "query": "select * from json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') as x(a int, b json, c boolean)",
-    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') AS x"
+    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') AS x (a INT, b JSON, c BOOLEAN)"
   },
   {
     "comment": "json - Statement 389",
     "query": "select *, c is null as c_is_null from json_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::json) as t(a int, b json, c text, x int, ca char(5)[], ia int[][], r jpop)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT, ca CHAR(5)[], ia INT[][], r jpop)"
   },
   {
     "comment": "json - Statement 390",
     "query": "select *, c is null as c_is_null from json_to_recordset('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]'::json) as t(a int, b json, c text, x int)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_recordset(CAST('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]' AS JSON)) AS t"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_recordset(CAST('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT)"
   },
   {
     "comment": "json - Statement 391",
     "query": "select * from json_to_record('{\"ia\": null}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": null}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": null}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 392",
     "query": "select * from json_to_record('{\"ia\": 123}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": 123}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": 123}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 393",
     "query": "select * from json_to_record('{\"ia\": [1, \"2\", null, 4]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [1, \"2\", null, 4]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [1, \"2\", null, 4]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 394",
     "query": "select * from json_to_record('{\"ia\": [[1, 2], [3, 4]]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1, 2], [3, 4]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1, 2], [3, 4]]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 395",
     "query": "select * from json_to_record('{\"ia\": [[1], 2]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], 2]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], 2]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 396",
     "query": "select * from json_to_record('{\"ia\": [[1], [2, 3]]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], [2, 3]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], [2, 3]]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 397",
     "query": "select * from json_to_record('{\"ia2\": [1, 2, 3]}') as x(ia2 int[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [1, 2, 3]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [1, 2, 3]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 398",
     "query": "select * from json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') as x(ia2 int4[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 399",
     "query": "select * from json_to_record('{\"ia2\": [[[1], [2], [3]]]}') as x(ia2 int4[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[[1], [2], [3]]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[[1], [2], [3]]]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 400",
     "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 401",
     "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 402",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 403",
     "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 404",
     "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 405",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 406",

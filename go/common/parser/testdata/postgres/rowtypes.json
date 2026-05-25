@@ -747,7 +747,7 @@
   {
     "comment": "rowtypes - Statement 151",
     "query": "select q.a, q.b = row(2), q.c = array[row(3)], q.d = row(row(4)) from unnest(array[row(1, row(2), array[row(3)], row(row(4))), row(2, row(3), array[row(4)], row(row(5)))]) as q(a int, b record, c record[], d record)",
-    "expected": "SELECT q.a, q.b = ROW(2), q.c = ARRAY[ROW(3)], q.d = ROW(ROW(4)) FROM unnest(ARRAY[ROW(1, ROW(2), ARRAY[ROW(3)], ROW(ROW(4))),ROW(2, ROW(3), ARRAY[ROW(4)], ROW(ROW(5)))]) AS q"
+    "expected": "SELECT q.a, q.b = ROW(2), q.c = ARRAY[ROW(3)], q.d = ROW(ROW(4)) FROM unnest(ARRAY[ROW(1, ROW(2), ARRAY[ROW(3)], ROW(ROW(4))),ROW(2, ROW(3), ARRAY[ROW(4)], ROW(ROW(5)))]) AS q (a INT, b record, c record[], d record)"
   },
   {
     "comment": "rowtypes - Statement 152",

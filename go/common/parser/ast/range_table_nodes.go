@@ -314,12 +314,38 @@ func (r *RangeFunction) SqlString() string {
 		result.WriteString(" WITH ORDINALITY")
 	}
 
+	// A RECORD-returning function carries a column-definition list, written as
+	// `... AS alias (col type, ...)` or, when unaliased, `... AS (col type, ...)`.
 	if r.Alias != nil {
 		result.WriteString(" ")
 		result.WriteString(r.Alias.SqlString())
+		if r.ColDefList != nil && r.ColDefList.Len() > 0 {
+			result.WriteString(" ")
+			result.WriteString(renderColDefList(r.ColDefList))
+		}
+	} else if r.ColDefList != nil && r.ColDefList.Len() > 0 {
+		result.WriteString(" AS ")
+		result.WriteString(renderColDefList(r.ColDefList))
 	}
 
 	return result.String()
+}
+
+// renderColDefList renders a parenthesized list of column definitions used by
+// RECORD-returning functions, e.g. "(a int, b text)".
+func renderColDefList(list *NodeList) string {
+	var b strings.Builder
+	b.WriteString("(")
+	for i, item := range list.Items {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if item != nil {
+			b.WriteString(item.SqlString())
+		}
+	}
+	b.WriteString(")")
+	return b.String()
 }
 
 // RangeTableFunc represents raw form of "table functions" such as XMLTABLE.
