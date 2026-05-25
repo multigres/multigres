@@ -79,15 +79,10 @@ type Manager struct {
 	// This mutex is only acquired when a new user pool needs to be created.
 	createMu sync.Mutex
 
-	// closed indicates whether the manager has been closed.
+	// closed indicates whether the manager has been closed. withReopenRetry
+	// reads this on ErrPoolClosed to distinguish a transient pool swap
+	// (reopen/eviction) from a genuine terminal shutdown.
 	closed atomic.Bool
-
-	// generation is incremented on every Open(). Callers that get
-	// ErrPoolClosed from an in-flight pool operation can compare the
-	// pre-call generation against the current one: if it advanced, a
-	// reopen swapped the pools underneath them and the call is safe to
-	// retry against the fresh snapshot.
-	generation atomic.Uint64
 
 	// Rebalancer goroutine management
 	rebalancerCtx    context.Context
@@ -137,7 +132,6 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 	m.closed.Store(false)
-	m.generation.Add(1)
 
 	// Build admin client config. pwSourceNone signals that ResolvePgPassword
 	// was never called — production startup in services/multipooler/init.go
@@ -551,10 +545,17 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 // withReopenRetry runs op against the current user pool with two single-shot
 // retry paths for transient, self-healable failures:
 //
-//  1. ErrPoolClosed after a generation bump: reopenConnections() swapped the
-//     pools mid-flight (PostgreSQL auto-restart recovery). Retry against the
-//     fresh pool. A closed-pool error with no generation bump means the
-//     manager is genuinely shutting down — surface it unchanged.
+//  1. ErrPoolClosed while the manager is still operational: either
+//     reopenConnections() swapped the pools mid-flight (PostgreSQL auto-restart
+//     recovery) or evictUserPool() replaced a stale-credentials pool. Either
+//     way the manager itself has not shut down, so getOrCreateUserPool will
+//     return the freshly installed (or freshly created) pool on retry.
+//     We use m.closed instead of comparing a per-Open generation counter
+//     because reopenConnections does Close→Open under pm.mu, and Open()
+//     bumps its generation only after clearing the snapshot. A query whose
+//     op() resolves to ErrPoolClosed in the Close-but-not-yet-Open window
+//     would otherwise observe an unchanged generation and surface the
+//     transient error to the client.
 //
 //  2. Class-28 SQLSTATE from PostgreSQL: the cached user pool's ClientConfig
 //     carries stale SCRAM keys (password rotated in pg_authid). Evict the
@@ -571,7 +572,6 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 // keys.
 func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
 	var zero T
-	startGen := m.generation.Load()
 	pool, err := m.getOrCreateUserPool(user, clientKey, serverKey)
 	if err != nil {
 		return zero, err
@@ -581,9 +581,11 @@ func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte
 		return result, nil
 	}
 
-	// Manager-restart race: reopenConnections swapped pools mid-flight.
+	// Pool was closed mid-flight (reopen swap or stale-credentials eviction).
+	// Retry against the current snapshot unless the manager itself is shutting
+	// down — in which case getOrCreateUserPool returns "manager is closed".
 	if errors.Is(err, connpool.ErrPoolClosed) {
-		if m.generation.Load() == startGen {
+		if m.closed.Load() {
 			return zero, err
 		}
 		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
