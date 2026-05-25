@@ -790,10 +790,6 @@ func (f *FuncCall) SqlString() string {
 					name = "POSITION"
 				case "substring":
 					name = "substring"
-				case "trim":
-					name = "trim"
-				case "btrim":
-					name = "trim"
 				}
 				nameParts = append(nameParts, name)
 			}
@@ -1234,6 +1230,24 @@ func (c *ColumnDef) SqlString() string {
 		parts = append(parts, "STORAGE", c.StorageName)
 	}
 
+	// Add foreign-data-wrapper OPTIONS (foreign table columns), in PostgreSQL's
+	// generic-options form: OPTIONS (key 'value', ...).
+	if c.Fdwoptions != nil && c.Fdwoptions.Len() > 0 {
+		var optParts []string
+		for _, item := range c.Fdwoptions.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				if opt.Arg != nil {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
+				}
+			}
+		}
+		if len(optParts) > 0 {
+			parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+		}
+	}
+
 	// Add NOT NULL constraint if specified
 	if c.IsNotNull {
 		parts = append(parts, "NOT NULL")
@@ -1322,6 +1336,11 @@ func (c *ColumnDef) SqlString() string {
 						parts = append(parts, constraintStr)
 					}
 				}
+			} else if cc, ok := item.(*CollateClause); ok && cc != nil {
+				// A bare COLLATE (e.g. a partition/typed-table column
+				// `a COLLATE "POSIX"`) is stored as a CollateClause in the
+				// constraint list rather than in Collclause.
+				parts = append(parts, cc.SqlString())
 			}
 		}
 	}
@@ -1854,15 +1873,8 @@ func (g *GroupingSet) SqlString() string {
 							// Other grouping sets (ROLLUP, CUBE, etc)
 							sets = append(sets, gs.SqlString())
 						}
-					} else if _, ok := item.(*ParenExpr); ok {
-						// Parenthesized expression - already has parentheses
-						sets = append(sets, item.SqlString())
-					} else if _, ok := item.(*RowExpr); ok {
-						// Row expression - already has parentheses in its SqlString
-						sets = append(sets, item.SqlString())
 					} else {
-						// Simple expression - needs parentheses
-						sets = append(sets, fmt.Sprintf("(%s)", item.SqlString()))
+						sets = append(sets, item.SqlString())
 					}
 				}
 			}

@@ -231,8 +231,8 @@
   },
   {
     "comment": "inherit - Statement 48",
-    "query": "create table some_tab (f1 int, f2 int, f3 int, check (f1 \u003c 10) no inherit)",
-    "expected": "CREATE TABLE some_tab (f1 INT, f2 INT, f3 INT, CHECK (f1 \u003c 10) NO INHERIT)"
+    "query": "create table some_tab (f1 int, f2 int, f3 int, check (f1 < 10) no inherit)",
+    "expected": "CREATE TABLE some_tab (f1 INT, f2 INT, f3 INT, CHECK (f1 < 10) NO INHERIT)"
   },
   {
     "comment": "inherit - Statement 49",
@@ -613,13 +613,13 @@
   },
   {
     "comment": "inherit - Statement 125",
-    "query": "alter table p1 add constraint p1chk check (ff1 \u003e 0) no inherit",
-    "expected": "ALTER TABLE p1 ADD CONSTRAINT p1chk CHECK (ff1 \u003e 0) NO INHERIT"
+    "query": "alter table p1 add constraint p1chk check (ff1 > 0) no inherit",
+    "expected": "ALTER TABLE p1 ADD CONSTRAINT p1chk CHECK (ff1 > 0) NO INHERIT"
   },
   {
     "comment": "inherit - Statement 126",
-    "query": "alter table p1 add constraint p2chk check (ff1 \u003e 10)",
-    "expected": "ALTER TABLE p1 ADD CONSTRAINT p2chk CHECK (ff1 \u003e 10)"
+    "query": "alter table p1 add constraint p2chk check (ff1 > 10)",
+    "expected": "ALTER TABLE p1 ADD CONSTRAINT p2chk CHECK (ff1 > 10)"
   },
   {
     "comment": "inherit - Statement 127",
@@ -806,23 +806,23 @@
   },
   {
     "comment": "inherit - Statement 164",
-    "query": "create table ac (a int constraint check_a check (a \u003c\u003e 0))",
-    "expected": "CREATE TABLE ac (a INT CONSTRAINT check_a CHECK (a \u003c\u003e 0))"
+    "query": "create table ac (a int constraint check_a check (a <> 0))",
+    "expected": "CREATE TABLE ac (a INT CONSTRAINT check_a CHECK (a <> 0))"
   },
   {
     "comment": "inherit - Statement 165",
-    "query": "create table bc (a int constraint check_a check (a \u003c\u003e 0), b int constraint check_b check (b \u003c\u003e 0)) inherits (ac)",
-    "expected": "CREATE TABLE bc (a INT CONSTRAINT check_a CHECK (a \u003c\u003e 0), b INT CONSTRAINT check_b CHECK (b \u003c\u003e 0)) INHERITS (ac)"
+    "query": "create table bc (a int constraint check_a check (a <> 0), b int constraint check_b check (b <> 0)) inherits (ac)",
+    "expected": "CREATE TABLE bc (a INT CONSTRAINT check_a CHECK (a <> 0), b INT CONSTRAINT check_b CHECK (b <> 0)) INHERITS (ac)"
   },
   {
     "comment": "inherit - Statement 166",
-    "query": "create table bc (b int constraint check_b check (b \u003c\u003e 0))",
-    "expected": "CREATE TABLE bc (b INT CONSTRAINT check_b CHECK (b \u003c\u003e 0))"
+    "query": "create table bc (b int constraint check_b check (b <> 0))",
+    "expected": "CREATE TABLE bc (b INT CONSTRAINT check_b CHECK (b <> 0))"
   },
   {
     "comment": "inherit - Statement 167",
-    "query": "create table cc (c int constraint check_c check (c \u003c\u003e 0)) inherits (ac, bc)",
-    "expected": "CREATE TABLE cc (c INT CONSTRAINT check_c CHECK (c \u003c\u003e 0)) INHERITS (ac, bc)"
+    "query": "create table cc (c int constraint check_c check (c <> 0)) inherits (ac, bc)",
+    "expected": "CREATE TABLE cc (c INT CONSTRAINT check_c CHECK (c <> 0)) INHERITS (ac, bc)"
   },
   {
     "comment": "inherit - Statement 168",
@@ -856,13 +856,13 @@
   },
   {
     "comment": "inherit - Statement 174",
-    "query": "alter table p2 add constraint cc check (f2\u003e0)",
-    "expected": "ALTER TABLE p2 ADD CONSTRAINT cc CHECK (f2 \u003e 0)"
+    "query": "alter table p2 add constraint cc check (f2>0)",
+    "expected": "ALTER TABLE p2 ADD CONSTRAINT cc CHECK (f2 > 0)"
   },
   {
     "comment": "inherit - Statement 175",
-    "query": "alter table p2 add check (f2\u003e0)",
-    "expected": "ALTER TABLE p2 ADD CHECK (f2 \u003e 0)"
+    "query": "alter table p2 add check (f2>0)",
+    "expected": "ALTER TABLE p2 ADD CHECK (f2 > 0)"
   },
   {
     "comment": "inherit - Statement 176",
@@ -896,8 +896,8 @@
   },
   {
     "comment": "inherit - Statement 182",
-    "query": "alter table pp1 add column a1 int check (a1 \u003e 0)",
-    "expected": "ALTER TABLE pp1 ADD COLUMN a1 INT CHECK (a1 \u003e 0)"
+    "query": "alter table pp1 add column a1 int check (a1 > 0)",
+    "expected": "ALTER TABLE pp1 ADD COLUMN a1 INT CHECK (a1 > 0)"
   },
   {
     "comment": "inherit - Statement 183",
@@ -999,8 +999,8 @@
   },
   {
     "comment": "inherit - Statement 204",
-    "query": "CREATE TABLE test_ex_constraints ( c circle, EXCLUDE USING gist (c WITH \u0026\u0026) )",
-    "expected": "CREATE TABLE test_ex_constraints (c circle, EXCLUDE USING gist (c WITH \u0026\u0026))"
+    "query": "CREATE TABLE test_ex_constraints ( c circle, EXCLUDE USING gist (c WITH &&) )",
+    "expected": "CREATE TABLE test_ex_constraints (c circle, EXCLUDE USING gist (c WITH &&))"
   },
   {
     "comment": "inherit - Statement 205",
@@ -1089,23 +1089,23 @@
   },
   {
     "comment": "inherit - Statement 223",
-    "query": "alter table p1 add constraint inh_check_constraint1 check (f1 \u003e 0)",
-    "expected": "ALTER TABLE p1 ADD CONSTRAINT inh_check_constraint1 CHECK (f1 \u003e 0)"
+    "query": "alter table p1 add constraint inh_check_constraint1 check (f1 > 0)",
+    "expected": "ALTER TABLE p1 ADD CONSTRAINT inh_check_constraint1 CHECK (f1 > 0)"
   },
   {
     "comment": "inherit - Statement 224",
-    "query": "alter table p1_c1 add constraint inh_check_constraint1 check (f1 \u003e 0)",
-    "expected": "ALTER TABLE p1_c1 ADD CONSTRAINT inh_check_constraint1 CHECK (f1 \u003e 0)"
+    "query": "alter table p1_c1 add constraint inh_check_constraint1 check (f1 > 0)",
+    "expected": "ALTER TABLE p1_c1 ADD CONSTRAINT inh_check_constraint1 CHECK (f1 > 0)"
   },
   {
     "comment": "inherit - Statement 225",
-    "query": "alter table p1_c1 add constraint inh_check_constraint2 check (f1 \u003c 10)",
-    "expected": "ALTER TABLE p1_c1 ADD CONSTRAINT inh_check_constraint2 CHECK (f1 \u003c 10)"
+    "query": "alter table p1_c1 add constraint inh_check_constraint2 check (f1 < 10)",
+    "expected": "ALTER TABLE p1_c1 ADD CONSTRAINT inh_check_constraint2 CHECK (f1 < 10)"
   },
   {
     "comment": "inherit - Statement 226",
-    "query": "alter table p1 add constraint inh_check_constraint2 check (f1 \u003c 10)",
-    "expected": "ALTER TABLE p1 ADD CONSTRAINT inh_check_constraint2 CHECK (f1 \u003c 10)"
+    "query": "alter table p1 add constraint inh_check_constraint2 check (f1 < 10)",
+    "expected": "ALTER TABLE p1 ADD CONSTRAINT inh_check_constraint2 CHECK (f1 < 10)"
   },
   {
     "comment": "inherit - Statement 227",
@@ -1114,13 +1114,13 @@
   },
   {
     "comment": "inherit - Statement 228",
-    "query": "create table p1(f1 int constraint f1_pos CHECK (f1 \u003e 0))",
-    "expected": "CREATE TABLE p1 (f1 INT CONSTRAINT f1_pos CHECK (f1 \u003e 0))"
+    "query": "create table p1(f1 int constraint f1_pos CHECK (f1 > 0))",
+    "expected": "CREATE TABLE p1 (f1 INT CONSTRAINT f1_pos CHECK (f1 > 0))"
   },
   {
     "comment": "inherit - Statement 229",
-    "query": "create table p1_c1 (f1 int constraint f1_pos CHECK (f1 \u003e 0)) inherits (p1)",
-    "expected": "CREATE TABLE p1_c1 (f1 INT CONSTRAINT f1_pos CHECK (f1 \u003e 0)) INHERITS (p1)"
+    "query": "create table p1_c1 (f1 int constraint f1_pos CHECK (f1 > 0)) inherits (p1)",
+    "expected": "CREATE TABLE p1_c1 (f1 INT CONSTRAINT f1_pos CHECK (f1 > 0)) INHERITS (p1)"
   },
   {
     "comment": "inherit - Statement 230",
@@ -1134,8 +1134,8 @@
   },
   {
     "comment": "inherit - Statement 232",
-    "query": "create table p2(f1 int constraint f1_pos CHECK (f1 \u003e 0))",
-    "expected": "CREATE TABLE p2 (f1 INT CONSTRAINT f1_pos CHECK (f1 \u003e 0))"
+    "query": "create table p2(f1 int constraint f1_pos CHECK (f1 > 0))",
+    "expected": "CREATE TABLE p2 (f1 INT CONSTRAINT f1_pos CHECK (f1 > 0))"
   },
   {
     "comment": "inherit - Statement 233",
@@ -1144,8 +1144,8 @@
   },
   {
     "comment": "inherit - Statement 234",
-    "query": "create table p1p2_c2 (f1 int constraint f1_pos CHECK (f1 \u003e 0)) inherits (p1, p2)",
-    "expected": "CREATE TABLE p1p2_c2 (f1 INT CONSTRAINT f1_pos CHECK (f1 \u003e 0)) INHERITS (p1, p2)"
+    "query": "create table p1p2_c2 (f1 int constraint f1_pos CHECK (f1 > 0)) inherits (p1, p2)",
+    "expected": "CREATE TABLE p1p2_c2 (f1 INT CONSTRAINT f1_pos CHECK (f1 > 0)) INHERITS (p1, p2)"
   },
   {
     "comment": "inherit - Statement 235",
@@ -1169,8 +1169,8 @@
   },
   {
     "comment": "inherit - Statement 239",
-    "query": "create table p1_c2(constraint f1_pos CHECK (f1 \u003e 0)) inherits (p1)",
-    "expected": "CREATE TABLE p1_c2 (CONSTRAINT f1_pos CHECK (f1 \u003e 0)) INHERITS (p1)"
+    "query": "create table p1_c2(constraint f1_pos CHECK (f1 > 0)) inherits (p1)",
+    "expected": "CREATE TABLE p1_c2 (CONSTRAINT f1_pos CHECK (f1 > 0)) INHERITS (p1)"
   },
   {
     "comment": "inherit - Statement 240",
@@ -1199,13 +1199,13 @@
   },
   {
     "comment": "inherit - Statement 245",
-    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 \u003e 0) not valid",
-    "expected": "ALTER TABLE invalid_check_con_child ADD CONSTRAINT inh_check_constraint CHECK (f1 \u003e 0) NOT VALID"
+    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 > 0) not valid",
+    "expected": "ALTER TABLE invalid_check_con_child ADD CONSTRAINT inh_check_constraint CHECK (f1 > 0) NOT VALID"
   },
   {
     "comment": "inherit - Statement 246",
-    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 \u003e 0)",
-    "expected": "ALTER TABLE invalid_check_con ADD CONSTRAINT inh_check_constraint CHECK (f1 \u003e 0)"
+    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 > 0)",
+    "expected": "ALTER TABLE invalid_check_con ADD CONSTRAINT inh_check_constraint CHECK (f1 > 0)"
   },
   {
     "comment": "inherit - Statement 247",
@@ -1219,13 +1219,13 @@
   },
   {
     "comment": "inherit - Statement 249",
-    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 \u003e 0)",
-    "expected": "ALTER TABLE invalid_check_con_child ADD CONSTRAINT inh_check_constraint CHECK (f1 \u003e 0)"
+    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 > 0)",
+    "expected": "ALTER TABLE invalid_check_con_child ADD CONSTRAINT inh_check_constraint CHECK (f1 > 0)"
   },
   {
     "comment": "inherit - Statement 250",
-    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 \u003e 0) not valid",
-    "expected": "ALTER TABLE invalid_check_con ADD CONSTRAINT inh_check_constraint CHECK (f1 \u003e 0) NOT VALID"
+    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 > 0) not valid",
+    "expected": "ALTER TABLE invalid_check_con ADD CONSTRAINT inh_check_constraint CHECK (f1 > 0) NOT VALID"
   },
   {
     "comment": "inherit - Statement 251",
@@ -1509,8 +1509,8 @@
   },
   {
     "comment": "inherit - Statement 307",
-    "query": "explain (costs off) select * from matest0 where a \u003c 100 order by a",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM matest0 WHERE a \u003c 100 ORDER BY a"
+    "query": "explain (costs off) select * from matest0 where a < 100 order by a",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM matest0 WHERE a < 100 ORDER BY a"
   },
   {
     "comment": "inherit - Statement 308",
@@ -1595,12 +1595,12 @@
   {
     "comment": "inherit - Statement 324",
     "query": "explain (verbose, costs off) update inhpar i set (f1, f2) = (select i.f1, i.f2 || '-' from int4_tbl limit 1)",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE inhpar AS i SET f1 = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1), f2 = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1)"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE inhpar AS i SET (f1, f2) = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1)"
   },
   {
     "comment": "inherit - Statement 325",
     "query": "update inhpar i set (f1, f2) = (select i.f1, i.f2 || '-' from int4_tbl limit 1)",
-    "expected": "UPDATE inhpar AS i SET f1 = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1), f2 = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1)"
+    "expected": "UPDATE inhpar AS i SET (f1, f2) = (SELECT i.f1, i.f2 || '-' FROM int4_tbl LIMIT 1)"
   },
   {
     "comment": "inherit - Statement 326",
@@ -1645,7 +1645,7 @@
   {
     "comment": "inherit - Statement 334",
     "query": "insert into inhpar as i values (3), (7) on conflict (f1) do update set (f1, f2) = (select i.f1, i.f2 || '+')",
-    "expected": "INSERT INTO inhpar AS i VALUES (3), (7) ON CONFLICT (f1) DO UPDATE SET f1 = (SELECT i.f1, i.f2 || '+'), f2 = (SELECT i.f1, i.f2 || '+')"
+    "expected": "INSERT INTO inhpar AS i VALUES (3), (7) ON CONFLICT (f1) DO UPDATE SET (f1, f2) = (SELECT i.f1, i.f2 || '+')"
   },
   {
     "comment": "inherit - Statement 335",
@@ -1974,13 +1974,13 @@
   },
   {
     "comment": "inherit - Statement 400",
-    "query": "explain (costs off) select * from range_list_parted where a is not null and a \u003c 67",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM range_list_parted WHERE a IS NOT NULL AND a \u003c 67"
+    "query": "explain (costs off) select * from range_list_parted where a is not null and a < 67",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM range_list_parted WHERE a IS NOT NULL AND a < 67"
   },
   {
     "comment": "inherit - Statement 401",
-    "query": "explain (costs off) select * from range_list_parted where a \u003e= 30",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM range_list_parted WHERE a \u003e= 30"
+    "query": "explain (costs off) select * from range_list_parted where a >= 30",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM range_list_parted WHERE a >= 30"
   },
   {
     "comment": "inherit - Statement 402",
@@ -2039,8 +2039,8 @@
   },
   {
     "comment": "inherit - Statement 413",
-    "query": "explain (costs off) select * from mcrparted where a = 10 and abs(b) \u003c 5",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 10 AND abs(b) \u003c 5"
+    "query": "explain (costs off) select * from mcrparted where a = 10 and abs(b) < 5",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 10 AND abs(b) < 5"
   },
   {
     "comment": "inherit - Statement 414",
@@ -2054,18 +2054,18 @@
   },
   {
     "comment": "inherit - Statement 416",
-    "query": "explain (costs off) select * from mcrparted where a \u003e -1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a \u003e -1"
+    "query": "explain (costs off) select * from mcrparted where a > -1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a > -1"
   },
   {
     "comment": "inherit - Statement 417",
-    "query": "explain (costs off) select * from mcrparted where a = 20 and abs(b) = 10 and c \u003e 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 20 AND abs(b) = 10 AND c \u003e 10"
+    "query": "explain (costs off) select * from mcrparted where a = 20 and abs(b) = 10 and c > 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 20 AND abs(b) = 10 AND c > 10"
   },
   {
     "comment": "inherit - Statement 418",
-    "query": "explain (costs off) select * from mcrparted where a = 20 and c \u003e 20",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 20 AND c \u003e 20"
+    "query": "explain (costs off) select * from mcrparted where a = 20 and c > 20",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a = 20 AND c > 20"
   },
   {
     "comment": "inherit - Statement 419",
@@ -2154,8 +2154,8 @@
   },
   {
     "comment": "inherit - Statement 436",
-    "query": "explain (costs off) select * from mcrparted where a \u003c 20 order by a, abs(b), c",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a \u003c 20 ORDER BY a, abs(b), c"
+    "query": "explain (costs off) select * from mcrparted where a < 20 order by a, abs(b), c",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a < 20 ORDER BY a, abs(b), c"
   },
   {
     "comment": "inherit - Statement 437",
@@ -2284,8 +2284,8 @@
   },
   {
     "comment": "inherit - Statement 462",
-    "query": "explain (costs off) select * from mcrparted where a \u003c 20 order by a, abs(b), c limit 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a \u003c 20 ORDER BY a, abs(b), c LIMIT 1"
+    "query": "explain (costs off) select * from mcrparted where a < 20 order by a, abs(b), c limit 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mcrparted WHERE a < 20 ORDER BY a, abs(b), c LIMIT 1"
   },
   {
     "comment": "inherit - Statement 463",
@@ -2524,23 +2524,23 @@
   },
   {
     "comment": "inherit - Statement 510",
-    "query": "CREATE TABLE errtst_parent ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata \u003c 3) ) PARTITION BY RANGE (partid)",
-    "expected": "CREATE TABLE errtst_parent (partid INT NOT NULL, shdata INT NOT NULL, data INT NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK (shdata \u003c 3)) PARTITION BY range (partid)"
+    "query": "CREATE TABLE errtst_parent ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata < 3) ) PARTITION BY RANGE (partid)",
+    "expected": "CREATE TABLE errtst_parent (partid INT NOT NULL, shdata INT NOT NULL, data INT NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK (shdata < 3)) PARTITION BY range (partid)"
   },
   {
     "comment": "inherit - Statement 511",
-    "query": "CREATE TABLE errtst_child_fastdef ( partid int not null, shdata int not null, CONSTRAINT shdata_small CHECK(shdata \u003c 3) )",
-    "expected": "CREATE TABLE errtst_child_fastdef (partid INT NOT NULL, shdata INT NOT NULL, CONSTRAINT shdata_small CHECK (shdata \u003c 3))"
+    "query": "CREATE TABLE errtst_child_fastdef ( partid int not null, shdata int not null, CONSTRAINT shdata_small CHECK(shdata < 3) )",
+    "expected": "CREATE TABLE errtst_child_fastdef (partid INT NOT NULL, shdata INT NOT NULL, CONSTRAINT shdata_small CHECK (shdata < 3))"
   },
   {
     "comment": "inherit - Statement 512",
-    "query": "CREATE TABLE errtst_child_plaindef ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata \u003c 3), CHECK(data \u003c 10) )",
-    "expected": "CREATE TABLE errtst_child_plaindef (partid INT NOT NULL, shdata INT NOT NULL, data INT NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK (shdata \u003c 3), CHECK (data \u003c 10))"
+    "query": "CREATE TABLE errtst_child_plaindef ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata < 3), CHECK(data < 10) )",
+    "expected": "CREATE TABLE errtst_child_plaindef (partid INT NOT NULL, shdata INT NOT NULL, data INT NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK (shdata < 3), CHECK (data < 10))"
   },
   {
     "comment": "inherit - Statement 513",
-    "query": "CREATE TABLE errtst_child_reorder ( data int NOT NULL DEFAULT 0, shdata int not null, partid int not null, CONSTRAINT shdata_small CHECK(shdata \u003c 3), CHECK(data \u003c 10) )",
-    "expected": "CREATE TABLE errtst_child_reorder (data INT NOT NULL DEFAULT 0, shdata INT NOT NULL, partid INT NOT NULL, CONSTRAINT shdata_small CHECK (shdata \u003c 3), CHECK (data \u003c 10))"
+    "query": "CREATE TABLE errtst_child_reorder ( data int NOT NULL DEFAULT 0, shdata int not null, partid int not null, CONSTRAINT shdata_small CHECK(shdata < 3), CHECK(data < 10) )",
+    "expected": "CREATE TABLE errtst_child_reorder (data INT NOT NULL DEFAULT 0, shdata INT NOT NULL, partid INT NOT NULL, CONSTRAINT shdata_small CHECK (shdata < 3), CHECK (data < 10))"
   },
   {
     "comment": "inherit - Statement 514",
@@ -2549,7 +2549,7 @@
   },
   {
     "comment": "inherit - Statement 515",
-    "query": "ALTER TABLE errtst_child_fastdef ADD CONSTRAINT errtest_child_fastdef_data_check CHECK (data \u003c 10)"
+    "query": "ALTER TABLE errtst_child_fastdef ADD CONSTRAINT errtest_child_fastdef_data_check CHECK (data < 10)"
   },
   {
     "comment": "inherit - Statement 516",

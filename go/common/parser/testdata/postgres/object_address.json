@@ -55,8 +55,8 @@
   },
   {
     "comment": "object_address - Statement 13",
-    "query": "CREATE TABLE addr_nsp.gentable ( a serial primary key CONSTRAINT a_chk CHECK (a \u003e 0), b text DEFAULT 'hello' )",
-    "expected": "CREATE TABLE addr_nsp.gentable (a serial PRIMARY KEY CONSTRAINT a_chk CHECK (a \u003e 0), b TEXT DEFAULT 'hello')"
+    "query": "CREATE TABLE addr_nsp.gentable ( a serial primary key CONSTRAINT a_chk CHECK (a > 0), b text DEFAULT 'hello' )",
+    "expected": "CREATE TABLE addr_nsp.gentable (a serial PRIMARY KEY CONSTRAINT a_chk CHECK (a > 0), b TEXT DEFAULT 'hello')"
   },
   {
     "comment": "object_address - Statement 14",
@@ -93,8 +93,8 @@
   },
   {
     "comment": "object_address - Statement 21",
-    "query": "CREATE DOMAIN addr_nsp.gendomain AS int4 CONSTRAINT domconstr CHECK (value \u003e 0)",
-    "expected": "CREATE DOMAIN addr_nsp.gendomain AS INT CONSTRAINT domconstr CHECK (value \u003e 0)"
+    "query": "CREATE DOMAIN addr_nsp.gendomain AS int4 CONSTRAINT domconstr CHECK (value > 0)",
+    "expected": "CREATE DOMAIN addr_nsp.gendomain AS INT CONSTRAINT domconstr CHECK (value > 0)"
   },
   {
     "comment": "object_address - Statement 22",

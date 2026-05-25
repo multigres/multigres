@@ -147,7 +147,7 @@
   {
     "comment": "create_aggregate - Statement 30",
     "query": "create aggregate my_rank(VARIADIC \"any\" ORDER BY VARIADIC \"any\") ( stype = internal, sfunc = ordered_set_transition_multi, finalfunc = rank_final, finalfunc_extra = true, hypothetical )",
-    "expected": "CREATE AGGREGATE my_rank (VARIADIC \"any\") (stype = internal, sfunc = ordered_set_transition_multi, finalfunc = rank_final, finalfunc_extra = 'true', hypothetical)"
+    "expected": "CREATE AGGREGATE my_rank (VARIADIC \"any\" ORDER BY VARIADIC \"any\") (stype = internal, sfunc = ordered_set_transition_multi, finalfunc = rank_final, finalfunc_extra = 'true', hypothetical)"
   },
   {
     "comment": "create_aggregate - Statement 31",

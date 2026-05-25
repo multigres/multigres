@@ -444,66 +444,66 @@
   },
   {
     "comment": "json - Statement 91",
-    "query": "SELECT test_json -\u003e 'x' FROM test_json WHERE json_type = 'scalar'"
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'scalar'"
   },
   {
     "comment": "json - Statement 92",
-    "query": "SELECT test_json -\u003e 'x' FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 93",
-    "query": "SELECT test_json -\u003e 'x' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 94",
-    "query": "SELECT test_json-\u003e'field2' FROM test_json WHERE json_type = 'object'",
-    "expected": "SELECT test_json -\u003e 'field2' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json->'field2' FROM test_json WHERE json_type = 'object'",
+    "expected": "SELECT test_json -> 'field2' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 95",
-    "query": "SELECT test_json-\u003e\u003e'field2' FROM test_json WHERE json_type = 'object'",
-    "expected": "SELECT test_json -\u003e\u003e 'field2' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json->>'field2' FROM test_json WHERE json_type = 'object'",
+    "expected": "SELECT test_json ->> 'field2' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 96",
-    "query": "SELECT test_json -\u003e 2 FROM test_json WHERE json_type = 'scalar'"
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'scalar'"
   },
   {
     "comment": "json - Statement 97",
-    "query": "SELECT test_json -\u003e 2 FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 98",
-    "query": "SELECT test_json -\u003e -1 FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json -> -1 FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 99",
-    "query": "SELECT test_json -\u003e 2 FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 100",
-    "query": "SELECT test_json-\u003e\u003e2 FROM test_json WHERE json_type = 'array'",
-    "expected": "SELECT test_json -\u003e\u003e 2 FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json->>2 FROM test_json WHERE json_type = 'array'",
+    "expected": "SELECT test_json ->> 2 FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 101",
-    "query": "SELECT test_json -\u003e\u003e 6 FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 6 FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 102",
-    "query": "SELECT test_json -\u003e\u003e 7 FROM test_json WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 7 FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 103",
-    "query": "SELECT test_json -\u003e\u003e 'field4' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field4' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 104",
-    "query": "SELECT test_json -\u003e\u003e 'field5' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field5' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 105",
-    "query": "SELECT test_json -\u003e\u003e 'field6' FROM test_json WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field6' FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 106",
@@ -524,138 +524,138 @@
   },
   {
     "comment": "json - Statement 110",
-    "query": "select (test_json-\u003e'field3') is null as expect_false from test_json where json_type = 'object'",
-    "expected": "SELECT (test_json -\u003e 'field3') IS NULL AS expect_false FROM test_json WHERE json_type = 'object'"
+    "query": "select (test_json->'field3') is null as expect_false from test_json where json_type = 'object'",
+    "expected": "SELECT (test_json -> 'field3') IS NULL AS expect_false FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 111",
-    "query": "select (test_json-\u003e\u003e'field3') is null as expect_true from test_json where json_type = 'object'",
-    "expected": "SELECT (test_json -\u003e\u003e 'field3') IS NULL AS expect_true FROM test_json WHERE json_type = 'object'"
+    "query": "select (test_json->>'field3') is null as expect_true from test_json where json_type = 'object'",
+    "expected": "SELECT (test_json ->> 'field3') IS NULL AS expect_true FROM test_json WHERE json_type = 'object'"
   },
   {
     "comment": "json - Statement 112",
-    "query": "select (test_json-\u003e3) is null as expect_false from test_json where json_type = 'array'",
-    "expected": "SELECT (test_json -\u003e 3) IS NULL AS expect_false FROM test_json WHERE json_type = 'array'"
+    "query": "select (test_json->3) is null as expect_false from test_json where json_type = 'array'",
+    "expected": "SELECT (test_json -> 3) IS NULL AS expect_false FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 113",
-    "query": "select (test_json-\u003e\u003e3) is null as expect_true from test_json where json_type = 'array'",
-    "expected": "SELECT (test_json -\u003e\u003e 3) IS NULL AS expect_true FROM test_json WHERE json_type = 'array'"
+    "query": "select (test_json->>3) is null as expect_true from test_json where json_type = 'array'",
+    "expected": "SELECT (test_json ->> 3) IS NULL AS expect_true FROM test_json WHERE json_type = 'array'"
   },
   {
     "comment": "json - Statement 114",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e null::text",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e CAST(NULL AS TEXT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> null::text",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> CAST(NULL AS TEXT)"
   },
   {
     "comment": "json - Statement 115",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e null::int",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e CAST(NULL AS INT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> null::int",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> CAST(NULL AS INT)"
   },
   {
     "comment": "json - Statement 116",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e 1",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e 1"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> 1",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> 1"
   },
   {
     "comment": "json - Statement 117",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e -1",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e -1"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> -1",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> -1"
   },
   {
     "comment": "json - Statement 118",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e 'z'",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e 'z'"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> 'z'",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> 'z'"
   },
   {
     "comment": "json - Statement 119",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e ''",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e ''"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> ''",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -> ''"
   },
   {
     "comment": "json - Statement 120",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e 1",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e 1"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 1",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -> 1"
   },
   {
     "comment": "json - Statement 121",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e 3",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e 3"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 3",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -> 3"
   },
   {
     "comment": "json - Statement 122",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e 'z'",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e 'z'"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 'z'",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -> 'z'"
   },
   {
     "comment": "json - Statement 123",
-    "query": "select '{\"a\": \"c\", \"b\": null}'::json -\u003e 'b'",
-    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSON) -\u003e 'b'"
+    "query": "select '{\"a\": \"c\", \"b\": null}'::json -> 'b'",
+    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSON) -> 'b'"
   },
   {
     "comment": "json - Statement 124",
-    "query": "select '\"foo\"'::json -\u003e 1",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) -\u003e 1"
+    "query": "select '\"foo\"'::json -> 1",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) -> 1"
   },
   {
     "comment": "json - Statement 125",
-    "query": "select '\"foo\"'::json -\u003e 'z'",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) -\u003e 'z'"
+    "query": "select '\"foo\"'::json -> 'z'",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) -> 'z'"
   },
   {
     "comment": "json - Statement 126",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e\u003e null::text",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e\u003e CAST(NULL AS TEXT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> null::text",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) ->> CAST(NULL AS TEXT)"
   },
   {
     "comment": "json - Statement 127",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e\u003e null::int",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e\u003e CAST(NULL AS INT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> null::int",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) ->> CAST(NULL AS INT)"
   },
   {
     "comment": "json - Statement 128",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e\u003e 1",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e\u003e 1"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> 1",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) ->> 1"
   },
   {
     "comment": "json - Statement 129",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e\u003e 'z'"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> 'z'",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) ->> 'z'"
   },
   {
     "comment": "json - Statement 130",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -\u003e\u003e ''",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) -\u003e\u003e ''"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> ''",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) ->> ''"
   },
   {
     "comment": "json - Statement 131",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e\u003e 1",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e\u003e 1"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 1",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) ->> 1"
   },
   {
     "comment": "json - Statement 132",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e\u003e 3",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e\u003e 3"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 3",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) ->> 3"
   },
   {
     "comment": "json - Statement 133",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) -\u003e\u003e 'z'"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 'z'",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) ->> 'z'"
   },
   {
     "comment": "json - Statement 134",
-    "query": "select '{\"a\": \"c\", \"b\": null}'::json -\u003e\u003e 'b'",
-    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSON) -\u003e\u003e 'b'"
+    "query": "select '{\"a\": \"c\", \"b\": null}'::json ->> 'b'",
+    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSON) ->> 'b'"
   },
   {
     "comment": "json - Statement 135",
-    "query": "select '\"foo\"'::json -\u003e\u003e 1",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) -\u003e\u003e 1"
+    "query": "select '\"foo\"'::json ->> 1",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) ->> 1"
   },
   {
     "comment": "json - Statement 136",
-    "query": "select '\"foo\"'::json -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) -\u003e\u003e 'z'"
+    "query": "select '\"foo\"'::json ->> 'z'",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) ->> 'z'"
   },
   {
     "comment": "json - Statement 137",
@@ -755,243 +755,243 @@
   },
   {
     "comment": "json - Statement 157",
-    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003earray['f4','f6']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e ARRAY['f4','f6']"
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f4','f6']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #> ARRAY['f4','f6']"
   },
   {
     "comment": "json - Statement 158",
-    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003earray['f2']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e ARRAY['f2']"
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #> ARRAY['f2']"
   },
   {
     "comment": "json - Statement 159",
-    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003earray['f2','0']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e ARRAY['f2','0']"
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2','0']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #> ARRAY['f2','0']"
   },
   {
     "comment": "json - Statement 160",
-    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003earray['f2','1']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e ARRAY['f2','1']"
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2','1']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #> ARRAY['f2','1']"
   },
   {
     "comment": "json - Statement 161",
-    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003e\u003earray['f4','f6']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e\u003e ARRAY['f4','f6']"
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f4','f6']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #>> ARRAY['f4','f6']"
   },
   {
     "comment": "json - Statement 162",
-    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003e\u003earray['f2']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e\u003e ARRAY['f2']"
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #>> ARRAY['f2']"
   },
   {
     "comment": "json - Statement 163",
-    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003e\u003earray['f2','0']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e\u003e ARRAY['f2','0']"
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2','0']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #>> ARRAY['f2','0']"
   },
   {
     "comment": "json - Statement 164",
-    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#\u003e\u003earray['f2','1']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #\u003e\u003e ARRAY['f2','1']"
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2','1']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSON) #>> ARRAY['f2','1']"
   },
   {
     "comment": "json - Statement 165",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e '{}'",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e '{}'"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> '{}'",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> '{}'"
   },
   {
     "comment": "json - Statement 166",
-    "query": "select '[1,2,3]'::json #\u003e '{}'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSON) #\u003e '{}'"
+    "query": "select '[1,2,3]'::json #> '{}'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSON) #> '{}'"
   },
   {
     "comment": "json - Statement 167",
-    "query": "select '\"foo\"'::json #\u003e '{}'",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) #\u003e '{}'"
+    "query": "select '\"foo\"'::json #> '{}'",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) #> '{}'"
   },
   {
     "comment": "json - Statement 168",
-    "query": "select '42'::json #\u003e '{}'",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e '{}'"
+    "query": "select '42'::json #> '{}'",
+    "expected": "SELECT CAST('42' AS JSON) #> '{}'"
   },
   {
     "comment": "json - Statement 169",
-    "query": "select 'null'::json #\u003e '{}'",
-    "expected": "SELECT CAST('null' AS JSON) #\u003e '{}'"
+    "query": "select 'null'::json #> '{}'",
+    "expected": "SELECT CAST('null' AS JSON) #> '{}'"
   },
   {
     "comment": "json - Statement 170",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a']"
   },
   {
     "comment": "json - Statement 171",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a', null]",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a',NULL]"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a', null]",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a',NULL]"
   },
   {
     "comment": "json - Statement 172",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a', '']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a','']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a', '']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a','']"
   },
   {
     "comment": "json - Statement 173",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a','b']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a','b']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a','b']"
   },
   {
     "comment": "json - Statement 174",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a','b','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a','b','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a','b','c']"
   },
   {
     "comment": "json - Statement 175",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a','b','c','d']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a','b','c','d']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b','c','d']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a','b','c','d']"
   },
   {
     "comment": "json - Statement 176",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e array['a','z','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e ARRAY['a','z','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','z','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #> ARRAY['a','z','c']"
   },
   {
     "comment": "json - Statement 177",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #\u003e array['a','1','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #\u003e ARRAY['a','1','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #> array['a','1','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #> ARRAY['a','1','b']"
   },
   {
     "comment": "json - Statement 178",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #\u003e array['a','z','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #\u003e ARRAY['a','z','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #> array['a','z','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #> ARRAY['a','z','b']"
   },
   {
     "comment": "json - Statement 179",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #> ARRAY['1','b']"
   },
   {
     "comment": "json - Statement 180",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #\u003e array['z','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #\u003e ARRAY['z','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #> array['z','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #> ARRAY['z','b']"
   },
   {
     "comment": "json - Statement 181",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSON) #\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSON) #> ARRAY['1','b']"
   },
   {
     "comment": "json - Statement 182",
-    "query": "select '\"foo\"'::json #\u003e array['z']",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) #\u003e ARRAY['z']"
+    "query": "select '\"foo\"'::json #> array['z']",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) #> ARRAY['z']"
   },
   {
     "comment": "json - Statement 183",
-    "query": "select '42'::json #\u003e array['f2']",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e ARRAY['f2']"
+    "query": "select '42'::json #> array['f2']",
+    "expected": "SELECT CAST('42' AS JSON) #> ARRAY['f2']"
   },
   {
     "comment": "json - Statement 184",
-    "query": "select '42'::json #\u003e array['0']",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e ARRAY['0']"
+    "query": "select '42'::json #> array['0']",
+    "expected": "SELECT CAST('42' AS JSON) #> ARRAY['0']"
   },
   {
     "comment": "json - Statement 185",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e '{}'"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> '{}'",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> '{}'"
   },
   {
     "comment": "json - Statement 186",
-    "query": "select '[1,2,3]'::json #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSON) #\u003e\u003e '{}'"
+    "query": "select '[1,2,3]'::json #>> '{}'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSON) #>> '{}'"
   },
   {
     "comment": "json - Statement 187",
-    "query": "select '\"foo\"'::json #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) #\u003e\u003e '{}'"
+    "query": "select '\"foo\"'::json #>> '{}'",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) #>> '{}'"
   },
   {
     "comment": "json - Statement 188",
-    "query": "select '42'::json #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e\u003e '{}'"
+    "query": "select '42'::json #>> '{}'",
+    "expected": "SELECT CAST('42' AS JSON) #>> '{}'"
   },
   {
     "comment": "json - Statement 189",
-    "query": "select 'null'::json #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('null' AS JSON) #\u003e\u003e '{}'"
+    "query": "select 'null'::json #>> '{}'",
+    "expected": "SELECT CAST('null' AS JSON) #>> '{}'"
   },
   {
     "comment": "json - Statement 190",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a']"
   },
   {
     "comment": "json - Statement 191",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a', null]",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a',NULL]"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a', null]",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a',NULL]"
   },
   {
     "comment": "json - Statement 192",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a', '']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a','']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a', '']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a','']"
   },
   {
     "comment": "json - Statement 193",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a','b']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a','b']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a','b']"
   },
   {
     "comment": "json - Statement 194",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a','b','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a','b','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a','b','c']"
   },
   {
     "comment": "json - Statement 195",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a','b','c','d']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a','b','c','d']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b','c','d']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a','b','c','d']"
   },
   {
     "comment": "json - Statement 196",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #\u003e\u003e array['a','z','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #\u003e\u003e ARRAY['a','z','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','z','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSON) #>> ARRAY['a','z','c']"
   },
   {
     "comment": "json - Statement 197",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #\u003e\u003e array['a','1','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #\u003e\u003e ARRAY['a','1','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #>> array['a','1','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #>> ARRAY['a','1','b']"
   },
   {
     "comment": "json - Statement 198",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #\u003e\u003e array['a','z','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #\u003e\u003e ARRAY['a','z','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #>> array['a','z','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSON) #>> ARRAY['a','z','b']"
   },
   {
     "comment": "json - Statement 199",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #\u003e\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #\u003e\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #>> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #>> ARRAY['1','b']"
   },
   {
     "comment": "json - Statement 200",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #\u003e\u003e array['z','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #\u003e\u003e ARRAY['z','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #>> array['z','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSON) #>> ARRAY['z','b']"
   },
   {
     "comment": "json - Statement 201",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #\u003e\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSON) #\u003e\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #>> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSON) #>> ARRAY['1','b']"
   },
   {
     "comment": "json - Statement 202",
-    "query": "select '\"foo\"'::json #\u003e\u003e array['z']",
-    "expected": "SELECT CAST('\"foo\"' AS JSON) #\u003e\u003e ARRAY['z']"
+    "query": "select '\"foo\"'::json #>> array['z']",
+    "expected": "SELECT CAST('\"foo\"' AS JSON) #>> ARRAY['z']"
   },
   {
     "comment": "json - Statement 203",
-    "query": "select '42'::json #\u003e\u003e array['f2']",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e\u003e ARRAY['f2']"
+    "query": "select '42'::json #>> array['f2']",
+    "expected": "SELECT CAST('42' AS JSON) #>> ARRAY['f2']"
   },
   {
     "comment": "json - Statement 204",
-    "query": "select '42'::json #\u003e\u003e array['0']",
-    "expected": "SELECT CAST('42' AS JSON) #\u003e\u003e ARRAY['0']"
+    "query": "select '42'::json #>> array['0']",
+    "expected": "SELECT CAST('42' AS JSON) #>> ARRAY['0']"
   },
   {
     "comment": "json - Statement 205",
@@ -1040,8 +1040,8 @@
   },
   {
     "comment": "json - Statement 214",
-    "query": "create domain j_ordered_pair as j_unordered_pair check((value).x \u003c= (value).y)",
-    "expected": "CREATE DOMAIN j_ordered_pair AS j_unordered_pair CHECK ((value).x \u003c= (value).y)"
+    "query": "create domain j_ordered_pair as j_unordered_pair check((value).x <= (value).y)",
+    "expected": "CREATE DOMAIN j_ordered_pair AS j_unordered_pair CHECK ((value).x <= (value).y)"
   },
   {
     "comment": "json - Statement 215",
@@ -1456,7 +1456,7 @@
   {
     "comment": "json - Statement 297",
     "query": "SELECT * FROM json_populate_record(null::record, '{\"x\": 776}') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_record(CAST(NULL AS record), '{\"x\": 776}')"
+    "expected": "SELECT * FROM json_populate_record(CAST(NULL AS record), '{\"x\": 776}') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 298",
@@ -1521,7 +1521,7 @@
   {
     "comment": "json - Statement 310",
     "query": "SELECT * FROM json_populate_recordset(null::record, '[{\"x\": 776}]') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[{\"x\": 776}]')"
+    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[{\"x\": 776}]') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 311",
@@ -1541,7 +1541,7 @@
   {
     "comment": "json - Statement 314",
     "query": "SELECT * FROM json_populate_recordset(null::record, '[]') AS (x int, y int)",
-    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[]')"
+    "expected": "SELECT * FROM json_populate_recordset(CAST(NULL AS record), '[]') AS (x INT, y INT)"
   },
   {
     "comment": "json - Statement 315",
@@ -1561,22 +1561,22 @@
   {
     "comment": "json - Statement 318",
     "query": "select * from json_populate_recordset(row(0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 319",
     "query": "select * from json_populate_recordset(row(0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 320",
     "query": "select * from json_populate_recordset(row(0::int,0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(0 AS INT), CAST(0 AS INT), CAST(0 AS INT)), '[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 321",
     "query": "select * from json_populate_recordset(row(1000000000::int,50::int),'[{\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)",
-    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(1000000000 AS INT), CAST(50 AS INT)), '[{\"b\":\"2\"},{\"a\":\"3\"}]') AS q"
+    "expected": "SELECT * FROM json_populate_recordset(ROW(CAST(1000000000 AS INT), CAST(50 AS INT)), '[{\"b\":\"2\"},{\"a\":\"3\"}]') AS q (a TEXT, b TEXT)"
   },
   {
     "comment": "json - Statement 322",
@@ -1877,102 +1877,102 @@
   {
     "comment": "json - Statement 386",
     "query": "select * from json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') as x(a int, b text, d text)",
-    "expected": "SELECT * FROM json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') AS x (a INT, b TEXT, d TEXT)"
   },
   {
     "comment": "json - Statement 387",
     "query": "select * from json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') as x(a int, b text, c boolean)",
-    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') AS x"
+    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') AS x (a INT, b TEXT, c BOOLEAN)"
   },
   {
     "comment": "json - Statement 388",
     "query": "select * from json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') as x(a int, b json, c boolean)",
-    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') AS x"
+    "expected": "SELECT * FROM json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') AS x (a INT, b JSON, c BOOLEAN)"
   },
   {
     "comment": "json - Statement 389",
     "query": "select *, c is null as c_is_null from json_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::json) as t(a int, b json, c text, x int, ca char(5)[], ia int[][], r jpop)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT, ca CHAR(5)[], ia INT[][], r jpop)"
   },
   {
     "comment": "json - Statement 390",
     "query": "select *, c is null as c_is_null from json_to_recordset('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]'::json) as t(a int, b json, c text, x int)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_recordset(CAST('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]' AS JSON)) AS t"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_recordset(CAST('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT)"
   },
   {
     "comment": "json - Statement 391",
     "query": "select * from json_to_record('{\"ia\": null}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": null}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": null}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 392",
     "query": "select * from json_to_record('{\"ia\": 123}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": 123}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": 123}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 393",
     "query": "select * from json_to_record('{\"ia\": [1, \"2\", null, 4]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [1, \"2\", null, 4]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [1, \"2\", null, 4]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 394",
     "query": "select * from json_to_record('{\"ia\": [[1, 2], [3, 4]]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1, 2], [3, 4]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1, 2], [3, 4]]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 395",
     "query": "select * from json_to_record('{\"ia\": [[1], 2]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], 2]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], 2]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 396",
     "query": "select * from json_to_record('{\"ia\": [[1], [2, 3]]}') as x(ia _int4)",
-    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], [2, 3]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia\": [[1], [2, 3]]}') AS x (ia _int4)"
   },
   {
     "comment": "json - Statement 397",
     "query": "select * from json_to_record('{\"ia2\": [1, 2, 3]}') as x(ia2 int[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [1, 2, 3]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [1, 2, 3]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 398",
     "query": "select * from json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') as x(ia2 int4[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 399",
     "query": "select * from json_to_record('{\"ia2\": [[[1], [2], [3]]]}') as x(ia2 int4[][])",
-    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[[1], [2], [3]]]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"ia2\": [[[1], [2], [3]]]}') AS x (ia2 INT[][])"
   },
   {
     "comment": "json - Statement 400",
     "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 401",
     "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 402",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 403",
     "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": {\"key\": 1}}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 404",
     "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": [{\"key\": 1}]}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 405",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x"
+    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 406",
@@ -2131,37 +2131,37 @@
   },
   {
     "comment": "json - Statement 437",
-    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb \u0026 ddd \u0026 hhh'))",
-    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb \u0026 ddd \u0026 hhh'))"
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'))",
+    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb & ddd & hhh'))"
   },
   {
     "comment": "json - Statement 438",
-    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb \u0026 ddd \u0026 hhh'))",
-    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb \u0026 ddd \u0026 hhh'))"
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'))",
+    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb & ddd & hhh'))"
   },
   {
     "comment": "json - Statement 439",
-    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')",
-    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')"
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')",
+    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
   },
   {
     "comment": "json - Statement 440",
-    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')",
-    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')"
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')",
+    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSON), tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
   },
   {
     "comment": "json - Statement 441",
-    "query": "select ts_headline('null'::json, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('null' AS JSON), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('null'::json, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('null' AS JSON), tsquery('aaa & bbb'))"
   },
   {
     "comment": "json - Statement 442",
-    "query": "select ts_headline('{}'::json, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('{}' AS JSON), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('{}'::json, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('{}' AS JSON), tsquery('aaa & bbb'))"
   },
   {
     "comment": "json - Statement 443",
-    "query": "select ts_headline('[]'::json, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('[]' AS JSON), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('[]'::json, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('[]' AS JSON), tsquery('aaa & bbb'))"
   }
 ]

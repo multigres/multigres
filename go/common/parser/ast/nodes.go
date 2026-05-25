@@ -921,6 +921,9 @@ type Node interface {
 	// Ported from postgres/src/include/nodes/parsenodes.h:6-12 location concept
 	Location() int
 
+	// SetLocation sets the byte offset in the source string where this node begins.
+	SetLocation(location int)
+
 	// String returns a string representation of the node (for debugging)
 	String() string
 

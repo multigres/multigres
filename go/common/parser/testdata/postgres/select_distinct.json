@@ -13,13 +13,13 @@
   },
   {
     "comment": "select_distinct - Statement 4",
-    "query": "SELECT DISTINCT two, string4, ten FROM onek ORDER BY two using \u003c, string4 using \u003c, ten using \u003c",
-    "expected": "SELECT DISTINCT two, string4, ten FROM onek ORDER BY two USING \u003c, string4 USING \u003c, ten USING \u003c"
+    "query": "SELECT DISTINCT two, string4, ten FROM onek ORDER BY two using <, string4 using <, ten using <",
+    "expected": "SELECT DISTINCT two, string4, ten FROM onek ORDER BY two USING <, string4 USING <, ten USING <"
   },
   {
     "comment": "select_distinct - Statement 5",
-    "query": "SELECT DISTINCT p.age FROM person* p ORDER BY age using \u003e",
-    "expected": "SELECT DISTINCT p.age FROM person AS p ORDER BY age USING \u003e"
+    "query": "SELECT DISTINCT p.age FROM person* p ORDER BY age using >",
+    "expected": "SELECT DISTINCT p.age FROM person AS p ORDER BY age USING >"
   },
   {
     "comment": "select_distinct - Statement 6",
@@ -200,12 +200,12 @@
   },
   {
     "comment": "select_distinct - Statement 44",
-    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two \u003c\u003e 0",
-    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two \u003c\u003e 0"
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
   },
   {
     "comment": "select_distinct - Statement 45",
-    "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two \u003c\u003e 0"
+    "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
   },
   {
     "comment": "select_distinct - Statement 46",

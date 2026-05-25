@@ -343,8 +343,7 @@
   },
   {
     "comment": "create_role - Statement 80",
-    "query": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT TRUE, SET FALSE",
-    "expected": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT OPTION, SET OPTION"
+    "query": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT TRUE, SET FALSE"
   },
   {
     "comment": "create_role - Statement 81",

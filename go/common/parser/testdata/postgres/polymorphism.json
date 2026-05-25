@@ -786,13 +786,13 @@
   },
   {
     "comment": "polymorphism - Statement 160",
-    "query": "select f1, sql_if(f1 \u003e 0, bleat(f1), bleat(f1 + 1)) from int4_tbl",
-    "expected": "SELECT f1, sql_if(f1 \u003e 0, bleat(f1), bleat(f1 + 1)) FROM int4_tbl"
+    "query": "select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl",
+    "expected": "SELECT f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) FROM int4_tbl"
   },
   {
     "comment": "polymorphism - Statement 161",
-    "query": "select q2, sql_if(q2 \u003e 0, q2, q2 + 1) from int8_tbl",
-    "expected": "SELECT q2, sql_if(q2 \u003e 0, q2, q2 + 1) FROM int8_tbl"
+    "query": "select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl",
+    "expected": "SELECT q2, sql_if(q2 > 0, q2, q2 + 1) FROM int8_tbl"
   },
   {
     "comment": "polymorphism - Statement 162",
@@ -811,8 +811,8 @@
   },
   {
     "comment": "polymorphism - Statement 165",
-    "query": "create function add_group(grp anyarray, ad anyelement, size integer)   returns anyarray   as $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$   language plpgsql immutable;",
-    "expected": "CREATE FUNCTION add_group (grp anyarray, ad anyelement, size INT) RETURNS anyarray AS $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "create function add_group(grp anyarray, ad anyelement, size integer)   returns anyarray   as $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) < size then     return grp || ad;   end if;   return grp; end; $$   language plpgsql immutable;",
+    "expected": "CREATE FUNCTION add_group (grp anyarray, ad anyelement, size INT) RETURNS anyarray AS $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) < size then     return grp || ad;   end if;   return grp; end; $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 171",
@@ -1242,17 +1242,17 @@
   {
     "comment": "polymorphism - Statement 258",
     "query": "select (dfunc(a := 10, b := 20, c := 30)).*",
-    "expected": "SELECT (dfunc(a =\u003e 10, b =\u003e 20, c =\u003e 30)).*"
+    "expected": "SELECT (dfunc(a => 10, b => 20, c => 30)).*"
   },
   {
     "comment": "polymorphism - Statement 259",
     "query": "select * from dfunc(a := 10, b := 20)",
-    "expected": "SELECT * FROM dfunc(a =\u003e 10, b =\u003e 20)"
+    "expected": "SELECT * FROM dfunc(a => 10, b => 20)"
   },
   {
     "comment": "polymorphism - Statement 260",
     "query": "select * from dfunc(b := 10, a := 20)",
-    "expected": "SELECT * FROM dfunc(b =\u003e 10, a =\u003e 20)"
+    "expected": "SELECT * FROM dfunc(b => 10, a => 20)"
   },
   {
     "comment": "polymorphism - Statement 261",
@@ -1267,37 +1267,37 @@
   {
     "comment": "polymorphism - Statement 263",
     "query": "select * from dfunc(1,2,c := 3)",
-    "expected": "SELECT * FROM dfunc(1, 2, c =\u003e 3)"
+    "expected": "SELECT * FROM dfunc(1, 2, c => 3)"
   },
   {
     "comment": "polymorphism - Statement 264",
     "query": "select * from dfunc(1,2,d := 3)",
-    "expected": "SELECT * FROM dfunc(1, 2, d =\u003e 3)"
+    "expected": "SELECT * FROM dfunc(1, 2, d => 3)"
   },
   {
     "comment": "polymorphism - Statement 265",
     "query": "select * from dfunc(x := 20, b := 10, x := 30)",
-    "expected": "SELECT * FROM dfunc(x =\u003e 20, b =\u003e 10, x =\u003e 30)"
+    "expected": "SELECT * FROM dfunc(x => 20, b => 10, x => 30)"
   },
   {
     "comment": "polymorphism - Statement 266",
     "query": "select * from dfunc(10, b := 20, 30)",
-    "expected": "SELECT * FROM dfunc(10, b =\u003e 20, 30)"
+    "expected": "SELECT * FROM dfunc(10, b => 20, 30)"
   },
   {
     "comment": "polymorphism - Statement 267",
     "query": "select * from dfunc(x := 10, b := 20, c := 30)",
-    "expected": "SELECT * FROM dfunc(x =\u003e 10, b =\u003e 20, c =\u003e 30)"
+    "expected": "SELECT * FROM dfunc(x => 10, b => 20, c => 30)"
   },
   {
     "comment": "polymorphism - Statement 268",
     "query": "select * from dfunc(10, 10, a := 20)",
-    "expected": "SELECT * FROM dfunc(10, 10, a =\u003e 20)"
+    "expected": "SELECT * FROM dfunc(10, 10, a => 20)"
   },
   {
     "comment": "polymorphism - Statement 269",
     "query": "select * from dfunc(1,c := 2,d := 3)",
-    "expected": "SELECT * FROM dfunc(1, c =\u003e 2, d =\u003e 3)"
+    "expected": "SELECT * FROM dfunc(1, c => 2, d => 3)"
   },
   {
     "comment": "polymorphism - Statement 270",
@@ -1317,22 +1317,22 @@
   {
     "comment": "polymorphism - Statement 273",
     "query": "select * from dfunc(c := '2009-07-25'::date, a := 'Hello World', b := 20)",
-    "expected": "SELECT * FROM dfunc(c =\u003e CAST('2009-07-25' AS DATE), a =\u003e 'Hello World', b =\u003e 20)"
+    "expected": "SELECT * FROM dfunc(c => CAST('2009-07-25' AS DATE), a => 'Hello World', b => 20)"
   },
   {
     "comment": "polymorphism - Statement 274",
     "query": "select * from dfunc('Hello World', b := 20, c := '2009-07-25'::date)",
-    "expected": "SELECT * FROM dfunc('Hello World', b =\u003e 20, c =\u003e CAST('2009-07-25' AS DATE))"
+    "expected": "SELECT * FROM dfunc('Hello World', b => 20, c => CAST('2009-07-25' AS DATE))"
   },
   {
     "comment": "polymorphism - Statement 275",
     "query": "select * from dfunc('Hello World', c := '2009-07-25'::date, b := 20)",
-    "expected": "SELECT * FROM dfunc('Hello World', c =\u003e CAST('2009-07-25' AS DATE), b =\u003e 20)"
+    "expected": "SELECT * FROM dfunc('Hello World', c => CAST('2009-07-25' AS DATE), b => 20)"
   },
   {
     "comment": "polymorphism - Statement 276",
     "query": "select * from dfunc('Hello World', c := 20, b := '2009-07-25'::date)",
-    "expected": "SELECT * FROM dfunc('Hello World', c =\u003e 20, b =\u003e CAST('2009-07-25' AS DATE))"
+    "expected": "SELECT * FROM dfunc('Hello World', c => 20, b => CAST('2009-07-25' AS DATE))"
   },
   {
     "comment": "polymorphism - Statement 277",
@@ -1362,12 +1362,12 @@
   {
     "comment": "polymorphism - Statement 282",
     "query": "select * from dfunc(a := 'Hello', c := 100)",
-    "expected": "SELECT * FROM dfunc(a =\u003e 'Hello', c =\u003e 100)"
+    "expected": "SELECT * FROM dfunc(a => 'Hello', c => 100)"
   },
   {
     "comment": "polymorphism - Statement 283",
     "query": "select * from dfunc(c := 100, a := 'Hello')",
-    "expected": "SELECT * FROM dfunc(c =\u003e 100, a =\u003e 'Hello')"
+    "expected": "SELECT * FROM dfunc(c => 100, a => 'Hello')"
   },
   {
     "comment": "polymorphism - Statement 284",
@@ -1377,12 +1377,12 @@
   {
     "comment": "polymorphism - Statement 285",
     "query": "select * from dfunc('Hello', c := 100)",
-    "expected": "SELECT * FROM dfunc('Hello', c =\u003e 100)"
+    "expected": "SELECT * FROM dfunc('Hello', c => 100)"
   },
   {
     "comment": "polymorphism - Statement 286",
     "query": "select * from dfunc(c := 100)",
-    "expected": "SELECT * FROM dfunc(c =\u003e 100)"
+    "expected": "SELECT * FROM dfunc(c => 100)"
   },
   {
     "comment": "polymorphism - Statement 287",
@@ -1462,37 +1462,37 @@
   {
     "comment": "polymorphism - Statement 302",
     "query": "select dfunc(a := 1, b := 2)",
-    "expected": "SELECT dfunc(a =\u003e 1, b =\u003e 2)"
+    "expected": "SELECT dfunc(a => 1, b => 2)"
   },
   {
     "comment": "polymorphism - Statement 303",
     "query": "select dfunc(a := 'a'::text, b := 'b')",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b')"
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), b => 'b')"
   },
   {
     "comment": "polymorphism - Statement 304",
     "query": "select dfunc(a := 'a'::text, b := 'b', flag := false)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b', flag =\u003e FALSE)"
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), b => 'b', flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 305",
     "query": "select dfunc(b := 'b'::text, a := 'a')",
-    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a')"
+    "expected": "SELECT dfunc(b => CAST('b' AS TEXT), a => 'a')"
   },
   {
     "comment": "polymorphism - Statement 306",
     "query": "select dfunc(a := 'a'::text, flag := true)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e TRUE)"
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 307",
     "query": "select dfunc(a := 'a'::text, flag := false)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e FALSE)"
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 308",
     "query": "select dfunc(b := 'b'::text, a := 'a', flag := true)",
-    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a', flag =\u003e TRUE)"
+    "expected": "SELECT dfunc(b => CAST('b' AS TEXT), a => 'a', flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 309",
@@ -1502,7 +1502,7 @@
   {
     "comment": "polymorphism - Statement 310",
     "query": "select dfunc('a'::text, 'b', flag := false)",
-    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e FALSE)"
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 311",
@@ -1512,72 +1512,72 @@
   {
     "comment": "polymorphism - Statement 312",
     "query": "select dfunc('a'::text, 'b', flag := true)",
-    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e TRUE)"
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 313",
-    "query": "select dfunc(a =\u003e 1, b =\u003e 2)",
-    "expected": "SELECT dfunc(a =\u003e 1, b =\u003e 2)"
+    "query": "select dfunc(a => 1, b => 2)",
+    "expected": "SELECT dfunc(a => 1, b => 2)"
   },
   {
     "comment": "polymorphism - Statement 314",
-    "query": "select dfunc(a =\u003e 'a'::text, b =\u003e 'b')",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b')"
+    "query": "select dfunc(a => 'a'::text, b => 'b')",
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), b => 'b')"
   },
   {
     "comment": "polymorphism - Statement 315",
-    "query": "select dfunc(a =\u003e 'a'::text, b =\u003e 'b', flag =\u003e false)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b', flag =\u003e FALSE)"
+    "query": "select dfunc(a => 'a'::text, b => 'b', flag => false)",
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), b => 'b', flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 316",
-    "query": "select dfunc(b =\u003e 'b'::text, a =\u003e 'a')",
-    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a')"
+    "query": "select dfunc(b => 'b'::text, a => 'a')",
+    "expected": "SELECT dfunc(b => CAST('b' AS TEXT), a => 'a')"
   },
   {
     "comment": "polymorphism - Statement 317",
-    "query": "select dfunc(a =\u003e 'a'::text, flag =\u003e true)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e TRUE)"
+    "query": "select dfunc(a => 'a'::text, flag => true)",
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 318",
-    "query": "select dfunc(a =\u003e 'a'::text, flag =\u003e false)",
-    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e FALSE)"
+    "query": "select dfunc(a => 'a'::text, flag => false)",
+    "expected": "SELECT dfunc(a => CAST('a' AS TEXT), flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 319",
-    "query": "select dfunc(b =\u003e 'b'::text, a =\u003e 'a', flag =\u003e true)",
-    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a', flag =\u003e TRUE)"
+    "query": "select dfunc(b => 'b'::text, a => 'a', flag => true)",
+    "expected": "SELECT dfunc(b => CAST('b' AS TEXT), a => 'a', flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 320",
-    "query": "select dfunc('a'::text, 'b', flag =\u003e false)",
-    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e FALSE)"
+    "query": "select dfunc('a'::text, 'b', flag => false)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag => FALSE)"
   },
   {
     "comment": "polymorphism - Statement 321",
-    "query": "select dfunc('a'::text, 'b', flag =\u003e true)",
-    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e TRUE)"
+    "query": "select dfunc('a'::text, 'b', flag => true)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag => TRUE)"
   },
   {
     "comment": "polymorphism - Statement 322",
-    "query": "select dfunc(a =\u003e-1)",
-    "expected": "SELECT dfunc(a =\u003e -1)"
+    "query": "select dfunc(a =>-1)",
+    "expected": "SELECT dfunc(a => -1)"
   },
   {
     "comment": "polymorphism - Statement 323",
-    "query": "select dfunc(a =\u003e+1)",
-    "expected": "SELECT dfunc(a =\u003e +1)"
+    "query": "select dfunc(a =>+1)",
+    "expected": "SELECT dfunc(a => +1)"
   },
   {
     "comment": "polymorphism - Statement 324",
-    "query": "select dfunc(a =\u003e/**/1)",
-    "expected": "SELECT dfunc(a =\u003e 1)"
+    "query": "select dfunc(a =>/**/1)",
+    "expected": "SELECT dfunc(a => 1)"
   },
   {
     "comment": "polymorphism - Statement 325",
-    "query": "select dfunc(a =\u003e 1)",
-    "expected": "SELECT dfunc(a =\u003e 1)"
+    "query": "select dfunc(a => 1)",
+    "expected": "SELECT dfunc(a => 1)"
   },
   {
     "comment": "polymorphism - Statement 326",
@@ -1586,7 +1586,7 @@
   },
   {
     "comment": "polymorphism - Statement 327",
-    "query": "begin select dfunc(a=\u003e 1) into r",
+    "query": "begin select dfunc(a=> 1) into r",
     "error": "parse error at position 12: syntax error"
   },
   {
@@ -1601,8 +1601,8 @@
   },
   {
     "comment": "polymorphism - Statement 330",
-    "query": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1,q2, flag := q1\u003eq2) as c3, dfunc(q1, flag := q1\u003cq2, b := q2) as c4 FROM int8_tbl",
-    "expected": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1, q2, flag =\u003e q1 \u003e q2) AS c3, dfunc(q1, flag =\u003e q1 \u003c q2, b =\u003e q2) AS c4 FROM int8_tbl"
+    "query": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1,q2, flag := q1>q2) as c3, dfunc(q1, flag := q1<q2, b := q2) as c4 FROM int8_tbl",
+    "expected": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1, q2, flag => q1 > q2) AS c3, dfunc(q1, flag => q1 < q2, b => q2) AS c4 FROM int8_tbl"
   },
   {
     "comment": "polymorphism - Statement 331",

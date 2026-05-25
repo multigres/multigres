@@ -52,13 +52,13 @@
   },
   {
     "comment": "btree_index - Statement 12",
-    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno \u003c 1",
-    "expected": "SELECT b.* FROM bt_i4_heap AS b WHERE b.seqno \u003c 1"
+    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno < 1",
+    "expected": "SELECT b.* FROM bt_i4_heap AS b WHERE b.seqno < 1"
   },
   {
     "comment": "btree_index - Statement 13",
-    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno \u003e= 9999",
-    "expected": "SELECT b.* FROM bt_i4_heap AS b WHERE b.seqno \u003e= 9999"
+    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno >= 9999",
+    "expected": "SELECT b.* FROM bt_i4_heap AS b WHERE b.seqno >= 9999"
   },
   {
     "comment": "btree_index - Statement 14",
@@ -67,13 +67,13 @@
   },
   {
     "comment": "btree_index - Statement 15",
-    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno \u003c '1'::name",
-    "expected": "SELECT b.* FROM bt_name_heap AS b WHERE b.seqno \u003c CAST('1' AS name)"
+    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno < '1'::name",
+    "expected": "SELECT b.* FROM bt_name_heap AS b WHERE b.seqno < CAST('1' AS name)"
   },
   {
     "comment": "btree_index - Statement 16",
-    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno \u003e= '9999'::name",
-    "expected": "SELECT b.* FROM bt_name_heap AS b WHERE b.seqno \u003e= CAST('9999' AS name)"
+    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno >= '9999'::name",
+    "expected": "SELECT b.* FROM bt_name_heap AS b WHERE b.seqno >= CAST('9999' AS name)"
   },
   {
     "comment": "btree_index - Statement 17",
@@ -82,13 +82,13 @@
   },
   {
     "comment": "btree_index - Statement 18",
-    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno \u003c '1'::text",
-    "expected": "SELECT b.* FROM bt_txt_heap AS b WHERE b.seqno \u003c CAST('1' AS TEXT)"
+    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno < '1'::text",
+    "expected": "SELECT b.* FROM bt_txt_heap AS b WHERE b.seqno < CAST('1' AS TEXT)"
   },
   {
     "comment": "btree_index - Statement 19",
-    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno \u003e= '9999'::text",
-    "expected": "SELECT b.* FROM bt_txt_heap AS b WHERE b.seqno \u003e= CAST('9999' AS TEXT)"
+    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno >= '9999'::text",
+    "expected": "SELECT b.* FROM bt_txt_heap AS b WHERE b.seqno >= CAST('9999' AS TEXT)"
   },
   {
     "comment": "btree_index - Statement 20",
@@ -97,13 +97,13 @@
   },
   {
     "comment": "btree_index - Statement 21",
-    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno \u003c '1'::float8",
-    "expected": "SELECT b.* FROM bt_f8_heap AS b WHERE b.seqno \u003c CAST('1' AS FLOAT8)"
+    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno < '1'::float8",
+    "expected": "SELECT b.* FROM bt_f8_heap AS b WHERE b.seqno < CAST('1' AS FLOAT8)"
   },
   {
     "comment": "btree_index - Statement 22",
-    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno \u003e= '9999'::float8",
-    "expected": "SELECT b.* FROM bt_f8_heap AS b WHERE b.seqno \u003e= CAST('9999' AS FLOAT8)"
+    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno >= '9999'::float8",
+    "expected": "SELECT b.* FROM bt_f8_heap AS b WHERE b.seqno >= CAST('9999' AS FLOAT8)"
   },
   {
     "comment": "btree_index - Statement 23",
@@ -127,23 +127,23 @@
   },
   {
     "comment": "btree_index - Statement 27",
-    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred \u003c 48 order by hundred desc limit 1",
-    "expected": "EXPLAIN (COSTS false) SELECT hundred, twenty FROM tenk1 WHERE hundred \u003c 48 ORDER BY hundred DESC LIMIT 1"
+    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred < 48 order by hundred desc limit 1",
+    "expected": "EXPLAIN (COSTS false) SELECT hundred, twenty FROM tenk1 WHERE hundred < 48 ORDER BY hundred DESC LIMIT 1"
   },
   {
     "comment": "btree_index - Statement 28",
-    "query": "select hundred, twenty from tenk1 where hundred \u003c 48 order by hundred desc limit 1",
-    "expected": "SELECT hundred, twenty FROM tenk1 WHERE hundred \u003c 48 ORDER BY hundred DESC LIMIT 1"
+    "query": "select hundred, twenty from tenk1 where hundred < 48 order by hundred desc limit 1",
+    "expected": "SELECT hundred, twenty FROM tenk1 WHERE hundred < 48 ORDER BY hundred DESC LIMIT 1"
   },
   {
     "comment": "btree_index - Statement 29",
-    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred \u003c= 48 order by hundred desc limit 1",
-    "expected": "EXPLAIN (COSTS false) SELECT hundred, twenty FROM tenk1 WHERE hundred \u003c= 48 ORDER BY hundred DESC LIMIT 1"
+    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred <= 48 order by hundred desc limit 1",
+    "expected": "EXPLAIN (COSTS false) SELECT hundred, twenty FROM tenk1 WHERE hundred <= 48 ORDER BY hundred DESC LIMIT 1"
   },
   {
     "comment": "btree_index - Statement 30",
-    "query": "select hundred, twenty from tenk1 where hundred \u003c= 48 order by hundred desc limit 1",
-    "expected": "SELECT hundred, twenty FROM tenk1 WHERE hundred \u003c= 48 ORDER BY hundred DESC LIMIT 1"
+    "query": "select hundred, twenty from tenk1 where hundred <= 48 order by hundred desc limit 1",
+    "expected": "SELECT hundred, twenty FROM tenk1 WHERE hundred <= 48 ORDER BY hundred DESC LIMIT 1"
   },
   {
     "comment": "btree_index - Statement 31",
@@ -355,7 +355,7 @@
   },
   {
     "comment": "btree_index - Statement 76",
-    "query": "DELETE FROM delete_test_table WHERE a \u003c 79990"
+    "query": "DELETE FROM delete_test_table WHERE a < 79990"
   },
   {
     "comment": "btree_index - Statement 77",

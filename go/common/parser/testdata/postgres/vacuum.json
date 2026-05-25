@@ -23,7 +23,7 @@
   {
     "comment": "vacuum - Statement 6",
     "query": "DELETE FROM vactst WHERE i != 0",
-    "expected": "DELETE FROM vactst WHERE i \u003c\u003e 0"
+    "expected": "DELETE FROM vactst WHERE i <> 0"
   },
   {
     "comment": "vacuum - Statement 7",
@@ -107,7 +107,7 @@
   },
   {
     "comment": "vacuum - Statement 26",
-    "query": "DELETE FROM vactst WHERE i % 5 \u003c\u003e 0"
+    "query": "DELETE FROM vactst WHERE i % 5 <> 0"
   },
   {
     "comment": "vacuum - Statement 27",
@@ -257,7 +257,7 @@
   },
   {
     "comment": "vacuum - Statement 59",
-    "query": "UPDATE pvactst SET i = i WHERE i \u003c 1000"
+    "query": "UPDATE pvactst SET i = i WHERE i < 1000"
   },
   {
     "comment": "vacuum - Statement 60",
@@ -293,7 +293,7 @@
   },
   {
     "comment": "vacuum - Statement 67",
-    "query": "DELETE FROM pvactst2 WHERE i \u003c 1000"
+    "query": "DELETE FROM pvactst2 WHERE i < 1000"
   },
   {
     "comment": "vacuum - Statement 68",
@@ -367,7 +367,7 @@
   },
   {
     "comment": "vacuum - Statement 83",
-    "query": "DELETE FROM no_index_cleanup WHERE i \u003c 15"
+    "query": "DELETE FROM no_index_cleanup WHERE i < 15"
   },
   {
     "comment": "vacuum - Statement 84",
@@ -389,17 +389,16 @@
   },
   {
     "comment": "vacuum - Statement 88",
-    "query": "DELETE FROM no_index_cleanup WHERE i \u003c 45"
+    "query": "DELETE FROM no_index_cleanup WHERE i < 45"
   },
   {
     "comment": "vacuum - Statement 89",
-    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, toast.vacuum_index_cleanup = yes)",
-    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, vacuum_index_cleanup = yes)"
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, toast.vacuum_index_cleanup = yes)"
   },
   {
     "comment": "vacuum - Statement 90",
     "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = true, toast.vacuum_index_cleanup = false)",
-    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = 'true', vacuum_index_cleanup = 'false')"
+    "expected": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = 'true', toast.vacuum_index_cleanup = 'false')"
   },
   {
     "comment": "vacuum - Statement 91",
@@ -432,7 +431,7 @@
   },
   {
     "comment": "vacuum - Statement 97",
-    "query": "SELECT pg_relation_size('vac_truncate_test') \u003e 0"
+    "query": "SELECT pg_relation_size('vac_truncate_test') > 0"
   },
   {
     "comment": "vacuum - Statement 98",

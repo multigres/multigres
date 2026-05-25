@@ -223,8 +223,8 @@
   },
   {
     "comment": "fast_default - Statement 52",
-    "query": "CREATE OR REPLACE FUNCTION foo(a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE PLPGSQL STABLE;",
-    "expected": "CREATE OR REPLACE FUNCTION foo (a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE plpgsql STABLE"
+    "query": "CREATE OR REPLACE FUNCTION foo(a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i < a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE PLPGSQL STABLE;",
+    "expected": "CREATE OR REPLACE FUNCTION foo (a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i < a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE plpgsql STABLE"
   },
   {
     "comment": "fast_default - Statement 60",
@@ -278,8 +278,8 @@
   },
   {
     "comment": "fast_default - Statement 70",
-    "query": "CREATE DOMAIN domain2 AS int DEFAULT random(min=\u003e10, max=\u003e100)",
-    "expected": "CREATE DOMAIN domain2 AS INT DEFAULT random(min =\u003e 10, max =\u003e 100)"
+    "query": "CREATE DOMAIN domain2 AS int DEFAULT random(min=>10, max=>100)",
+    "expected": "CREATE DOMAIN domain2 AS INT DEFAULT random(min => 10, max => 100)"
   },
   {
     "comment": "fast_default - Statement 71",
@@ -307,8 +307,8 @@
   },
   {
     "comment": "fast_default - Statement 76",
-    "query": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum \u003e 0 AND attrelid = 't2'::regclass ORDER BY attnum",
-    "expected": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum \u003e 0 AND attrelid = CAST('t2' AS regclass) ORDER BY attnum"
+    "query": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum > 0 AND attrelid = 't2'::regclass ORDER BY attnum",
+    "expected": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum > 0 AND attrelid = CAST('t2' AS regclass) ORDER BY attnum"
   },
   {
     "comment": "fast_default - Statement 77",
@@ -325,8 +325,8 @@
   },
   {
     "comment": "fast_default - Statement 80",
-    "query": "SELECT a, b, length(c) = 3 as c_ok, d, e \u003e= 10 as e_ok FROM t2",
-    "expected": "SELECT a, b, length(c) = 3 AS c_ok, d, e \u003e= 10 AS e_ok FROM t2"
+    "query": "SELECT a, b, length(c) = 3 as c_ok, d, e >= 10 as e_ok FROM t2",
+    "expected": "SELECT a, b, length(c) = 3 AS c_ok, d, e >= 10 AS e_ok FROM t2"
   },
   {
     "comment": "fast_default - Statement 81",
@@ -384,8 +384,8 @@
   },
   {
     "comment": "fast_default - Statement 93",
-    "query": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = 't'::regclass AND attnum \u003e 0 ORDER BY attnum",
-    "expected": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = CAST('t' AS regclass) AND attnum \u003e 0 ORDER BY attnum"
+    "query": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = 't'::regclass AND attnum > 0 ORDER BY attnum",
+    "expected": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = CAST('t' AS regclass) AND attnum > 0 ORDER BY attnum"
   },
   {
     "comment": "fast_default - Statement 94",
@@ -464,13 +464,13 @@
   },
   {
     "comment": "fast_default - Statement 109",
-    "query": "SELECT * FROM T WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
-    "expected": "SELECT * FROM t WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "SELECT * FROM t WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 110",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM t WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM t WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 111",
@@ -484,8 +484,8 @@
   },
   {
     "comment": "fast_default - Statement 113",
-    "query": "UPDATE T SET c_text = '\"' || c_text || '\"'  WHERE pk \u003c 10",
-    "expected": "UPDATE t SET c_text = '\"' || c_text || '\"' WHERE pk \u003c 10"
+    "query": "UPDATE T SET c_text = '\"' || c_text || '\"'  WHERE pk < 10",
+    "expected": "UPDATE t SET c_text = '\"' || c_text || '\"' WHERE pk < 10"
   },
   {
     "comment": "fast_default - Statement 114",

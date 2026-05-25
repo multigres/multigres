@@ -76,8 +76,8 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 16",
-    "query": "CREATE DOMAIN jsonb_test_domain AS text CHECK (value \u003c\u003e 'foo')",
-    "expected": "CREATE DOMAIN jsonb_test_domain AS TEXT CHECK (value \u003c\u003e 'foo')"
+    "query": "CREATE DOMAIN jsonb_test_domain AS text CHECK (value <> 'foo')",
+    "expected": "CREATE DOMAIN jsonb_test_domain AS TEXT CHECK (value <> 'foo')"
   },
   {
     "comment": "sqljson_jsontable - Statement 17",
@@ -315,8 +315,8 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 65",
-    "query": "CREATE DOMAIN dint4_0 AS int CHECK (VALUE \u003c\u003e 0 )",
-    "expected": "CREATE DOMAIN dint4_0 AS INT CHECK (value \u003c\u003e 0)"
+    "query": "CREATE DOMAIN dint4_0 AS int CHECK (VALUE <> 0 )",
+    "expected": "CREATE DOMAIN dint4_0 AS INT CHECK (value <> 0)"
   },
   {
     "comment": "sqljson_jsontable - Statement 66",
@@ -394,13 +394,13 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 81",
-    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ \u003c $x)' PASSING 3 AS x COLUMNS (y text FORMAT JSON PATH '$') ) jt",
-    "expected": "SELECT * FROM JSON_TABLE(CAST('[1,2,3]' AS JSONB), '$[*] ? (@ \u003c $x)' PASSING 3 AS x COLUMNS (y TEXT FORMAT JSON PATH '$')) AS jt"
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ < $x)' PASSING 3 AS x COLUMNS (y text FORMAT JSON PATH '$') ) jt",
+    "expected": "SELECT * FROM JSON_TABLE(CAST('[1,2,3]' AS JSONB), '$[*] ? (@ < $x)' PASSING 3 AS x COLUMNS (y TEXT FORMAT JSON PATH '$')) AS jt"
   },
   {
     "comment": "sqljson_jsontable - Statement 82",
-    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ \u003c $x)' PASSING 10 AS x, 3 AS y COLUMNS (a text FORMAT JSON PATH '$ ? (@ \u003c $y)') ) jt",
-    "expected": "SELECT * FROM JSON_TABLE(CAST('[1,2,3]' AS JSONB), '$[*] ? (@ \u003c $x)' PASSING 10 AS x, 3 AS y COLUMNS (a TEXT FORMAT JSON PATH '$ ? (@ \u003c $y)')) AS jt"
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ < $x)' PASSING 10 AS x, 3 AS y COLUMNS (a text FORMAT JSON PATH '$ ? (@ < $y)') ) jt",
+    "expected": "SELECT * FROM JSON_TABLE(CAST('[1,2,3]' AS JSONB), '$[*] ? (@ < $x)' PASSING 10 AS x, 3 AS y COLUMNS (a TEXT FORMAT JSON PATH '$ ? (@ < $y)')) AS jt"
   },
   {
     "comment": "sqljson_jsontable - Statement 83",
@@ -449,8 +449,8 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 92",
-    "query": "SELECT * FROM generate_series(1, 3) x, generate_series(1, 3) y, JSON_TABLE(jsonb '[[1,2,3],[2,3,4,5],[3,4,5,6]]', 'strict $[*] ? (@[*] \u003c= $x)' PASSING x AS x, y AS y COLUMNS ( y text FORMAT JSON PATH '$', NESTED PATH 'strict $[*] ? (@ == $y)' COLUMNS ( z int PATH '$' ) ) ) jt",
-    "expected": "SELECT * FROM generate_series(1, 3) AS x, generate_series(1, 3) AS y, JSON_TABLE(CAST('[[1,2,3],[2,3,4,5],[3,4,5,6]]' AS JSONB), 'strict $[*] ? (@[*] \u003c= $x)' PASSING x AS x, y AS y COLUMNS (y TEXT FORMAT JSON PATH '$', NESTED PATH 'strict $[*] ? (@ == $y)' COLUMNS (z INT PATH '$'))) AS jt"
+    "query": "SELECT * FROM generate_series(1, 3) x, generate_series(1, 3) y, JSON_TABLE(jsonb '[[1,2,3],[2,3,4,5],[3,4,5,6]]', 'strict $[*] ? (@[*] <= $x)' PASSING x AS x, y AS y COLUMNS ( y text FORMAT JSON PATH '$', NESTED PATH 'strict $[*] ? (@ == $y)' COLUMNS ( z int PATH '$' ) ) ) jt",
+    "expected": "SELECT * FROM generate_series(1, 3) AS x, generate_series(1, 3) AS y, JSON_TABLE(CAST('[[1,2,3],[2,3,4,5],[3,4,5,6]]' AS JSONB), 'strict $[*] ? (@[*] <= $x)' PASSING x AS x, y AS y COLUMNS (y TEXT FORMAT JSON PATH '$', NESTED PATH 'strict $[*] ? (@ == $y)' COLUMNS (z INT PATH '$'))) AS jt"
   },
   {
     "comment": "sqljson_jsontable - Statement 93",
@@ -468,8 +468,8 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 96",
-    "query": "SELECT sub.* FROM s, JSON_TABLE(js, '$' PASSING 32 AS x, 13 AS y COLUMNS ( xx int path '$.c', NESTED PATH '$.a.za[1]' columns (NESTED PATH '$.z21[*]' COLUMNS (z21 int path '$?(@ \u003e= $\"x\")' ERROR ON ERROR)) )) sub",
-    "expected": "SELECT sub.* FROM s, JSON_TABLE(js, '$' PASSING 32 AS x, 13 AS y COLUMNS (xx INT PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (z21 INT PATH '$?(@ \u003e= $\"x\")' ERROR ON ERROR)))) AS sub"
+    "query": "SELECT sub.* FROM s, JSON_TABLE(js, '$' PASSING 32 AS x, 13 AS y COLUMNS ( xx int path '$.c', NESTED PATH '$.a.za[1]' columns (NESTED PATH '$.z21[*]' COLUMNS (z21 int path '$?(@ >= $\"x\")' ERROR ON ERROR)) )) sub",
+    "expected": "SELECT sub.* FROM s, JSON_TABLE(js, '$' PASSING 32 AS x, 13 AS y COLUMNS (xx INT PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (z21 INT PATH '$?(@ >= $\"x\")' ERROR ON ERROR)))) AS sub"
   },
   {
     "comment": "sqljson_jsontable - Statement 97",
@@ -478,23 +478,23 @@
   },
   {
     "comment": "sqljson_jsontable - Statement 98",
-    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[0].z1[*]' COLUMNS (NESTED PATH '$ ?(@ \u003e= ($\"x\" -2))' COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' COLUMNS (b int PATH '$')) )) sub",
-    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[0].z1[*]' COLUMNS (NESTED PATH '$ ?(@ \u003e= ($\"x\" -2))' COLUMNS (a INT PATH '$')), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' COLUMNS (b INT PATH '$')))) AS sub"
+    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[0].z1[*]' COLUMNS (NESTED PATH '$ ?(@ >= ($\"x\" -2))' COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' COLUMNS (b int PATH '$')) )) sub",
+    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[0].z1[*]' COLUMNS (NESTED PATH '$ ?(@ >= ($\"x\" -2))' COLUMNS (a INT PATH '$')), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' COLUMNS (b INT PATH '$')))) AS sub"
   },
   {
     "comment": "sqljson_jsontable - Statement 99",
-    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (b int PATH '$')), NESTED PATH '$.a.za[1] ? (@.z21[*] \u003e= ($\"x\"-1))' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" + 3))' as z22 COLUMNS (a int PATH '$ ? (@ \u003e= ($\"y\" + 12))')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' as z21 COLUMNS (c int PATH '$ ? (@ \u003e ($\"x\" +111))')) )) sub",
-    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (b INT PATH '$')), NESTED PATH '$.a.za[1] ? (@.z21[*] \u003e= ($\"x\"-1))' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" + 3))' AS z22 COLUMNS (a INT PATH '$ ? (@ \u003e= ($\"y\" + 12))')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' AS z21 COLUMNS (c INT PATH '$ ? (@ \u003e ($\"x\" +111))')))) AS sub"
+    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (b int PATH '$')), NESTED PATH '$.a.za[1] ? (@.z21[*] >= ($\"x\"-1))' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" + 3))' as z22 COLUMNS (a int PATH '$ ? (@ >= ($\"y\" + 12))')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (c int PATH '$ ? (@ > ($\"x\" +111))')) )) sub",
+    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (b INT PATH '$')), NESTED PATH '$.a.za[1] ? (@.z21[*] >= ($\"x\"-1))' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" + 3))' AS z22 COLUMNS (a INT PATH '$ ? (@ >= ($\"y\" + 12))')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' AS z21 COLUMNS (c INT PATH '$ ? (@ > ($\"x\" +111))')))) AS sub"
   },
   {
     "comment": "sqljson_jsontable - Statement 100",
-    "query": "SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))'), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ \u003e ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub",
-    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' AS z22 COLUMNS (c INT PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (d JSON PATH '$ ? (@.z21[*] == ($\"x\" -1))'), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' AS z1 COLUMNS (a INT PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' AS z21 COLUMNS (b INT PATH '$ ? (@ \u003e ($\"x\" +111))' DEFAULT 0 ON EMPTY)))) AS sub"
+    "query": "SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))'), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub",
+    "expected": "SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' AS z22 COLUMNS (c INT PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (d JSON PATH '$ ? (@.z21[*] == ($\"x\" -1))'), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' AS z1 COLUMNS (a INT PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' AS z21 COLUMNS (b INT PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)))) AS sub"
   },
   {
     "comment": "sqljson_jsontable - Statement 101",
-    "query": "CREATE OR REPLACE VIEW jsonb_table_view7 AS SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$' WITHOUT WRAPPER OMIT QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))' WITH WRAPPER), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$' KEEP QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ \u003e ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub",
-    "expected": "CREATE OR REPLACE VIEW jsonb_table_view7 AS SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' AS z22 COLUMNS (c INT PATH '$' WITHOUT ARRAY WRAPPER OMIT QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (d JSON PATH '$ ? (@.z21[*] == ($\"x\" -1))' WITH UNCONDITIONAL ARRAY WRAPPER), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ \u003e= ($\"x\" -2))' AS z1 COLUMNS (a INT PATH '$' KEEP QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ \u003e= ($\"y\" +121))' AS z21 COLUMNS (b INT PATH '$ ? (@ \u003e ($\"x\" +111))' DEFAULT 0 ON EMPTY)))) AS sub"
+    "query": "CREATE OR REPLACE VIEW jsonb_table_view7 AS SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$' WITHOUT WRAPPER OMIT QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))' WITH WRAPPER), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$' KEEP QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub",
+    "expected": "CREATE OR REPLACE VIEW jsonb_table_view7 AS SELECT sub.* FROM s, (VALUES (23)) AS x(x), generate_series(13, 13) AS y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS (xx1 INT PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' AS z22 COLUMNS (c INT PATH '$' WITHOUT ARRAY WRAPPER OMIT QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (d JSON PATH '$ ? (@.z21[*] == ($\"x\" -1))' WITH UNCONDITIONAL ARRAY WRAPPER), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' AS z1 COLUMNS (a INT PATH '$' KEEP QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' AS z21 COLUMNS (b INT PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)))) AS sub"
   },
   {
     "comment": "sqljson_jsontable - Statement 102",

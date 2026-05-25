@@ -81,8 +81,8 @@
   },
   {
     "comment": "copydml - Statement 17",
-    "query": "create rule qqq as on insert to copydml_test where new.t \u003c\u003e 'f' do instead delete from copydml_test",
-    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test WHERE new.t \u003c\u003e 'f' DO INSTEAD DELETE FROM copydml_test"
+    "query": "create rule qqq as on insert to copydml_test where new.t <> 'f' do instead delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test WHERE new.t <> 'f' DO INSTEAD DELETE FROM copydml_test"
   },
   {
     "comment": "copydml - Statement 18",
@@ -106,8 +106,8 @@
   },
   {
     "comment": "copydml - Statement 22",
-    "query": "create rule qqq as on update to copydml_test where new.t \u003c\u003e 'f' do instead delete from copydml_test",
-    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test WHERE new.t \u003c\u003e 'f' DO INSTEAD DELETE FROM copydml_test"
+    "query": "create rule qqq as on update to copydml_test where new.t <> 'f' do instead delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test WHERE new.t <> 'f' DO INSTEAD DELETE FROM copydml_test"
   },
   {
     "comment": "copydml - Statement 23",
@@ -126,8 +126,8 @@
   },
   {
     "comment": "copydml - Statement 26",
-    "query": "create rule qqq as on delete to copydml_test where old.t \u003c\u003e 'f' do instead insert into copydml_test default values",
-    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test WHERE old.t \u003c\u003e 'f' DO INSTEAD INSERT INTO copydml_test DEFAULT VALUES"
+    "query": "create rule qqq as on delete to copydml_test where old.t <> 'f' do instead insert into copydml_test default values",
+    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test WHERE old.t <> 'f' DO INSTEAD INSERT INTO copydml_test DEFAULT VALUES"
   },
   {
     "comment": "copydml - Statement 27",

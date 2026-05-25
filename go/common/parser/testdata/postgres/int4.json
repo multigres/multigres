@@ -62,13 +62,13 @@
   },
   {
     "comment": "int4 - Statement 14",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c\u003e int2 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c\u003e CAST('0' AS SMALLINT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <> int2 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 <> CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 15",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c\u003e int4 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c\u003e CAST('0' AS INT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <> int4 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 <> CAST('0' AS INT)"
   },
   {
     "comment": "int4 - Statement 16",
@@ -82,43 +82,43 @@
   },
   {
     "comment": "int4 - Statement 18",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c int2 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c CAST('0' AS SMALLINT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 < int2 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 < CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 19",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c int4 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c CAST('0' AS INT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 < int4 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 < CAST('0' AS INT)"
   },
   {
     "comment": "int4 - Statement 20",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c= int2 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c= CAST('0' AS SMALLINT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <= int2 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 <= CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 21",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003c= int4 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003c= CAST('0' AS INT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <= int4 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 <= CAST('0' AS INT)"
   },
   {
     "comment": "int4 - Statement 22",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003e int2 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003e CAST('0' AS SMALLINT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 > int2 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 > CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 23",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003e int4 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003e CAST('0' AS INT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 > int4 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 > CAST('0' AS INT)"
   },
   {
     "comment": "int4 - Statement 24",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003e= int2 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003e= CAST('0' AS SMALLINT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 >= int2 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 >= CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 25",
-    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 \u003e= int4 '0'",
-    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 \u003e= CAST('0' AS INT)"
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 >= int4 '0'",
+    "expected": "SELECT i.* FROM int4_tbl AS i WHERE i.f1 >= CAST('0' AS INT)"
   },
   {
     "comment": "int4 - Statement 26",
@@ -137,8 +137,8 @@
   },
   {
     "comment": "int4 - Statement 29",
-    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i WHERE abs(f1) \u003c 1073741824",
-    "expected": "SELECT i.f1, i.f1 * CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE abs(f1) \u003c 1073741824"
+    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i WHERE abs(f1) < 1073741824",
+    "expected": "SELECT i.f1, i.f1 * CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE abs(f1) < 1073741824"
   },
   {
     "comment": "int4 - Statement 30",
@@ -147,8 +147,8 @@
   },
   {
     "comment": "int4 - Statement 31",
-    "query": "SELECT i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i WHERE abs(f1) \u003c 1073741824",
-    "expected": "SELECT i.f1, i.f1 * CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE abs(f1) \u003c 1073741824"
+    "query": "SELECT i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i WHERE abs(f1) < 1073741824",
+    "expected": "SELECT i.f1, i.f1 * CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE abs(f1) < 1073741824"
   },
   {
     "comment": "int4 - Statement 32",
@@ -157,8 +157,8 @@
   },
   {
     "comment": "int4 - Statement 33",
-    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i WHERE f1 \u003c 2147483646",
-    "expected": "SELECT i.f1, i.f1 + CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE f1 \u003c 2147483646"
+    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i WHERE f1 < 2147483646",
+    "expected": "SELECT i.f1, i.f1 + CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE f1 < 2147483646"
   },
   {
     "comment": "int4 - Statement 34",
@@ -167,8 +167,8 @@
   },
   {
     "comment": "int4 - Statement 35",
-    "query": "SELECT i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i WHERE f1 \u003c 2147483646",
-    "expected": "SELECT i.f1, i.f1 + CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE f1 \u003c 2147483646"
+    "query": "SELECT i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i WHERE f1 < 2147483646",
+    "expected": "SELECT i.f1, i.f1 + CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE f1 < 2147483646"
   },
   {
     "comment": "int4 - Statement 36",
@@ -177,8 +177,8 @@
   },
   {
     "comment": "int4 - Statement 37",
-    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i WHERE f1 \u003e -2147483647",
-    "expected": "SELECT i.f1, i.f1 - CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE f1 \u003e -2147483647"
+    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i WHERE f1 > -2147483647",
+    "expected": "SELECT i.f1, i.f1 - CAST('2' AS SMALLINT) AS x FROM int4_tbl AS i WHERE f1 > -2147483647"
   },
   {
     "comment": "int4 - Statement 38",
@@ -187,8 +187,8 @@
   },
   {
     "comment": "int4 - Statement 39",
-    "query": "SELECT i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i WHERE f1 \u003e -2147483647",
-    "expected": "SELECT i.f1, i.f1 - CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE f1 \u003e -2147483647"
+    "query": "SELECT i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i WHERE f1 > -2147483647",
+    "expected": "SELECT i.f1, i.f1 - CAST('2' AS INT) AS x FROM int4_tbl AS i WHERE f1 > -2147483647"
   },
   {
     "comment": "int4 - Statement 40",
@@ -236,8 +236,8 @@
   },
   {
     "comment": "int4 - Statement 49",
-    "query": "SELECT int4 '1000' \u003c int4 '999' AS false",
-    "expected": "SELECT CAST('1000' AS INT) \u003c CAST('999' AS INT) AS \"false\""
+    "query": "SELECT int4 '1000' < int4 '999' AS false",
+    "expected": "SELECT CAST('1000' AS INT) < CAST('999' AS INT) AS \"false\""
   },
   {
     "comment": "int4 - Statement 50",
@@ -253,13 +253,13 @@
   },
   {
     "comment": "int4 - Statement 53",
-    "query": "SELECT (-1::int4\u003c\u003c31)::text",
-    "expected": "SELECT CAST((-CAST(1 AS INT) \u003c\u003c 31) AS TEXT)"
+    "query": "SELECT (-1::int4<<31)::text",
+    "expected": "SELECT CAST((-CAST(1 AS INT) << 31) AS TEXT)"
   },
   {
     "comment": "int4 - Statement 54",
-    "query": "SELECT ((-1::int4\u003c\u003c31)+1)::text",
-    "expected": "SELECT CAST(((-CAST(1 AS INT) \u003c\u003c 31) + 1) AS TEXT)"
+    "query": "SELECT ((-1::int4<<31)+1)::text",
+    "expected": "SELECT CAST(((-CAST(1 AS INT) << 31) + 1) AS TEXT)"
   },
   {
     "comment": "int4 - Statement 55",

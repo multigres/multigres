@@ -573,13 +573,13 @@
   },
   {
     "comment": "timestamptz - Statement 117",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003e timestamp with time zone '1997-01-02'",
-    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003e CAST('1997-01-02' AS TIMESTAMPTZ)"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 > timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 > CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 118",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003c timestamp with time zone '1997-01-02'",
-    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c CAST('1997-01-02' AS TIMESTAMPTZ)"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 < timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 < CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 119",
@@ -589,17 +589,17 @@
   {
     "comment": "timestamptz - Statement 120",
     "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 != timestamp with time zone '1997-01-02'",
-    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c\u003e CAST('1997-01-02' AS TIMESTAMPTZ)"
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 <> CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 121",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003c= timestamp with time zone '1997-01-02'",
-    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c= CAST('1997-01-02' AS TIMESTAMPTZ)"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 <= timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 <= CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 122",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003e= timestamp with time zone '1997-01-02'",
-    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003e= CAST('1997-01-02' AS TIMESTAMPTZ)"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 >= timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 >= CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 123",

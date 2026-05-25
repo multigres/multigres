@@ -260,8 +260,8 @@
   },
   {
     "comment": "indexing - Statement 53",
-    "query": "create index idxpart1_tst3 on idxpart1 (a, b) where a \u003e 10",
-    "expected": "CREATE INDEX idxpart1_tst3 ON idxpart1 USING btree ( a, b ) WHERE a \u003e 10"
+    "query": "create index idxpart1_tst3 on idxpart1 (a, b) where a > 10",
+    "expected": "CREATE INDEX idxpart1_tst3 ON idxpart1 USING btree ( a, b ) WHERE a > 10"
   },
   {
     "comment": "indexing - Statement 54",
@@ -335,8 +335,8 @@
   },
   {
     "comment": "indexing - Statement 68",
-    "query": "create index on idxpart1 (a) where b \u003e 1",
-    "expected": "CREATE INDEX ON idxpart1 USING btree ( a ) WHERE b \u003e 1"
+    "query": "create index on idxpart1 (a) where b > 1",
+    "expected": "CREATE INDEX ON idxpart1 USING btree ( a ) WHERE b > 1"
   },
   {
     "comment": "indexing - Statement 69",
@@ -655,23 +655,23 @@
   },
   {
     "comment": "indexing - Statement 132",
-    "query": "create index idxpart_2_idx on only idxpart ((b + a)) where a \u003e 1",
-    "expected": "CREATE INDEX idxpart_2_idx ON ONLY idxpart USING btree ( (b + a) ) WHERE a \u003e 1"
+    "query": "create index idxpart_2_idx on only idxpart ((b + a)) where a > 1",
+    "expected": "CREATE INDEX idxpart_2_idx ON ONLY idxpart USING btree ( (b + a) ) WHERE a > 1"
   },
   {
     "comment": "indexing - Statement 133",
-    "query": "create index idxpart1_2_idx on idxpart1 ((b + a)) where a \u003e 1",
-    "expected": "CREATE INDEX idxpart1_2_idx ON idxpart1 USING btree ( (b + a) ) WHERE a \u003e 1"
+    "query": "create index idxpart1_2_idx on idxpart1 ((b + a)) where a > 1",
+    "expected": "CREATE INDEX idxpart1_2_idx ON idxpart1 USING btree ( (b + a) ) WHERE a > 1"
   },
   {
     "comment": "indexing - Statement 134",
-    "query": "create index idxpart1_2b_idx on idxpart1 ((a + b)) where a \u003e 1",
-    "expected": "CREATE INDEX idxpart1_2b_idx ON idxpart1 USING btree ( (a + b) ) WHERE a \u003e 1"
+    "query": "create index idxpart1_2b_idx on idxpart1 ((a + b)) where a > 1",
+    "expected": "CREATE INDEX idxpart1_2b_idx ON idxpart1 USING btree ( (a + b) ) WHERE a > 1"
   },
   {
     "comment": "indexing - Statement 135",
-    "query": "create index idxpart1_2c_idx on idxpart1 ((b + a)) where b \u003e 1",
-    "expected": "CREATE INDEX idxpart1_2c_idx ON idxpart1 USING btree ( (b + a) ) WHERE b \u003e 1"
+    "query": "create index idxpart1_2c_idx on idxpart1 ((b + a)) where b > 1",
+    "expected": "CREATE INDEX idxpart1_2c_idx ON idxpart1 USING btree ( (b + a) ) WHERE b > 1"
   },
   {
     "comment": "indexing - Statement 136",
@@ -800,13 +800,13 @@
   },
   {
     "comment": "indexing - Statement 161",
-    "query": "create index on idxpart2 (a) where b \u003e 1000",
-    "expected": "CREATE INDEX ON idxpart2 USING btree ( a ) WHERE b \u003e 1000"
+    "query": "create index on idxpart2 (a) where b > 1000",
+    "expected": "CREATE INDEX ON idxpart2 USING btree ( a ) WHERE b > 1000"
   },
   {
     "comment": "indexing - Statement 162",
-    "query": "create index on idxpart (a) where b \u003e 1000",
-    "expected": "CREATE INDEX ON idxpart USING btree ( a ) WHERE b \u003e 1000"
+    "query": "create index on idxpart (a) where b > 1000",
+    "expected": "CREATE INDEX ON idxpart USING btree ( a ) WHERE b > 1000"
   },
   {
     "comment": "indexing - Statement 163",
@@ -930,18 +930,18 @@
   },
   {
     "comment": "indexing - Statement 187",
-    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with =, b with \u0026\u0026)) partition by range (a)",
-    "expected": "CREATE TABLE idxpart (a int4range, b int4range, EXCLUDE USING gist (a WITH =, b WITH \u0026\u0026)) PARTITION BY range (a)"
+    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with =, b with &&)) partition by range (a)",
+    "expected": "CREATE TABLE idxpart (a int4range, b int4range, EXCLUDE USING gist (a WITH =, b WITH &&)) PARTITION BY range (a)"
   },
   {
     "comment": "indexing - Statement 188",
-    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (b with =, c with \u0026\u0026)) partition by range (a)",
-    "expected": "CREATE TABLE idxpart (a int4range, b int4range, c int4range, EXCLUDE USING gist (b WITH =, c WITH \u0026\u0026)) PARTITION BY range (a)"
+    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (b with =, c with &&)) partition by range (a)",
+    "expected": "CREATE TABLE idxpart (a int4range, b int4range, c int4range, EXCLUDE USING gist (b WITH =, c WITH &&)) PARTITION BY range (a)"
   },
   {
     "comment": "indexing - Statement 189",
-    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (a with =, b with =, c with \u0026\u0026)) partition by range (a, b)",
-    "expected": "CREATE TABLE idxpart (a int4range, b int4range, c int4range, EXCLUDE USING gist (a WITH =, b WITH =, c WITH \u0026\u0026)) PARTITION BY range (a, b)"
+    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (a with =, b with =, c with &&)) partition by range (a, b)",
+    "expected": "CREATE TABLE idxpart (a int4range, b int4range, c int4range, EXCLUDE USING gist (a WITH =, b WITH =, c WITH &&)) PARTITION BY range (a, b)"
   },
   {
     "comment": "indexing - Statement 190",
@@ -1005,8 +1005,8 @@
   },
   {
     "comment": "indexing - Statement 202",
-    "query": "alter table idxpart add exclude USING GIST (a with =, b with \u0026\u0026)",
-    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (a WITH =, b WITH \u0026\u0026)"
+    "query": "alter table idxpart add exclude USING GIST (a with =, b with &&)",
+    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (a WITH =, b WITH &&)"
   },
   {
     "comment": "indexing - Statement 203",
@@ -1015,8 +1015,8 @@
   },
   {
     "comment": "indexing - Statement 204",
-    "query": "alter table idxpart add exclude USING GIST (b with =, c with \u0026\u0026)",
-    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (b WITH =, c WITH \u0026\u0026)"
+    "query": "alter table idxpart add exclude USING GIST (b with =, c with &&)",
+    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (b WITH =, c WITH &&)"
   },
   {
     "comment": "indexing - Statement 205",
@@ -1025,8 +1025,8 @@
   },
   {
     "comment": "indexing - Statement 206",
-    "query": "alter table idxpart add exclude USING GIST (a with =, b with =, c with \u0026\u0026)",
-    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (a WITH =, b WITH =, c WITH \u0026\u0026)"
+    "query": "alter table idxpart add exclude USING GIST (a with =, b with =, c with &&)",
+    "expected": "ALTER TABLE idxpart ADD EXCLUDE USING gist (a WITH =, b WITH =, c WITH &&)"
   },
   {
     "comment": "indexing - Statement 207",
@@ -1387,8 +1387,8 @@
   },
   {
     "comment": "indexing - Statement 279",
-    "query": "explain (costs off) select * from idxpart where c @\u003e array[42]",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM idxpart WHERE c @\u003e ARRAY[42]"
+    "query": "explain (costs off) select * from idxpart where c @> array[42]",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM idxpart WHERE c @> ARRAY[42]"
   },
   {
     "comment": "indexing - Statement 280",

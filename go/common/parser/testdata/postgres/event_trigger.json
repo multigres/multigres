@@ -414,7 +414,7 @@
   },
   {
     "comment": "event_trigger - Statement 97",
-    "query": "SELECT * FROM dropped_objects WHERE schema IS NULL OR schema \u003c\u003e 'pg_toast'"
+    "query": "SELECT * FROM dropped_objects WHERE schema IS NULL OR schema <> 'pg_toast'"
   },
   {
     "comment": "event_trigger - Statement 98",
@@ -455,8 +455,8 @@
   },
   {
     "comment": "event_trigger - Statement 110",
-    "query": "CREATE SCHEMA evttrig CREATE TABLE one (col_a SERIAL PRIMARY KEY, col_b text DEFAULT 'forty two', col_c SERIAL) CREATE INDEX one_idx ON one (col_b) CREATE TABLE two (col_c INTEGER CHECK (col_c \u003e 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d int NOT NULL GENERATED ALWAYS AS IDENTITY)",
-    "expected": "CREATE SCHEMA evttrig CREATE TABLE one (col_a serial PRIMARY KEY, col_b TEXT DEFAULT 'forty two', col_c serial) CREATE INDEX one_idx ON one USING btree ( col_b ) CREATE TABLE two (col_c INT CHECK (col_c \u003e 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d INT NOT NULL GENERATED ALWAYS AS IDENTITY)"
+    "query": "CREATE SCHEMA evttrig CREATE TABLE one (col_a SERIAL PRIMARY KEY, col_b text DEFAULT 'forty two', col_c SERIAL) CREATE INDEX one_idx ON one (col_b) CREATE TABLE two (col_c INTEGER CHECK (col_c > 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d int NOT NULL GENERATED ALWAYS AS IDENTITY)",
+    "expected": "CREATE SCHEMA evttrig CREATE TABLE one (col_a serial PRIMARY KEY, col_b TEXT DEFAULT 'forty two', col_c serial) CREATE INDEX one_idx ON one USING btree ( col_b ) CREATE TABLE two (col_c INT CHECK (col_c > 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d INT NOT NULL GENERATED ALWAYS AS IDENTITY)"
   },
   {
     "comment": "event_trigger - Statement 111",

@@ -133,13 +133,11 @@
   },
   {
     "comment": "publication - Statement 31",
-    "query": "CREATE PUBLICATION testpub_for_tbl_schema FOR TABLES IN SCHEMA pub_test, TABLE pub_test.testpub_nopk",
-    "expected": "CREATE PUBLICATION testpub_for_tbl_schema FOR TABLE pub_test.testpub_nopk, TABLES IN SCHEMA pub_test"
+    "query": "CREATE PUBLICATION testpub_for_tbl_schema FOR TABLES IN SCHEMA pub_test, TABLE pub_test.testpub_nopk"
   },
   {
     "comment": "publication - Statement 32",
-    "query": "CREATE PUBLICATION testpub_parsertst FOR TABLES IN SCHEMA foo, test.foo",
-    "expected": "CREATE PUBLICATION testpub_parsertst FOR TABLES IN SCHEMA foo"
+    "query": "CREATE PUBLICATION testpub_parsertst FOR TABLES IN SCHEMA foo, test.foo"
   },
   {
     "comment": "publication - Statement 33",
@@ -282,13 +280,13 @@
   },
   {
     "comment": "publication - Statement 65",
-    "query": "CREATE PUBLICATION testpub5 FOR TABLE testpub_rf_tbl1, testpub_rf_tbl2 WHERE (c \u003c\u003e 'test' AND d \u003c 5) WITH (publish = 'insert')",
-    "expected": "CREATE PUBLICATION testpub5 FOR TABLE testpub_rf_tbl1, testpub_rf_tbl2 WHERE (c \u003c\u003e 'test' AND d \u003c 5) WITH ( publish = 'insert' )"
+    "query": "CREATE PUBLICATION testpub5 FOR TABLE testpub_rf_tbl1, testpub_rf_tbl2 WHERE (c <> 'test' AND d < 5) WITH (publish = 'insert')",
+    "expected": "CREATE PUBLICATION testpub5 FOR TABLE testpub_rf_tbl1, testpub_rf_tbl2 WHERE (c <> 'test' AND d < 5) WITH ( publish = 'insert' )"
   },
   {
     "comment": "publication - Statement 66",
-    "query": "CREATE PUBLICATION testpub_rf_yes FOR TABLE testpub_rf_tbl1 WHERE (a \u003e 1) WITH (publish = 'insert')",
-    "expected": "CREATE PUBLICATION testpub_rf_yes FOR TABLE testpub_rf_tbl1 WHERE (a \u003e 1) WITH ( publish = 'insert' )"
+    "query": "CREATE PUBLICATION testpub_rf_yes FOR TABLE testpub_rf_tbl1 WHERE (a > 1) WITH (publish = 'insert')",
+    "expected": "CREATE PUBLICATION testpub_rf_yes FOR TABLE testpub_rf_tbl1 WHERE (a > 1) WITH ( publish = 'insert' )"
   },
   {
     "comment": "publication - Statement 67",
@@ -296,13 +294,13 @@
   },
   {
     "comment": "publication - Statement 68",
-    "query": "CREATE PUBLICATION testpub_syntax1 FOR TABLE testpub_rf_tbl1, ONLY testpub_rf_tbl3 WHERE (e \u003c 999) WITH (publish = 'insert')",
-    "expected": "CREATE PUBLICATION testpub_syntax1 FOR TABLE testpub_rf_tbl1, ONLY testpub_rf_tbl3 WHERE (e \u003c 999) WITH ( publish = 'insert' )"
+    "query": "CREATE PUBLICATION testpub_syntax1 FOR TABLE testpub_rf_tbl1, ONLY testpub_rf_tbl3 WHERE (e < 999) WITH (publish = 'insert')",
+    "expected": "CREATE PUBLICATION testpub_syntax1 FOR TABLE testpub_rf_tbl1, ONLY testpub_rf_tbl3 WHERE (e < 999) WITH ( publish = 'insert' )"
   },
   {
     "comment": "publication - Statement 69",
-    "query": "CREATE PUBLICATION testpub_syntax2 FOR TABLE testpub_rf_tbl1, testpub_rf_schema1.testpub_rf_tbl5 WHERE (h \u003c 999) WITH (publish = 'insert')",
-    "expected": "CREATE PUBLICATION testpub_syntax2 FOR TABLE testpub_rf_tbl1, testpub_rf_schema1.testpub_rf_tbl5 WHERE (h \u003c 999) WITH ( publish = 'insert' )"
+    "query": "CREATE PUBLICATION testpub_syntax2 FOR TABLE testpub_rf_tbl1, testpub_rf_schema1.testpub_rf_tbl5 WHERE (h < 999) WITH (publish = 'insert')",
+    "expected": "CREATE PUBLICATION testpub_syntax2 FOR TABLE testpub_rf_tbl1, testpub_rf_schema1.testpub_rf_tbl5 WHERE (h < 999) WITH ( publish = 'insert' )"
   },
   {
     "comment": "publication - Statement 70",
@@ -311,8 +309,7 @@
   },
   {
     "comment": "publication - Statement 71",
-    "query": "CREATE PUBLICATION testpub_syntax3 FOR TABLES IN SCHEMA testpub_rf_schema1, testpub_rf_schema1 WHERE (a = 123)",
-    "expected": "CREATE PUBLICATION testpub_syntax3 FOR TABLES IN SCHEMA testpub_rf_schema1"
+    "query": "CREATE PUBLICATION testpub_syntax3 FOR TABLES IN SCHEMA testpub_rf_schema1, testpub_rf_schema1 WHERE (a = 123)"
   },
   {
     "comment": "publication - Statement 72",
@@ -330,21 +327,21 @@
   },
   {
     "comment": "publication - Statement 75",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl3 WHERE (e \u003c AVG(e))"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl3 WHERE (e < AVG(e))"
   },
   {
     "comment": "publication - Statement 76",
-    "query": "CREATE FUNCTION testpub_rf_func1(integer, integer) RETURNS boolean AS $$ SELECT hashint4($1) \u003e $2 $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION testpub_rf_func1 (INT, INT) RETURNS BOOLEAN AS $$ SELECT hashint4($1) \u003e $2 $$ LANGUAGE sql"
+    "query": "CREATE FUNCTION testpub_rf_func1(integer, integer) RETURNS boolean AS $$ SELECT hashint4($1) > $2 $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION testpub_rf_func1 (INT, INT) RETURNS BOOLEAN AS $$ SELECT hashint4($1) > $2 $$ LANGUAGE sql"
   },
   {
     "comment": "publication - Statement 77",
-    "query": "CREATE OPERATOR =#\u003e (PROCEDURE = testpub_rf_func1, LEFTARG = integer, RIGHTARG = integer)",
-    "expected": "CREATE OPERATOR =#\u003e (procedure = testpub_rf_func1, leftarg = INT, rightarg = INT)"
+    "query": "CREATE OPERATOR =#> (PROCEDURE = testpub_rf_func1, LEFTARG = integer, RIGHTARG = integer)",
+    "expected": "CREATE OPERATOR =#> (procedure = testpub_rf_func1, leftarg = INT, rightarg = INT)"
   },
   {
     "comment": "publication - Statement 78",
-    "query": "CREATE PUBLICATION testpub6 FOR TABLE testpub_rf_tbl3 WHERE (e =#\u003e 27)"
+    "query": "CREATE PUBLICATION testpub6 FOR TABLE testpub_rf_tbl3 WHERE (e =#> 27)"
   },
   {
     "comment": "publication - Statement 79",
@@ -353,11 +350,11 @@
   },
   {
     "comment": "publication - Statement 80",
-    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (a \u003e= testpub_rf_func2())"
+    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (a >= testpub_rf_func2())"
   },
   {
     "comment": "publication - Statement 81",
-    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (a \u003c random())"
+    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (a < random())"
   },
   {
     "comment": "publication - Statement 82",
@@ -365,7 +362,7 @@
   },
   {
     "comment": "publication - Statement 83",
-    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (b \u003c '2' COLLATE user_collation)"
+    "query": "ALTER PUBLICATION testpub5 ADD TABLE testpub_rf_tbl1 WHERE (b < '2' COLLATE user_collation)"
   },
   {
     "comment": "publication - Statement 84",
@@ -378,7 +375,7 @@
   },
   {
     "comment": "publication - Statement 86",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE ((a \u003e 5) IS FALSE)"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE ((a > 5) IS FALSE)"
   },
   {
     "comment": "publication - Statement 87",
@@ -386,16 +383,16 @@
   },
   {
     "comment": "publication - Statement 88",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE ((a, a + 1) \u003c (2, 3))"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE ((a, a + 1) < (2, 3))"
   },
   {
     "comment": "publication - Statement 89",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (b::varchar \u003c '2')",
-    "expected": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (CAST(b AS VARCHAR) \u003c '2')"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (b::varchar < '2')",
+    "expected": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (CAST(b AS VARCHAR) < '2')"
   },
   {
     "comment": "publication - Statement 90",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl4 WHERE (length(g) \u003c 6)"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl4 WHERE (length(g) < 6)"
   },
   {
     "comment": "publication - Statement 91",
@@ -454,7 +451,7 @@
   },
   {
     "comment": "publication - Statement 103",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (GREATEST(a, 10) \u003e 10)"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (GREATEST(a, 10) > 10)"
   },
   {
     "comment": "publication - Statement 104",
@@ -462,8 +459,8 @@
   },
   {
     "comment": "publication - Statement 105",
-    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (ARRAY[a] \u003c@ ARRAY[2, 4, 6])",
-    "expected": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (ARRAY[a] \u003c@ ARRAY[2,4,6])"
+    "query": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (ARRAY[a] <@ ARRAY[2, 4, 6])",
+    "expected": "ALTER PUBLICATION testpub5 SET TABLE testpub_rf_tbl1 WHERE (ARRAY[a] <@ ARRAY[2,4,6])"
   },
   {
     "comment": "publication - Statement 106",
@@ -471,7 +468,7 @@
   },
   {
     "comment": "publication - Statement 107",
-    "query": "ALTER PUBLICATION testpub5 DROP TABLE testpub_rf_tbl1 WHERE (e \u003c 27)"
+    "query": "ALTER PUBLICATION testpub5 DROP TABLE testpub_rf_tbl1 WHERE (e < 27)"
   },
   {
     "comment": "publication - Statement 108",
@@ -479,8 +476,7 @@
   },
   {
     "comment": "publication - Statement 109",
-    "query": "ALTER PUBLICATION testpub6 SET TABLES IN SCHEMA testpub_rf_schema2, TABLE testpub_rf_schema2.testpub_rf_tbl6 WHERE (i \u003c 99)",
-    "expected": "ALTER PUBLICATION testpub6 SET TABLE testpub_rf_schema2.testpub_rf_tbl6 WHERE (i \u003c 99), TABLES IN SCHEMA testpub_rf_schema2"
+    "query": "ALTER PUBLICATION testpub6 SET TABLES IN SCHEMA testpub_rf_schema2, TABLE testpub_rf_schema2.testpub_rf_tbl6 WHERE (i < 99)"
   },
   {
     "comment": "publication - Statement 110",
@@ -524,8 +520,8 @@
   },
   {
     "comment": "publication - Statement 120",
-    "query": "DROP OPERATOR =#\u003e(integer, integer)",
-    "expected": "DROP OPERATOR =#\u003e(INT, INT)"
+    "query": "DROP OPERATOR =#>(integer, integer)",
+    "expected": "DROP OPERATOR =#>(INT, INT)"
   },
   {
     "comment": "publication - Statement 121",
@@ -566,7 +562,7 @@
   },
   {
     "comment": "publication - Statement 129",
-    "query": "CREATE PUBLICATION testpub6 FOR TABLE rf_tbl_abcd_pk WHERE (a \u003e 99)"
+    "query": "CREATE PUBLICATION testpub6 FOR TABLE rf_tbl_abcd_pk WHERE (a > 99)"
   },
   {
     "comment": "publication - Statement 130",
@@ -574,19 +570,19 @@
   },
   {
     "comment": "publication - Statement 131",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (b \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (b > 99)"
   },
   {
     "comment": "publication - Statement 132",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (c \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (c > 99)"
   },
   {
     "comment": "publication - Statement 133",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (d \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (d > 99)"
   },
   {
     "comment": "publication - Statement 134",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_nopk WHERE (a \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_nopk WHERE (a > 99)"
   },
   {
     "comment": "publication - Statement 135",
@@ -610,7 +606,7 @@
   },
   {
     "comment": "publication - Statement 140",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (a \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_pk WHERE (a > 99)"
   },
   {
     "comment": "publication - Statement 141",
@@ -640,7 +636,7 @@
   },
   {
     "comment": "publication - Statement 147",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_nopk WHERE (c \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_nopk WHERE (c > 99)"
   },
   {
     "comment": "publication - Statement 148",
@@ -649,11 +645,11 @@
   },
   {
     "comment": "publication - Statement 149",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk WHERE (a \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk WHERE (a > 99)"
   },
   {
     "comment": "publication - Statement 150",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk_1 WHERE (a \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk_1 WHERE (a > 99)"
   },
   {
     "comment": "publication - Statement 151",
@@ -670,11 +666,11 @@
   },
   {
     "comment": "publication - Statement 154",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk_1 WHERE (b \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk_1 WHERE (b > 99)"
   },
   {
     "comment": "publication - Statement 155",
-    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk WHERE (b \u003e 99)"
+    "query": "ALTER PUBLICATION testpub6 SET TABLE rf_tbl_abcd_part_pk WHERE (b > 99)"
   },
   {
     "comment": "publication - Statement 156",
@@ -914,7 +910,7 @@
   {
     "comment": "publication - Statement 211",
     "query": "CREATE PUBLICATION testpub_tbl9 FOR TABLES IN SCHEMA public, TABLE public.testpub_tbl7(a)",
-    "expected": "CREATE PUBLICATION testpub_tbl9 FOR TABLE public.testpub_tbl7 (a), TABLES IN SCHEMA public"
+    "expected": "CREATE PUBLICATION testpub_tbl9 FOR TABLES IN SCHEMA public, TABLE public.testpub_tbl7 (a)"
   },
   {
     "comment": "publication - Statement 212",
@@ -937,7 +933,7 @@
   {
     "comment": "publication - Statement 216",
     "query": "ALTER PUBLICATION testpub_tbl9 SET TABLES IN SCHEMA public, TABLE public.testpub_tbl7(a)",
-    "expected": "ALTER PUBLICATION testpub_tbl9 SET TABLE public.testpub_tbl7 (a), TABLES IN SCHEMA public"
+    "expected": "ALTER PUBLICATION testpub_tbl9 SET TABLES IN SCHEMA public, TABLE public.testpub_tbl7 (a)"
   },
   {
     "comment": "publication - Statement 217",
@@ -946,7 +942,7 @@
   {
     "comment": "publication - Statement 218",
     "query": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public, TABLE public.testpub_tbl7(a)",
-    "expected": "ALTER PUBLICATION testpub_tbl9 ADD TABLE public.testpub_tbl7 (a), TABLES IN SCHEMA public"
+    "expected": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public, TABLE public.testpub_tbl7 (a)"
   },
   {
     "comment": "publication - Statement 219",
@@ -972,7 +968,7 @@
   {
     "comment": "publication - Statement 224",
     "query": "ALTER PUBLICATION testpub_both_filters ADD TABLE testpub_tbl_both_filters (a,c) WHERE (c != 1)",
-    "expected": "ALTER PUBLICATION testpub_both_filters ADD TABLE testpub_tbl_both_filters (a, c) WHERE (c \u003c\u003e 1)"
+    "expected": "ALTER PUBLICATION testpub_both_filters ADD TABLE testpub_tbl_both_filters (a, c) WHERE (c <> 1)"
   },
   {
     "comment": "publication - Statement 225",
@@ -1314,11 +1310,13 @@
   },
   {
     "comment": "publication - Statement 305",
-    "query": "CREATE PUBLICATION testpub5_forschema FOR TABLES IN SCHEMA CURRENT_SCHEMA, \"CURRENT_SCHEMA\""
+    "query": "CREATE PUBLICATION testpub5_forschema FOR TABLES IN SCHEMA CURRENT_SCHEMA, \"CURRENT_SCHEMA\"",
+    "expected": "CREATE PUBLICATION testpub5_forschema FOR TABLES IN SCHEMA CURRENT_SCHEMA, TABLES IN SCHEMA \"CURRENT_SCHEMA\""
   },
   {
     "comment": "publication - Statement 306",
-    "query": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\", CURRENT_SCHEMA"
+    "query": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\", CURRENT_SCHEMA",
+    "expected": "CREATE PUBLICATION testpub6_forschema FOR TABLES IN SCHEMA \"CURRENT_SCHEMA\", TABLES IN SCHEMA CURRENT_SCHEMA"
   },
   {
     "comment": "publication - Statement 307",
@@ -1335,8 +1333,7 @@
   },
   {
     "comment": "publication - Statement 310",
-    "query": "CREATE PUBLICATION testpub_forschema1 FOR CURRENT_SCHEMA",
-    "expected": "CREATE PUBLICATION testpub_forschema1"
+    "query": "CREATE PUBLICATION testpub_forschema1 FOR CURRENT_SCHEMA"
   },
   {
     "comment": "publication - Statement 311",
@@ -1361,8 +1358,7 @@
   },
   {
     "comment": "publication - Statement 316",
-    "query": "ALTER PUBLICATION testpub1_forschema ADD TABLES IN SCHEMA foo, bar (a, b)",
-    "expected": "ALTER PUBLICATION testpub1_forschema ADD TABLES IN SCHEMA foo"
+    "query": "ALTER PUBLICATION testpub1_forschema ADD TABLES IN SCHEMA foo, bar (a, b)"
   },
   {
     "comment": "publication - Statement 317",
@@ -1469,8 +1465,7 @@
   },
   {
     "comment": "publication - Statement 340",
-    "query": "CREATE PUBLICATION testpub_forschema_fortable FOR TABLES IN SCHEMA pub_test1, TABLE pub_test2.tbl1",
-    "expected": "CREATE PUBLICATION testpub_forschema_fortable FOR TABLE pub_test2.tbl1, TABLES IN SCHEMA pub_test1"
+    "query": "CREATE PUBLICATION testpub_forschema_fortable FOR TABLES IN SCHEMA pub_test1, TABLE pub_test2.tbl1"
   },
   {
     "comment": "publication - Statement 341",
