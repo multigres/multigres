@@ -103,12 +103,12 @@
   {
     "comment": "xml - Statement 24",
     "query": "SELECT xmlelement(name element, xmlattributes (1 as one, 'deuce' as two), 'content')",
-    "expected": "SELECT XMLELEMENT(NAME element, 'content')"
+    "expected": "SELECT XMLELEMENT(NAME element, XMLATTRIBUTES(1 AS one, 'deuce' AS two), 'content')"
   },
   {
     "comment": "xml - Statement 25",
     "query": "SELECT xmlelement(name element, xmlattributes ('unnamed and wrong'))",
-    "expected": "SELECT XMLELEMENT(NAME element)"
+    "expected": "SELECT XMLELEMENT(NAME element, XMLATTRIBUTES('unnamed and wrong'))"
   },
   {
     "comment": "xml - Statement 26",
@@ -123,7 +123,7 @@
   {
     "comment": "xml - Statement 28",
     "query": "SELECT xmlelement(name duplicate, xmlattributes(1 as a, 2 as b, 3 as a))",
-    "expected": "SELECT XMLELEMENT(NAME duplicate)"
+    "expected": "SELECT XMLELEMENT(NAME duplicate, XMLATTRIBUTES(1 AS a, 2 AS b, 3 AS a))"
   },
   {
     "comment": "xml - Statement 29",
@@ -173,22 +173,22 @@
   {
     "comment": "xml - Statement 38",
     "query": "SELECT xmlelement(name foo, xmlattributes(true as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(TRUE AS bar))"
   },
   {
     "comment": "xml - Statement 39",
     "query": "SELECT xmlelement(name foo, xmlattributes('2009-04-09 00:24:37'::timestamp as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(CAST('2009-04-09 00:24:37' AS TIMESTAMP) AS bar))"
   },
   {
     "comment": "xml - Statement 40",
     "query": "SELECT xmlelement(name foo, xmlattributes('infinity'::timestamp as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(CAST('infinity' AS TIMESTAMP) AS bar))"
   },
   {
     "comment": "xml - Statement 41",
     "query": "SELECT xmlelement(name foo, xmlattributes('\u003c\u003e\u0026\"''' as funny, xml 'b\u003ca/\u003er' as funnier))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES('\u003c\u003e\u0026\"''' AS funny, CAST('b\u003ca/\u003er' AS XML) AS funnier))"
   },
   {
     "comment": "xml - Statement 42",
@@ -338,7 +338,7 @@
   {
     "comment": "xml - Statement 71",
     "query": "SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone no value)",
-    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NO VALUE, STANDALONE NO VALUE)"
   },
   {
     "comment": "xml - Statement 72",
@@ -348,37 +348,37 @@
   {
     "comment": "xml - Statement 73",
     "query": "SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 74",
     "query": "SELECT xmlroot(xml '\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "SELECT XMLROOT(CAST('\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "expected": "SELECT XMLROOT(CAST('\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 75",
     "query": "SELECT xmlroot(xmlroot(xml '\u003cfoo/\u003e', version '1.0'), version '1.1', standalone no)",
-    "expected": "SELECT XMLROOT(XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION '1.0'), VERSION '1.1')"
+    "expected": "SELECT XMLROOT(XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION '1.0'), VERSION '1.1', STANDALONE NO)"
   },
   {
     "comment": "xml - Statement 76",
     "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value, standalone no)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NO VALUE, STANDALONE NO)"
   },
   {
     "comment": "xml - Statement 77",
     "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value, standalone no value)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NO VALUE, STANDALONE NO VALUE)"
   },
   {
     "comment": "xml - Statement 78",
     "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NO VALUE)"
   },
   {
     "comment": "xml - Statement 79",
     "query": "SELECT xmlroot ( xmlelement ( name gazonk, xmlattributes ( 'val' AS name, 1 + 1 AS num ), xmlelement ( NAME qux, 'foo' ) ), version '1.0', standalone yes )",
-    "expected": "SELECT XMLROOT(XMLELEMENT(NAME gazonk, XMLELEMENT(NAME qux, 'foo')), VERSION '1.0')"
+    "expected": "SELECT XMLROOT(XMLELEMENT(NAME gazonk, XMLATTRIBUTES('val' AS name, 1 + 1 AS num), XMLELEMENT(NAME qux, 'foo')), VERSION '1.0', STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 80",
@@ -643,7 +643,7 @@
   {
     "comment": "xml - Statement 133",
     "query": "CREATE VIEW xmlview3 AS SELECT xmlelement(name element, xmlattributes (1 as \":one:\", 'deuce' as two), 'content\u0026')",
-    "expected": "CREATE VIEW xmlview3 AS SELECT XMLELEMENT(NAME element, 'content\u0026')"
+    "expected": "CREATE VIEW xmlview3 AS SELECT XMLELEMENT(NAME element, XMLATTRIBUTES(1 AS \":one:\", 'deuce' AS two), 'content\u0026')"
   },
   {
     "comment": "xml - Statement 134",
@@ -663,7 +663,7 @@
   {
     "comment": "xml - Statement 137",
     "query": "CREATE VIEW xmlview7 AS SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "CREATE VIEW xmlview7 AS SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "expected": "CREATE VIEW xmlview7 AS SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 138",
@@ -1013,12 +1013,12 @@
   {
     "comment": "xml - Statement 215",
     "query": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a int PATH 'zz:a')",
-    "expected": "SELECT * FROM XMLTABLE('/zz:rows/zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'zz:a')"
+    "expected": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'zz:a')"
   },
   {
     "comment": "xml - Statement 216",
     "query": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a int PATH 'Zz:a')",
-    "expected": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE('/Zz:rows/Zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'Zz:a')"
+    "expected": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'Zz:a')"
   },
   {
     "comment": "xml - Statement 217",

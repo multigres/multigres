@@ -375,6 +375,28 @@ func (r *RangeTableFunc) SqlString() string {
 	// For now, we assume this is XMLTABLE since that's what we're implementing
 	result.WriteString("XMLTABLE(")
 
+	// Optional XMLNAMESPACES(...) clause comes first. Each namespace is a
+	// ResTarget: `uri AS name`, or `DEFAULT uri` when unnamed.
+	if r.Namespaces != nil && r.Namespaces.Len() > 0 {
+		result.WriteString("XMLNAMESPACES(")
+		for i, item := range r.Namespaces.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if rt, ok := item.(*ResTarget); ok {
+				if rt.Name == "" {
+					result.WriteString("DEFAULT ")
+					if rt.Val != nil {
+						result.WriteString(rt.Val.SqlString())
+					}
+				} else {
+					result.WriteString(rt.SqlString())
+				}
+			}
+		}
+		result.WriteString("), ")
+	}
+
 	// XMLTABLE syntax: XMLTABLE(xpath_expression PASSING document_expression COLUMNS ...)
 	// RowExpr is the XPath expression, DocExpr is the document
 	if r.RowExpr != nil {
