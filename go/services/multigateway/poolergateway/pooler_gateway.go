@@ -317,22 +317,36 @@ func (pg *PoolerGateway) CopyOutReady(
 // CopyOutStream implements queryservice.QueryService.
 // Pumps CopyData / NoticeResponse frames from the multipooler back through
 // the supplied callback until RESULT/ERROR.
+//
+// Uses loadBalancer.GetConnection directly rather than withBuffering — same
+// as CopySendData / CopyFinalize for the FROM-STDIN data phase. The stream
+// has already been established by CopyOutReady and lives on a specific
+// PoolerConnection's grpcQueryService.copyStreams map keyed by the
+// reserved connection ID; routing this call through withBuffering's
+// proactive failover check (which may stall, retry, and land on a
+// different PoolerConnection) would only surface a confusing
+// "no active COPY stream for reserved connection X" error in place of
+// the real failure. Failover during a live COPY stream is a connection-level
+// failure that the executor's CopyOutStream handles via
+// IsConnectionError → Release(ReleaseError).
 func (pg *PoolerGateway) CopyOutStream(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
 	onMessage func(client.CopyOutMessage) error,
 ) (*sqltypes.Result, *query.ReservedState, error) {
-	var (
-		result *sqltypes.Result
-		state  *query.ReservedState
-	)
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
-		var err error
-		result, state, err = conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
-		return err
-	})
-	return result, state, err
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
 }
 
 // Close implements queryservice.QueryService.
