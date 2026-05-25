@@ -1340,6 +1340,10 @@ func (c *Constraint) SqlString() string {
 			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "UNIQUE"
+		// NULLS DISTINCT is the default; only the NOT form needs rendering.
+		if c.NullsNotDistinct {
+			result += " NULLS NOT DISTINCT"
+		}
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}

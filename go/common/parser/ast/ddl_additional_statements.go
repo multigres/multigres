@@ -780,6 +780,15 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			}
 			parts = append(parts, strings.Join(pubStrs, ", "))
 		}
+		if a.Options != nil && a.Options.Len() > 0 {
+			optionStrs := make([]string, 0, a.Options.Len())
+			for i := 0; i < a.Options.Len(); i++ {
+				if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+					optionStrs = append(optionStrs, defElem.SqlString())
+				}
+			}
+			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
+		}
 	case ALTER_SUBSCRIPTION_ENABLED:
 		// The "enabled" option carries whether this is ENABLE or DISABLE.
 		enabled := true

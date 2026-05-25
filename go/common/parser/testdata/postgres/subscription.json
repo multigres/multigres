@@ -324,7 +324,7 @@
   {
     "comment": "subscription - Statement 70",
     "query": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH (refresh = true)",
-    "expected": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub"
+    "expected": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH ( refresh = 'true' )"
   },
   {
     "comment": "subscription - Statement 71",

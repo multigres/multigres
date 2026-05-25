@@ -562,7 +562,7 @@
   {
     "comment": "constraints - Statement 114",
     "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text)",
-    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE NULLS NOT DISTINCT, t TEXT)"
   },
   {
     "comment": "constraints - Statement 115",

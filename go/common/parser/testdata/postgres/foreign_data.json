@@ -524,7 +524,7 @@
   {
     "comment": "foreign_data - Statement 122",
     "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') PRIMARY KEY, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT PRIMARY KEY, c2 TEXT, c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') PRIMARY KEY, c2 TEXT OPTIONS (param2 'val2', param3 'val3'), c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 123",
@@ -534,7 +534,7 @@
   {
     "comment": "foreign_data - Statement 124",
     "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') REFERENCES ref_table (id), c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT REFERENCES ref_table(id), c2 TEXT, c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') REFERENCES ref_table(id), c2 TEXT OPTIONS (param2 'val2', param3 'val3'), c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 125",
@@ -543,12 +543,12 @@
   {
     "comment": "foreign_data - Statement 126",
     "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date, UNIQUE (c3) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT NOT NULL, c2 TEXT, c3 DATE, UNIQUE (c3)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') NOT NULL, c2 TEXT OPTIONS (param2 'val2', param3 'val3'), c3 DATE, UNIQUE (c3)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 127",
     "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3') CHECK (c2 \u003c\u003e ''), c3 date, CHECK (c3 BETWEEN '1994-01-01'::date AND '1994-01-31'::date) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT NOT NULL, c2 TEXT CHECK (c2 \u003c\u003e ''), c3 DATE, CHECK (c3 BETWEEN CAST('1994-01-01' AS DATE) AND CAST('1994-01-31' AS DATE))) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') NOT NULL, c2 TEXT OPTIONS (param2 'val2', param3 'val3') CHECK (c2 \u003c\u003e ''), c3 DATE, CHECK (c3 BETWEEN CAST('1994-01-01' AS DATE) AND CAST('1994-01-31' AS DATE))) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 128",
@@ -691,7 +691,7 @@
   {
     "comment": "foreign_data - Statement 160",
     "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')",
-    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 INT"
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 INT OPTIONS (p1 'v1')"
   },
   {
     "comment": "foreign_data - Statement 161",
@@ -855,7 +855,7 @@
   {
     "comment": "foreign_data - Statement 198",
     "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')",
-    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 INT"
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 INT OPTIONS (p1 'v1')"
   },
   {
     "comment": "foreign_data - Statement 199",

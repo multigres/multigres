@@ -1234,6 +1234,24 @@ func (c *ColumnDef) SqlString() string {
 		parts = append(parts, "STORAGE", c.StorageName)
 	}
 
+	// Add foreign-data-wrapper OPTIONS (foreign table columns), in PostgreSQL's
+	// generic-options form: OPTIONS (key 'value', ...).
+	if c.Fdwoptions != nil && c.Fdwoptions.Len() > 0 {
+		var optParts []string
+		for _, item := range c.Fdwoptions.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				if opt.Arg != nil {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
+				}
+			}
+		}
+		if len(optParts) > 0 {
+			parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+		}
+	}
+
 	// Add NOT NULL constraint if specified
 	if c.IsNotNull {
 		parts = append(parts, "NOT NULL")
