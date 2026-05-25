@@ -3426,12 +3426,10 @@ substr_list:
 		}
 	|	a_expr FOR a_expr
 		{
-			sysTypeName := &ast.TypeName{
-				Names: ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("int4")),
-				Typemod: -1,
-			}
-			tc := ast.NewTypeCast($3, sysTypeName, -1)
-			$$ = ast.NewNodeList($1, ast.NewInteger(1), tc)
+			// SUBSTRING(x FOR n) is SUBSTRING(x FROM 1 FOR n): the implicit start
+			// position is the integer constant 1, and the length is used as-is.
+			// Mirrors PostgreSQL's list_make3($1, makeIntConst(1, -1), $3).
+			$$ = ast.NewNodeList($1, ast.NewA_Const(ast.NewInteger(1), 0), $3)
 		}
 	| 	a_expr SIMILAR a_expr ESCAPE a_expr
 		{

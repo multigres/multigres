@@ -177,22 +177,22 @@
   {
     "comment": "cluster - Statement 43",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst"
   },
   {
     "comment": "cluster - Statement 44",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY a"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY a"
   },
   {
     "comment": "cluster - Statement 45",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY b",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY b"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY b"
   },
   {
     "comment": "cluster - Statement 46",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY c",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY c"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY c"
   },
   {
     "comment": "cluster - Statement 47",
