@@ -253,6 +253,12 @@ var boolOptionSpellings = map[string]string{
 func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 	result := ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		switch n := cursor.Node().(type) {
+		case *ast.NodeList:
+			// A NodeList is only a container; its own tag is metadata that is
+			// always T_List semantically, but some grammar paths leave it unset
+			// (T_Invalid). Normalize it so the container tag never causes a
+			// spurious mismatch (the items themselves are still compared).
+			n.Tag = ast.T_List
 		case *ast.DefElem:
 			// A bare boolean flag (VACUUM FULL) and its explicit "= true" form
 			// are equivalent; the deparser renders both as just the name. Only
@@ -273,6 +279,17 @@ func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 					n.SVal = v
 				}
 			}
+		case *ast.ExplainStmt:
+			// EXPLAIN options are a fixed set of boolean flags; a bare flag
+			// (Arg=nil) and its "= true" form are equivalent and the deparser
+			// materializes the bare form as "<flag> true". Scope the collapse to
+			// these statements so arbitrary option values elsewhere (FDW OPTIONS,
+			// reloptions) are never touched.
+			collapseBoolFlagOptions(n.Options)
+		case *ast.VacuumStmt:
+			// VACUUM/ANALYZE options are likewise boolean flags (FULL, VERBOSE,
+			// SKIP_LOCKED, ...); same bare/"true" equivalence as EXPLAIN.
+			collapseBoolFlagOptions(n.Options)
 		case *ast.JoinExpr:
 			// CROSS JOIN is deparsed as INNER JOIN ON TRUE.
 			if n.Jointype == ast.JOIN_INNER && !n.IsNatural &&
@@ -282,13 +299,13 @@ func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 		case *ast.TypeName:
 			// pg_catalog is the implicit schema for built-in types, so
 			// `pg_catalog.int4` and `int4` are the same type. The deparser drops
-			// the explicit namespace (and canonicalizes the name), so strip a
-			// leading pg_catalog qualifier before comparing.
-			if n.Names != nil && len(n.Names.Items) > 1 {
-				if s, ok := n.Names.Items[0].(*ast.String); ok && s.SVal == "pg_catalog" {
-					n.Names.Items = n.Names.Items[1:]
-				}
-			}
+			// the explicit namespace, so strip a leading pg_catalog qualifier.
+			stripLeadingPgCatalog(n.Names)
+		case *ast.FuncCall:
+			// The grammar qualifies SQL-standard built-ins (substring, extract,
+			// overlay, ...) as pg_catalog.<fn>; the deparser renders them plain.
+			// pg_catalog is their implicit schema, so strip it the same way.
+			stripLeadingPgCatalog(n.Funcname)
 		case *ast.FunctionParameter:
 			// IN is the default parameter mode and PostgreSQL omits it when
 			// printing, so a parameter parsed as IN deparses without a mode and
@@ -325,6 +342,50 @@ func defElemName(n ast.Node) string {
 		return de.Defname
 	}
 	return ""
+}
+
+// collapseBoolFlagOptions normalizes a boolean-flag option list (EXPLAIN /
+// VACUUM / ANALYZE) so a bare flag and its explicit "= true" form compare equal.
+// True-valued args (absent, Boolean(true), or a true-ish string) become absent;
+// false and other values are left untouched.
+func collapseBoolFlagOptions(options *ast.NodeList) {
+	if options == nil {
+		return
+	}
+	for _, item := range options.Items {
+		if de, ok := item.(*ast.DefElem); ok && isTrueFlagArg(de.Arg) {
+			de.Arg = nil
+		}
+	}
+}
+
+// isTrueFlagArg reports whether a DefElem arg means "true" for a boolean flag:
+// absent, Boolean(true), or a true-ish string spelling.
+func isTrueFlagArg(n ast.Node) bool {
+	switch v := n.(type) {
+	case nil:
+		return true
+	case *ast.Boolean:
+		return v.BoolVal
+	case *ast.String:
+		switch strings.ToLower(v.SVal) {
+		case "true", "on", "yes":
+			return true
+		}
+	}
+	return false
+}
+
+// stripLeadingPgCatalog removes a leading "pg_catalog" qualifier from a
+// qualified name (a list of String nodes). pg_catalog is the implicit schema for
+// built-in types and functions, so `pg_catalog.x` and `x` are the same object.
+func stripLeadingPgCatalog(names *ast.NodeList) {
+	if names == nil || len(names.Items) <= 1 {
+		return
+	}
+	if s, ok := names.Items[0].(*ast.String); ok && s.SVal == "pg_catalog" {
+		names.Items = names.Items[1:]
+	}
 }
 
 // isTrueConst reports whether n is the boolean constant TRUE.
