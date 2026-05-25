@@ -337,8 +337,8 @@
   },
   {
     "comment": "create_table - Statement 72",
-    "query": "CREATE TABLE partitioned ( a int, CONSTRAINT check_a CHECK (a \u003e 0) NO INHERIT ) PARTITION BY RANGE (a)",
-    "expected": "CREATE TABLE partitioned (a INT, CONSTRAINT check_a CHECK (a \u003e 0) NO INHERIT) PARTITION BY range (a)"
+    "query": "CREATE TABLE partitioned ( a int, CONSTRAINT check_a CHECK (a > 0) NO INHERIT ) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE partitioned (a INT, CONSTRAINT check_a CHECK (a > 0) NO INHERIT) PARTITION BY range (a)"
   },
   {
     "comment": "create_table - Statement 73",
@@ -916,8 +916,8 @@
   },
   {
     "comment": "create_table - Statement 200",
-    "query": "CREATE TABLE parted ( a text, b int NOT NULL DEFAULT 0, CONSTRAINT check_a CHECK (length(a) \u003e 0) ) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE parted (a TEXT, b INT NOT NULL DEFAULT 0, CONSTRAINT check_a CHECK (length(a) \u003e 0)) PARTITION BY list (a)"
+    "query": "CREATE TABLE parted ( a text, b int NOT NULL DEFAULT 0, CONSTRAINT check_a CHECK (length(a) > 0) ) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE parted (a TEXT, b INT NOT NULL DEFAULT 0, CONSTRAINT check_a CHECK (length(a) > 0)) PARTITION BY list (a)"
   },
   {
     "comment": "create_table - Statement 201",
@@ -925,16 +925,16 @@
   },
   {
     "comment": "create_table - Statement 202",
-    "query": "SELECT attname, attislocal, attinhcount FROM pg_attribute WHERE attrelid = 'part_a'::regclass and attnum \u003e 0 ORDER BY attnum",
-    "expected": "SELECT attname, attislocal, attinhcount FROM pg_attribute WHERE attrelid = CAST('part_a' AS regclass) AND attnum \u003e 0 ORDER BY attnum"
+    "query": "SELECT attname, attislocal, attinhcount FROM pg_attribute WHERE attrelid = 'part_a'::regclass and attnum > 0 ORDER BY attnum",
+    "expected": "SELECT attname, attislocal, attinhcount FROM pg_attribute WHERE attrelid = CAST('part_a' AS regclass) AND attnum > 0 ORDER BY attnum"
   },
   {
     "comment": "create_table - Statement 203",
-    "query": "CREATE TABLE part_b PARTITION OF parted ( b NOT NULL, b DEFAULT 1, b CHECK (b \u003e= 0), CONSTRAINT check_a CHECK (length(a) \u003e 0) ) FOR VALUES IN ('b')"
+    "query": "CREATE TABLE part_b PARTITION OF parted ( b NOT NULL, b DEFAULT 1, b CHECK (b >= 0), CONSTRAINT check_a CHECK (length(a) > 0) ) FOR VALUES IN ('b')"
   },
   {
     "comment": "create_table - Statement 204",
-    "query": "CREATE TABLE part_b PARTITION OF parted ( b NOT NULL DEFAULT 1, CONSTRAINT check_a CHECK (length(a) \u003e 0), CONSTRAINT check_b CHECK (b \u003e= 0) ) FOR VALUES IN ('b')"
+    "query": "CREATE TABLE part_b PARTITION OF parted ( b NOT NULL DEFAULT 1, CONSTRAINT check_a CHECK (length(a) > 0), CONSTRAINT check_b CHECK (b >= 0) ) FOR VALUES IN ('b')"
   },
   {
     "comment": "create_table - Statement 205",
@@ -943,7 +943,7 @@
   },
   {
     "comment": "create_table - Statement 206",
-    "query": "ALTER TABLE parted ADD CONSTRAINT check_b CHECK (b \u003e= 0)"
+    "query": "ALTER TABLE parted ADD CONSTRAINT check_b CHECK (b >= 0)"
   },
   {
     "comment": "create_table - Statement 207",
@@ -993,13 +993,13 @@
   },
   {
     "comment": "create_table - Statement 217",
-    "query": "create table parted_boolean_less partition of parted_boolean_col for values in ('foo' \u003c 'bar')",
-    "expected": "CREATE TABLE parted_boolean_less PARTITION OF parted_boolean_col FOR VALUES IN ('foo' \u003c 'bar')"
+    "query": "create table parted_boolean_less partition of parted_boolean_col for values in ('foo' < 'bar')",
+    "expected": "CREATE TABLE parted_boolean_less PARTITION OF parted_boolean_col FOR VALUES IN ('foo' < 'bar')"
   },
   {
     "comment": "create_table - Statement 218",
-    "query": "create table parted_boolean_greater partition of parted_boolean_col for values in ('foo' \u003e 'bar')",
-    "expected": "CREATE TABLE parted_boolean_greater PARTITION OF parted_boolean_col FOR VALUES IN ('foo' \u003e 'bar')"
+    "query": "create table parted_boolean_greater partition of parted_boolean_col for values in ('foo' > 'bar')",
+    "expected": "CREATE TABLE parted_boolean_greater PARTITION OF parted_boolean_col FOR VALUES IN ('foo' > 'bar')"
   },
   {
     "comment": "create_table - Statement 219",
@@ -1068,13 +1068,13 @@
   },
   {
     "comment": "create_table - Statement 232",
-    "query": "CREATE FUNCTION my_int4_sort(int4,int4) RETURNS int LANGUAGE sql AS $$ SELECT CASE WHEN $1 = $2 THEN 0 WHEN $1 \u003e $2 THEN 1 ELSE -1 END; $$",
-    "expected": "CREATE FUNCTION my_int4_sort (INT, INT) RETURNS INT LANGUAGE sql AS $$ SELECT CASE WHEN $1 = $2 THEN 0 WHEN $1 \u003e $2 THEN 1 ELSE -1 END; $$"
+    "query": "CREATE FUNCTION my_int4_sort(int4,int4) RETURNS int LANGUAGE sql AS $$ SELECT CASE WHEN $1 = $2 THEN 0 WHEN $1 > $2 THEN 1 ELSE -1 END; $$",
+    "expected": "CREATE FUNCTION my_int4_sort (INT, INT) RETURNS INT LANGUAGE sql AS $$ SELECT CASE WHEN $1 = $2 THEN 0 WHEN $1 > $2 THEN 1 ELSE -1 END; $$"
   },
   {
     "comment": "create_table - Statement 233",
-    "query": "CREATE OPERATOR CLASS test_int4_ops FOR TYPE int4 USING btree AS OPERATOR 1 \u003c (int4,int4), OPERATOR 2 \u003c= (int4,int4), OPERATOR 3 = (int4,int4), OPERATOR 4 \u003e= (int4,int4), OPERATOR 5 \u003e (int4,int4), FUNCTION 1 my_int4_sort(int4,int4)",
-    "expected": "CREATE OPERATOR CLASS test_int4_ops FOR TYPE INT USING btree AS OPERATOR 1 \u003c (int4, int4), OPERATOR 2 \u003c= (int4, int4), OPERATOR 3 = (int4, int4), OPERATOR 4 \u003e= (int4, int4), OPERATOR 5 \u003e (int4, int4), FUNCTION 1 my_int4_sort(int4, int4)"
+    "query": "CREATE OPERATOR CLASS test_int4_ops FOR TYPE int4 USING btree AS OPERATOR 1 < (int4,int4), OPERATOR 2 <= (int4,int4), OPERATOR 3 = (int4,int4), OPERATOR 4 >= (int4,int4), OPERATOR 5 > (int4,int4), FUNCTION 1 my_int4_sort(int4,int4)",
+    "expected": "CREATE OPERATOR CLASS test_int4_ops FOR TYPE INT USING btree AS OPERATOR 1 < (int4, int4), OPERATOR 2 <= (int4, int4), OPERATOR 3 = (int4, int4), OPERATOR 4 >= (int4, int4), OPERATOR 5 > (int4, int4), FUNCTION 1 my_int4_sort(int4, int4)"
   },
   {
     "comment": "create_table - Statement 234",
@@ -1275,8 +1275,8 @@
   },
   {
     "comment": "create_table - Statement 277",
-    "query": "alter table defcheck_def add check (b \u003c= 0 and b is not null)",
-    "expected": "ALTER TABLE defcheck_def ADD CHECK (b \u003c= 0 AND b IS NOT NULL)"
+    "query": "alter table defcheck_def add check (b <= 0 and b is not null)",
+    "expected": "ALTER TABLE defcheck_def ADD CHECK (b <= 0 AND b IS NOT NULL)"
   },
   {
     "comment": "create_table - Statement 278",

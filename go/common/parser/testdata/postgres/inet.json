@@ -141,8 +141,8 @@
   },
   {
     "comment": "inet - Statement 29",
-    "query": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM INET_TBL WHERE masklen(c) \u003c= 8",
-    "expected": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM inet_tbl WHERE masklen(c) \u003c= 8"
+    "query": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM INET_TBL WHERE masklen(c) <= 8",
+    "expected": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM inet_tbl WHERE masklen(c) <= 8"
   },
   {
     "comment": "inet - Statement 30",
@@ -151,8 +151,8 @@
   },
   {
     "comment": "inet - Statement 31",
-    "query": "SELECT i, c, i \u003c c AS lt, i \u003c= c AS le, i = c AS eq, i \u003e= c AS ge, i \u003e c AS gt, i \u003c\u003e c AS ne, i \u003c\u003c c AS sb, i \u003c\u003c= c AS sbe, i \u003e\u003e c AS sup, i \u003e\u003e= c AS spe, i \u0026\u0026 c AS ovr FROM INET_TBL",
-    "expected": "SELECT i, c, i \u003c c AS lt, i \u003c= c AS le, i = c AS eq, i \u003e= c AS ge, i \u003e c AS gt, i \u003c\u003e c AS ne, i \u003c\u003c c AS sb, i \u003c\u003c= c AS sbe, i \u003e\u003e c AS sup, i \u003e\u003e= c AS spe, i \u0026\u0026 c AS ovr FROM inet_tbl"
+    "query": "SELECT i, c, i < c AS lt, i <= c AS le, i = c AS eq, i >= c AS ge, i > c AS gt, i <> c AS ne, i << c AS sb, i <<= c AS sbe, i >> c AS sup, i >>= c AS spe, i && c AS ovr FROM INET_TBL",
+    "expected": "SELECT i, c, i < c AS lt, i <= c AS le, i = c AS eq, i >= c AS ge, i > c AS gt, i <> c AS ne, i << c AS sb, i <<= c AS sbe, i >> c AS sup, i >>= c AS spe, i && c AS ovr FROM inet_tbl"
   },
   {
     "comment": "inet - Statement 32",
@@ -181,43 +181,43 @@
   },
   {
     "comment": "inet - Statement 37",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i\u003c\u003c'192.168.1.0/24'::cidr",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i << CAST('192.168.1.0/24' AS cidr)"
   },
   {
     "comment": "inet - Statement 38",
-    "query": "SELECT * FROM inet_tbl WHERE i\u003c\u003c'192.168.1.0/24'::cidr",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr)"
+    "query": "SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr",
+    "expected": "SELECT * FROM inet_tbl WHERE i << CAST('192.168.1.0/24' AS cidr)"
   },
   {
     "comment": "inet - Statement 39",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i\u003c\u003c='192.168.1.0/24'::cidr",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i <<= CAST('192.168.1.0/24' AS cidr)"
   },
   {
     "comment": "inet - Statement 40",
-    "query": "SELECT * FROM inet_tbl WHERE i\u003c\u003c='192.168.1.0/24'::cidr",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr)"
+    "query": "SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr",
+    "expected": "SELECT * FROM inet_tbl WHERE i <<= CAST('192.168.1.0/24' AS cidr)"
   },
   {
     "comment": "inet - Statement 41",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e= i",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e= i"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >>= i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) >>= i"
   },
   {
     "comment": "inet - Statement 42",
-    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e= i",
-    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e= i"
+    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >>= i",
+    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) >>= i"
   },
   {
     "comment": "inet - Statement 43",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e i",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e i"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >> i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) >> i"
   },
   {
     "comment": "inet - Statement 44",
-    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e i",
-    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e i"
+    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >> i",
+    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) >> i"
   },
   {
     "comment": "inet - Statement 45",
@@ -235,38 +235,38 @@
   },
   {
     "comment": "inet - Statement 48",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i << '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i << CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 49",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i <<= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i <<= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 50",
-    "query": "SELECT * FROM inet_tbl WHERE i \u0026\u0026 '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u0026\u0026 CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i && '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i && CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 51",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003e\u003e= '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003e\u003e= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i >>= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i >>= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 52",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003e\u003e '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003e\u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i >> '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i >> CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 53",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003c '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i < '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i < CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 54",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003c= '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i <= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i <= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 55",
@@ -275,28 +275,28 @@
   },
   {
     "comment": "inet - Statement 56",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003e= '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003e= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i >= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i >= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 57",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003e '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i > '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i > CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 58",
-    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003e '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT * FROM inet_tbl WHERE i <> '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i <> CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 59",
-    "query": "EXPLAIN (COSTS OFF) SELECT i FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "EXPLAIN (COSTS false) SELECT i FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "EXPLAIN (COSTS OFF) SELECT i FROM inet_tbl WHERE i << '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "EXPLAIN (COSTS false) SELECT i FROM inet_tbl WHERE i << CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 60",
-    "query": "SELECT i FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
-    "expected": "SELECT i FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+    "query": "SELECT i FROM inet_tbl WHERE i << '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT i FROM inet_tbl WHERE i << CAST('192.168.1.0/24' AS cidr) ORDER BY i"
   },
   {
     "comment": "inet - Statement 61",
@@ -317,7 +317,7 @@
   },
   {
     "comment": "inet - Statement 65",
-    "query": "SELECT i, c, i \u0026 c AS \"and\" FROM inet_tbl"
+    "query": "SELECT i, c, i & c AS \"and\" FROM inet_tbl"
   },
   {
     "comment": "inet - Statement 66",

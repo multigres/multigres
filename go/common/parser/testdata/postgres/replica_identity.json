@@ -42,7 +42,7 @@
   {
     "comment": "replica_identity - Statement 9",
     "query": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity (keya, keyb) WHERE keyb != '3'",
-    "expected": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity USING btree ( keya, keyb ) WHERE keyb \u003c\u003e '3'"
+    "expected": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity USING btree ( keya, keyb ) WHERE keyb <> '3'"
   },
   {
     "comment": "replica_identity - Statement 10",

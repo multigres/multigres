@@ -70,8 +70,8 @@
   },
   {
     "comment": "arrays - Statement 17",
-    "query": "SELECT * FROM arrtest WHERE a[1] \u003c 5 and c = '{\"foobar\"}'::_name",
-    "expected": "SELECT * FROM arrtest WHERE a[1] \u003c 5 AND c = CAST('{\"foobar\"}' AS _name)"
+    "query": "SELECT * FROM arrtest WHERE a[1] < 5 and c = '{\"foobar\"}'::_name",
+    "expected": "SELECT * FROM arrtest WHERE a[1] < 5 AND c = CAST('{\"foobar\"}' AS _name)"
   },
   {
     "comment": "arrays - Statement 18",
@@ -683,31 +683,31 @@
   },
   {
     "comment": "arrays - Statement 155",
-    "query": "SELECT * FROM array_op_test WHERE i @\u003e '{32}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i @> '{32}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 156",
-    "query": "SELECT * FROM array_op_test WHERE i \u0026\u0026 '{32}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i && '{32}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 157",
-    "query": "SELECT * FROM array_op_test WHERE i @\u003e '{17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i @> '{17}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 158",
-    "query": "SELECT * FROM array_op_test WHERE i \u0026\u0026 '{17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i && '{17}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 159",
-    "query": "SELECT * FROM array_op_test WHERE i @\u003e '{32,17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i @> '{32,17}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 160",
-    "query": "SELECT * FROM array_op_test WHERE i \u0026\u0026 '{32,17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i && '{32,17}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 161",
-    "query": "SELECT * FROM array_op_test WHERE i \u003c@ '{38,34,32,89}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{38,34,32,89}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 162",
@@ -715,15 +715,15 @@
   },
   {
     "comment": "arrays - Statement 163",
-    "query": "SELECT * FROM array_op_test WHERE i @\u003e '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i @> '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 164",
-    "query": "SELECT * FROM array_op_test WHERE i \u0026\u0026 '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i && '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 165",
-    "query": "SELECT * FROM array_op_test WHERE i \u003c@ '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 166",
@@ -731,43 +731,43 @@
   },
   {
     "comment": "arrays - Statement 167",
-    "query": "SELECT * FROM array_op_test WHERE i @\u003e '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i @> '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 168",
-    "query": "SELECT * FROM array_op_test WHERE i \u0026\u0026 '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i && '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 169",
-    "query": "SELECT * FROM array_op_test WHERE i \u003c@ '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 170",
-    "query": "SELECT * FROM array_op_test WHERE t @\u003e '{AAAAAAAA72908}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 171",
-    "query": "SELECT * FROM array_op_test WHERE t \u0026\u0026 '{AAAAAAAA72908}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAA72908}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 172",
-    "query": "SELECT * FROM array_op_test WHERE t @\u003e '{AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 173",
-    "query": "SELECT * FROM array_op_test WHERE t \u0026\u0026 '{AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 174",
-    "query": "SELECT * FROM array_op_test WHERE t @\u003e '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 175",
-    "query": "SELECT * FROM array_op_test WHERE t \u0026\u0026 '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 176",
-    "query": "SELECT * FROM array_op_test WHERE t \u003c@ '{AAAAAAAA72908,AAAAAAAAAAAAAAAAAAA17075,AA88409,AAAAAAAAAAAAAAAAAA36842,AAAAAAA48038,AAAAAAAAAAAAAA10611}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t <@ '{AAAAAAAA72908,AAAAAAAAAAAAAAAAAAA17075,AA88409,AAAAAAAAAAAAAAAAAA36842,AAAAAAA48038,AAAAAAAAAAAAAA10611}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 177",
@@ -775,15 +775,15 @@
   },
   {
     "comment": "arrays - Statement 178",
-    "query": "SELECT * FROM array_op_test WHERE t @\u003e '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t @> '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 179",
-    "query": "SELECT * FROM array_op_test WHERE t \u0026\u0026 '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t && '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 180",
-    "query": "SELECT * FROM array_op_test WHERE t \u003c@ '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_op_test WHERE t <@ '{}' ORDER BY seqno"
   },
   {
     "comment": "arrays - Statement 181",
@@ -832,23 +832,23 @@
   },
   {
     "comment": "arrays - Statement 190",
-    "query": "select 33 \u003e= all ('{1,2,33}')",
-    "expected": "SELECT 33 \u003e= ALL ('{1,2,33}')"
+    "query": "select 33 >= all ('{1,2,33}')",
+    "expected": "SELECT 33 >= ALL ('{1,2,33}')"
   },
   {
     "comment": "arrays - Statement 191",
-    "query": "select null::int \u003e= all ('{1,2,33}')",
-    "expected": "SELECT CAST(NULL AS INT) \u003e= ALL ('{1,2,33}')"
+    "query": "select null::int >= all ('{1,2,33}')",
+    "expected": "SELECT CAST(NULL AS INT) >= ALL ('{1,2,33}')"
   },
   {
     "comment": "arrays - Statement 192",
-    "query": "select null::int \u003e= all ('{}')",
-    "expected": "SELECT CAST(NULL AS INT) \u003e= ALL ('{}')"
+    "query": "select null::int >= all ('{}')",
+    "expected": "SELECT CAST(NULL AS INT) >= ALL ('{}')"
   },
   {
     "comment": "arrays - Statement 193",
-    "query": "select null::int \u003e= any ('{}')",
-    "expected": "SELECT CAST(NULL AS INT) \u003e= ANY ('{}')"
+    "query": "select null::int >= any ('{}')",
+    "expected": "SELECT CAST(NULL AS INT) >= ANY ('{}')"
   },
   {
     "comment": "arrays - Statement 194",
@@ -857,8 +857,8 @@
   },
   {
     "comment": "arrays - Statement 195",
-    "query": "select 33.4 \u003e all (array[1,2,3])",
-    "expected": "SELECT 33.4 \u003e ALL (ARRAY[1,2,3])"
+    "query": "select 33.4 > all (array[1,2,3])",
+    "expected": "SELECT 33.4 > ALL (ARRAY[1,2,3])"
   },
   {
     "comment": "arrays - Statement 196",
@@ -913,7 +913,7 @@
   {
     "comment": "arrays - Statement 206",
     "query": "SELECT -1 != ALL(ARRAY(SELECT NULLIF(g.i, 900) FROM generate_series(1,1000) g(i)))",
-    "expected": "SELECT -1 \u003c\u003e ALL (ARRAY(SELECT nullif(g.i, 900) FROM generate_series(1, 1000) AS g(i)))"
+    "expected": "SELECT -1 <> ALL (ARRAY(SELECT nullif(g.i, 900) FROM generate_series(1, 1000) AS g(i)))"
   },
   {
     "comment": "arrays - Statement 207",
@@ -957,13 +957,13 @@
   },
   {
     "comment": "arrays - Statement 215",
-    "query": "select * from arr_tbl where f1 \u003e '{1,2,3}' and f1 \u003c= '{1,5,3}'",
-    "expected": "SELECT * FROM arr_tbl WHERE f1 \u003e '{1,2,3}' AND f1 \u003c= '{1,5,3}'"
+    "query": "select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}'",
+    "expected": "SELECT * FROM arr_tbl WHERE f1 > '{1,2,3}' AND f1 <= '{1,5,3}'"
   },
   {
     "comment": "arrays - Statement 216",
-    "query": "select * from arr_tbl where f1 \u003e= '{1,2,3}' and f1 \u003c '{1,5,3}'",
-    "expected": "SELECT * FROM arr_tbl WHERE f1 \u003e= '{1,2,3}' AND f1 \u003c '{1,5,3}'"
+    "query": "select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}'",
+    "expected": "SELECT * FROM arr_tbl WHERE f1 >= '{1,2,3}' AND f1 < '{1,5,3}'"
   },
   {
     "comment": "arrays - Statement 217",
@@ -1722,23 +1722,23 @@
   },
   {
     "comment": "arrays - Statement 372",
-    "query": "select array_agg(unique1) from (select unique1 from tenk1 where unique1 \u003c 15 order by unique1) ss",
-    "expected": "SELECT array_agg(unique1) FROM (SELECT unique1 FROM tenk1 WHERE unique1 \u003c 15 ORDER BY unique1) AS ss"
+    "query": "select array_agg(unique1) from (select unique1 from tenk1 where unique1 < 15 order by unique1) ss",
+    "expected": "SELECT array_agg(unique1) FROM (SELECT unique1 FROM tenk1 WHERE unique1 < 15 ORDER BY unique1) AS ss"
   },
   {
     "comment": "arrays - Statement 373",
-    "query": "select array_agg(ten) from (select ten from tenk1 where unique1 \u003c 15 order by unique1) ss",
-    "expected": "SELECT array_agg(ten) FROM (SELECT ten FROM tenk1 WHERE unique1 \u003c 15 ORDER BY unique1) AS ss"
+    "query": "select array_agg(ten) from (select ten from tenk1 where unique1 < 15 order by unique1) ss",
+    "expected": "SELECT array_agg(ten) FROM (SELECT ten FROM tenk1 WHERE unique1 < 15 ORDER BY unique1) AS ss"
   },
   {
     "comment": "arrays - Statement 374",
-    "query": "select array_agg(nullif(ten, 4)) from (select ten from tenk1 where unique1 \u003c 15 order by unique1) ss",
-    "expected": "SELECT array_agg(nullif(ten, 4)) FROM (SELECT ten FROM tenk1 WHERE unique1 \u003c 15 ORDER BY unique1) AS ss"
+    "query": "select array_agg(nullif(ten, 4)) from (select ten from tenk1 where unique1 < 15 order by unique1) ss",
+    "expected": "SELECT array_agg(nullif(ten, 4)) FROM (SELECT ten FROM tenk1 WHERE unique1 < 15 ORDER BY unique1) AS ss"
   },
   {
     "comment": "arrays - Statement 375",
-    "query": "select array_agg(unique1) from tenk1 where unique1 \u003c -15",
-    "expected": "SELECT array_agg(unique1) FROM tenk1 WHERE unique1 \u003c -15"
+    "query": "select array_agg(unique1) from tenk1 where unique1 < -15",
+    "expected": "SELECT array_agg(unique1) FROM tenk1 WHERE unique1 < -15"
   },
   {
     "comment": "arrays - Statement 376",
@@ -2125,13 +2125,13 @@
   },
   {
     "comment": "arrays - Statement 453",
-    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) \u003c@ '{1,2,3,4,5,6}'",
-    "expected": "SELECT array_shuffle(CAST('{1,2,3,4,5,6}' AS INT[])) \u003c@ '{1,2,3,4,5,6}'"
+    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) <@ '{1,2,3,4,5,6}'",
+    "expected": "SELECT array_shuffle(CAST('{1,2,3,4,5,6}' AS INT[])) <@ '{1,2,3,4,5,6}'"
   },
   {
     "comment": "arrays - Statement 454",
-    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) @\u003e '{1,2,3,4,5,6}'",
-    "expected": "SELECT array_shuffle(CAST('{1,2,3,4,5,6}' AS INT[])) @\u003e '{1,2,3,4,5,6}'"
+    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) @> '{1,2,3,4,5,6}'",
+    "expected": "SELECT array_shuffle(CAST('{1,2,3,4,5,6}' AS INT[])) @> '{1,2,3,4,5,6}'"
   },
   {
     "comment": "arrays - Statement 455",
@@ -2145,8 +2145,8 @@
   },
   {
     "comment": "arrays - Statement 457",
-    "query": "SELECT array_sample('{1,2,3,4,5,6}'::int[], 3) \u003c@ '{1,2,3,4,5,6}'",
-    "expected": "SELECT array_sample(CAST('{1,2,3,4,5,6}' AS INT[]), 3) \u003c@ '{1,2,3,4,5,6}'"
+    "query": "SELECT array_sample('{1,2,3,4,5,6}'::int[], 3) <@ '{1,2,3,4,5,6}'",
+    "expected": "SELECT array_sample(CAST('{1,2,3,4,5,6}' AS INT[]), 3) <@ '{1,2,3,4,5,6}'"
   },
   {
     "comment": "arrays - Statement 458",

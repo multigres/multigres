@@ -67,8 +67,8 @@
   },
   {
     "comment": "generated - Statement 15",
-    "query": "CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin \u003c\u003e 37) STORED)",
-    "expected": "CREATE TABLE gtest_err_6a (a INT PRIMARY KEY, b BOOLEAN GENERATED ALWAYS AS (xmin \u003c\u003e 37) STORED)"
+    "query": "CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin <> 37) STORED)",
+    "expected": "CREATE TABLE gtest_err_6a (a INT PRIMARY KEY, b BOOLEAN GENERATED ALWAYS AS (xmin <> 37) STORED)"
   },
   {
     "comment": "generated - Statement 16",
@@ -129,7 +129,7 @@
   },
   {
     "comment": "generated - Statement 29",
-    "query": "DELETE FROM gtest1 WHERE a \u003e= 3"
+    "query": "DELETE FROM gtest1 WHERE a >= 3"
   },
   {
     "comment": "generated - Statement 30",
@@ -252,7 +252,7 @@
   },
   {
     "comment": "generated - Statement 59",
-    "query": "DELETE FROM gtest1v WHERE a \u003e= 5"
+    "query": "DELETE FROM gtest1v WHERE a >= 5"
   },
   {
     "comment": "generated - Statement 60",
@@ -659,8 +659,8 @@
   },
   {
     "comment": "generated - Statement 150",
-    "query": "CREATE TABLE gtest20 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED CHECK (b \u003c 50))",
-    "expected": "CREATE TABLE gtest20 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED CHECK (b \u003c 50))"
+    "query": "CREATE TABLE gtest20 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED CHECK (b < 50))",
+    "expected": "CREATE TABLE gtest20 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED CHECK (b < 50))"
   },
   {
     "comment": "generated - Statement 151",
@@ -695,7 +695,7 @@
   },
   {
     "comment": "generated - Statement 158",
-    "query": "ALTER TABLE gtest20a ADD CHECK (b \u003c 50)"
+    "query": "ALTER TABLE gtest20a ADD CHECK (b < 50)"
   },
   {
     "comment": "generated - Statement 159",
@@ -712,7 +712,7 @@
   },
   {
     "comment": "generated - Statement 162",
-    "query": "ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b \u003c 50) NOT VALID"
+    "query": "ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID"
   },
   {
     "comment": "generated - Statement 163",
@@ -795,8 +795,8 @@
   },
   {
     "comment": "generated - Statement 181",
-    "query": "CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b \u003e 0",
-    "expected": "CREATE INDEX gtest22c_pred_idx ON gtest22c USING btree ( a ) WHERE b \u003e 0"
+    "query": "CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b > 0",
+    "expected": "CREATE INDEX gtest22c_pred_idx ON gtest22c USING btree ( a ) WHERE b > 0"
   },
   {
     "comment": "generated - Statement 182",
@@ -828,12 +828,12 @@
   },
   {
     "comment": "generated - Statement 188",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE a = 1 AND b > 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE a = 1 AND b > 0"
   },
   {
     "comment": "generated - Statement 189",
-    "query": "SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0"
+    "query": "SELECT * FROM gtest22c WHERE a = 1 AND b > 0"
   },
   {
     "comment": "generated - Statement 190",
@@ -940,8 +940,8 @@
   },
   {
     "comment": "generated - Statement 213",
-    "query": "CREATE DOMAIN gtestdomain1 AS int CHECK (VALUE \u003c 10)",
-    "expected": "CREATE DOMAIN gtestdomain1 AS INT CHECK (value \u003c 10)"
+    "query": "CREATE DOMAIN gtestdomain1 AS int CHECK (VALUE < 10)",
+    "expected": "CREATE DOMAIN gtestdomain1 AS INT CHECK (value < 10)"
   },
   {
     "comment": "generated - Statement 214",
@@ -1163,8 +1163,8 @@
   },
   {
     "comment": "generated - Statement 261",
-    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE boolean USING x \u003c\u003e 0",
-    "expected": "ALTER TABLE gtest27 ALTER COLUMN x TYPE BOOLEAN USING x \u003c\u003e 0"
+    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE boolean USING x <> 0",
+    "expected": "ALTER TABLE gtest27 ALTER COLUMN x TYPE BOOLEAN USING x <> 0"
   },
   {
     "comment": "generated - Statement 262",
@@ -1238,13 +1238,13 @@
   },
   {
     "comment": "generated - Statement 283",
-    "query": "CREATE TRIGGER gtest1 BEFORE DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
-    "expected": "CREATE TRIGGER gtest1 BEFORE UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest1 BEFORE DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b < 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest1 BEFORE UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b < 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 284",
-    "query": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
-    "expected": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b < 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b < 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 285",
@@ -1253,18 +1253,18 @@
   },
   {
     "comment": "generated - Statement 286",
-    "query": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (NEW.a \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
-    "expected": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (new.a \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (NEW.a < 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (new.a < 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 287",
-    "query": "CREATE TRIGGER gtest3 AFTER DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
-    "expected": "CREATE TRIGGER gtest3 AFTER UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest3 AFTER DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b < 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest3 AFTER UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b < 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 288",
-    "query": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
-    "expected": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b < 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b < 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 289",

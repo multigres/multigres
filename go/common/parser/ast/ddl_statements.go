@@ -1250,6 +1250,9 @@ func (c *Constraint) indexConstraintTail() string {
 func (c *Constraint) SqlString() string {
 	switch c.Contype {
 	case CONSTR_NOTNULL:
+		if c.Conname != "" {
+			return "CONSTRAINT " + QuoteIdentifier(c.Conname) + " NOT NULL"
+		}
 		return "NOT NULL"
 	case CONSTR_NULL:
 		return "NULL"

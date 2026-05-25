@@ -31,8 +31,8 @@
   },
   {
     "comment": "expressions - Statement 7",
-    "query": "SELECT length(current_timestamp::text) \u003e= length(current_timestamp(0)::text)",
-    "expected": "SELECT length(CAST(CURRENT_TIMESTAMP AS TEXT)) \u003e= length(CAST(CURRENT_TIMESTAMP(0) AS TEXT))"
+    "query": "SELECT length(current_timestamp::text) >= length(current_timestamp(0)::text)",
+    "expected": "SELECT length(CAST(CURRENT_TIMESTAMP AS TEXT)) >= length(CAST(CURRENT_TIMESTAMP(0) AS TEXT))"
   },
   {
     "comment": "expressions - Statement 8",
@@ -260,13 +260,13 @@
   },
   {
     "comment": "expressions - Statement 58",
-    "query": "create operator = ( leftarg    = myint, rightarg   = myint, commutator = =, negator    = \u003c\u003e, procedure  = myinteq, restrict   = eqsel, join       = eqjoinsel, merges )",
-    "expected": "CREATE OPERATOR = (leftarg = myint, rightarg = myint, commutator = =, negator = \u003c\u003e, procedure = myinteq, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+    "query": "create operator = ( leftarg    = myint, rightarg   = myint, commutator = =, negator    = <>, procedure  = myinteq, restrict   = eqsel, join       = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (leftarg = myint, rightarg = myint, commutator = =, negator = <>, procedure = myinteq, restrict = eqsel, \"join\" = eqjoinsel, merges)"
   },
   {
     "comment": "expressions - Statement 59",
-    "query": "create operator \u003c\u003e ( leftarg    = myint, rightarg   = myint, commutator = \u003c\u003e, negator    = =, procedure  = myintne, restrict   = eqsel, join       = eqjoinsel, merges )",
-    "expected": "CREATE OPERATOR \u003c\u003e (leftarg = myint, rightarg = myint, commutator = \u003c\u003e, negator = =, procedure = myintne, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+    "query": "create operator <> ( leftarg    = myint, rightarg   = myint, commutator = <>, negator    = =, procedure  = myintne, restrict   = eqsel, join       = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR <> (leftarg = myint, rightarg = myint, commutator = <>, negator = =, procedure = myintne, restrict = eqsel, \"join\" = eqjoinsel, merges)"
   },
   {
     "comment": "expressions - Statement 60",

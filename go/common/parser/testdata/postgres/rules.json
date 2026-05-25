@@ -124,7 +124,7 @@
   {
     "comment": "rules - Statement 26",
     "query": "create rule rtest_emp_upd as on update to rtest_emp where new.salary != old.salary do insert into rtest_emplog values (new.ename, current_user, 'honored', new.salary, old.salary)",
-    "expected": "CREATE RULE rtest_emp_upd AS ON UPDATE TO rtest_emp WHERE new.salary \u003c\u003e old.salary DO INSERT INTO rtest_emplog VALUES (new.ename, CURRENT_USER, 'honored', new.salary, old.salary)"
+    "expected": "CREATE RULE rtest_emp_upd AS ON UPDATE TO rtest_emp WHERE new.salary <> old.salary DO INSERT INTO rtest_emplog VALUES (new.ename, CURRENT_USER, 'honored', new.salary, old.salary)"
   },
   {
     "comment": "rules - Statement 27",
@@ -163,23 +163,23 @@
   },
   {
     "comment": "rules - Statement 34",
-    "query": "create rule rtest_t4_ins1 as on insert to rtest_t4 where new.a \u003e= 10 and new.a \u003c 20 do instead insert into rtest_t5 values (new.a, new.b)",
-    "expected": "CREATE RULE rtest_t4_ins1 AS ON INSERT TO rtest_t4 WHERE new.a \u003e= 10 AND new.a \u003c 20 DO INSTEAD INSERT INTO rtest_t5 VALUES (new.a, new.b)"
+    "query": "create rule rtest_t4_ins1 as on insert to rtest_t4 where new.a >= 10 and new.a < 20 do instead insert into rtest_t5 values (new.a, new.b)",
+    "expected": "CREATE RULE rtest_t4_ins1 AS ON INSERT TO rtest_t4 WHERE new.a >= 10 AND new.a < 20 DO INSTEAD INSERT INTO rtest_t5 VALUES (new.a, new.b)"
   },
   {
     "comment": "rules - Statement 35",
-    "query": "create rule rtest_t4_ins2 as on insert to rtest_t4 where new.a \u003e= 20 and new.a \u003c 30 do insert into rtest_t6 values (new.a, new.b)",
-    "expected": "CREATE RULE rtest_t4_ins2 AS ON INSERT TO rtest_t4 WHERE new.a \u003e= 20 AND new.a \u003c 30 DO INSERT INTO rtest_t6 VALUES (new.a, new.b)"
+    "query": "create rule rtest_t4_ins2 as on insert to rtest_t4 where new.a >= 20 and new.a < 30 do insert into rtest_t6 values (new.a, new.b)",
+    "expected": "CREATE RULE rtest_t4_ins2 AS ON INSERT TO rtest_t4 WHERE new.a >= 20 AND new.a < 30 DO INSERT INTO rtest_t6 VALUES (new.a, new.b)"
   },
   {
     "comment": "rules - Statement 36",
-    "query": "create rule rtest_t5_ins as on insert to rtest_t5 where new.a \u003e 15 do insert into rtest_t7 values (new.a, new.b)",
-    "expected": "CREATE RULE rtest_t5_ins AS ON INSERT TO rtest_t5 WHERE new.a \u003e 15 DO INSERT INTO rtest_t7 VALUES (new.a, new.b)"
+    "query": "create rule rtest_t5_ins as on insert to rtest_t5 where new.a > 15 do insert into rtest_t7 values (new.a, new.b)",
+    "expected": "CREATE RULE rtest_t5_ins AS ON INSERT TO rtest_t5 WHERE new.a > 15 DO INSERT INTO rtest_t7 VALUES (new.a, new.b)"
   },
   {
     "comment": "rules - Statement 37",
-    "query": "create rule rtest_t6_ins as on insert to rtest_t6 where new.a \u003e 25 do instead insert into rtest_t8 values (new.a, new.b)",
-    "expected": "CREATE RULE rtest_t6_ins AS ON INSERT TO rtest_t6 WHERE new.a \u003e 25 DO INSTEAD INSERT INTO rtest_t8 VALUES (new.a, new.b)"
+    "query": "create rule rtest_t6_ins as on insert to rtest_t6 where new.a > 25 do instead insert into rtest_t8 values (new.a, new.b)",
+    "expected": "CREATE RULE rtest_t6_ins AS ON INSERT TO rtest_t6 WHERE new.a > 25 DO INSTEAD INSERT INTO rtest_t8 VALUES (new.a, new.b)"
   },
   {
     "comment": "rules - Statement 38",
@@ -203,8 +203,8 @@
   },
   {
     "comment": "rules - Statement 42",
-    "query": "create rule rtest_order_r4 as on insert to rtest_order1 where a \u003c 100 do instead insert into rtest_order2 values (new.a, nextval('rtest_seq'), 'rule 4 - this should run 4th')",
-    "expected": "CREATE RULE rtest_order_r4 AS ON INSERT TO rtest_order1 WHERE a \u003c 100 DO INSTEAD INSERT INTO rtest_order2 VALUES (new.a, nextval('rtest_seq'), 'rule 4 - this should run 4th')"
+    "query": "create rule rtest_order_r4 as on insert to rtest_order1 where a < 100 do instead insert into rtest_order2 values (new.a, nextval('rtest_seq'), 'rule 4 - this should run 4th')",
+    "expected": "CREATE RULE rtest_order_r4 AS ON INSERT TO rtest_order1 WHERE a < 100 DO INSTEAD INSERT INTO rtest_order2 VALUES (new.a, nextval('rtest_seq'), 'rule 4 - this should run 4th')"
   },
   {
     "comment": "rules - Statement 43",
@@ -238,18 +238,18 @@
   },
   {
     "comment": "rules - Statement 49",
-    "query": "create rule rtest_nothn_r1 as on insert to rtest_nothn1 where new.a \u003e= 10 and new.a \u003c 20 do instead nothing",
-    "expected": "CREATE RULE rtest_nothn_r1 AS ON INSERT TO rtest_nothn1 WHERE new.a \u003e= 10 AND new.a \u003c 20 DO INSTEAD NOTHING"
+    "query": "create rule rtest_nothn_r1 as on insert to rtest_nothn1 where new.a >= 10 and new.a < 20 do instead nothing",
+    "expected": "CREATE RULE rtest_nothn_r1 AS ON INSERT TO rtest_nothn1 WHERE new.a >= 10 AND new.a < 20 DO INSTEAD NOTHING"
   },
   {
     "comment": "rules - Statement 50",
-    "query": "create rule rtest_nothn_r2 as on insert to rtest_nothn1 where new.a \u003e= 30 and new.a \u003c 40 do instead nothing",
-    "expected": "CREATE RULE rtest_nothn_r2 AS ON INSERT TO rtest_nothn1 WHERE new.a \u003e= 30 AND new.a \u003c 40 DO INSTEAD NOTHING"
+    "query": "create rule rtest_nothn_r2 as on insert to rtest_nothn1 where new.a >= 30 and new.a < 40 do instead nothing",
+    "expected": "CREATE RULE rtest_nothn_r2 AS ON INSERT TO rtest_nothn1 WHERE new.a >= 30 AND new.a < 40 DO INSTEAD NOTHING"
   },
   {
     "comment": "rules - Statement 51",
-    "query": "create rule rtest_nothn_r3 as on insert to rtest_nothn2 where new.a \u003e= 100 do instead insert into rtest_nothn3 values (new.a, new.b)",
-    "expected": "CREATE RULE rtest_nothn_r3 AS ON INSERT TO rtest_nothn2 WHERE new.a \u003e= 100 DO INSTEAD INSERT INTO rtest_nothn3 VALUES (new.a, new.b)"
+    "query": "create rule rtest_nothn_r3 as on insert to rtest_nothn2 where new.a >= 100 do instead insert into rtest_nothn3 values (new.a, new.b)",
+    "expected": "CREATE RULE rtest_nothn_r3 AS ON INSERT TO rtest_nothn2 WHERE new.a >= 100 DO INSTEAD INSERT INTO rtest_nothn3 VALUES (new.a, new.b)"
   },
   {
     "comment": "rules - Statement 52",
@@ -378,8 +378,8 @@
   },
   {
     "comment": "rules - Statement 77",
-    "query": "update rtest_v1 set b = 88 where b \u003c 50",
-    "expected": "UPDATE rtest_v1 SET b = 88 WHERE b \u003c 50"
+    "query": "update rtest_v1 set b = 88 where b < 50",
+    "expected": "UPDATE rtest_v1 SET b = 88 WHERE b < 50"
   },
   {
     "comment": "rules - Statement 78",
@@ -398,8 +398,8 @@
   },
   {
     "comment": "rules - Statement 81",
-    "query": "update rtest_t1 set a = a + 10 where b \u003e 30",
-    "expected": "UPDATE rtest_t1 SET a = a + 10 WHERE b \u003e 30"
+    "query": "update rtest_t1 set a = a + 10 where b > 30",
+    "expected": "UPDATE rtest_t1 SET a = a + 10 WHERE b > 30"
   },
   {
     "comment": "rules - Statement 82",
@@ -718,8 +718,8 @@
   },
   {
     "comment": "rules - Statement 145",
-    "query": "insert into rtest_t4 select * from rtest_t9 where a \u003c 20",
-    "expected": "INSERT INTO rtest_t4 (SELECT * FROM rtest_t9 WHERE a \u003c 20)"
+    "query": "insert into rtest_t4 select * from rtest_t9 where a < 20",
+    "expected": "INSERT INTO rtest_t4 (SELECT * FROM rtest_t9 WHERE a < 20)"
   },
   {
     "comment": "rules - Statement 146",
@@ -958,8 +958,8 @@
   },
   {
     "comment": "rules - Statement 193",
-    "query": "create view rtest_vview1 as select a, b from rtest_view1 X where 0 \u003c (select count(*) from rtest_view2 Y where Y.a = X.a)",
-    "expected": "CREATE VIEW rtest_vview1 AS SELECT a, b FROM rtest_view1 AS x WHERE 0 \u003c (SELECT COUNT(*) FROM rtest_view2 AS y WHERE y.a = x.a)"
+    "query": "create view rtest_vview1 as select a, b from rtest_view1 X where 0 < (select count(*) from rtest_view2 Y where Y.a = X.a)",
+    "expected": "CREATE VIEW rtest_vview1 AS SELECT a, b FROM rtest_view1 AS x WHERE 0 < (SELECT COUNT(*) FROM rtest_view2 AS y WHERE y.a = x.a)"
   },
   {
     "comment": "rules - Statement 194",
@@ -968,8 +968,8 @@
   },
   {
     "comment": "rules - Statement 195",
-    "query": "create view rtest_vview3 as select a, b from rtest_vview2 X where 0 \u003c (select count(*) from rtest_view2 Y where Y.a = X.a)",
-    "expected": "CREATE VIEW rtest_vview3 AS SELECT a, b FROM rtest_vview2 AS x WHERE 0 \u003c (SELECT COUNT(*) FROM rtest_view2 AS y WHERE y.a = x.a)"
+    "query": "create view rtest_vview3 as select a, b from rtest_vview2 X where 0 < (select count(*) from rtest_view2 Y where Y.a = X.a)",
+    "expected": "CREATE VIEW rtest_vview3 AS SELECT a, b FROM rtest_vview2 AS x WHERE 0 < (SELECT COUNT(*) FROM rtest_view2 AS y WHERE y.a = x.a)"
   },
   {
     "comment": "rules - Statement 196",
@@ -1073,8 +1073,8 @@
   },
   {
     "comment": "rules - Statement 216",
-    "query": "insert into rtest_view3 select * from rtest_vview1 where a \u003c 7",
-    "expected": "INSERT INTO rtest_view3 (SELECT * FROM rtest_vview1 WHERE a \u003c 7)"
+    "query": "insert into rtest_view3 select * from rtest_vview1 where a < 7",
+    "expected": "INSERT INTO rtest_view3 (SELECT * FROM rtest_vview1 WHERE a < 7)"
   },
   {
     "comment": "rules - Statement 217",
@@ -1089,7 +1089,7 @@
   {
     "comment": "rules - Statement 219",
     "query": "insert into rtest_view3 select * from rtest_vview2 where a != 5 and b !~ '2'",
-    "expected": "INSERT INTO rtest_view3 (SELECT * FROM rtest_vview2 WHERE a \u003c\u003e 5 AND b !~ '2')"
+    "expected": "INSERT INTO rtest_view3 (SELECT * FROM rtest_vview2 WHERE a <> 5 AND b !~ '2')"
   },
   {
     "comment": "rules - Statement 220",
@@ -1098,8 +1098,8 @@
   },
   {
     "comment": "rules - Statement 221",
-    "query": "insert into rtest_view4 select * from rtest_vview4 where 3 \u003e refcount",
-    "expected": "INSERT INTO rtest_view4 (SELECT * FROM rtest_vview4 WHERE 3 \u003e refcount)"
+    "query": "insert into rtest_view4 select * from rtest_vview4 where 3 > refcount",
+    "expected": "INSERT INTO rtest_view4 (SELECT * FROM rtest_vview4 WHERE 3 > refcount)"
   },
   {
     "comment": "rules - Statement 222",
@@ -1113,8 +1113,8 @@
   },
   {
     "comment": "rules - Statement 224",
-    "query": "insert into rtest_view4 select * from rtest_vview5 where a \u003e 2 and refcount = 0",
-    "expected": "INSERT INTO rtest_view4 (SELECT * FROM rtest_vview5 WHERE a \u003e 2 AND refcount = 0)"
+    "query": "insert into rtest_view4 select * from rtest_vview5 where a > 2 and refcount = 0",
+    "expected": "INSERT INTO rtest_view4 (SELECT * FROM rtest_vview5 WHERE a > 2 AND refcount = 0)"
   },
   {
     "comment": "rules - Statement 225",
@@ -1188,8 +1188,8 @@
   },
   {
     "comment": "rules - Statement 239",
-    "query": "select * from rtest_vcomp where size_in_cm \u003e 10.0 order by size_in_cm using \u003e",
-    "expected": "SELECT * FROM rtest_vcomp WHERE size_in_cm \u003e 10.0 ORDER BY size_in_cm USING \u003e"
+    "query": "select * from rtest_vcomp where size_in_cm > 10.0 order by size_in_cm using >",
+    "expected": "SELECT * FROM rtest_vcomp WHERE size_in_cm > 10.0 ORDER BY size_in_cm USING >"
   },
   {
     "comment": "rules - Statement 240",
@@ -1218,8 +1218,8 @@
   },
   {
     "comment": "rules - Statement 245",
-    "query": "CREATE VIEW shoe_ready AS SELECT rsh.shoename, rsh.sh_avail, rsl.sl_name, rsl.sl_avail, int4smaller(rsh.sh_avail, rsl.sl_avail) AS total_avail FROM shoe rsh, shoelace rsl WHERE rsl.sl_color = rsh.slcolor AND rsl.sl_len_cm \u003e= rsh.slminlen_cm AND rsl.sl_len_cm \u003c= rsh.slmaxlen_cm",
-    "expected": "CREATE VIEW shoe_ready AS SELECT rsh.shoename, rsh.sh_avail, rsl.sl_name, rsl.sl_avail, int4smaller(rsh.sh_avail, rsl.sl_avail) AS total_avail FROM shoe AS rsh, shoelace AS rsl WHERE rsl.sl_color = rsh.slcolor AND rsl.sl_len_cm \u003e= rsh.slminlen_cm AND rsl.sl_len_cm \u003c= rsh.slmaxlen_cm"
+    "query": "CREATE VIEW shoe_ready AS SELECT rsh.shoename, rsh.sh_avail, rsl.sl_name, rsl.sl_avail, int4smaller(rsh.sh_avail, rsl.sl_avail) AS total_avail FROM shoe rsh, shoelace rsl WHERE rsl.sl_color = rsh.slcolor AND rsl.sl_len_cm >= rsh.slminlen_cm AND rsl.sl_len_cm <= rsh.slmaxlen_cm",
+    "expected": "CREATE VIEW shoe_ready AS SELECT rsh.shoename, rsh.sh_avail, rsl.sl_name, rsl.sl_avail, int4smaller(rsh.sh_avail, rsl.sl_avail) AS total_avail FROM shoe AS rsh, shoelace AS rsl WHERE rsl.sl_color = rsh.slcolor AND rsl.sl_len_cm >= rsh.slminlen_cm AND rsl.sl_len_cm <= rsh.slmaxlen_cm"
   },
   {
     "comment": "rules - Statement 246",
@@ -1293,7 +1293,7 @@
   },
   {
     "comment": "rules - Statement 262",
-    "query": "SELECT * FROM shoe_ready WHERE total_avail \u003e= 2 ORDER BY 1"
+    "query": "SELECT * FROM shoe_ready WHERE total_avail >= 2 ORDER BY 1"
   },
   {
     "comment": "rules - Statement 263",
@@ -1303,7 +1303,7 @@
   {
     "comment": "rules - Statement 264",
     "query": "CREATE RULE log_shoelace AS ON UPDATE TO shoelace_data WHERE NEW.sl_avail != OLD.sl_avail DO INSERT INTO shoelace_log VALUES ( NEW.sl_name, NEW.sl_avail, 'Al Bundy', 'epoch' )",
-    "expected": "CREATE RULE log_shoelace AS ON UPDATE TO shoelace_data WHERE new.sl_avail \u003c\u003e old.sl_avail DO INSERT INTO shoelace_log VALUES (new.sl_name, new.sl_avail, 'Al Bundy', 'epoch')"
+    "expected": "CREATE RULE log_shoelace AS ON UPDATE TO shoelace_data WHERE new.sl_avail <> old.sl_avail DO INSERT INTO shoelace_log VALUES (new.sl_name, new.sl_avail, 'Al Bundy', 'epoch')"
   },
   {
     "comment": "rules - Statement 265",
@@ -1421,8 +1421,8 @@
   },
   {
     "comment": "rules - Statement 290",
-    "query": "create rule rules_foorule as on insert to rules_foo where f1 \u003c 100 do instead nothing",
-    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 \u003c 100 DO INSTEAD NOTHING"
+    "query": "create rule rules_foorule as on insert to rules_foo where f1 < 100 do instead nothing",
+    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 < 100 DO INSTEAD NOTHING"
   },
   {
     "comment": "rules - Statement 291",
@@ -1446,13 +1446,13 @@
   },
   {
     "comment": "rules - Statement 295",
-    "query": "create rule rules_foorule as on insert to rules_foo where f1 \u003c 100 do instead insert into rules_foo2 values (f1)",
-    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 \u003c 100 DO INSTEAD INSERT INTO rules_foo2 VALUES (f1)"
+    "query": "create rule rules_foorule as on insert to rules_foo where f1 < 100 do instead insert into rules_foo2 values (f1)",
+    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 < 100 DO INSTEAD INSERT INTO rules_foo2 VALUES (f1)"
   },
   {
     "comment": "rules - Statement 296",
-    "query": "create rule rules_foorule as on insert to rules_foo where f1 \u003c 100 do instead insert into rules_foo2 values (new.f1)",
-    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 \u003c 100 DO INSTEAD INSERT INTO rules_foo2 VALUES (new.f1)"
+    "query": "create rule rules_foorule as on insert to rules_foo where f1 < 100 do instead insert into rules_foo2 values (new.f1)",
+    "expected": "CREATE RULE rules_foorule AS ON INSERT TO rules_foo WHERE f1 < 100 DO INSTEAD INSERT INTO rules_foo2 VALUES (new.f1)"
   },
   {
     "comment": "rules - Statement 297",
@@ -1841,33 +1841,33 @@
   },
   {
     "comment": "rules - Statement 375",
-    "query": "create temp table t1_1 (check (a \u003e= 0 and a \u003c 10)) inherits (t1)",
-    "expected": "CREATE TEMPORARY TABLE t1_1 (CHECK (a \u003e= 0 AND a \u003c 10)) INHERITS (t1)"
+    "query": "create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1)",
+    "expected": "CREATE TEMPORARY TABLE t1_1 (CHECK (a >= 0 AND a < 10)) INHERITS (t1)"
   },
   {
     "comment": "rules - Statement 376",
-    "query": "create temp table t1_2 (check (a \u003e= 10 and a \u003c 20)) inherits (t1)",
-    "expected": "CREATE TEMPORARY TABLE t1_2 (CHECK (a \u003e= 10 AND a \u003c 20)) INHERITS (t1)"
+    "query": "create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1)",
+    "expected": "CREATE TEMPORARY TABLE t1_2 (CHECK (a >= 10 AND a < 20)) INHERITS (t1)"
   },
   {
     "comment": "rules - Statement 377",
-    "query": "create rule t1_ins_1 as on insert to t1 where new.a \u003e= 0 and new.a \u003c 10 do instead insert into t1_1 values (new.a)",
-    "expected": "CREATE RULE t1_ins_1 AS ON INSERT TO t1 WHERE new.a \u003e= 0 AND new.a \u003c 10 DO INSTEAD INSERT INTO t1_1 VALUES (new.a)"
+    "query": "create rule t1_ins_1 as on insert to t1 where new.a >= 0 and new.a < 10 do instead insert into t1_1 values (new.a)",
+    "expected": "CREATE RULE t1_ins_1 AS ON INSERT TO t1 WHERE new.a >= 0 AND new.a < 10 DO INSTEAD INSERT INTO t1_1 VALUES (new.a)"
   },
   {
     "comment": "rules - Statement 378",
-    "query": "create rule t1_ins_2 as on insert to t1 where new.a \u003e= 10 and new.a \u003c 20 do instead insert into t1_2 values (new.a)",
-    "expected": "CREATE RULE t1_ins_2 AS ON INSERT TO t1 WHERE new.a \u003e= 10 AND new.a \u003c 20 DO INSTEAD INSERT INTO t1_2 VALUES (new.a)"
+    "query": "create rule t1_ins_2 as on insert to t1 where new.a >= 10 and new.a < 20 do instead insert into t1_2 values (new.a)",
+    "expected": "CREATE RULE t1_ins_2 AS ON INSERT TO t1 WHERE new.a >= 10 AND new.a < 20 DO INSTEAD INSERT INTO t1_2 VALUES (new.a)"
   },
   {
     "comment": "rules - Statement 379",
-    "query": "create rule t1_upd_1 as on update to t1 where old.a \u003e= 0 and old.a \u003c 10 do instead update t1_1 set a = new.a where a = old.a",
-    "expected": "CREATE RULE t1_upd_1 AS ON UPDATE TO t1 WHERE old.a \u003e= 0 AND old.a \u003c 10 DO INSTEAD UPDATE t1_1 SET a = new.a WHERE a = old.a"
+    "query": "create rule t1_upd_1 as on update to t1 where old.a >= 0 and old.a < 10 do instead update t1_1 set a = new.a where a = old.a",
+    "expected": "CREATE RULE t1_upd_1 AS ON UPDATE TO t1 WHERE old.a >= 0 AND old.a < 10 DO INSTEAD UPDATE t1_1 SET a = new.a WHERE a = old.a"
   },
   {
     "comment": "rules - Statement 380",
-    "query": "create rule t1_upd_2 as on update to t1 where old.a \u003e= 10 and old.a \u003c 20 do instead update t1_2 set a = new.a where a = old.a",
-    "expected": "CREATE RULE t1_upd_2 AS ON UPDATE TO t1 WHERE old.a \u003e= 10 AND old.a \u003c 20 DO INSTEAD UPDATE t1_2 SET a = new.a WHERE a = old.a"
+    "query": "create rule t1_upd_2 as on update to t1 where old.a >= 10 and old.a < 20 do instead update t1_2 set a = new.a where a = old.a",
+    "expected": "CREATE RULE t1_upd_2 AS ON UPDATE TO t1 WHERE old.a >= 10 AND old.a < 20 DO INSTEAD UPDATE t1_2 SET a = new.a WHERE a = old.a"
   },
   {
     "comment": "rules - Statement 381",
@@ -2186,8 +2186,8 @@
   },
   {
     "comment": "rules - Statement 447",
-    "query": "CREATE RULE hat_upsert AS ON INSERT TO hats DO INSTEAD INSERT INTO hat_data VALUES ( NEW.hat_name, NEW.hat_color) ON CONFLICT (hat_name) DO UPDATE SET hat_name = hat_data.hat_name, hat_color = excluded.hat_color WHERE excluded.hat_color \u003c\u003e  'forbidden' AND hat_data.* != excluded.* RETURNING *",
-    "expected": "CREATE RULE hat_upsert AS ON INSERT TO hats DO INSTEAD INSERT INTO hat_data VALUES (new.hat_name, new.hat_color) ON CONFLICT (hat_name) DO UPDATE SET hat_name = hat_data.hat_name, hat_color = excluded.hat_color WHERE excluded.hat_color \u003c\u003e 'forbidden' AND hat_data.* \u003c\u003e excluded.* RETURNING *"
+    "query": "CREATE RULE hat_upsert AS ON INSERT TO hats DO INSTEAD INSERT INTO hat_data VALUES ( NEW.hat_name, NEW.hat_color) ON CONFLICT (hat_name) DO UPDATE SET hat_name = hat_data.hat_name, hat_color = excluded.hat_color WHERE excluded.hat_color <>  'forbidden' AND hat_data.* != excluded.* RETURNING *",
+    "expected": "CREATE RULE hat_upsert AS ON INSERT TO hats DO INSTEAD INSERT INTO hat_data VALUES (new.hat_name, new.hat_color) ON CONFLICT (hat_name) DO UPDATE SET hat_name = hat_data.hat_name, hat_color = excluded.hat_color WHERE excluded.hat_color <> 'forbidden' AND hat_data.* <> excluded.* RETURNING *"
   },
   {
     "comment": "rules - Statement 448",
@@ -2350,13 +2350,13 @@
   },
   {
     "comment": "rules - Statement 484",
-    "query": "MERGE INTO rule_merge1 t USING (SELECT 1 AS a) s ON t.a = s.a WHEN MATCHED AND t.a \u003c 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')",
-    "expected": "MERGE INTO rule_merge1 AS t USING (SELECT 1 AS a) AS s ON t.a = s.a WHEN MATCHED AND t.a \u003c 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')"
+    "query": "MERGE INTO rule_merge1 t USING (SELECT 1 AS a) s ON t.a = s.a WHEN MATCHED AND t.a < 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')",
+    "expected": "MERGE INTO rule_merge1 AS t USING (SELECT 1 AS a) AS s ON t.a = s.a WHEN MATCHED AND t.a < 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')"
   },
   {
     "comment": "rules - Statement 485",
-    "query": "MERGE INTO rule_merge2 t USING (SELECT 1 AS a) s ON t.a = s.a WHEN MATCHED AND t.a \u003c 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')",
-    "expected": "MERGE INTO rule_merge2 AS t USING (SELECT 1 AS a) AS s ON t.a = s.a WHEN MATCHED AND t.a \u003c 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')"
+    "query": "MERGE INTO rule_merge2 t USING (SELECT 1 AS a) s ON t.a = s.a WHEN MATCHED AND t.a < 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')",
+    "expected": "MERGE INTO rule_merge2 AS t USING (SELECT 1 AS a) AS s ON t.a = s.a WHEN MATCHED AND t.a < 2 THEN UPDATE SET b = b || ' updated by merge' WHEN MATCHED AND t.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.a, '')"
   },
   {
     "comment": "rules - Statement 486",
@@ -2377,7 +2377,7 @@
   },
   {
     "comment": "rules - Statement 490",
-    "query": "CREATE FUNCTION merge_sf_test() RETURNS TABLE(action text, a int, b text, id int, data text, filling int[]) LANGUAGE sql BEGIN ATOMIC MERGE INTO sf_target t USING rule_merge1 s ON (s.a = t.id) WHEN MATCHED AND (s.a + t.id) = 42 THEN UPDATE SET data = repeat(t.data, s.a) || s.b, id = length(s.b) WHEN NOT MATCHED AND (s.b IS NOT NULL) THEN INSERT (data, id) VALUES (s.b, s.a) WHEN MATCHED AND length(s.b || t.data) \u003e 10 THEN UPDATE SET data = s.b WHEN MATCHED AND s.a \u003e 200 THEN UPDATE SET filling[s.a] = t.id WHEN MATCHED AND s.a \u003e 100 THEN DELETE WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED AND s.a \u003e 200 THEN INSERT DEFAULT VALUES WHEN NOT MATCHED AND s.a \u003e 100 THEN INSERT (id, data) OVERRIDING USER VALUE VALUES (s.a, DEFAULT) WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b, DEFAULT) WHEN NOT MATCHED THEN INSERT (filling[1], id) VALUES (s.a, s.a) RETURNING merge_action() AS action, *",
+    "query": "CREATE FUNCTION merge_sf_test() RETURNS TABLE(action text, a int, b text, id int, data text, filling int[]) LANGUAGE sql BEGIN ATOMIC MERGE INTO sf_target t USING rule_merge1 s ON (s.a = t.id) WHEN MATCHED AND (s.a + t.id) = 42 THEN UPDATE SET data = repeat(t.data, s.a) || s.b, id = length(s.b) WHEN NOT MATCHED AND (s.b IS NOT NULL) THEN INSERT (data, id) VALUES (s.b, s.a) WHEN MATCHED AND length(s.b || t.data) > 10 THEN UPDATE SET data = s.b WHEN MATCHED AND s.a > 200 THEN UPDATE SET filling[s.a] = t.id WHEN MATCHED AND s.a > 100 THEN DELETE WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED AND s.a > 200 THEN INSERT DEFAULT VALUES WHEN NOT MATCHED AND s.a > 100 THEN INSERT (id, data) OVERRIDING USER VALUE VALUES (s.a, DEFAULT) WHEN NOT MATCHED AND s.a > 0 THEN INSERT VALUES (s.a, s.b, DEFAULT) WHEN NOT MATCHED THEN INSERT (filling[1], id) VALUES (s.a, s.a) RETURNING merge_action() AS action, *",
     "error": "parse error at position 903: syntax error"
   },
   {

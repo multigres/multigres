@@ -641,8 +641,8 @@
   },
   {
     "comment": "horology - Statement 129",
-    "query": "SELECT (timestamp without time zone 'tomorrow' \u003e 'now') as \"True\"",
-    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) \u003e 'now') AS \"True\""
+    "query": "SELECT (timestamp without time zone 'tomorrow' > 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) > 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 130",
@@ -721,8 +721,8 @@
   },
   {
     "comment": "horology - Statement 145",
-    "query": "SELECT (timestamp with time zone 'tomorrow' \u003e 'now') as \"True\"",
-    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) \u003e 'now') AS \"True\""
+    "query": "SELECT (timestamp with time zone 'tomorrow' > 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) > 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 146",
@@ -985,8 +985,8 @@
   },
   {
     "comment": "horology - Statement 198",
-    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 \u003c\u003e timestamp 'now' ORDER BY date, \"timestamp\"",
-    "expected": "SELECT f1 AS timestamp, date(f1) AS date FROM temp_timestamp WHERE f1 \u003c\u003e CAST('now' AS TIMESTAMP) ORDER BY date, timestamp"
+    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 <> timestamp 'now' ORDER BY date, \"timestamp\"",
+    "expected": "SELECT f1 AS timestamp, date(f1) AS date FROM temp_timestamp WHERE f1 <> CAST('now' AS TIMESTAMP) ORDER BY date, timestamp"
   },
   {
     "comment": "horology - Statement 199",
@@ -1000,13 +1000,13 @@
   },
   {
     "comment": "horology - Statement 201",
-    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamp as t",
-    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMP) AS t"
+    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamp as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) > CAST('2020-10-05' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 202",
-    "query": "SELECT '2020-10-05'::timestamp \u003e '2202020-10-05'::date as f",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMP) \u003e CAST('2202020-10-05' AS DATE) AS f"
+    "query": "SELECT '2020-10-05'::timestamp > '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMP) > CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 203",
@@ -1015,13 +1015,13 @@
   },
   {
     "comment": "horology - Statement 204",
-    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) > CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 205",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e '2202020-10-05'::date as f",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e CAST('2202020-10-05' AS DATE) AS f"
+    "query": "SELECT '2020-10-05'::timestamptz > '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) > CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 206",
@@ -1035,23 +1035,23 @@
   },
   {
     "comment": "horology - Statement 208",
-    "query": "SELECT '4714-11-24 BC'::date \u003c '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('4714-11-24 BC' AS DATE) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '4714-11-24 BC'::date < '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS DATE) < CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 209",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::date as t",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS DATE) AS t"
+    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::date as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) >= CAST('4714-11-24 BC' AS DATE) AS t"
   },
   {
     "comment": "horology - Statement 210",
-    "query": "SELECT '4714-11-24 BC'::timestamp \u003c '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('4714-11-24 BC' AS TIMESTAMP) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '4714-11-24 BC'::timestamp < '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS TIMESTAMP) < CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 211",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::timestamp as t",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS TIMESTAMP) AS t"
+    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::timestamp as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) >= CAST('4714-11-24 BC' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 212",
@@ -1170,7 +1170,7 @@
   },
   {
     "comment": "horology - Statement 235",
-    "query": "SELECT to_timestamp('0097/Feb/16 --\u003e 08:14:30', 'YYYY/Mon/DD --\u003e HH:MI:SS')"
+    "query": "SELECT to_timestamp('0097/Feb/16 --> 08:14:30', 'YYYY/Mon/DD --> HH:MI:SS')"
   },
   {
     "comment": "horology - Statement 236",
@@ -1194,7 +1194,7 @@
   },
   {
     "comment": "horology - Statement 241",
-    "query": "SELECT to_timestamp('My birthday-\u003e Year: 1976, Month: May, Day: 16', '\"My birthday-\u003e Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
+    "query": "SELECT to_timestamp('My birthday-> Year: 1976, Month: May, Day: 16', '\"My birthday-> Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
   },
   {
     "comment": "horology - Statement 242",

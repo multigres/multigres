@@ -16,77 +16,77 @@
   },
   {
     "comment": "strings - Statement 4",
-    "query": "SELECT U\u0026'd\\0061t\\+000061' AS U\u0026\"d\\0061t\\+000061\"",
+    "query": "SELECT U&'d\\0061t\\+000061' AS U&\"d\\0061t\\+000061\"",
     "expected": "SELECT 'data' AS data"
   },
   {
     "comment": "strings - Statement 5",
-    "query": "SELECT U\u0026'd!0061t\\+000061' UESCAPE '!' AS U\u0026\"d*0061t\\+000061\" UESCAPE '*'",
+    "query": "SELECT U&'d!0061t\\+000061' UESCAPE '!' AS U&\"d*0061t\\+000061\" UESCAPE '*'",
     "expected": "SELECT 'dat\\+000061' AS \"dat\\+000061\""
   },
   {
     "comment": "strings - Statement 6",
-    "query": "SELECT U\u0026'a\\\\b' AS \"a\\b\"",
+    "query": "SELECT U&'a\\\\b' AS \"a\\b\"",
     "expected": "SELECT 'a\\b' AS \"a\\b\""
   },
   {
     "comment": "strings - Statement 7",
-    "query": "SELECT U\u0026' \\' UESCAPE '!' AS \"tricky\"",
+    "query": "SELECT U&' \\' UESCAPE '!' AS \"tricky\"",
     "expected": "SELECT ' \\' AS tricky"
   },
   {
     "comment": "strings - Statement 8",
-    "query": "SELECT 'tricky' AS U\u0026\"\\\" UESCAPE '!'",
+    "query": "SELECT 'tricky' AS U&\"\\\" UESCAPE '!'",
     "expected": "SELECT 'tricky' AS \"\\\""
   },
   {
     "comment": "strings - Statement 9",
-    "query": "SELECT U\u0026'wrong: \\061'",
+    "query": "SELECT U&'wrong: \\061'",
     "error": "invalid Unicode escape sequence"
   },
   {
     "comment": "strings - Statement 10",
-    "query": "SELECT U\u0026'wrong: \\+0061'",
+    "query": "SELECT U&'wrong: \\+0061'",
     "error": "invalid Unicode escape sequence"
   },
   {
     "comment": "strings - Statement 11",
-    "query": "SELECT U\u0026'wrong: +0061' UESCAPE +",
+    "query": "SELECT U&'wrong: +0061' UESCAPE +",
     "error": "UESCAPE must be followed by a simple string literal"
   },
   {
     "comment": "strings - Statement 12",
-    "query": "SELECT U\u0026'wrong: +0061' UESCAPE '+'",
+    "query": "SELECT U&'wrong: +0061' UESCAPE '+'",
     "error": "invalid Unicode escape character"
   },
   {
     "comment": "strings - Statement 13",
-    "query": "SELECT U\u0026'wrong: \\db99'",
+    "query": "SELECT U&'wrong: \\db99'",
     "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 14",
-    "query": "SELECT U\u0026'wrong: \\db99xy'",
+    "query": "SELECT U&'wrong: \\db99xy'",
     "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 15",
-    "query": "SELECT U\u0026'wrong: \\db99\\\\'",
+    "query": "SELECT U&'wrong: \\db99\\\\'",
     "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 16",
-    "query": "SELECT U\u0026'wrong: \\db99\\0061'",
+    "query": "SELECT U&'wrong: \\db99\\0061'",
     "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 17",
-    "query": "SELECT U\u0026'wrong: \\+00db99\\+000061'",
+    "query": "SELECT U&'wrong: \\+00db99\\+000061'",
     "error": "invalid Unicode surrogate pair"
   },
   {
     "comment": "strings - Statement 18",
-    "query": "SELECT U\u0026'wrong: \\+2FFFFF'",
+    "query": "SELECT U&'wrong: \\+2FFFFF'",
     "error": "invalid Unicode escape value"
   },
   {
@@ -281,7 +281,7 @@
   {
     "comment": "strings - Statement 57",
     "query": "SELECT TRIM(BOTH FROM '  bunch o blanks  ') = 'bunch o blanks' AS \"bunch o blanks\"",
-    "expected": "SELECT trim('  bunch o blanks  ') = 'bunch o blanks' AS \"bunch o blanks\""
+    "expected": "SELECT btrim('  bunch o blanks  ') = 'bunch o blanks' AS \"bunch o blanks\""
   },
   {
     "comment": "strings - Statement 58",
@@ -296,7 +296,7 @@
   {
     "comment": "strings - Statement 60",
     "query": "SELECT TRIM(BOTH 'x' FROM 'xxxxxsome Xsxxxxx') = 'some Xs' AS \"some Xs\"",
-    "expected": "SELECT trim('xxxxxsome Xsxxxxx', 'x') = 'some Xs' AS \"some Xs\""
+    "expected": "SELECT btrim('xxxxxsome Xsxxxxx', 'x') = 'some Xs' AS \"some Xs\""
   },
   {
     "comment": "strings - Statement 61",
@@ -451,8 +451,8 @@
   },
   {
     "comment": "strings - Statement 92",
-    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\\u0026Y', 'g')",
-    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\\u0026Y', 'g')"
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\&Y', 'g')",
+    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\&Y', 'g')"
   },
   {
     "comment": "strings - Statement 93",
@@ -1763,7 +1763,7 @@
   {
     "comment": "strings - Statement 390",
     "query": "SELECT trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
-    "expected": "SELECT trim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 391",
@@ -1778,17 +1778,17 @@
   {
     "comment": "strings - Statement 393",
     "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, E'\\\\000'::bytea)",
-    "expected": "SELECT trim(CAST('\\000trim\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST('\\000trim\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 394",
     "query": "SELECT btrim(''::bytea, E'\\\\000'::bytea)",
-    "expected": "SELECT trim(CAST('' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST('' AS BYTEA), CAST('\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 395",
     "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, ''::bytea)",
-    "expected": "SELECT trim(CAST('\\000trim\\000' AS BYTEA), CAST('' AS BYTEA))"
+    "expected": "SELECT btrim(CAST('\\000trim\\000' AS BYTEA), CAST('' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 396",

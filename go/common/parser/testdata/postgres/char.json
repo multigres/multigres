@@ -46,8 +46,8 @@
   },
   {
     "comment": "char - Statement 11",
-    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c\u003e 'a'",
-    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c\u003e 'a'"
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 <> 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 <> 'a'"
   },
   {
     "comment": "char - Statement 12",
@@ -56,23 +56,23 @@
   },
   {
     "comment": "char - Statement 13",
-    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c 'a'",
-    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c 'a'"
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 < 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 < 'a'"
   },
   {
     "comment": "char - Statement 14",
-    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c= 'a'",
-    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c= 'a'"
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 <= 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 <= 'a'"
   },
   {
     "comment": "char - Statement 15",
-    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003e 'a'",
-    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003e 'a'"
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 > 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 > 'a'"
   },
   {
     "comment": "char - Statement 16",
-    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003e= 'a'",
-    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003e= 'a'"
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 >= 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 >= 'a'"
   },
   {
     "comment": "char - Statement 17",

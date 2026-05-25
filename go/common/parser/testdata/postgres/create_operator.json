@@ -51,7 +51,7 @@
   },
   {
     "comment": "create_operator - Statement 11",
-    "query": "CREATE OPERATOR =\u003e ( rightarg = int8, procedure = factorial )",
+    "query": "CREATE OPERATOR => ( rightarg = int8, procedure = factorial )",
     "error": "parse error at position 18: syntax error"
   },
   {
@@ -72,12 +72,12 @@
   {
     "comment": "create_operator - Statement 15",
     "query": "SELECT 2 !=/**/ 1, 2 !=/**/ 2",
-    "expected": "SELECT 2 \u003c\u003e 1, 2 \u003c\u003e 2"
+    "expected": "SELECT 2 <> 1, 2 <> 2"
   },
   {
     "comment": "create_operator - Statement 16",
     "query": "SELECT 2 != 1",
-    "expected": "SELECT 2 \u003c\u003e 1"
+    "expected": "SELECT 2 <> 1"
   },
   {
     "comment": "create_operator - Statement 17",
@@ -86,33 +86,33 @@
   },
   {
     "comment": "create_operator - Statement 22",
-    "query": "SELECT true\u003c\u003e-1 BETWEEN 1 AND 1",
-    "expected": "SELECT TRUE \u003c\u003e -1 BETWEEN 1 AND 1"
+    "query": "SELECT true<>-1 BETWEEN 1 AND 1",
+    "expected": "SELECT TRUE <> -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 23",
-    "query": "SELECT false\u003c\u003e/**/1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003c\u003e 1 BETWEEN 1 AND 1"
+    "query": "SELECT false<>/**/1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE <> 1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 24",
-    "query": "SELECT false\u003c=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003c= -1 BETWEEN 1 AND 1"
+    "query": "SELECT false<=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE <= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 25",
-    "query": "SELECT false\u003e=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003e= -1 BETWEEN 1 AND 1"
+    "query": "SELECT false>=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE >= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 26",
-    "query": "SELECT 2\u003c=/**/3, 3\u003e=/**/2, 2\u003c\u003e/**/3",
-    "expected": "SELECT 2 \u003c= 3, 3 \u003e= 2, 2 \u003c\u003e 3"
+    "query": "SELECT 2<=/**/3, 3>=/**/2, 2<>/**/3",
+    "expected": "SELECT 2 <= 3, 3 >= 2, 2 <> 3"
   },
   {
     "comment": "create_operator - Statement 27",
-    "query": "SELECT 3\u003c=/**/2, 2\u003e=/**/3, 2\u003c\u003e/**/2",
-    "expected": "SELECT 3 \u003c= 2, 2 \u003e= 3, 2 \u003c\u003e 2"
+    "query": "SELECT 3<=/**/2, 2>=/**/3, 2<>/**/2",
+    "expected": "SELECT 3 <= 2, 2 >= 3, 2 <> 2"
   },
   {
     "comment": "create_operator - Statement 28",
@@ -332,8 +332,8 @@
   },
   {
     "comment": "create_operator - Statement 76",
-    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = \u003c\u003e )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = \u003c\u003e)"
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = <> )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = <>)"
   },
   {
     "comment": "create_operator - Statement 77",

@@ -145,7 +145,7 @@
   },
   {
     "comment": "reloptions - Statement 31",
-    "query": "SELECT pg_relation_size('reloptions_test') \u003e 0"
+    "query": "SELECT pg_relation_size('reloptions_test') > 0"
   },
   {
     "comment": "reloptions - Statement 32",

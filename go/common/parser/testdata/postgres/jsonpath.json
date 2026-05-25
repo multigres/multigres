@@ -181,33 +181,33 @@
   },
   {
     "comment": "jsonpath - Statement 37",
-    "query": "select '$.g ? (@.a == 1 \u0026\u0026 @.a == 4)'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (@.a == 1 \u0026\u0026 @.a == 4)' AS jsonpath)"
+    "query": "select '$.g ? (@.a == 1 && @.a == 4)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 && @.a == 4)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 38",
-    "query": "select '$.g ? (@.a == 1 || @.a == 4 \u0026\u0026 @.b == 7)'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (@.a == 1 || @.a == 4 \u0026\u0026 @.b == 7)' AS jsonpath)"
+    "query": "select '$.g ? (@.a == 1 || @.a == 4 && @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || @.a == 4 && @.b == 7)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 39",
-    "query": "select '$.g ? (@.a == 1 || !(@.a == 4) \u0026\u0026 @.b == 7)'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.a == 4) \u0026\u0026 @.b == 7)' AS jsonpath)"
+    "query": "select '$.g ? (@.a == 1 || !(@.a == 4) && @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.a == 4) && @.b == 7)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 40",
-    "query": "select '$.g ? (@.a == 1 || !(@.x \u003e= 123 || @.a == 4) \u0026\u0026 @.b == 7)'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.x \u003e= 123 || @.a == 4) \u0026\u0026 @.b == 7)' AS jsonpath)"
+    "query": "select '$.g ? (@.a == 1 || !(@.x >= 123 || @.a == 4) && @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.x >= 123 || @.a == 4) && @.b == 7)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 41",
-    "query": "select '$.g ? (@.x \u003e= @[*]?(@.a \u003e \"abc\"))'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (@.x \u003e= @[*]?(@.a \u003e \"abc\"))' AS jsonpath)"
+    "query": "select '$.g ? (@.x >= @[*]?(@.a > \"abc\"))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.x >= @[*]?(@.a > \"abc\"))' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 42",
-    "query": "select '$.g ? ((@.x \u003e= 123 || @.a == 4) is unknown)'::jsonpath",
-    "expected": "SELECT CAST('$.g ? ((@.x \u003e= 123 || @.a == 4) is unknown)' AS jsonpath)"
+    "query": "select '$.g ? ((@.x >= 123 || @.a == 4) is unknown)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? ((@.x >= 123 || @.a == 4) is unknown)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 43",
@@ -221,13 +221,13 @@
   },
   {
     "comment": "jsonpath - Statement 45",
-    "query": "select '$.g ? ((@.x \u003e= 123 || @.a == 4) \u0026\u0026 exists (@.x ? (@ == 14)))'::jsonpath",
-    "expected": "SELECT CAST('$.g ? ((@.x \u003e= 123 || @.a == 4) \u0026\u0026 exists (@.x ? (@ == 14)))' AS jsonpath)"
+    "query": "select '$.g ? ((@.x >= 123 || @.a == 4) && exists (@.x ? (@ == 14)))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? ((@.x >= 123 || @.a == 4) && exists (@.x ? (@ == 14)))' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 46",
-    "query": "select '$.g ? (+@.x \u003e= +-(+@.a + 2))'::jsonpath",
-    "expected": "SELECT CAST('$.g ? (+@.x \u003e= +-(+@.a + 2))' AS jsonpath)"
+    "query": "select '$.g ? (+@.x >= +-(+@.a + 2))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (+@.x >= +-(+@.a + 2))' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 47",
@@ -281,8 +281,8 @@
   },
   {
     "comment": "jsonpath - Statement 57",
-    "query": "select '$ ? (last \u003e 0)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (last \u003e 0)' AS jsonpath)"
+    "query": "select '$ ? (last > 0)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (last > 0)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 58",
@@ -291,8 +291,8 @@
   },
   {
     "comment": "jsonpath - Statement 59",
-    "query": "select '$[$[0] ? (last \u003e 0)]'::jsonpath",
-    "expected": "SELECT CAST('$[$[0] ? (last \u003e 0)]' AS jsonpath)"
+    "query": "select '$[$[0] ? (last > 0)]'::jsonpath",
+    "expected": "SELECT CAST('$[$[0] ? (last > 0)]' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 60",
@@ -476,13 +476,13 @@
   },
   {
     "comment": "jsonpath - Statement 96",
-    "query": "select '$ \u003c 1'::jsonpath",
-    "expected": "SELECT CAST('$ \u003c 1' AS jsonpath)"
+    "query": "select '$ < 1'::jsonpath",
+    "expected": "SELECT CAST('$ < 1' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 97",
-    "query": "select '($ \u003c 1) || $.a.b \u003c= $x'::jsonpath",
-    "expected": "SELECT CAST('($ \u003c 1) || $.a.b \u003c= $x' AS jsonpath)"
+    "query": "select '($ < 1) || $.a.b <= $x'::jsonpath",
+    "expected": "SELECT CAST('($ < 1) || $.a.b <= $x' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 98",
@@ -516,8 +516,8 @@
   },
   {
     "comment": "jsonpath - Statement 104",
-    "query": "select '1 + ($.a.b \u003e 2).c.d'::jsonpath",
-    "expected": "SELECT CAST('1 + ($.a.b \u003e 2).c.d' AS jsonpath)"
+    "query": "select '1 + ($.a.b > 2).c.d'::jsonpath",
+    "expected": "SELECT CAST('1 + ($.a.b > 2).c.d' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 105",
@@ -531,248 +531,248 @@
   },
   {
     "comment": "jsonpath - Statement 107",
-    "query": "select '((($ + 1)).a + ((2)).b ? ((((@ \u003e 1)) || (exists(@.c)))))'::jsonpath",
-    "expected": "SELECT CAST('((($ + 1)).a + ((2)).b ? ((((@ \u003e 1)) || (exists(@.c)))))' AS jsonpath)"
+    "query": "select '((($ + 1)).a + ((2)).b ? ((((@ > 1)) || (exists(@.c)))))'::jsonpath",
+    "expected": "SELECT CAST('((($ + 1)).a + ((2)).b ? ((((@ > 1)) || (exists(@.c)))))' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 108",
-    "query": "select '$ ? (@.a \u003c 1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 109",
-    "query": "select '$ ? (@.a \u003c -1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 110",
-    "query": "select '$ ? (@.a \u003c +1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 111",
-    "query": "select '$ ? (@.a \u003c .1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c .1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < .1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < .1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 112",
-    "query": "select '$ ? (@.a \u003c -.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 113",
-    "query": "select '$ ? (@.a \u003c +.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 114",
-    "query": "select '$ ? (@.a \u003c 0.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 0.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 115",
-    "query": "select '$ ? (@.a \u003c -0.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -0.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 116",
-    "query": "select '$ ? (@.a \u003c +0.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +0.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 117",
-    "query": "select '$ ? (@.a \u003c 10.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 10.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 118",
-    "query": "select '$ ? (@.a \u003c -10.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -10.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 119",
-    "query": "select '$ ? (@.a \u003c +10.1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +10.1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 120",
-    "query": "select '$ ? (@.a \u003c 1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 121",
-    "query": "select '$ ? (@.a \u003c -1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 122",
-    "query": "select '$ ? (@.a \u003c +1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 123",
-    "query": "select '$ ? (@.a \u003c .1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c .1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < .1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < .1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 124",
-    "query": "select '$ ? (@.a \u003c -.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 125",
-    "query": "select '$ ? (@.a \u003c +.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 126",
-    "query": "select '$ ? (@.a \u003c 0.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 0.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 127",
-    "query": "select '$ ? (@.a \u003c -0.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -0.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 128",
-    "query": "select '$ ? (@.a \u003c +0.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +0.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 129",
-    "query": "select '$ ? (@.a \u003c 10.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 10.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 130",
-    "query": "select '$ ? (@.a \u003c -10.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -10.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 131",
-    "query": "select '$ ? (@.a \u003c +10.1e1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +10.1e1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 132",
-    "query": "select '$ ? (@.a \u003c 1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 133",
-    "query": "select '$ ? (@.a \u003c -1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 134",
-    "query": "select '$ ? (@.a \u003c +1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 135",
-    "query": "select '$ ? (@.a \u003c .1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c .1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < .1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < .1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 136",
-    "query": "select '$ ? (@.a \u003c -.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 137",
-    "query": "select '$ ? (@.a \u003c +.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 138",
-    "query": "select '$ ? (@.a \u003c 0.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 0.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 139",
-    "query": "select '$ ? (@.a \u003c -0.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -0.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 140",
-    "query": "select '$ ? (@.a \u003c +0.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +0.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 141",
-    "query": "select '$ ? (@.a \u003c 10.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 10.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 142",
-    "query": "select '$ ? (@.a \u003c -10.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -10.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 143",
-    "query": "select '$ ? (@.a \u003c +10.1e-1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e-1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +10.1e-1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 144",
-    "query": "select '$ ? (@.a \u003c 1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 145",
-    "query": "select '$ ? (@.a \u003c -1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 146",
-    "query": "select '$ ? (@.a \u003c +1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 147",
-    "query": "select '$ ? (@.a \u003c .1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c .1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < .1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < .1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 148",
-    "query": "select '$ ? (@.a \u003c -.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 149",
-    "query": "select '$ ? (@.a \u003c +.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 150",
-    "query": "select '$ ? (@.a \u003c 0.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 0.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 151",
-    "query": "select '$ ? (@.a \u003c -0.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -0.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 152",
-    "query": "select '$ ? (@.a \u003c +0.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +0.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 153",
-    "query": "select '$ ? (@.a \u003c 10.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < 10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < 10.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 154",
-    "query": "select '$ ? (@.a \u003c -10.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < -10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < -10.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 155",
-    "query": "select '$ ? (@.a \u003c +10.1e+1)'::jsonpath",
-    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e+1)' AS jsonpath)"
+    "query": "select '$ ? (@.a < +10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a < +10.1e+1)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 156",
@@ -951,8 +951,8 @@
   },
   {
     "comment": "jsonpath - Statement 191",
-    "query": "select '1?(2\u003e3)'::jsonpath",
-    "expected": "SELECT CAST('1?(2\u003e3)' AS jsonpath)"
+    "query": "select '1?(2>3)'::jsonpath",
+    "expected": "SELECT CAST('1?(2>3)' AS jsonpath)"
   },
   {
     "comment": "jsonpath - Statement 192",

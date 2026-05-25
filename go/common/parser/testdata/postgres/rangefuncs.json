@@ -31,8 +31,8 @@
   },
   {
     "comment": "rangefuncs - Statement 7",
-    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord) where b \u003e 100",
-    "expected": "SELECT * FROM rngfunct(1) WITH ORDINALITY AS z(a, b, ord) WHERE b \u003e 100"
+    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord) where b > 100",
+    "expected": "SELECT * FROM rngfunct(1) WITH ORDINALITY AS z(a, b, ord) WHERE b > 100"
   },
   {
     "comment": "rangefuncs - Statement 8",
@@ -558,48 +558,48 @@
   },
   {
     "comment": "rangefuncs - Statement 116",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 117",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 118",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 119",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 120",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN ROWS FROM( rngfunc_sql(11,13), rngfunc_mat(11,13) ) WITH ORDINALITY AS f(i1,s1,i2,s2,o) ON (r+i1+i2)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN ROWS FROM (rngfunc_sql(11, 13), rngfunc_mat(11, 13)) WITH ORDINALITY AS f(i1, s1, i2, s2, o) ON (r + i1 + i2) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN ROWS FROM( rngfunc_sql(11,13), rngfunc_mat(11,13) ) WITH ORDINALITY AS f(i1,s1,i2,s2,o) ON (r+i1+i2)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN ROWS FROM (rngfunc_sql(11, 13), rngfunc_mat(11, 13)) WITH ORDINALITY AS f(i1, s1, i2, s2, o) ON (r + i1 + i2) < 100"
   },
   {
     "comment": "rangefuncs - Statement 121",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) f(i) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) AS f(i) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) f(i) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) AS f(i) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 122",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) WITH ORDINALITY AS f(i,o) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) WITH ORDINALITY AS f(i, o) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) WITH ORDINALITY AS f(i,o) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) WITH ORDINALITY AS f(i, o) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 123",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) f(i) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) AS f(i) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) f(i) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) AS f(i) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 124",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) WITH ORDINALITY AS f(i,o) ON (r+i)\u003c100",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) WITH ORDINALITY AS f(i, o) ON (r + i) \u003c 100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) WITH ORDINALITY AS f(i,o) ON (r+i)<100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) WITH ORDINALITY AS f(i, o) ON (r + i) < 100"
   },
   {
     "comment": "rangefuncs - Statement 125",
@@ -703,23 +703,23 @@
   },
   {
     "comment": "rangefuncs - Statement 145",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(21,23) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(21, 23) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(21,23) f(i) ON ((r2+i)<100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(21, 23) AS f(i) ON ((r2 + i) < 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 146",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(20+r1,23) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(20 + r1, 23) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(20+r1,23) f(i) ON ((r2+i)<100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(20 + r1, 23) AS f(i) ON ((r2 + i) < 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 147",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r2,r2+3) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r2, r2 + 3) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r2,r2+3) f(i) ON ((r2+i)<100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r2, r2 + 3) AS f(i) ON ((r2 + i) < 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 148",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r1,2+r2/5) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
-    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r1, 2 + r2 / 5) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r1,2+r2/5) f(i) ON ((r2+i)<100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r1, 2 + r2 / 5) AS f(i) ON ((r2 + i) < 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 149",
@@ -1435,13 +1435,13 @@
   },
   {
     "comment": "rangefuncs - Statement 302",
-    "query": "explain (verbose, costs off) select * from (select jsonb_path_query_array(module-\u003e'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT jsonb_path_query_array(module -\u003e 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j (id TEXT)"
+    "query": "explain (verbose, costs off) select * from (select jsonb_path_query_array(module->'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT jsonb_path_query_array(module -> 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j (id TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 303",
-    "query": "select * from (select jsonb_path_query_array(module-\u003e'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
-    "expected": "SELECT * FROM (SELECT jsonb_path_query_array(module -\u003e 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j (id TEXT)"
+    "query": "select * from (select jsonb_path_query_array(module->'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
+    "expected": "SELECT * FROM (SELECT jsonb_path_query_array(module -> 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j (id TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 304",

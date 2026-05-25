@@ -17,8 +17,8 @@
   },
   {
     "comment": "select_views - Statement 5",
-    "query": "CREATE FUNCTION f_leak (text) RETURNS bool LANGUAGE 'plpgsql' COST 0.0000001 AS 'BEGIN RAISE NOTICE ''f_leak =\u003e %'', $1; RETURN true; END'",
-    "expected": "CREATE FUNCTION f_leak (TEXT) RETURNS BOOLEAN LANGUAGE plpgsql COST 0.0000001 AS $$BEGIN RAISE NOTICE 'f_leak =\u003e %', $1; RETURN true; END$$"
+    "query": "CREATE FUNCTION f_leak (text) RETURNS bool LANGUAGE 'plpgsql' COST 0.0000001 AS 'BEGIN RAISE NOTICE ''f_leak => %'', $1; RETURN true; END'",
+    "expected": "CREATE FUNCTION f_leak (TEXT) RETURNS BOOLEAN LANGUAGE plpgsql COST 0.0000001 AS $$BEGIN RAISE NOTICE 'f_leak => %', $1; RETURN true; END$$"
   },
   {
     "comment": "select_views - Statement 6",
@@ -172,21 +172,21 @@
   },
   {
     "comment": "select_views - Statement 37",
-    "query": "SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
+    "query": "SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 38",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 39",
-    "query": "SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
+    "query": "SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 40",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 41",

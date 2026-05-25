@@ -1,18 +1,18 @@
 [
   {
     "comment": "select_distinct_on - Statement 1",
-    "query": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 using \u003c, two using \u003e, ten using \u003c",
-    "expected": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 USING \u003c, two USING \u003e, ten USING \u003c"
+    "query": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 using <, two using >, ten using <",
+    "expected": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 USING <, two USING >, ten USING <"
   },
   {
     "comment": "select_distinct_on - Statement 2",
-    "query": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 using \u003c, two using \u003c, ten using \u003c",
-    "expected": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 USING \u003c, two USING \u003c, ten USING \u003c"
+    "query": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 using <, two using <, ten using <",
+    "expected": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 USING <, two USING <, ten USING <"
   },
   {
     "comment": "select_distinct_on - Statement 3",
-    "query": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 using \u003c, ten using \u003e, two using \u003c",
-    "expected": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 USING \u003c, ten USING \u003e, two USING \u003c"
+    "query": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 using <, ten using >, two using <",
+    "expected": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 USING <, ten USING >, two USING <"
   },
   {
     "comment": "select_distinct_on - Statement 4",

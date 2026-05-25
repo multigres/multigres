@@ -376,28 +376,28 @@
   },
   {
     "comment": "groupingsets - Statement 76",
-    "query": "select ten, grouping(ten) from onek group by grouping sets(ten) having grouping(ten) \u003e= 0 order by 2,1",
-    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS (ten) HAVING GROUPING(ten) \u003e= 0 ORDER BY 2, 1"
+    "query": "select ten, grouping(ten) from onek group by grouping sets(ten) having grouping(ten) >= 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS (ten) HAVING GROUPING(ten) >= 0 ORDER BY 2, 1"
   },
   {
     "comment": "groupingsets - Statement 77",
-    "query": "select ten, grouping(ten) from onek group by grouping sets(ten, four) having grouping(ten) \u003e 0 order by 2,1",
-    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS (ten, four) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+    "query": "select ten, grouping(ten) from onek group by grouping sets(ten, four) having grouping(ten) > 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS (ten, four) HAVING GROUPING(ten) > 0 ORDER BY 2, 1"
   },
   {
     "comment": "groupingsets - Statement 78",
-    "query": "select ten, grouping(ten) from onek group by rollup(ten) having grouping(ten) \u003e 0 order by 2,1",
-    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY ROLLUP(ten) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+    "query": "select ten, grouping(ten) from onek group by rollup(ten) having grouping(ten) > 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY ROLLUP(ten) HAVING GROUPING(ten) > 0 ORDER BY 2, 1"
   },
   {
     "comment": "groupingsets - Statement 79",
-    "query": "select ten, grouping(ten) from onek group by cube(ten) having grouping(ten) \u003e 0 order by 2,1",
-    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY CUBE(ten) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+    "query": "select ten, grouping(ten) from onek group by cube(ten) having grouping(ten) > 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY CUBE(ten) HAVING GROUPING(ten) > 0 ORDER BY 2, 1"
   },
   {
     "comment": "groupingsets - Statement 80",
-    "query": "select ten, grouping(ten) from onek group by (ten) having grouping(ten) \u003e= 0 order by 2,1",
-    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY (ten) HAVING GROUPING(ten) \u003e= 0 ORDER BY 2, 1"
+    "query": "select ten, grouping(ten) from onek group by (ten) having grouping(ten) >= 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY (ten) HAVING GROUPING(ten) >= 0 ORDER BY 2, 1"
   },
   {
     "comment": "groupingsets - Statement 81",

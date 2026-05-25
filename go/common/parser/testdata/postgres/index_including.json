@@ -170,13 +170,13 @@
   },
   {
     "comment": "index_including - Statement 35",
-    "query": "explain (costs off) select * from tbl where (c1,c2,c3) \u003c (2,5,1)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (2, 5, 1)"
+    "query": "explain (costs off) select * from tbl where (c1,c2,c3) < (2,5,1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) < (2, 5, 1)"
   },
   {
     "comment": "index_including - Statement 36",
-    "query": "select * from tbl where (c1,c2,c3) \u003c (2,5,1)",
-    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (2, 5, 1)"
+    "query": "select * from tbl where (c1,c2,c3) < (2,5,1)",
+    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) < (2, 5, 1)"
   },
   {
     "comment": "index_including - Statement 37",
@@ -184,13 +184,13 @@
   },
   {
     "comment": "index_including - Statement 38",
-    "query": "explain (costs off) select * from tbl where (c1,c2,c3) \u003c (262,1,1) limit 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (262, 1, 1) LIMIT 1"
+    "query": "explain (costs off) select * from tbl where (c1,c2,c3) < (262,1,1) limit 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) < (262, 1, 1) LIMIT 1"
   },
   {
     "comment": "index_including - Statement 39",
-    "query": "select * from tbl where (c1,c2,c3) \u003c (262,1,1) limit 1",
-    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (262, 1, 1) LIMIT 1"
+    "query": "select * from tbl where (c1,c2,c3) < (262,1,1) limit 1",
+    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) < (262, 1, 1) LIMIT 1"
   },
   {
     "comment": "index_including - Statement 40",

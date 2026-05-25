@@ -161,18 +161,18 @@
   },
   {
     "comment": "interval - Statement 34",
-    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 \u003c\u003e interval '@ 10 days'",
-    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 \u003c\u003e CAST('@ 10 days' AS INTERVAL)"
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 <> interval '@ 10 days'",
+    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 <> CAST('@ 10 days' AS INTERVAL)"
   },
   {
     "comment": "interval - Statement 35",
-    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 \u003c= interval '@ 5 hours'",
-    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 \u003c= CAST('@ 5 hours' AS INTERVAL)"
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 <= interval '@ 5 hours'",
+    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 <= CAST('@ 5 hours' AS INTERVAL)"
   },
   {
     "comment": "interval - Statement 36",
-    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 \u003c interval '@ 1 day'",
-    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 \u003c CAST('@ 1 day' AS INTERVAL)"
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 < interval '@ 1 day'",
+    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 < CAST('@ 1 day' AS INTERVAL)"
   },
   {
     "comment": "interval - Statement 37",
@@ -181,18 +181,18 @@
   },
   {
     "comment": "interval - Statement 38",
-    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 \u003e= interval '@ 1 month'",
-    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 \u003e= CAST('@ 1 month' AS INTERVAL)"
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 >= interval '@ 1 month'",
+    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 >= CAST('@ 1 month' AS INTERVAL)"
   },
   {
     "comment": "interval - Statement 39",
-    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 \u003e interval '@ 3 seconds ago'",
-    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 \u003e CAST('@ 3 seconds ago' AS INTERVAL)"
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 > interval '@ 3 seconds ago'",
+    "expected": "SELECT * FROM interval_tbl WHERE interval_tbl.f1 > CAST('@ 3 seconds ago' AS INTERVAL)"
   },
   {
     "comment": "interval - Statement 40",
-    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL r1, INTERVAL_TBL r2 WHERE r1.f1 \u003e r2.f1 ORDER BY r1.f1, r2.f1",
-    "expected": "SELECT r1.*, r2.* FROM interval_tbl AS r1, interval_tbl AS r2 WHERE r1.f1 \u003e r2.f1 ORDER BY r1.f1, r2.f1"
+    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL r1, INTERVAL_TBL r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1",
+    "expected": "SELECT r1.*, r2.* FROM interval_tbl AS r1, interval_tbl AS r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1"
   },
   {
     "comment": "interval - Statement 41",
@@ -271,8 +271,8 @@
   },
   {
     "comment": "interval - Statement 56",
-    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL_OF r1, INTERVAL_TBL_OF r2 WHERE r1.f1 \u003e r2.f1 ORDER BY r1.f1, r2.f1",
-    "expected": "SELECT r1.*, r2.* FROM interval_tbl_of AS r1, interval_tbl_of AS r2 WHERE r1.f1 \u003e r2.f1 ORDER BY r1.f1, r2.f1"
+    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL_OF r1, INTERVAL_TBL_OF r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1",
+    "expected": "SELECT r1.*, r2.* FROM interval_tbl_of AS r1, interval_tbl_of AS r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1"
   },
   {
     "comment": "interval - Statement 57",
@@ -1576,67 +1576,67 @@
   {
     "comment": "interval - Statement 317",
     "query": "select make_interval(years := 178956971)",
-    "expected": "SELECT make_interval(years =\u003e 178956971)"
+    "expected": "SELECT make_interval(years => 178956971)"
   },
   {
     "comment": "interval - Statement 318",
     "query": "select make_interval(years := -178956971)",
-    "expected": "SELECT make_interval(years =\u003e -178956971)"
+    "expected": "SELECT make_interval(years => -178956971)"
   },
   {
     "comment": "interval - Statement 319",
     "query": "select make_interval(years := 1, months := 2147483647)",
-    "expected": "SELECT make_interval(years =\u003e 1, months =\u003e 2147483647)"
+    "expected": "SELECT make_interval(years => 1, months => 2147483647)"
   },
   {
     "comment": "interval - Statement 320",
     "query": "select make_interval(years := -1, months := -2147483648)",
-    "expected": "SELECT make_interval(years =\u003e -1, months =\u003e -2147483648)"
+    "expected": "SELECT make_interval(years => -1, months => -2147483648)"
   },
   {
     "comment": "interval - Statement 321",
     "query": "select make_interval(weeks := 306783379)",
-    "expected": "SELECT make_interval(weeks =\u003e 306783379)"
+    "expected": "SELECT make_interval(weeks => 306783379)"
   },
   {
     "comment": "interval - Statement 322",
     "query": "select make_interval(weeks := -306783379)",
-    "expected": "SELECT make_interval(weeks =\u003e -306783379)"
+    "expected": "SELECT make_interval(weeks => -306783379)"
   },
   {
     "comment": "interval - Statement 323",
     "query": "select make_interval(weeks := 1, days := 2147483647)",
-    "expected": "SELECT make_interval(weeks =\u003e 1, days =\u003e 2147483647)"
+    "expected": "SELECT make_interval(weeks => 1, days => 2147483647)"
   },
   {
     "comment": "interval - Statement 324",
     "query": "select make_interval(weeks := -1, days := -2147483648)",
-    "expected": "SELECT make_interval(weeks =\u003e -1, days =\u003e -2147483648)"
+    "expected": "SELECT make_interval(weeks => -1, days => -2147483648)"
   },
   {
     "comment": "interval - Statement 325",
     "query": "select make_interval(secs := 1e308)",
-    "expected": "SELECT make_interval(secs =\u003e 1e308)"
+    "expected": "SELECT make_interval(secs => 1e308)"
   },
   {
     "comment": "interval - Statement 326",
     "query": "select make_interval(secs := 1e18)",
-    "expected": "SELECT make_interval(secs =\u003e 1e18)"
+    "expected": "SELECT make_interval(secs => 1e18)"
   },
   {
     "comment": "interval - Statement 327",
     "query": "select make_interval(secs := -1e18)",
-    "expected": "SELECT make_interval(secs =\u003e -1e18)"
+    "expected": "SELECT make_interval(secs => -1e18)"
   },
   {
     "comment": "interval - Statement 328",
     "query": "select make_interval(mins := 1, secs := 9223372036800.0)",
-    "expected": "SELECT make_interval(mins =\u003e 1, secs =\u003e 9223372036800.0)"
+    "expected": "SELECT make_interval(mins => 1, secs => 9223372036800.0)"
   },
   {
     "comment": "interval - Statement 329",
     "query": "select make_interval(mins := -1, secs := -9223372036800.0)",
-    "expected": "SELECT make_interval(mins =\u003e -1, secs =\u003e -9223372036800.0)"
+    "expected": "SELECT make_interval(mins => -1, secs => -9223372036800.0)"
   },
   {
     "comment": "interval - Statement 330",
@@ -1656,52 +1656,52 @@
   {
     "comment": "interval - Statement 333",
     "query": "select make_interval(years := 2)",
-    "expected": "SELECT make_interval(years =\u003e 2)"
+    "expected": "SELECT make_interval(years => 2)"
   },
   {
     "comment": "interval - Statement 334",
     "query": "select make_interval(years := 1, months := 6)",
-    "expected": "SELECT make_interval(years =\u003e 1, months =\u003e 6)"
+    "expected": "SELECT make_interval(years => 1, months => 6)"
   },
   {
     "comment": "interval - Statement 335",
     "query": "select make_interval(years := 1, months := -1, weeks := 5, days := -7, hours := 25, mins := -180)",
-    "expected": "SELECT make_interval(years =\u003e 1, months =\u003e -1, weeks =\u003e 5, days =\u003e -7, hours =\u003e 25, mins =\u003e -180)"
+    "expected": "SELECT make_interval(years => 1, months => -1, weeks => 5, days => -7, hours => 25, mins => -180)"
   },
   {
     "comment": "interval - Statement 336",
     "query": "select make_interval() = make_interval(years := 0, months := 0, weeks := 0, days := 0, mins := 0, secs := 0.0)",
-    "expected": "SELECT make_interval() = make_interval(years =\u003e 0, months =\u003e 0, weeks =\u003e 0, days =\u003e 0, mins =\u003e 0, secs =\u003e 0.0)"
+    "expected": "SELECT make_interval() = make_interval(years => 0, months => 0, weeks => 0, days => 0, mins => 0, secs => 0.0)"
   },
   {
     "comment": "interval - Statement 337",
     "query": "select make_interval(hours := -2, mins := -10, secs := -25.3)",
-    "expected": "SELECT make_interval(hours =\u003e -2, mins =\u003e -10, secs =\u003e -25.3)"
+    "expected": "SELECT make_interval(hours => -2, mins => -10, secs => -25.3)"
   },
   {
     "comment": "interval - Statement 338",
     "query": "select make_interval(years := 'inf'::float::int)",
-    "expected": "SELECT make_interval(years =\u003e CAST(CAST('inf' AS FLOAT8) AS INT))"
+    "expected": "SELECT make_interval(years => CAST(CAST('inf' AS FLOAT8) AS INT))"
   },
   {
     "comment": "interval - Statement 339",
     "query": "select make_interval(months := 'NaN'::float::int)",
-    "expected": "SELECT make_interval(months =\u003e CAST(CAST('NaN' AS FLOAT8) AS INT))"
+    "expected": "SELECT make_interval(months => CAST(CAST('NaN' AS FLOAT8) AS INT))"
   },
   {
     "comment": "interval - Statement 340",
     "query": "select make_interval(secs := 'inf')",
-    "expected": "SELECT make_interval(secs =\u003e 'inf')"
+    "expected": "SELECT make_interval(secs => 'inf')"
   },
   {
     "comment": "interval - Statement 341",
     "query": "select make_interval(secs := 'NaN')",
-    "expected": "SELECT make_interval(secs =\u003e 'NaN')"
+    "expected": "SELECT make_interval(secs => 'NaN')"
   },
   {
     "comment": "interval - Statement 342",
     "query": "select make_interval(secs := 7e12)",
-    "expected": "SELECT make_interval(secs =\u003e 7e12)"
+    "expected": "SELECT make_interval(secs => 7e12)"
   },
   {
     "comment": "interval - Statement 343",
@@ -1890,8 +1890,8 @@
   },
   {
     "comment": "interval - Statement 384",
-    "query": "SELECT lhst.i lhs, rhst.i rhs, lhst.i \u003c rhst.i AS lt, lhst.i \u003c= rhst.i AS le, lhst.i = rhst.i AS eq, lhst.i \u003e rhst.i AS gt, lhst.i \u003e= rhst.i AS ge, lhst.i \u003c\u003e rhst.i AS ne FROM INFINITE_INTERVAL_TBL lhst CROSS JOIN INFINITE_INTERVAL_TBL rhst WHERE NOT isfinite(lhst.i)",
-    "expected": "SELECT lhst.i AS lhs, rhst.i AS rhs, lhst.i \u003c rhst.i AS lt, lhst.i \u003c= rhst.i AS le, lhst.i = rhst.i AS eq, lhst.i \u003e rhst.i AS gt, lhst.i \u003e= rhst.i AS ge, lhst.i \u003c\u003e rhst.i AS ne FROM infinite_interval_tbl AS lhst INNER JOIN infinite_interval_tbl AS rhst ON TRUE WHERE NOT isfinite(lhst.i)"
+    "query": "SELECT lhst.i lhs, rhst.i rhs, lhst.i < rhst.i AS lt, lhst.i <= rhst.i AS le, lhst.i = rhst.i AS eq, lhst.i > rhst.i AS gt, lhst.i >= rhst.i AS ge, lhst.i <> rhst.i AS ne FROM INFINITE_INTERVAL_TBL lhst CROSS JOIN INFINITE_INTERVAL_TBL rhst WHERE NOT isfinite(lhst.i)",
+    "expected": "SELECT lhst.i AS lhs, rhst.i AS rhs, lhst.i < rhst.i AS lt, lhst.i <= rhst.i AS le, lhst.i = rhst.i AS eq, lhst.i > rhst.i AS gt, lhst.i >= rhst.i AS ge, lhst.i <> rhst.i AS ne FROM infinite_interval_tbl AS lhst INNER JOIN infinite_interval_tbl AS rhst ON TRUE WHERE NOT isfinite(lhst.i)"
   },
   {
     "comment": "interval - Statement 385",

@@ -701,8 +701,8 @@
   },
   {
     "comment": "foreign_key - Statement 141",
-    "query": "delete from pktable where base1\u003e2",
-    "expected": "DELETE FROM pktable WHERE base1 \u003e 2"
+    "query": "delete from pktable where base1>2",
+    "expected": "DELETE FROM pktable WHERE base1 > 2"
   },
   {
     "comment": "foreign_key - Statement 142",
@@ -711,13 +711,13 @@
   },
   {
     "comment": "foreign_key - Statement 143",
-    "query": "update pktable set base1=base1*4 where base1\u003c3",
-    "expected": "UPDATE pktable SET base1 = base1 * 4 WHERE base1 \u003c 3"
+    "query": "update pktable set base1=base1*4 where base1<3",
+    "expected": "UPDATE pktable SET base1 = base1 * 4 WHERE base1 < 3"
   },
   {
     "comment": "foreign_key - Statement 144",
-    "query": "delete from pktable where base1\u003e3",
-    "expected": "DELETE FROM pktable WHERE base1 \u003e 3"
+    "query": "delete from pktable where base1>3",
+    "expected": "DELETE FROM pktable WHERE base1 > 3"
   },
   {
     "comment": "foreign_key - Statement 145",
@@ -1549,8 +1549,8 @@
   },
   {
     "comment": "foreign_key - Statement 321",
-    "query": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY(a), CHECK (a \u003e 0))",
-    "expected": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY (a), CHECK (a \u003e 0))"
+    "query": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY(a), CHECK (a > 0))",
+    "expected": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY (a), CHECK (a > 0))"
   },
   {
     "comment": "foreign_key - Statement 322",
@@ -2592,8 +2592,8 @@
   },
   {
     "comment": "foreign_key - Statement 556",
-    "query": "SELECT pg_describe_object('pg_constraint'::regclass, oid, 0), confrelid::regclass, CASE WHEN conparentid \u003c\u003e 0 THEN pg_describe_object('pg_constraint'::regclass, conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY conrelid::regclass::text, conname",
-    "expected": "SELECT pg_describe_object(CAST('pg_constraint' AS regclass), oid, 0), CAST(confrelid AS regclass), CASE WHEN conparentid \u003c\u003e 0 THEN pg_describe_object(CAST('pg_constraint' AS regclass), conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY CAST(CAST(conrelid AS regclass) AS TEXT), conname"
+    "query": "SELECT pg_describe_object('pg_constraint'::regclass, oid, 0), confrelid::regclass, CASE WHEN conparentid <> 0 THEN pg_describe_object('pg_constraint'::regclass, conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY conrelid::regclass::text, conname",
+    "expected": "SELECT pg_describe_object(CAST('pg_constraint' AS regclass), oid, 0), CAST(confrelid AS regclass), CASE WHEN conparentid <> 0 THEN pg_describe_object(CAST('pg_constraint' AS regclass), conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY CAST(CAST(conrelid AS regclass) AS TEXT), conname"
   },
   {
     "comment": "foreign_key - Statement 557",

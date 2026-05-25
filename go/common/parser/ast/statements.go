@@ -290,6 +290,45 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 	return result.String()
 }
 
+// renderSetClauses renders the assignment list of a SET clause (UPDATE or
+// ON CONFLICT DO UPDATE). A multi-column assignment `SET (a, b, ...) = <source>`
+// is parsed into one ResTarget per column, each holding a MultiAssignRef that
+// points at the shared source; those are regrouped so the source is emitted once
+// (rendering each as `a = <source>` would be wrong).
+func renderSetClauses(items []Node) []string {
+	var setClauses []string
+	for i := 0; i < len(items); i++ {
+		target, ok := items[i].(*ResTarget)
+		if !ok || target.Name == "" || target.Val == nil {
+			continue
+		}
+		if mar, ok := target.Val.(*MultiAssignRef); ok && mar.Colno == 1 {
+			cols := []string{target.ColumnNameWithIndirection()}
+			j := i + 1
+			for ; j < len(items) && len(cols) < mar.Ncolumns; j++ {
+				next, ok := items[j].(*ResTarget)
+				if !ok {
+					break
+				}
+				nextMar, ok := next.Val.(*MultiAssignRef)
+				if !ok || nextMar.Colno != len(cols)+1 {
+					break
+				}
+				cols = append(cols, next.ColumnNameWithIndirection())
+			}
+			source := ""
+			if mar.Source != nil {
+				source = mar.Source.SqlString()
+			}
+			setClauses = append(setClauses, "("+strings.Join(cols, ", ")+") = "+source)
+			i = j - 1
+			continue
+		}
+		setClauses = append(setClauses, target.SetClauseString())
+	}
+	return setClauses
+}
+
 // SetClauseString returns the SQL representation for SET clauses (UPDATE, ON CONFLICT DO UPDATE)
 // Format: "column[index] = value" instead of "value AS column"
 func (r *ResTarget) SetClauseString() string {
@@ -960,42 +999,7 @@ func (u *UpdateStmt) SqlString() string {
 
 	// SET clause
 	if u.TargetList != nil && u.TargetList.Len() > 0 {
-		var setClauses []string
-		items := u.TargetList.Items
-		for i := 0; i < len(items); i++ {
-			target, ok := items[i].(*ResTarget)
-			if !ok || target.Name == "" || target.Val == nil {
-				continue
-			}
-			// A multi-column assignment, `SET (a, b, ...) = <source>`, is parsed
-			// into one ResTarget per column, each holding a MultiAssignRef that
-			// points at the shared source. Regroup them so the source is emitted
-			// once; rendering each as `a = <source>` would be wrong.
-			if mar, ok := target.Val.(*MultiAssignRef); ok && mar.Colno == 1 {
-				cols := []string{target.ColumnNameWithIndirection()}
-				j := i + 1
-				for ; j < len(items) && len(cols) < mar.Ncolumns; j++ {
-					next, ok := items[j].(*ResTarget)
-					if !ok {
-						break
-					}
-					nextMar, ok := next.Val.(*MultiAssignRef)
-					if !ok || nextMar.Colno != len(cols)+1 {
-						break
-					}
-					cols = append(cols, next.ColumnNameWithIndirection())
-				}
-				source := ""
-				if mar.Source != nil {
-					source = mar.Source.SqlString()
-				}
-				setClauses = append(setClauses, "("+strings.Join(cols, ", ")+") = "+source)
-				i = j - 1
-				continue
-			}
-			setClauses = append(setClauses, target.SetClauseString())
-		}
-		parts = append(parts, "SET", strings.Join(setClauses, ", "))
+		parts = append(parts, "SET", strings.Join(renderSetClauses(u.TargetList.Items), ", "))
 	}
 
 	// FROM clause
@@ -1553,13 +1557,7 @@ func (n *OnConflictClause) SqlString() string {
 	parts = append(parts, n.Action.SqlString())
 
 	if n.Action == ONCONFLICT_UPDATE && n.TargetList != nil && n.TargetList.Len() > 0 {
-		var targets []string
-		for _, item := range n.TargetList.Items {
-			if target, ok := item.(*ResTarget); ok {
-				// Use ResTarget's SetClauseString method for proper formatting
-				targets = append(targets, target.SetClauseString())
-			}
-		}
+		targets := renderSetClauses(n.TargetList.Items)
 		if len(targets) > 0 {
 			parts = append(parts, "SET", strings.Join(targets, ", "))
 		}

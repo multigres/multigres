@@ -76,8 +76,8 @@
   },
   {
     "comment": "psql - Statement 17",
-    "query": "select format('create index on gexec_test(%I)', attname) from pg_attribute where attrelid = 'gexec_test'::regclass and attnum \u003e 0 order by attnum",
-    "expected": "SELECT format('create index on gexec_test(%I)', attname) FROM pg_attribute WHERE attrelid = CAST('gexec_test' AS regclass) AND attnum \u003e 0 ORDER BY attnum"
+    "query": "select format('create index on gexec_test(%I)', attname) from pg_attribute where attrelid = 'gexec_test'::regclass and attnum > 0 order by attnum",
+    "expected": "SELECT format('create index on gexec_test(%I)', attname) FROM pg_attribute WHERE attrelid = CAST('gexec_test' AS regclass) AND attnum > 0 ORDER BY attnum"
   },
   {
     "comment": "psql - Statement 18",

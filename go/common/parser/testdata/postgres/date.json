@@ -96,8 +96,8 @@
   },
   {
     "comment": "date - Statement 20",
-    "query": "SELECT f1 FROM DATE_TBL WHERE f1 \u003c '2000-01-01'",
-    "expected": "SELECT f1 FROM date_tbl WHERE f1 \u003c '2000-01-01'"
+    "query": "SELECT f1 FROM DATE_TBL WHERE f1 < '2000-01-01'",
+    "expected": "SELECT f1 FROM date_tbl WHERE f1 < '2000-01-01'"
   },
   {
     "comment": "date - Statement 21",
@@ -480,8 +480,8 @@
   },
   {
     "comment": "date - Statement 98",
-    "query": "SELECT EXTRACT(CENTURY FROM CURRENT_DATE)\u003e=21 AS True",
-    "expected": "SELECT extract(century FROM CURRENT_DATE) \u003e= 21 AS \"true\""
+    "query": "SELECT EXTRACT(CENTURY FROM CURRENT_DATE)>=21 AS True",
+    "expected": "SELECT extract(century FROM CURRENT_DATE) >= 21 AS \"true\""
   },
   {
     "comment": "date - Statement 99",
@@ -740,13 +740,13 @@
   },
   {
     "comment": "date - Statement 150",
-    "query": "select 'infinity'::date \u003e 'today'::date as t",
-    "expected": "SELECT CAST('infinity' AS DATE) \u003e CAST('today' AS DATE) AS t"
+    "query": "select 'infinity'::date > 'today'::date as t",
+    "expected": "SELECT CAST('infinity' AS DATE) > CAST('today' AS DATE) AS t"
   },
   {
     "comment": "date - Statement 151",
-    "query": "select '-infinity'::date \u003c 'today'::date as t",
-    "expected": "SELECT CAST('-infinity' AS DATE) \u003c CAST('today' AS DATE) AS t"
+    "query": "select '-infinity'::date < 'today'::date as t",
+    "expected": "SELECT CAST('-infinity' AS DATE) < CAST('today' AS DATE) AS t"
   },
   {
     "comment": "date - Statement 152",

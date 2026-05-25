@@ -28,8 +28,8 @@
   },
   {
     "comment": "tuplesort - Statement 7",
-    "query": "INSERT INTO abbrev_abort_uuids (abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing) SELECT abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing FROM abbrev_abort_uuids WHERE (id \u003c 10 OR id \u003e 19990) AND id % 3 = 0 AND abort_increasing is not null",
-    "expected": "INSERT INTO abbrev_abort_uuids (abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing) (SELECT abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing FROM abbrev_abort_uuids WHERE (id \u003c 10 OR id \u003e 19990) AND id % 3 = 0 AND abort_increasing IS NOT NULL)"
+    "query": "INSERT INTO abbrev_abort_uuids (abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing) SELECT abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing FROM abbrev_abort_uuids WHERE (id < 10 OR id > 19990) AND id % 3 = 0 AND abort_increasing is not null",
+    "expected": "INSERT INTO abbrev_abort_uuids (abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing) (SELECT abort_increasing, abort_decreasing, noabort_increasing, noabort_decreasing FROM abbrev_abort_uuids WHERE (id < 10 OR id > 19990) AND id % 3 = 0 AND abort_increasing IS NOT NULL)"
   },
   {
     "comment": "tuplesort - Statement 8",
@@ -211,8 +211,8 @@
   },
   {
     "comment": "tuplesort - Statement 49",
-    "query": "SELECT $$ SELECT col12, count(distinct a.col1), count(distinct a.col2), count(distinct b.col1), count(distinct b.col2), count(*) FROM test_mark_restore a JOIN test_mark_restore b USING(col12) GROUP BY 1 HAVING count(*) \u003e 1 ORDER BY 2 DESC, 1 DESC, 3 DESC, 4 DESC, 5 DESC, 6 DESC LIMIT 10 $$ AS qry",
-    "expected": "SELECT ' SELECT col12, count(distinct a.col1), count(distinct a.col2), count(distinct b.col1), count(distinct b.col2), count(*) FROM test_mark_restore a JOIN test_mark_restore b USING(col12) GROUP BY 1 HAVING count(*) \u003e 1 ORDER BY 2 DESC, 1 DESC, 3 DESC, 4 DESC, 5 DESC, 6 DESC LIMIT 10 ' AS qry"
+    "query": "SELECT $$ SELECT col12, count(distinct a.col1), count(distinct a.col2), count(distinct b.col1), count(distinct b.col2), count(*) FROM test_mark_restore a JOIN test_mark_restore b USING(col12) GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC, 1 DESC, 3 DESC, 4 DESC, 5 DESC, 6 DESC LIMIT 10 $$ AS qry",
+    "expected": "SELECT ' SELECT col12, count(distinct a.col1), count(distinct a.col2), count(distinct b.col1), count(distinct b.col2), count(*) FROM test_mark_restore a JOIN test_mark_restore b USING(col12) GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC, 1 DESC, 3 DESC, 4 DESC, 5 DESC, 6 DESC LIMIT 10 ' AS qry"
   },
   {
     "comment": "tuplesort - Statement 50",

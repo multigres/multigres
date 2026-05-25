@@ -790,10 +790,6 @@ func (f *FuncCall) SqlString() string {
 					name = "POSITION"
 				case "substring":
 					name = "substring"
-				case "trim":
-					name = "trim"
-				case "btrim":
-					name = "trim"
 				}
 				nameParts = append(nameParts, name)
 			}

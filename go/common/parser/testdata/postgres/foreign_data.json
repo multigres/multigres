@@ -543,8 +543,8 @@
   },
   {
     "comment": "foreign_data - Statement 127",
-    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3') CHECK (c2 \u003c\u003e ''), c3 date, CHECK (c3 BETWEEN '1994-01-01'::date AND '1994-01-31'::date) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') NOT NULL, c2 TEXT OPTIONS (param2 'val2', param3 'val3') CHECK (c2 \u003c\u003e ''), c3 DATE, CHECK (c3 BETWEEN CAST('1994-01-01' AS DATE) AND CAST('1994-01-31' AS DATE))) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3') CHECK (c2 <> ''), c3 date, CHECK (c3 BETWEEN '1994-01-01'::date AND '1994-01-31'::date) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT OPTIONS (\"param 1\" 'val1') NOT NULL, c2 TEXT OPTIONS (param2 'val2', param3 'val3') CHECK (c2 <> ''), c3 DATE, CHECK (c3 BETWEEN CAST('1994-01-01' AS DATE) AND CAST('1994-01-31' AS DATE))) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 128",
@@ -764,7 +764,7 @@
   },
   {
     "comment": "foreign_data - Statement 178",
-    "query": "ALTER FOREIGN TABLE ft1 ADD CONSTRAINT ft1_c9_check CHECK (c9 \u003c 0) NOT VALID"
+    "query": "ALTER FOREIGN TABLE ft1 ADD CONSTRAINT ft1_c9_check CHECK (c9 < 0) NOT VALID"
   },
   {
     "comment": "foreign_data - Statement 179",
@@ -1349,7 +1349,7 @@
   },
   {
     "comment": "foreign_data - Statement 314",
-    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 \u003c\u003e '')"
+    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 <> '')"
   },
   {
     "comment": "foreign_data - Statement 315",
@@ -1371,7 +1371,7 @@
   },
   {
     "comment": "foreign_data - Statement 319",
-    "query": "ALTER FOREIGN TABLE ft2 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 \u003c\u003e '')"
+    "query": "ALTER FOREIGN TABLE ft2 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 <> '')"
   },
   {
     "comment": "foreign_data - Statement 320",
@@ -1384,7 +1384,7 @@
   },
   {
     "comment": "foreign_data - Statement 322",
-    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk3 CHECK (c2 \u003c\u003e '') NOT VALID"
+    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk3 CHECK (c2 <> '') NOT VALID"
   },
   {
     "comment": "foreign_data - Statement 323",
@@ -1464,7 +1464,7 @@
   },
   {
     "comment": "foreign_data - Statement 341",
-    "query": "ALTER TABLE fd_pt2_1 ADD CONSTRAINT p21chk CHECK (c2 \u003c\u003e '')"
+    "query": "ALTER TABLE fd_pt2_1 ADD CONSTRAINT p21chk CHECK (c2 <> '')"
   },
   {
     "comment": "foreign_data - Statement 342",
@@ -1486,11 +1486,11 @@
   },
   {
     "comment": "foreign_data - Statement 346",
-    "query": "ALTER TABLE fd_pt2 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 \u003e 0)"
+    "query": "ALTER TABLE fd_pt2 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 > 0)"
   },
   {
     "comment": "foreign_data - Statement 347",
-    "query": "ALTER FOREIGN TABLE fd_pt2_1 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 \u003e 0)"
+    "query": "ALTER FOREIGN TABLE fd_pt2_1 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 > 0)"
   },
   {
     "comment": "foreign_data - Statement 348",

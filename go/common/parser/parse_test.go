@@ -150,6 +150,9 @@ func (s *parseTestSuite) testFile(filename string) {
 
 			enc := json.NewEncoder(file)
 			enc.SetIndent("", "  ")
+			// Keep SQL readable: by default the encoder HTML-escapes <, >, and &
+			// to <, >, &, which clutters the SQL test data.
+			enc.SetEscapeHTML(false)
 			err = enc.Encode(expected)
 			require.NoError(t, err)
 
@@ -306,6 +309,11 @@ func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 			// overlay, ...) as pg_catalog.<fn>; the deparser renders them plain.
 			// pg_catalog is their implicit schema, so strip it the same way.
 			stripLeadingPgCatalog(n.Funcname)
+			// Funcformat records whether the call used special SQL syntax
+			// (COERCE_SQL_SYNTAX, e.g. `collation for (x)`, `TRIM(...)`) or a
+			// plain call; it is display metadata that flips when the deparser
+			// emits the plain-call form, so normalize it.
+			n.Funcformat = ast.COERCE_EXPLICIT_CALL
 		case *ast.FunctionParameter:
 			// IN is the default parameter mode and PostgreSQL omits it when
 			// printing, so a parameter parsed as IN deparses without a mode and

@@ -251,13 +251,13 @@
   },
   {
     "comment": "copy2 - Statement 56",
-    "query": "COPY x from stdin WHERE a \u003e 60003",
-    "expected": "COPY x FROM STDIN WHERE a \u003e 60003"
+    "query": "COPY x from stdin WHERE a > 60003",
+    "expected": "COPY x FROM STDIN WHERE a > 60003"
   },
   {
     "comment": "copy2 - Statement 57",
-    "query": "COPY x from stdin WHERE f \u003e 60003",
-    "expected": "COPY x FROM STDIN WHERE f \u003e 60003"
+    "query": "COPY x from stdin WHERE f > 60003",
+    "expected": "COPY x FROM STDIN WHERE f > 60003"
   },
   {
     "comment": "copy2 - Statement 58",
@@ -598,8 +598,8 @@
   },
   {
     "comment": "copy2 - Statement 134",
-    "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ language plpgsql immutable;",
-    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 > 0; end $$ language plpgsql immutable;",
+    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 > 0; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "copy2 - Statement 137",

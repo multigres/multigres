@@ -380,8 +380,8 @@
   },
   {
     "comment": "triggers - Statement 78",
-    "query": "select * from tttest where price_on \u003c= 35 and price_off \u003e 35 and price_id = 5",
-    "expected": "SELECT * FROM tttest WHERE price_on \u003c= 35 AND price_off \u003e 35 AND price_id = 5"
+    "query": "select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5",
+    "expected": "SELECT * FROM tttest WHERE price_on <= 35 AND price_off > 35 AND price_id = 5"
   },
   {
     "comment": "triggers - Statement 79",
@@ -444,11 +444,11 @@
   },
   {
     "comment": "triggers - Statement 91",
-    "query": "UPDATE main_table SET a = a + 1 WHERE b \u003c 30"
+    "query": "UPDATE main_table SET a = a + 1 WHERE b < 30"
   },
   {
     "comment": "triggers - Statement 92",
-    "query": "UPDATE main_table SET a = a + 2 WHERE b \u003e 100"
+    "query": "UPDATE main_table SET a = a + 2 WHERE b > 100"
   },
   {
     "comment": "triggers - Statement 93",
@@ -465,8 +465,8 @@
   },
   {
     "comment": "triggers - Statement 96",
-    "query": "CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (OLD.a \u003c\u003e NEW.a) EXECUTE PROCEDURE trigger_func('modified_a')",
-    "expected": "CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (old.a \u003c\u003e new.a) EXECUTE FUNCTION trigger_func('modified_a')"
+    "query": "CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('modified_a')",
+    "expected": "CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (old.a <> new.a) EXECUTE FUNCTION trigger_func('modified_a')"
   },
   {
     "comment": "triggers - Statement 97",
@@ -583,8 +583,8 @@
   },
   {
     "comment": "triggers - Statement 122",
-    "query": "create trigger oid_unchanged_trig after update on table_with_oids for each row when (new.tableoid = old.tableoid AND new.tableoid \u003c\u003e 0) execute procedure trigger_func('after_upd_oid_unchanged')",
-    "expected": "CREATE TRIGGER oid_unchanged_trig AFTER UPDATE ON table_with_oids FOR EACH ROW WHEN (new.tableoid = old.tableoid AND new.tableoid \u003c\u003e 0) EXECUTE FUNCTION trigger_func('after_upd_oid_unchanged')"
+    "query": "create trigger oid_unchanged_trig after update on table_with_oids for each row when (new.tableoid = old.tableoid AND new.tableoid <> 0) execute procedure trigger_func('after_upd_oid_unchanged')",
+    "expected": "CREATE TRIGGER oid_unchanged_trig AFTER UPDATE ON table_with_oids FOR EACH ROW WHEN (new.tableoid = old.tableoid AND new.tableoid <> 0) EXECUTE FUNCTION trigger_func('after_upd_oid_unchanged')"
   },
   {
     "comment": "triggers - Statement 123",
@@ -696,18 +696,18 @@
   },
   {
     "comment": "triggers - Statement 146",
-    "query": "CREATE TRIGGER error_ins_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a \u003c\u003e NEW.a) EXECUTE PROCEDURE trigger_func('error_ins_old')",
-    "expected": "CREATE TRIGGER error_ins_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (old.a \u003c\u003e new.a) EXECUTE FUNCTION trigger_func('error_ins_old')"
+    "query": "CREATE TRIGGER error_ins_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('error_ins_old')",
+    "expected": "CREATE TRIGGER error_ins_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (old.a <> new.a) EXECUTE FUNCTION trigger_func('error_ins_old')"
   },
   {
     "comment": "triggers - Statement 147",
-    "query": "CREATE TRIGGER error_del_when BEFORE DELETE OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a \u003c\u003e NEW.a) EXECUTE PROCEDURE trigger_func('error_del_new')",
-    "expected": "CREATE TRIGGER error_del_when BEFORE UPDATE OR DELETE ON main_table FOR EACH ROW WHEN (old.a \u003c\u003e new.a) EXECUTE FUNCTION trigger_func('error_del_new')"
+    "query": "CREATE TRIGGER error_del_when BEFORE DELETE OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('error_del_new')",
+    "expected": "CREATE TRIGGER error_del_when BEFORE UPDATE OR DELETE ON main_table FOR EACH ROW WHEN (old.a <> new.a) EXECUTE FUNCTION trigger_func('error_del_new')"
   },
   {
     "comment": "triggers - Statement 148",
-    "query": "CREATE TRIGGER error_del_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (NEW.tableoid \u003c\u003e 0) EXECUTE PROCEDURE trigger_func('error_when_sys_column')",
-    "expected": "CREATE TRIGGER error_del_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (new.tableoid \u003c\u003e 0) EXECUTE FUNCTION trigger_func('error_when_sys_column')"
+    "query": "CREATE TRIGGER error_del_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (NEW.tableoid <> 0) EXECUTE PROCEDURE trigger_func('error_when_sys_column')",
+    "expected": "CREATE TRIGGER error_del_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (new.tableoid <> 0) EXECUTE FUNCTION trigger_func('error_when_sys_column')"
   },
   {
     "comment": "triggers - Statement 149",
@@ -852,8 +852,8 @@
   },
   {
     "comment": "triggers - Statement 178",
-    "query": "CREATE OR REPLACE FUNCTION trigger_data()  RETURNS trigger LANGUAGE plpgsql AS $$  declare  argstr text; relid text;  begin  relid := TG_relid::regclass;     raise NOTICE 'TG_NAME: %', TG_name; raise NOTICE 'TG_WHEN: %', TG_when; raise NOTICE 'TG_LEVEL: %', TG_level; raise NOTICE 'TG_OP: %', TG_op; raise NOTICE 'TG_RELID::regclass: %', relid; raise NOTICE 'TG_RELNAME: %', TG_relname; raise NOTICE 'TG_TABLE_NAME: %', TG_table_name; raise NOTICE 'TG_TABLE_SCHEMA: %', TG_table_schema; raise NOTICE 'TG_NARGS: %', TG_nargs;  argstr := '['; for i in 0 .. TG_nargs - 1 loop if i \u003e 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop; argstr := argstr || ']'; raise NOTICE 'TG_ARGV: %', argstr;  if TG_OP != 'INSERT' then raise NOTICE 'OLD: %', OLD; end if;  if TG_OP != 'DELETE' then raise NOTICE 'NEW: %', NEW; end if;  if TG_OP = 'DELETE' then return OLD; else return NEW; end if;  end; $$",
-    "expected": "CREATE OR REPLACE FUNCTION trigger_data () RETURNS trigger LANGUAGE plpgsql AS $$  declare  argstr text; relid text;  begin  relid := TG_relid::regclass;     raise NOTICE 'TG_NAME: %', TG_name; raise NOTICE 'TG_WHEN: %', TG_when; raise NOTICE 'TG_LEVEL: %', TG_level; raise NOTICE 'TG_OP: %', TG_op; raise NOTICE 'TG_RELID::regclass: %', relid; raise NOTICE 'TG_RELNAME: %', TG_relname; raise NOTICE 'TG_TABLE_NAME: %', TG_table_name; raise NOTICE 'TG_TABLE_SCHEMA: %', TG_table_schema; raise NOTICE 'TG_NARGS: %', TG_nargs;  argstr := '['; for i in 0 .. TG_nargs - 1 loop if i \u003e 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop; argstr := argstr || ']'; raise NOTICE 'TG_ARGV: %', argstr;  if TG_OP != 'INSERT' then raise NOTICE 'OLD: %', OLD; end if;  if TG_OP != 'DELETE' then raise NOTICE 'NEW: %', NEW; end if;  if TG_OP = 'DELETE' then return OLD; else return NEW; end if;  end; $$"
+    "query": "CREATE OR REPLACE FUNCTION trigger_data()  RETURNS trigger LANGUAGE plpgsql AS $$  declare  argstr text; relid text;  begin  relid := TG_relid::regclass;     raise NOTICE 'TG_NAME: %', TG_name; raise NOTICE 'TG_WHEN: %', TG_when; raise NOTICE 'TG_LEVEL: %', TG_level; raise NOTICE 'TG_OP: %', TG_op; raise NOTICE 'TG_RELID::regclass: %', relid; raise NOTICE 'TG_RELNAME: %', TG_relname; raise NOTICE 'TG_TABLE_NAME: %', TG_table_name; raise NOTICE 'TG_TABLE_SCHEMA: %', TG_table_schema; raise NOTICE 'TG_NARGS: %', TG_nargs;  argstr := '['; for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop; argstr := argstr || ']'; raise NOTICE 'TG_ARGV: %', argstr;  if TG_OP != 'INSERT' then raise NOTICE 'OLD: %', OLD; end if;  if TG_OP != 'DELETE' then raise NOTICE 'NEW: %', NEW; end if;  if TG_OP = 'DELETE' then return OLD; else return NEW; end if;  end; $$",
+    "expected": "CREATE OR REPLACE FUNCTION trigger_data () RETURNS trigger LANGUAGE plpgsql AS $$  declare  argstr text; relid text;  begin  relid := TG_relid::regclass;     raise NOTICE 'TG_NAME: %', TG_name; raise NOTICE 'TG_WHEN: %', TG_when; raise NOTICE 'TG_LEVEL: %', TG_level; raise NOTICE 'TG_OP: %', TG_op; raise NOTICE 'TG_RELID::regclass: %', relid; raise NOTICE 'TG_RELNAME: %', TG_relname; raise NOTICE 'TG_TABLE_NAME: %', TG_table_name; raise NOTICE 'TG_TABLE_SCHEMA: %', TG_table_schema; raise NOTICE 'TG_NARGS: %', TG_nargs;  argstr := '['; for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop; argstr := argstr || ']'; raise NOTICE 'TG_ARGV: %', argstr;  if TG_OP != 'INSERT' then raise NOTICE 'OLD: %', OLD; end if;  if TG_OP != 'DELETE' then raise NOTICE 'NEW: %', NEW; end if;  if TG_OP = 'DELETE' then return OLD; else return NEW; end if;  end; $$"
   },
   {
     "comment": "triggers - Statement 179",
@@ -1004,8 +1004,8 @@
   },
   {
     "comment": "triggers - Statement 211",
-    "query": "CREATE OR REPLACE FUNCTION view_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text := ''; begin for i in 0 .. TG_nargs - 1 loop if i \u003e 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop;  raise notice '% % % % (%)', TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, argstr;  if TG_LEVEL = 'ROW' then if TG_OP = 'INSERT' then raise NOTICE 'NEW: %', NEW; INSERT INTO main_table VALUES (NEW.a, NEW.b); RETURN NEW; end if;  if TG_OP = 'UPDATE' then raise NOTICE 'OLD: %, NEW: %', OLD, NEW; UPDATE main_table SET a = NEW.a, b = NEW.b WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN NEW; end if;  if TG_OP = 'DELETE' then raise NOTICE 'OLD: %', OLD; DELETE FROM main_table WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN OLD; end if; end if;  RETURN NULL; end; $$",
-    "expected": "CREATE OR REPLACE FUNCTION view_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text := ''; begin for i in 0 .. TG_nargs - 1 loop if i \u003e 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop;  raise notice '% % % % (%)', TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, argstr;  if TG_LEVEL = 'ROW' then if TG_OP = 'INSERT' then raise NOTICE 'NEW: %', NEW; INSERT INTO main_table VALUES (NEW.a, NEW.b); RETURN NEW; end if;  if TG_OP = 'UPDATE' then raise NOTICE 'OLD: %, NEW: %', OLD, NEW; UPDATE main_table SET a = NEW.a, b = NEW.b WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN NEW; end if;  if TG_OP = 'DELETE' then raise NOTICE 'OLD: %', OLD; DELETE FROM main_table WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN OLD; end if; end if;  RETURN NULL; end; $$"
+    "query": "CREATE OR REPLACE FUNCTION view_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text := ''; begin for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop;  raise notice '% % % % (%)', TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, argstr;  if TG_LEVEL = 'ROW' then if TG_OP = 'INSERT' then raise NOTICE 'NEW: %', NEW; INSERT INTO main_table VALUES (NEW.a, NEW.b); RETURN NEW; end if;  if TG_OP = 'UPDATE' then raise NOTICE 'OLD: %, NEW: %', OLD, NEW; UPDATE main_table SET a = NEW.a, b = NEW.b WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN NEW; end if;  if TG_OP = 'DELETE' then raise NOTICE 'OLD: %', OLD; DELETE FROM main_table WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN OLD; end if; end if;  RETURN NULL; end; $$",
+    "expected": "CREATE OR REPLACE FUNCTION view_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text := ''; begin for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '; end if; argstr := argstr || TG_argv[i]; end loop;  raise notice '% % % % (%)', TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, argstr;  if TG_LEVEL = 'ROW' then if TG_OP = 'INSERT' then raise NOTICE 'NEW: %', NEW; INSERT INTO main_table VALUES (NEW.a, NEW.b); RETURN NEW; end if;  if TG_OP = 'UPDATE' then raise NOTICE 'OLD: %, NEW: %', OLD, NEW; UPDATE main_table SET a = NEW.a, b = NEW.b WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN NEW; end if;  if TG_OP = 'DELETE' then raise NOTICE 'OLD: %', OLD; DELETE FROM main_table WHERE a = OLD.a AND b = OLD.b; if NOT FOUND then RETURN NULL; end if; RETURN OLD; end if; end if;  RETURN NULL; end; $$"
   },
   {
     "comment": "triggers - Statement 212",
@@ -1064,8 +1064,8 @@
   },
   {
     "comment": "triggers - Statement 223",
-    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW WHEN (OLD.a \u003c\u003e NEW.a) EXECUTE PROCEDURE view_trigger('instead_of_upd')",
-    "expected": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW WHEN (old.a \u003c\u003e new.a) EXECUTE FUNCTION view_trigger('instead_of_upd')"
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE view_trigger('instead_of_upd')",
+    "expected": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW WHEN (old.a <> new.a) EXECUTE FUNCTION view_trigger('instead_of_upd')"
   },
   {
     "comment": "triggers - Statement 224",
@@ -1420,8 +1420,8 @@
   },
   {
     "comment": "triggers - Statement 299",
-    "query": "create function parent_upd_func() returns trigger language plpgsql as $$ begin if old.val1 \u003c\u003e new.val1 then new.val2 = new.val1; delete from child where child.aid = new.aid and child.val1 = new.val1; end if; return new; end; $$",
-    "expected": "CREATE FUNCTION parent_upd_func () RETURNS trigger LANGUAGE plpgsql AS $$ begin if old.val1 \u003c\u003e new.val1 then new.val2 = new.val1; delete from child where child.aid = new.aid and child.val1 = new.val1; end if; return new; end; $$"
+    "query": "create function parent_upd_func() returns trigger language plpgsql as $$ begin if old.val1 <> new.val1 then new.val2 = new.val1; delete from child where child.aid = new.aid and child.val1 = new.val1; end if; return new; end; $$",
+    "expected": "CREATE FUNCTION parent_upd_func () RETURNS trigger LANGUAGE plpgsql AS $$ begin if old.val1 <> new.val1 then new.val2 = new.val1; delete from child where child.aid = new.aid and child.val1 = new.val1; end if; return new; end; $$"
   },
   {
     "comment": "triggers - Statement 300",
@@ -2270,8 +2270,8 @@
   },
   {
     "comment": "triggers - Statement 469",
-    "query": "create function bark(text) returns bool language plpgsql immutable as $$ begin raise notice '% \u003c- woof!', $1; return true; end; $$",
-    "expected": "CREATE FUNCTION bark (TEXT) RETURNS BOOLEAN LANGUAGE plpgsql IMMUTABLE AS $$ begin raise notice '% \u003c- woof!', $1; return true; end; $$"
+    "query": "create function bark(text) returns bool language plpgsql immutable as $$ begin raise notice '% <- woof!', $1; return true; end; $$",
+    "expected": "CREATE FUNCTION bark (TEXT) RETURNS BOOLEAN LANGUAGE plpgsql IMMUTABLE AS $$ begin raise notice '% <- woof!', $1; return true; end; $$"
   },
   {
     "comment": "triggers - Statement 470",
@@ -2625,8 +2625,8 @@
   },
   {
     "comment": "triggers - Statement 540",
-    "query": "create trigger parted_trigger after update on parted_trigger for each row when (new.a % 2 = 1 and length(old.b) \u003e= 2) execute procedure trigger_notice_ab()",
-    "expected": "CREATE TRIGGER parted_trigger AFTER UPDATE ON parted_trigger FOR EACH ROW WHEN (new.a % 2 = 1 AND length(old.b) \u003e= 2) EXECUTE FUNCTION trigger_notice_ab()"
+    "query": "create trigger parted_trigger after update on parted_trigger for each row when (new.a % 2 = 1 and length(old.b) >= 2) execute procedure trigger_notice_ab()",
+    "expected": "CREATE TRIGGER parted_trigger AFTER UPDATE ON parted_trigger FOR EACH ROW WHEN (new.a % 2 = 1 AND length(old.b) >= 2) EXECUTE FUNCTION trigger_notice_ab()"
   },
   {
     "comment": "triggers - Statement 541",
@@ -3682,13 +3682,13 @@
   },
   {
     "comment": "triggers - Statement 755",
-    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a \u003c= 2 then update set b = t.b || ' updated by merge' when matched and s.a \u003e 2 then delete when not matched then insert values (a, b)",
-    "expected": "MERGE INTO merge_target_table AS t USING merge_source_table AS s ON t.a = s.a WHEN MATCHED AND s.a \u003c= 2 THEN UPDATE SET b = t.b || ' updated by merge' WHEN MATCHED AND s.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a <= 2 then update set b = t.b || ' updated by merge' when matched and s.a > 2 then delete when not matched then insert values (a, b)",
+    "expected": "MERGE INTO merge_target_table AS t USING merge_source_table AS s ON t.a = s.a WHEN MATCHED AND s.a <= 2 THEN UPDATE SET b = t.b || ' updated by merge' WHEN MATCHED AND s.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
   },
   {
     "comment": "triggers - Statement 756",
-    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a \u003c= 2 then update set b = t.b || ' updated again by merge' when matched and s.a \u003e 2 then delete when not matched then insert values (a, b)",
-    "expected": "MERGE INTO merge_target_table AS t USING merge_source_table AS s ON t.a = s.a WHEN MATCHED AND s.a \u003c= 2 THEN UPDATE SET b = t.b || ' updated again by merge' WHEN MATCHED AND s.a \u003e 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a <= 2 then update set b = t.b || ' updated again by merge' when matched and s.a > 2 then delete when not matched then insert values (a, b)",
+    "expected": "MERGE INTO merge_target_table AS t USING merge_source_table AS s ON t.a = s.a WHEN MATCHED AND s.a <= 2 THEN UPDATE SET b = t.b || ' updated again by merge' WHEN MATCHED AND s.a > 2 THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
   },
   {
     "comment": "triggers - Statement 757",

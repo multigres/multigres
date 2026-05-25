@@ -23,7 +23,7 @@
   },
   {
     "comment": "transactions - Statement 6",
-    "query": "SELECT a FROM xacttest WHERE a \u003e 100"
+    "query": "SELECT a FROM xacttest WHERE a > 100"
   },
   {
     "comment": "transactions - Statement 7",
@@ -492,8 +492,8 @@
   },
   {
     "comment": "transactions - Statement 116",
-    "query": "update xacttest set a = max_xacttest() + 10 where a \u003e 0",
-    "expected": "UPDATE xacttest SET a = max_xacttest() + 10 WHERE a \u003e 0"
+    "query": "update xacttest set a = max_xacttest() + 10 where a > 0",
+    "expected": "UPDATE xacttest SET a = max_xacttest() + 10 WHERE a > 0"
   },
   {
     "comment": "transactions - Statement 117",

@@ -146,28 +146,28 @@
   },
   {
     "comment": "oid - Statement 32",
-    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c\u003e '1234'",
-    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c\u003e '1234'"
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 <> '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 <> '1234'"
   },
   {
     "comment": "oid - Statement 33",
-    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c= '1234'",
-    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c= '1234'"
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 <= '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 <= '1234'"
   },
   {
     "comment": "oid - Statement 34",
-    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c '1234'",
-    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c '1234'"
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 < '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 < '1234'"
   },
   {
     "comment": "oid - Statement 35",
-    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003e= '1234'",
-    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003e= '1234'"
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 >= '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 >= '1234'"
   },
   {
     "comment": "oid - Statement 36",
-    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003e '1234'",
-    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003e '1234'"
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 > '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 > '1234'"
   },
   {
     "comment": "oid - Statement 37",

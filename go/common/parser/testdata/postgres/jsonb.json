@@ -369,79 +369,79 @@
   },
   {
     "comment": "jsonb - Statement 76",
-    "query": "SELECT test_json -\u003e 'x' FROM test_jsonb WHERE json_type = 'scalar'"
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'scalar'"
   },
   {
     "comment": "jsonb - Statement 77",
-    "query": "SELECT test_json -\u003e 'x' FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 78",
-    "query": "SELECT test_json -\u003e 'x' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 79",
-    "query": "SELECT test_json -\u003e 'field2' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json -> 'field2' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 80",
-    "query": "SELECT test_json -\u003e\u003e 'field2' FROM test_jsonb WHERE json_type = 'scalar'"
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'scalar'"
   },
   {
     "comment": "jsonb - Statement 81",
-    "query": "SELECT test_json -\u003e\u003e 'field2' FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 82",
-    "query": "SELECT test_json -\u003e\u003e 'field2' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 83",
-    "query": "SELECT test_json -\u003e 2 FROM test_jsonb WHERE json_type = 'scalar'"
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'scalar'"
   },
   {
     "comment": "jsonb - Statement 84",
-    "query": "SELECT test_json -\u003e 2 FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 85",
-    "query": "SELECT test_json -\u003e 9 FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json -> 9 FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 86",
-    "query": "SELECT test_json -\u003e 2 FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 87",
-    "query": "SELECT test_json -\u003e\u003e 6 FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 6 FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 88",
-    "query": "SELECT test_json -\u003e\u003e 7 FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 7 FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 89",
-    "query": "SELECT test_json -\u003e\u003e 'field4' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field4' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 90",
-    "query": "SELECT test_json -\u003e\u003e 'field5' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field5' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 91",
-    "query": "SELECT test_json -\u003e\u003e 'field6' FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 'field6' FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 92",
-    "query": "SELECT test_json -\u003e\u003e 2 FROM test_jsonb WHERE json_type = 'scalar'"
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'scalar'"
   },
   {
     "comment": "jsonb - Statement 93",
-    "query": "SELECT test_json -\u003e\u003e 2 FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 94",
-    "query": "SELECT test_json -\u003e\u003e 2 FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 95",
@@ -457,133 +457,133 @@
   },
   {
     "comment": "jsonb - Statement 98",
-    "query": "SELECT (test_json-\u003e'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object'",
-    "expected": "SELECT (test_json -\u003e 'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT (test_json->'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object'",
+    "expected": "SELECT (test_json -> 'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 99",
-    "query": "SELECT (test_json-\u003e\u003e'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object'",
-    "expected": "SELECT (test_json -\u003e\u003e 'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object'"
+    "query": "SELECT (test_json->>'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object'",
+    "expected": "SELECT (test_json ->> 'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object'"
   },
   {
     "comment": "jsonb - Statement 100",
-    "query": "SELECT (test_json-\u003e3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array'",
-    "expected": "SELECT (test_json -\u003e 3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT (test_json->3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array'",
+    "expected": "SELECT (test_json -> 3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 101",
-    "query": "SELECT (test_json-\u003e\u003e3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array'",
-    "expected": "SELECT (test_json -\u003e\u003e 3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array'"
+    "query": "SELECT (test_json->>3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array'",
+    "expected": "SELECT (test_json ->> 3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array'"
   },
   {
     "comment": "jsonb - Statement 102",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e null::text",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e CAST(NULL AS TEXT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> null::text",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -> CAST(NULL AS TEXT)"
   },
   {
     "comment": "jsonb - Statement 103",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e null::int",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e CAST(NULL AS INT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> null::int",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -> CAST(NULL AS INT)"
   },
   {
     "comment": "jsonb - Statement 104",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e 1",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e 1"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> 1",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -> 1"
   },
   {
     "comment": "jsonb - Statement 105",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e 'z'",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e 'z'"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> 'z'",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -> 'z'"
   },
   {
     "comment": "jsonb - Statement 106",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e ''",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e ''"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> ''",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -> ''"
   },
   {
     "comment": "jsonb - Statement 107",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e 1",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e 1"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 1",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -> 1"
   },
   {
     "comment": "jsonb - Statement 108",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e 3",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e 3"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 3",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -> 3"
   },
   {
     "comment": "jsonb - Statement 109",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e 'z'",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e 'z'"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 'z'",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -> 'z'"
   },
   {
     "comment": "jsonb - Statement 110",
-    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb -\u003e 'b'",
-    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSONB) -\u003e 'b'"
+    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb -> 'b'",
+    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSONB) -> 'b'"
   },
   {
     "comment": "jsonb - Statement 111",
-    "query": "select '\"foo\"'::jsonb -\u003e 1",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) -\u003e 1"
+    "query": "select '\"foo\"'::jsonb -> 1",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) -> 1"
   },
   {
     "comment": "jsonb - Statement 112",
-    "query": "select '\"foo\"'::jsonb -\u003e 'z'",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) -\u003e 'z'"
+    "query": "select '\"foo\"'::jsonb -> 'z'",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) -> 'z'"
   },
   {
     "comment": "jsonb - Statement 113",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e\u003e null::text",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e\u003e CAST(NULL AS TEXT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> null::text",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) ->> CAST(NULL AS TEXT)"
   },
   {
     "comment": "jsonb - Statement 114",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e\u003e null::int",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e\u003e CAST(NULL AS INT)"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> null::int",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) ->> CAST(NULL AS INT)"
   },
   {
     "comment": "jsonb - Statement 115",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e\u003e 1",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e\u003e 1"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> 1",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) ->> 1"
   },
   {
     "comment": "jsonb - Statement 116",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e\u003e 'z'"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> 'z'",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) ->> 'z'"
   },
   {
     "comment": "jsonb - Statement 117",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -\u003e\u003e ''",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) -\u003e\u003e ''"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> ''",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) ->> ''"
   },
   {
     "comment": "jsonb - Statement 118",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e\u003e 1",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e\u003e 1"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 1",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) ->> 1"
   },
   {
     "comment": "jsonb - Statement 119",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e\u003e 3",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e\u003e 3"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 3",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) ->> 3"
   },
   {
     "comment": "jsonb - Statement 120",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) -\u003e\u003e 'z'"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 'z'",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) ->> 'z'"
   },
   {
     "comment": "jsonb - Statement 121",
-    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb -\u003e\u003e 'b'",
-    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSONB) -\u003e\u003e 'b'"
+    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb ->> 'b'",
+    "expected": "SELECT CAST('{\"a\": \"c\", \"b\": null}' AS JSONB) ->> 'b'"
   },
   {
     "comment": "jsonb - Statement 122",
-    "query": "select '\"foo\"'::jsonb -\u003e\u003e 1",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) -\u003e\u003e 1"
+    "query": "select '\"foo\"'::jsonb ->> 1",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) ->> 1"
   },
   {
     "comment": "jsonb - Statement 123",
-    "query": "select '\"foo\"'::jsonb -\u003e\u003e 'z'",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) -\u003e\u003e 'z'"
+    "query": "select '\"foo\"'::jsonb ->> 'z'",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) ->> 'z'"
   },
   {
     "comment": "jsonb - Statement 124",
@@ -597,13 +597,13 @@
   },
   {
     "comment": "jsonb - Statement 126",
-    "query": "SELECT '{\"x\":\"y\"}'::jsonb \u003c\u003e '{\"x\":\"y\"}'::jsonb",
-    "expected": "SELECT CAST('{\"x\":\"y\"}' AS JSONB) \u003c\u003e CAST('{\"x\":\"y\"}' AS JSONB)"
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb <> '{\"x\":\"y\"}'::jsonb",
+    "expected": "SELECT CAST('{\"x\":\"y\"}' AS JSONB) <> CAST('{\"x\":\"y\"}' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 127",
-    "query": "SELECT '{\"x\":\"y\"}'::jsonb \u003c\u003e '{\"x\":\"z\"}'::jsonb",
-    "expected": "SELECT CAST('{\"x\":\"y\"}' AS JSONB) \u003c\u003e CAST('{\"x\":\"z\"}' AS JSONB)"
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb <> '{\"x\":\"z\"}'::jsonb",
+    "expected": "SELECT CAST('{\"x\":\"y\"}' AS JSONB) <> CAST('{\"x\":\"z\"}' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 128",
@@ -631,63 +631,63 @@
   },
   {
     "comment": "jsonb - Statement 134",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"a\":\"b\"}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"a\":\"b\"}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\"}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"a\":\"b\"}'"
   },
   {
     "comment": "jsonb - Statement 135",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"a\":\"b\", \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"a\":\"b\", \"c\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"a\":\"b\", \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 136",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"a\":\"b\", \"g\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"a\":\"b\", \"g\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"g\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"a\":\"b\", \"g\":null}'"
   },
   {
     "comment": "jsonb - Statement 137",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"g\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"g\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"g\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"g\":null}'"
   },
   {
     "comment": "jsonb - Statement 138",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"a\":\"c\"}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"a\":\"c\"}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"c\"}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"a\":\"c\"}'"
   },
   {
     "comment": "jsonb - Statement 139",
-    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @\u003e '{\"a\":\"b\", \"c\":\"q\"}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @\u003e '{\"a\":\"b\", \"c\":\"q\"}'"
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"c\":\"q\"}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"b\":1, \"c\":null}' AS JSONB) @> '{\"a\":\"b\", \"c\":\"q\"}'"
   },
   {
     "comment": "jsonb - Statement 140",
-    "query": "SELECT '[1,2]'::jsonb @\u003e '[1,2,2]'::jsonb",
-    "expected": "SELECT CAST('[1,2]' AS JSONB) @\u003e CAST('[1,2,2]' AS JSONB)"
+    "query": "SELECT '[1,2]'::jsonb @> '[1,2,2]'::jsonb",
+    "expected": "SELECT CAST('[1,2]' AS JSONB) @> CAST('[1,2,2]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 141",
-    "query": "SELECT '[1,1,2]'::jsonb @\u003e '[1,2,2]'::jsonb",
-    "expected": "SELECT CAST('[1,1,2]' AS JSONB) @\u003e CAST('[1,2,2]' AS JSONB)"
+    "query": "SELECT '[1,1,2]'::jsonb @> '[1,2,2]'::jsonb",
+    "expected": "SELECT CAST('[1,1,2]' AS JSONB) @> CAST('[1,2,2]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 142",
-    "query": "SELECT '[[1,2]]'::jsonb @\u003e '[[1,2,2]]'::jsonb",
-    "expected": "SELECT CAST('[[1,2]]' AS JSONB) @\u003e CAST('[[1,2,2]]' AS JSONB)"
+    "query": "SELECT '[[1,2]]'::jsonb @> '[[1,2,2]]'::jsonb",
+    "expected": "SELECT CAST('[[1,2]]' AS JSONB) @> CAST('[[1,2,2]]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 143",
-    "query": "SELECT '[1,2,2]'::jsonb \u003c@ '[1,2]'::jsonb",
-    "expected": "SELECT CAST('[1,2,2]' AS JSONB) \u003c@ CAST('[1,2]' AS JSONB)"
+    "query": "SELECT '[1,2,2]'::jsonb <@ '[1,2]'::jsonb",
+    "expected": "SELECT CAST('[1,2,2]' AS JSONB) <@ CAST('[1,2]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 144",
-    "query": "SELECT '[1,2,2]'::jsonb \u003c@ '[1,1,2]'::jsonb",
-    "expected": "SELECT CAST('[1,2,2]' AS JSONB) \u003c@ CAST('[1,1,2]' AS JSONB)"
+    "query": "SELECT '[1,2,2]'::jsonb <@ '[1,1,2]'::jsonb",
+    "expected": "SELECT CAST('[1,2,2]' AS JSONB) <@ CAST('[1,1,2]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 145",
-    "query": "SELECT '[[1,2,2]]'::jsonb \u003c@ '[[1,2]]'::jsonb",
-    "expected": "SELECT CAST('[[1,2,2]]' AS JSONB) \u003c@ CAST('[[1,2]]' AS JSONB)"
+    "query": "SELECT '[[1,2,2]]'::jsonb <@ '[[1,2]]'::jsonb",
+    "expected": "SELECT CAST('[[1,2,2]]' AS JSONB) <@ CAST('[[1,2]]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 146",
@@ -715,68 +715,68 @@
   },
   {
     "comment": "jsonb - Statement 152",
-    "query": "SELECT '{\"a\":\"b\"}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\"}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"a\":\"b\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\"}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 153",
-    "query": "SELECT '{\"a\":\"b\", \"c\":null}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"c\":null}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"c\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"c\":null}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 154",
-    "query": "SELECT '{\"a\":\"b\", \"g\":null}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"g\":null}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"g\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"g\":null}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 155",
-    "query": "SELECT '{\"g\":null}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"g\":null}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"g\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"g\":null}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 156",
-    "query": "SELECT '{\"a\":\"c\"}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"c\"}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"a\":\"c\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"c\"}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 157",
-    "query": "SELECT '{\"a\":\"b\", \"c\":\"q\"}'::jsonb \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
-    "expected": "SELECT CAST('{\"a\":\"b\", \"c\":\"q\"}' AS JSONB) \u003c@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+    "query": "SELECT '{\"a\":\"b\", \"c\":\"q\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'",
+    "expected": "SELECT CAST('{\"a\":\"b\", \"c\":\"q\"}' AS JSONB) <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
   },
   {
     "comment": "jsonb - Statement 158",
-    "query": "SELECT '[5]'::jsonb @\u003e '[5]'",
-    "expected": "SELECT CAST('[5]' AS JSONB) @\u003e '[5]'"
+    "query": "SELECT '[5]'::jsonb @> '[5]'",
+    "expected": "SELECT CAST('[5]' AS JSONB) @> '[5]'"
   },
   {
     "comment": "jsonb - Statement 159",
-    "query": "SELECT '5'::jsonb @\u003e '5'",
-    "expected": "SELECT CAST('5' AS JSONB) @\u003e '5'"
+    "query": "SELECT '5'::jsonb @> '5'",
+    "expected": "SELECT CAST('5' AS JSONB) @> '5'"
   },
   {
     "comment": "jsonb - Statement 160",
-    "query": "SELECT '[5]'::jsonb @\u003e '5'",
-    "expected": "SELECT CAST('[5]' AS JSONB) @\u003e '5'"
+    "query": "SELECT '[5]'::jsonb @> '5'",
+    "expected": "SELECT CAST('[5]' AS JSONB) @> '5'"
   },
   {
     "comment": "jsonb - Statement 161",
-    "query": "SELECT '5'::jsonb @\u003e '[5]'",
-    "expected": "SELECT CAST('5' AS JSONB) @\u003e '[5]'"
+    "query": "SELECT '5'::jsonb @> '[5]'",
+    "expected": "SELECT CAST('5' AS JSONB) @> '[5]'"
   },
   {
     "comment": "jsonb - Statement 162",
-    "query": "SELECT '[\"9\", [\"7\", \"3\"], 1]'::jsonb @\u003e '[\"9\", [\"7\", \"3\"], 1]'::jsonb",
-    "expected": "SELECT CAST('[\"9\", [\"7\", \"3\"], 1]' AS JSONB) @\u003e CAST('[\"9\", [\"7\", \"3\"], 1]' AS JSONB)"
+    "query": "SELECT '[\"9\", [\"7\", \"3\"], 1]'::jsonb @> '[\"9\", [\"7\", \"3\"], 1]'::jsonb",
+    "expected": "SELECT CAST('[\"9\", [\"7\", \"3\"], 1]' AS JSONB) @> CAST('[\"9\", [\"7\", \"3\"], 1]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 163",
-    "query": "SELECT '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb @\u003e '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb",
-    "expected": "SELECT CAST('[\"9\", [\"7\", \"3\"], [\"1\"]]' AS JSONB) @\u003e CAST('[\"9\", [\"7\", \"3\"], [\"1\"]]' AS JSONB)"
+    "query": "SELECT '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb @> '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb",
+    "expected": "SELECT CAST('[\"9\", [\"7\", \"3\"], [\"1\"]]' AS JSONB) @> CAST('[\"9\", [\"7\", \"3\"], [\"1\"]]' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 164",
-    "query": "SELECT '{ \"name\": \"Bob\", \"tags\": [ \"enim\", \"qui\"]}'::jsonb @\u003e '{\"tags\":[\"qu\"]}'",
-    "expected": "SELECT CAST('{ \"name\": \"Bob\", \"tags\": [ \"enim\", \"qui\"]}' AS JSONB) @\u003e '{\"tags\":[\"qu\"]}'"
+    "query": "SELECT '{ \"name\": \"Bob\", \"tags\": [ \"enim\", \"qui\"]}'::jsonb @> '{\"tags\":[\"qu\"]}'",
+    "expected": "SELECT CAST('{ \"name\": \"Bob\", \"tags\": [ \"enim\", \"qui\"]}' AS JSONB) @> '{\"tags\":[\"qu\"]}'"
   },
   {
     "comment": "jsonb - Statement 165",
@@ -870,18 +870,18 @@
   },
   {
     "comment": "jsonb - Statement 185",
-    "query": "SELECT count(*) from testjsonb  WHERE j-\u003e'array' ? 'bar'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -\u003e 'array' ? 'bar'"
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' ? 'bar'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -> 'array' ? 'bar'"
   },
   {
     "comment": "jsonb - Statement 186",
-    "query": "SELECT count(*) from testjsonb  WHERE j-\u003e'array' ? '5'::text",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -\u003e 'array' ? CAST('5' AS TEXT)"
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' ? '5'::text",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -> 'array' ? CAST('5' AS TEXT)"
   },
   {
     "comment": "jsonb - Statement 187",
-    "query": "SELECT count(*) from testjsonb  WHERE j-\u003e'array' @\u003e '5'::jsonb",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -\u003e 'array' @\u003e CAST('5' AS JSONB)"
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' @> '5'::jsonb",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j -> 'array' @> CAST('5' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 188",
@@ -952,33 +952,33 @@
   },
   {
     "comment": "jsonb - Statement 203",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 ARRAY['a','b']",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 ARRAY['a','b']"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['a','b']",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& ARRAY['a','b']"
   },
   {
     "comment": "jsonb - Statement 204",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 ARRAY['b','a']",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 ARRAY['b','a']"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['b','a']",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& ARRAY['b','a']"
   },
   {
     "comment": "jsonb - Statement 205",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 ARRAY['c','a']",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 ARRAY['c','a']"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['c','a']",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& ARRAY['c','a']"
   },
   {
     "comment": "jsonb - Statement 206",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 ARRAY['c','d']",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 ARRAY['c','d']"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['c','d']",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& ARRAY['c','d']"
   },
   {
     "comment": "jsonb - Statement 207",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 ARRAY['a','a', 'b', 'b', 'b']",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 ARRAY['a','a','b','b','b']"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['a','a', 'b', 'b', 'b']",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& ARRAY['a','a','b','b','b']"
   },
   {
     "comment": "jsonb - Statement 208",
-    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?\u0026 '{}'::text[]",
-    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?\u0026 CAST('{}' AS TEXT[])"
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& '{}'::text[]",
+    "expected": "SELECT CAST('{\"a\":null, \"b\":\"qq\"}' AS JSONB) ?& CAST('{}' AS TEXT[])"
   },
   {
     "comment": "jsonb - Statement 209",
@@ -1360,243 +1360,243 @@
   },
   {
     "comment": "jsonb - Statement 291",
-    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003earray['f4','f6']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e ARRAY['f4','f6']"
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f4','f6']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #> ARRAY['f4','f6']"
   },
   {
     "comment": "jsonb - Statement 292",
-    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003earray['f2']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e ARRAY['f2']"
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #> ARRAY['f2']"
   },
   {
     "comment": "jsonb - Statement 293",
-    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003earray['f2','0']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e ARRAY['f2','0']"
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2','0']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #> ARRAY['f2','0']"
   },
   {
     "comment": "jsonb - Statement 294",
-    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003earray['f2','1']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e ARRAY['f2','1']"
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2','1']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #> ARRAY['f2','1']"
   },
   {
     "comment": "jsonb - Statement 295",
-    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003e\u003earray['f4','f6']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e\u003e ARRAY['f4','f6']"
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f4','f6']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #>> ARRAY['f4','f6']"
   },
   {
     "comment": "jsonb - Statement 296",
-    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003e\u003earray['f2']",
-    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e\u003e ARRAY['f2']"
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2']",
+    "expected": "SELECT CAST('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #>> ARRAY['f2']"
   },
   {
     "comment": "jsonb - Statement 297",
-    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003e\u003earray['f2','0']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e\u003e ARRAY['f2','0']"
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2','0']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #>> ARRAY['f2','0']"
   },
   {
     "comment": "jsonb - Statement 298",
-    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#\u003e\u003earray['f2','1']",
-    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #\u003e\u003e ARRAY['f2','1']"
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2','1']",
+    "expected": "SELECT CAST('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}' AS JSONB) #>> ARRAY['f2','1']"
   },
   {
     "comment": "jsonb - Statement 299",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e '{}'",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e '{}'"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> '{}'",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> '{}'"
   },
   {
     "comment": "jsonb - Statement 300",
-    "query": "select '[1,2,3]'::jsonb #\u003e '{}'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) #\u003e '{}'"
+    "query": "select '[1,2,3]'::jsonb #> '{}'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) #> '{}'"
   },
   {
     "comment": "jsonb - Statement 301",
-    "query": "select '\"foo\"'::jsonb #\u003e '{}'",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) #\u003e '{}'"
+    "query": "select '\"foo\"'::jsonb #> '{}'",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) #> '{}'"
   },
   {
     "comment": "jsonb - Statement 302",
-    "query": "select '42'::jsonb #\u003e '{}'",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e '{}'"
+    "query": "select '42'::jsonb #> '{}'",
+    "expected": "SELECT CAST('42' AS JSONB) #> '{}'"
   },
   {
     "comment": "jsonb - Statement 303",
-    "query": "select 'null'::jsonb #\u003e '{}'",
-    "expected": "SELECT CAST('null' AS JSONB) #\u003e '{}'"
+    "query": "select 'null'::jsonb #> '{}'",
+    "expected": "SELECT CAST('null' AS JSONB) #> '{}'"
   },
   {
     "comment": "jsonb - Statement 304",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a']"
   },
   {
     "comment": "jsonb - Statement 305",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a', null]",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a',NULL]"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a', null]",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a',NULL]"
   },
   {
     "comment": "jsonb - Statement 306",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a', '']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a','']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a', '']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a','']"
   },
   {
     "comment": "jsonb - Statement 307",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a','b']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a','b']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a','b']"
   },
   {
     "comment": "jsonb - Statement 308",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a','b','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a','b','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a','b','c']"
   },
   {
     "comment": "jsonb - Statement 309",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a','b','c','d']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a','b','c','d']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b','c','d']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a','b','c','d']"
   },
   {
     "comment": "jsonb - Statement 310",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e array['a','z','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e ARRAY['a','z','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','z','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #> ARRAY['a','z','c']"
   },
   {
     "comment": "jsonb - Statement 311",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #\u003e array['a','1','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #\u003e ARRAY['a','1','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #> array['a','1','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #> ARRAY['a','1','b']"
   },
   {
     "comment": "jsonb - Statement 312",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #\u003e array['a','z','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #\u003e ARRAY['a','z','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #> array['a','z','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #> ARRAY['a','z','b']"
   },
   {
     "comment": "jsonb - Statement 313",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #> ARRAY['1','b']"
   },
   {
     "comment": "jsonb - Statement 314",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #\u003e array['z','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #\u003e ARRAY['z','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #> array['z','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #> ARRAY['z','b']"
   },
   {
     "comment": "jsonb - Statement 315",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSONB) #\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSONB) #> ARRAY['1','b']"
   },
   {
     "comment": "jsonb - Statement 316",
-    "query": "select '\"foo\"'::jsonb #\u003e array['z']",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) #\u003e ARRAY['z']"
+    "query": "select '\"foo\"'::jsonb #> array['z']",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) #> ARRAY['z']"
   },
   {
     "comment": "jsonb - Statement 317",
-    "query": "select '42'::jsonb #\u003e array['f2']",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e ARRAY['f2']"
+    "query": "select '42'::jsonb #> array['f2']",
+    "expected": "SELECT CAST('42' AS JSONB) #> ARRAY['f2']"
   },
   {
     "comment": "jsonb - Statement 318",
-    "query": "select '42'::jsonb #\u003e array['0']",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e ARRAY['0']"
+    "query": "select '42'::jsonb #> array['0']",
+    "expected": "SELECT CAST('42' AS JSONB) #> ARRAY['0']"
   },
   {
     "comment": "jsonb - Statement 319",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e '{}'"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> '{}'",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> '{}'"
   },
   {
     "comment": "jsonb - Statement 320",
-    "query": "select '[1,2,3]'::jsonb #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) #\u003e\u003e '{}'"
+    "query": "select '[1,2,3]'::jsonb #>> '{}'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) #>> '{}'"
   },
   {
     "comment": "jsonb - Statement 321",
-    "query": "select '\"foo\"'::jsonb #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) #\u003e\u003e '{}'"
+    "query": "select '\"foo\"'::jsonb #>> '{}'",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) #>> '{}'"
   },
   {
     "comment": "jsonb - Statement 322",
-    "query": "select '42'::jsonb #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e\u003e '{}'"
+    "query": "select '42'::jsonb #>> '{}'",
+    "expected": "SELECT CAST('42' AS JSONB) #>> '{}'"
   },
   {
     "comment": "jsonb - Statement 323",
-    "query": "select 'null'::jsonb #\u003e\u003e '{}'",
-    "expected": "SELECT CAST('null' AS JSONB) #\u003e\u003e '{}'"
+    "query": "select 'null'::jsonb #>> '{}'",
+    "expected": "SELECT CAST('null' AS JSONB) #>> '{}'"
   },
   {
     "comment": "jsonb - Statement 324",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a']"
   },
   {
     "comment": "jsonb - Statement 325",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a', null]",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a',NULL]"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a', null]",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a',NULL]"
   },
   {
     "comment": "jsonb - Statement 326",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a', '']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a','']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a', '']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a','']"
   },
   {
     "comment": "jsonb - Statement 327",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a','b']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a','b']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a','b']"
   },
   {
     "comment": "jsonb - Statement 328",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a','b','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a','b','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a','b','c']"
   },
   {
     "comment": "jsonb - Statement 329",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a','b','c','d']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a','b','c','d']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b','c','d']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a','b','c','d']"
   },
   {
     "comment": "jsonb - Statement 330",
-    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #\u003e\u003e array['a','z','c']",
-    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #\u003e\u003e ARRAY['a','z','c']"
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','z','c']",
+    "expected": "SELECT CAST('{\"a\": {\"b\":{\"c\": \"foo\"}}}' AS JSONB) #>> ARRAY['a','z','c']"
   },
   {
     "comment": "jsonb - Statement 331",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #\u003e\u003e array['a','1','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #\u003e\u003e ARRAY['a','1','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #>> array['a','1','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #>> ARRAY['a','1','b']"
   },
   {
     "comment": "jsonb - Statement 332",
-    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #\u003e\u003e array['a','z','b']",
-    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #\u003e\u003e ARRAY['a','z','b']"
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #>> array['a','z','b']",
+    "expected": "SELECT CAST('{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}' AS JSONB) #>> ARRAY['a','z','b']"
   },
   {
     "comment": "jsonb - Statement 333",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #\u003e\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #\u003e\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #>> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #>> ARRAY['1','b']"
   },
   {
     "comment": "jsonb - Statement 334",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #\u003e\u003e array['z','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #\u003e\u003e ARRAY['z','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #>> array['z','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": \"cc\"}]' AS JSONB) #>> ARRAY['z','b']"
   },
   {
     "comment": "jsonb - Statement 335",
-    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #\u003e\u003e array['1','b']",
-    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSONB) #\u003e\u003e ARRAY['1','b']"
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #>> array['1','b']",
+    "expected": "SELECT CAST('[{\"b\": \"c\"}, {\"b\": null}]' AS JSONB) #>> ARRAY['1','b']"
   },
   {
     "comment": "jsonb - Statement 336",
-    "query": "select '\"foo\"'::jsonb #\u003e\u003e array['z']",
-    "expected": "SELECT CAST('\"foo\"' AS JSONB) #\u003e\u003e ARRAY['z']"
+    "query": "select '\"foo\"'::jsonb #>> array['z']",
+    "expected": "SELECT CAST('\"foo\"' AS JSONB) #>> ARRAY['z']"
   },
   {
     "comment": "jsonb - Statement 337",
-    "query": "select '42'::jsonb #\u003e\u003e array['f2']",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e\u003e ARRAY['f2']"
+    "query": "select '42'::jsonb #>> array['f2']",
+    "expected": "SELECT CAST('42' AS JSONB) #>> ARRAY['f2']"
   },
   {
     "comment": "jsonb - Statement 338",
-    "query": "select '42'::jsonb #\u003e\u003e array['0']",
-    "expected": "SELECT CAST('42' AS JSONB) #\u003e\u003e ARRAY['0']"
+    "query": "select '42'::jsonb #>> array['0']",
+    "expected": "SELECT CAST('42' AS JSONB) #>> ARRAY['0']"
   },
   {
     "comment": "jsonb - Statement 339",
@@ -1643,8 +1643,8 @@
   },
   {
     "comment": "jsonb - Statement 348",
-    "query": "create domain jb_ordered_pair as jb_unordered_pair check((value).x \u003c= (value).y)",
-    "expected": "CREATE DOMAIN jb_ordered_pair AS jb_unordered_pair CHECK ((value).x \u003c= (value).y)"
+    "query": "create domain jb_ordered_pair as jb_unordered_pair check((value).x <= (value).y)",
+    "expected": "CREATE DOMAIN jb_ordered_pair AS jb_unordered_pair CHECK ((value).x <= (value).y)"
   },
   {
     "comment": "jsonb - Statement 349",
@@ -2128,8 +2128,8 @@
   },
   {
     "comment": "jsonb - Statement 445",
-    "query": "create domain jsb_i_gt_1 as int check (value \u003e 1)",
-    "expected": "CREATE DOMAIN jsb_i_gt_1 AS INT CHECK (value \u003e 1)"
+    "query": "create domain jsb_i_gt_1 as int check (value > 1)",
+    "expected": "CREATE DOMAIN jsb_i_gt_1 AS INT CHECK (value > 1)"
   },
   {
     "comment": "jsonb - Statement 446",
@@ -2456,28 +2456,28 @@
   },
   {
     "comment": "jsonb - Statement 512",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"wait\":null}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"wait\":null}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":null}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"wait\":null}'"
   },
   {
     "comment": "jsonb - Statement 513",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"wait\":\"CC\"}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"wait\":\"CC\"}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\"}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\"}'"
   },
   {
     "comment": "jsonb - Statement 514",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"wait\":\"CC\", \"public\":true}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"wait\":\"CC\", \"public\":true}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\", \"public\":true}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\", \"public\":true}'"
   },
   {
     "comment": "jsonb - Statement 515",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"age\":25}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"age\":25}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"age\":25}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"age\":25}'"
   },
   {
     "comment": "jsonb - Statement 516",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"age\":25.0}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"age\":25.0}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"age\":25.0}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"age\":25.0}'"
   },
   {
     "comment": "jsonb - Statement 517",
@@ -2496,8 +2496,8 @@
   },
   {
     "comment": "jsonb - Statement 520",
-    "query": "SELECT count(*) FROM testjsonb WHERE j ?\u0026 ARRAY['public','disabled']",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j ?\u0026 ARRAY['public','disabled']"
+    "query": "SELECT count(*) FROM testjsonb WHERE j ?& ARRAY['public','disabled']",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j ?& ARRAY['public','disabled']"
   },
   {
     "comment": "jsonb - Statement 521",
@@ -2511,8 +2511,8 @@
   },
   {
     "comment": "jsonb - Statement 523",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.wait == \"CC\" \u0026\u0026 true == $.public'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @@ '$.wait == \"CC\" \u0026\u0026 true == $.public'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.wait == \"CC\" && true == $.public'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @@ '$.wait == \"CC\" && true == $.public'"
   },
   {
     "comment": "jsonb - Statement 524",
@@ -2546,8 +2546,8 @@
   },
   {
     "comment": "jsonb - Statement 530",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.public) \u0026\u0026 exists($.disabled)'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @@ 'exists($.public) \u0026\u0026 exists($.disabled)'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.public) && exists($.disabled)'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @@ 'exists($.public) && exists($.disabled)'"
   },
   {
     "comment": "jsonb - Statement 531",
@@ -2561,8 +2561,8 @@
   },
   {
     "comment": "jsonb - Statement 533",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$ ? (@.wait == \"CC\" \u0026\u0026 true == @.public)'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @? '$ ? (@.wait == \"CC\" \u0026\u0026 true == @.public)'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$ ? (@.wait == \"CC\" && true == @.public)'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @? '$ ? (@.wait == \"CC\" && true == @.public)'"
   },
   {
     "comment": "jsonb - Statement 534",
@@ -2600,18 +2600,18 @@
   },
   {
     "comment": "jsonb - Statement 541",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"array\":[\"foo\"]}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"array\":[\"foo\"]}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"array\":[\"foo\"]}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"array\":[\"foo\"]}'"
   },
   {
     "comment": "jsonb - Statement 542",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{\"array\":[\"bar\"]}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{\"array\":[\"bar\"]}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"array\":[\"bar\"]}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{\"array\":[\"bar\"]}'"
   },
   {
     "comment": "jsonb - Statement 543",
-    "query": "SELECT count(*) FROM testjsonb WHERE j @\u003e '{}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @\u003e '{}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j @> '{}'"
   },
   {
     "comment": "jsonb - Statement 544",
@@ -2675,8 +2675,8 @@
   },
   {
     "comment": "jsonb - Statement 556",
-    "query": "CREATE INDEX jidx_array ON testjsonb USING gin((j-\u003e'array'))",
-    "expected": "CREATE INDEX jidx_array ON testjsonb USING gin ( (j -\u003e 'array') )"
+    "query": "CREATE INDEX jidx_array ON testjsonb USING gin((j->'array'))",
+    "expected": "CREATE INDEX jidx_array ON testjsonb USING gin ( (j -> 'array') )"
   },
   {
     "comment": "jsonb - Statement 557",
@@ -2746,8 +2746,8 @@
   },
   {
     "comment": "jsonb - Statement 572",
-    "query": "SELECT count(*) FROM testjsonb WHERE j \u003e '{\"p\":1}'",
-    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j \u003e '{\"p\":1}'"
+    "query": "SELECT count(*) FROM testjsonb WHERE j > '{\"p\":1}'",
+    "expected": "SELECT COUNT(*) FROM testjsonb WHERE j > '{\"p\":1}'"
   },
   {
     "comment": "jsonb - Statement 573",
@@ -2791,93 +2791,93 @@
   },
   {
     "comment": "jsonb - Statement 581",
-    "query": "SELECT '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -\u003e 'ff', '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -\u003e 'qq', ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -\u003e 'Y') IS NULL AS f, ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -\u003e\u003e 'Y') IS NULL AS t, '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -\u003e 'x'",
-    "expected": "SELECT CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -\u003e 'ff', CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -\u003e 'qq', (CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -\u003e 'Y') IS NULL AS f, (CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -\u003e\u003e 'Y') IS NULL AS t, CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -\u003e 'x'"
+    "query": "SELECT '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'ff', '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'qq', ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'Y') IS NULL AS f, ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb ->> 'Y') IS NULL AS t, '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'x'",
+    "expected": "SELECT CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -> 'ff', CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -> 'qq', (CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -> 'Y') IS NULL AS f, (CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) ->> 'Y') IS NULL AS t, CAST('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}' AS JSONB) -> 'x'"
   },
   {
     "comment": "jsonb - Statement 582",
-    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[1,2]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[1,2]}'"
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[1,2]}'"
   },
   {
     "comment": "jsonb - Statement 583",
-    "query": "SELECT '{\"a\":[2,1],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[1,2]}'",
-    "expected": "SELECT CAST('{\"a\":[2,1],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[1,2]}'"
+    "query": "SELECT '{\"a\":[2,1],\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'",
+    "expected": "SELECT CAST('{\"a\":[2,1],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[1,2]}'"
   },
   {
     "comment": "jsonb - Statement 584",
-    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[1,2]}'",
-    "expected": "SELECT CAST('{\"a\":{\"1\":2},\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[1,2]}'"
+    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'",
+    "expected": "SELECT CAST('{\"a\":{\"1\":2},\"c\":\"b\"}' AS JSONB) @> '{\"a\":[1,2]}'"
   },
   {
     "comment": "jsonb - Statement 585",
-    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[1,2]}'",
-    "expected": "SELECT CAST('{\"a\":{\"2\":1},\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[1,2]}'"
+    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'",
+    "expected": "SELECT CAST('{\"a\":{\"2\":1},\"c\":\"b\"}' AS JSONB) @> '{\"a\":[1,2]}'"
   },
   {
     "comment": "jsonb - Statement 586",
-    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @\u003e '{\"a\":{\"1\":2}}'",
-    "expected": "SELECT CAST('{\"a\":{\"1\":2},\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":{\"1\":2}}'"
+    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @> '{\"a\":{\"1\":2}}'",
+    "expected": "SELECT CAST('{\"a\":{\"1\":2},\"c\":\"b\"}' AS JSONB) @> '{\"a\":{\"1\":2}}'"
   },
   {
     "comment": "jsonb - Statement 587",
-    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @\u003e '{\"a\":{\"1\":2}}'",
-    "expected": "SELECT CAST('{\"a\":{\"2\":1},\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":{\"1\":2}}'"
+    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @> '{\"a\":{\"1\":2}}'",
+    "expected": "SELECT CAST('{\"a\":{\"2\":1},\"c\":\"b\"}' AS JSONB) @> '{\"a\":{\"1\":2}}'"
   },
   {
     "comment": "jsonb - Statement 588",
-    "query": "SELECT '[\"a\",\"b\"]'::jsonb @\u003e '[\"a\",\"b\",\"c\",\"b\"]'",
-    "expected": "SELECT CAST('[\"a\",\"b\"]' AS JSONB) @\u003e '[\"a\",\"b\",\"c\",\"b\"]'"
+    "query": "SELECT '[\"a\",\"b\"]'::jsonb @> '[\"a\",\"b\",\"c\",\"b\"]'",
+    "expected": "SELECT CAST('[\"a\",\"b\"]' AS JSONB) @> '[\"a\",\"b\",\"c\",\"b\"]'"
   },
   {
     "comment": "jsonb - Statement 589",
-    "query": "SELECT '[\"a\",\"b\",\"c\",\"b\"]'::jsonb @\u003e '[\"a\",\"b\"]'",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",\"b\"]' AS JSONB) @\u003e '[\"a\",\"b\"]'"
+    "query": "SELECT '[\"a\",\"b\",\"c\",\"b\"]'::jsonb @> '[\"a\",\"b\"]'",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",\"b\"]' AS JSONB) @> '[\"a\",\"b\"]'"
   },
   {
     "comment": "jsonb - Statement 590",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @\u003e '[\"a\",[1,2]]'",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2]]' AS JSONB) @\u003e '[\"a\",[1,2]]'"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @> '[\"a\",[1,2]]'",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2]]' AS JSONB) @> '[\"a\",[1,2]]'"
   },
   {
     "comment": "jsonb - Statement 591",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @\u003e '[\"b\",[1,2]]'",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2]]' AS JSONB) @\u003e '[\"b\",[1,2]]'"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @> '[\"b\",[1,2]]'",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2]]' AS JSONB) @> '[\"b\",[1,2]]'"
   },
   {
     "comment": "jsonb - Statement 592",
-    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[1]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[1]}'"
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[1]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[1]}'"
   },
   {
     "comment": "jsonb - Statement 593",
-    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[2]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[2]}'"
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[2]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[2]}'"
   },
   {
     "comment": "jsonb - Statement 594",
-    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[3]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[3]}'"
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[3]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[3]}'"
   },
   {
     "comment": "jsonb - Statement 595",
-    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[{\"c\":3}]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[{\"c\":3}]}'"
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"c\":3}]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[{\"c\":3}]}'"
   },
   {
     "comment": "jsonb - Statement 596",
-    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[{\"x\":4}]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[{\"x\":4}]}'"
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4}]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[{\"x\":4}]}'"
   },
   {
     "comment": "jsonb - Statement 597",
-    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[{\"x\":4},3]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[{\"x\":4},3]}'"
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4},3]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[{\"x\":4},3]}'"
   },
   {
     "comment": "jsonb - Statement 598",
-    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @\u003e '{\"a\":[{\"x\":4},1]}'",
-    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @\u003e '{\"a\":[{\"x\":4},1]}'"
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4},1]}'",
+    "expected": "SELECT CAST('{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}' AS JSONB) @> '{\"a\":[{\"x\":4},1]}'"
   },
   {
     "comment": "jsonb - Statement 599",
@@ -2916,18 +2916,18 @@
   },
   {
     "comment": "jsonb - Statement 606",
-    "query": "select * from nestjsonb where j @\u003e '{\"a\":[[{\"x\":2}]]}'::jsonb",
-    "expected": "SELECT * FROM nestjsonb WHERE j @\u003e CAST('{\"a\":[[{\"x\":2}]]}' AS JSONB)"
+    "query": "select * from nestjsonb where j @> '{\"a\":[[{\"x\":2}]]}'::jsonb",
+    "expected": "SELECT * FROM nestjsonb WHERE j @> CAST('{\"a\":[[{\"x\":2}]]}' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 607",
-    "query": "select * from nestjsonb where j @\u003e '{\"c\":3}'",
-    "expected": "SELECT * FROM nestjsonb WHERE j @\u003e '{\"c\":3}'"
+    "query": "select * from nestjsonb where j @> '{\"c\":3}'",
+    "expected": "SELECT * FROM nestjsonb WHERE j @> '{\"c\":3}'"
   },
   {
     "comment": "jsonb - Statement 608",
-    "query": "select * from nestjsonb where j @\u003e '[[14]]'",
-    "expected": "SELECT * FROM nestjsonb WHERE j @\u003e '[[14]]'"
+    "query": "select * from nestjsonb where j @> '[[14]]'",
+    "expected": "SELECT * FROM nestjsonb WHERE j @> '[[14]]'"
   },
   {
     "comment": "jsonb - Statement 609",
@@ -2941,163 +2941,163 @@
   },
   {
     "comment": "jsonb - Statement 611",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'n'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'n'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'n'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'n'"
   },
   {
     "comment": "jsonb - Statement 612",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'a'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'a'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'a'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'a'"
   },
   {
     "comment": "jsonb - Statement 613",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'b'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'b'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'b'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'b'"
   },
   {
     "comment": "jsonb - Statement 614",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'c'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'c'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'c'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'c'"
   },
   {
     "comment": "jsonb - Statement 615",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'd'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'd'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'd'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'd'"
   },
   {
     "comment": "jsonb - Statement 616",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'd' -\u003e '1'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'd' -\u003e '1'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'd' -> '1'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'd' -> '1'"
   },
   {
     "comment": "jsonb - Statement 617",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 'e'",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 'e'"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'e'",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 'e'"
   },
   {
     "comment": "jsonb - Statement 618",
-    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -\u003e 0",
-    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -\u003e 0"
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 0",
+    "expected": "SELECT CAST('{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}' AS JSONB) -> 0"
   },
   {
     "comment": "jsonb - Statement 619",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 0",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 0"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 0",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 0"
   },
   {
     "comment": "jsonb - Statement 620",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 1",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 1"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 1",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 1"
   },
   {
     "comment": "jsonb - Statement 621",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 2",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 2"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 2",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 2"
   },
   {
     "comment": "jsonb - Statement 622",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 3",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 3"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 3",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 3"
   },
   {
     "comment": "jsonb - Statement 623",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 3 -\u003e 1",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 3 -\u003e 1"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 3 -> 1",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 3 -> 1"
   },
   {
     "comment": "jsonb - Statement 624",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 4",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 4"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 4",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 4"
   },
   {
     "comment": "jsonb - Statement 625",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e 5",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e 5"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 5",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> 5"
   },
   {
     "comment": "jsonb - Statement 626",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e -1",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e -1"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -1",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> -1"
   },
   {
     "comment": "jsonb - Statement 627",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e -5",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e -5"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -5",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> -5"
   },
   {
     "comment": "jsonb - Statement 628",
-    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -\u003e -6",
-    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -\u003e -6"
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -6",
+    "expected": "SELECT CAST('[\"a\",\"b\",\"c\",[1,2],null]' AS JSONB) -> -6"
   },
   {
     "comment": "jsonb - Statement 629",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{0}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{0}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{0}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{0}'"
   },
   {
     "comment": "jsonb - Statement 630",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{a}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{a}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{a}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{a}'"
   },
   {
     "comment": "jsonb - Statement 631",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c}'"
   },
   {
     "comment": "jsonb - Statement 632",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,0}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,0}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,0}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,0}'"
   },
   {
     "comment": "jsonb - Statement 633",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,1}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,1}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,1}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,1}'"
   },
   {
     "comment": "jsonb - Statement 634",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,2}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,2}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,2}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,2}'"
   },
   {
     "comment": "jsonb - Statement 635",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,3}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,3}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,3}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,3}'"
   },
   {
     "comment": "jsonb - Statement 636",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,-1}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,-1}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-1}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,-1}'"
   },
   {
     "comment": "jsonb - Statement 637",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,-3}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,-3}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-3}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,-3}'"
   },
   {
     "comment": "jsonb - Statement 638",
-    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #\u003e '{c,-4}'",
-    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #\u003e '{c,-4}'"
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-4}'",
+    "expected": "SELECT CAST('{\"a\":\"b\",\"c\":[1,2,3]}' AS JSONB) #> '{c,-4}'"
   },
   {
     "comment": "jsonb - Statement 639",
-    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #\u003e '{0}'",
-    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #\u003e '{0}'"
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{0}'",
+    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #> '{0}'"
   },
   {
     "comment": "jsonb - Statement 640",
-    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #\u003e '{3}'",
-    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #\u003e '{3}'"
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{3}'",
+    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #> '{3}'"
   },
   {
     "comment": "jsonb - Statement 641",
-    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #\u003e '{4}'",
-    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #\u003e '{4}'"
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{4}'",
+    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #> '{4}'"
   },
   {
     "comment": "jsonb - Statement 642",
-    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #\u003e '{4,5}'",
-    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #\u003e '{4,5}'"
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{4,5}'",
+    "expected": "SELECT CAST('[0,1,2,[3,4],{\"5\":\"five\"}]' AS JSONB) #> '{4,5}'"
   },
   {
     "comment": "jsonb - Statement 643",
@@ -3681,23 +3681,23 @@
   },
   {
     "comment": "jsonb - Statement 759",
-    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment =\u003e 'raise_exception') as raise_exception",
-    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment =\u003e 'raise_exception') AS raise_exception"
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'raise_exception') as raise_exception",
+    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment => 'raise_exception') AS raise_exception"
   },
   {
     "comment": "jsonb - Statement 760",
-    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment =\u003e 'return_target') as return_target",
-    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment =\u003e 'return_target') AS return_target"
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'return_target') as return_target",
+    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment => 'return_target') AS return_target"
   },
   {
     "comment": "jsonb - Statement 761",
-    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment =\u003e 'delete_key') as delete_key",
-    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment =\u003e 'delete_key') AS delete_key"
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'delete_key') as delete_key",
+    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment => 'delete_key') AS delete_key"
   },
   {
     "comment": "jsonb - Statement 762",
-    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment =\u003e 'use_json_null') as use_json_null",
-    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment =\u003e 'use_json_null') AS use_json_null"
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'use_json_null') as use_json_null",
+    "expected": "SELECT jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', NULL, null_value_treatment => 'use_json_null') AS use_json_null"
   },
   {
     "comment": "jsonb - Statement 763",
@@ -4331,38 +4331,38 @@
   },
   {
     "comment": "jsonb - Statement 889",
-    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb \u0026 ddd \u0026 hhh'))",
-    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb \u0026 ddd \u0026 hhh'))"
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'))",
+    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb & ddd & hhh'))"
   },
   {
     "comment": "jsonb - Statement 890",
-    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb \u0026 ddd \u0026 hhh'))",
-    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb \u0026 ddd \u0026 hhh'))"
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'))",
+    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb & ddd & hhh'))"
   },
   {
     "comment": "jsonb - Statement 891",
-    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')",
-    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')"
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')",
+    "expected": "SELECT ts_headline(CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
   },
   {
     "comment": "jsonb - Statement 892",
-    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')",
-    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb \u0026 ddd \u0026 hhh'), 'StartSel = \u003c, StopSel = \u003e')"
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')",
+    "expected": "SELECT ts_headline('english', CAST('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}' AS JSONB), tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
   },
   {
     "comment": "jsonb - Statement 893",
-    "query": "select ts_headline('null'::jsonb, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('null' AS JSONB), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('null'::jsonb, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('null' AS JSONB), tsquery('aaa & bbb'))"
   },
   {
     "comment": "jsonb - Statement 894",
-    "query": "select ts_headline('{}'::jsonb, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('{}' AS JSONB), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('{}'::jsonb, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('{}' AS JSONB), tsquery('aaa & bbb'))"
   },
   {
     "comment": "jsonb - Statement 895",
-    "query": "select ts_headline('[]'::jsonb, tsquery('aaa \u0026 bbb'))",
-    "expected": "SELECT ts_headline(CAST('[]' AS JSONB), tsquery('aaa \u0026 bbb'))"
+    "query": "select ts_headline('[]'::jsonb, tsquery('aaa & bbb'))",
+    "expected": "SELECT ts_headline(CAST('[]' AS JSONB), tsquery('aaa & bbb'))"
   },
   {
     "comment": "jsonb - Statement 896",

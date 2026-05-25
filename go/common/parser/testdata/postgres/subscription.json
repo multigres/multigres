@@ -81,7 +81,7 @@
   },
   {
     "comment": "subscription - Statement 19",
-    "query": "SELECT 'prev_stats_reset' \u003c stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
+    "query": "SELECT 'prev_stats_reset' < stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
   },
   {
     "comment": "subscription - Statement 20",

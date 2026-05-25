@@ -66,8 +66,8 @@
   },
   {
     "comment": "alter_operator - Statement 14",
-    "query": "ALTER OPERATOR \u0026 (bit, bit) SET (Restrict = _int_contsel, Join = _int_contjoinsel)",
-    "expected": "ALTER OPERATOR \u0026(bit, bit) SET ( restrict = _int_contsel, \"join\" = _int_contjoinsel )"
+    "query": "ALTER OPERATOR & (bit, bit) SET (Restrict = _int_contsel, Join = _int_contjoinsel)",
+    "expected": "ALTER OPERATOR &(bit, bit) SET ( restrict = _int_contsel, \"join\" = _int_contjoinsel )"
   },
   {
     "comment": "alter_operator - Statement 15",

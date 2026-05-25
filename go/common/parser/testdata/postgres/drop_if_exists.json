@@ -85,8 +85,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 21",
-    "query": "CREATE domain test_domain_exists as int not null check (value \u003e 0)",
-    "expected": "CREATE DOMAIN test_domain_exists AS INT NOT NULL CHECK (value \u003e 0)"
+    "query": "CREATE domain test_domain_exists as int not null check (value > 0)",
+    "expected": "CREATE DOMAIN test_domain_exists AS INT NOT NULL CHECK (value > 0)"
   },
   {
     "comment": "drop_if_exists - Statement 22",

@@ -46,8 +46,8 @@
   },
   {
     "comment": "varchar - Statement 10",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c\u003e 'a'",
-    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c\u003e 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <> 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 <> 'a'"
   },
   {
     "comment": "varchar - Statement 11",
@@ -56,23 +56,23 @@
   },
   {
     "comment": "varchar - Statement 12",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c 'a'",
-    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 < 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 < 'a'"
   },
   {
     "comment": "varchar - Statement 13",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c= 'a'",
-    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c= 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <= 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 <= 'a'"
   },
   {
     "comment": "varchar - Statement 14",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003e 'a'",
-    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003e 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 > 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 > 'a'"
   },
   {
     "comment": "varchar - Statement 15",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003e= 'a'",
-    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003e= 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 >= 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 >= 'a'"
   },
   {
     "comment": "varchar - Statement 16",

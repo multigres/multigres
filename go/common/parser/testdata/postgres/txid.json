@@ -81,8 +81,8 @@
   },
   {
     "comment": "txid - Statement 17",
-    "query": "select txid_current() \u003e= txid_snapshot_xmin(txid_current_snapshot())",
-    "expected": "SELECT txid_current() \u003e= txid_snapshot_xmin(txid_current_snapshot())"
+    "query": "select txid_current() >= txid_snapshot_xmin(txid_current_snapshot())",
+    "expected": "SELECT txid_current() >= txid_snapshot_xmin(txid_current_snapshot())"
   },
   {
     "comment": "txid - Statement 18",
