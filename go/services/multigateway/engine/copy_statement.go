@@ -295,17 +295,24 @@ func (c *CopyStatement) streamCopyOut(
 	// released (or kept-state) the conn. No deferred abort needed.
 	streamCompleted = true
 
-	// Trailing notices (between CopyDone and CommandComplete) — write them
-	// before CopyDone so the client sees NoticeResponse → CopyDone →
-	// CommandComplete in order, matching upstream PG.
+	// Wire ordering matches upstream PG for COPY ... TO STDOUT:
+	//   CopyData* → CopyDone → NoticeResponse* → CommandComplete → ReadyForQuery
+	//
+	// result.Notices holds diagnostics PG sent between CopyDone and
+	// CommandComplete (AFTER STATEMENT trigger output, COPY progress
+	// finalization, etc.), so they go AFTER WriteCopyDone but BEFORE the
+	// callback that emits CommandComplete. NoticeResponse is technically
+	// valid at any point on the wire, so any client (libpq, pgx) will
+	// accept it either way — but matching PG ordering avoids surprising
+	// protocol-level diff tools / wire fuzzers.
+	if err := conn.WriteCopyDone(); err != nil {
+		return fmt.Errorf("failed to write CopyDone: %w", err)
+	}
+
 	if len(result.Notices) > 0 {
 		if cbErr := callback(ctx, &sqltypes.Result{Notices: result.Notices}); cbErr != nil {
 			return cbErr
 		}
-	}
-
-	if err := conn.WriteCopyDone(); err != nil {
-		return fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
 	// Hand the Result (with CommandTag) to the higher-level callback which

@@ -882,6 +882,11 @@ func (g *grpcQueryService) CopyOutStream(
 						g.copyStreamsMu.Lock()
 						delete(g.copyStreams, options.ReservedConnectionId)
 						g.copyStreamsMu.Unlock()
+						// Close the send half so the multipooler's
+						// stream ctx cancels and its CopyOutStream
+						// pump exits via the abortCopyOut path. Mirrors
+						// the RESULT / ERROR terminal branches below.
+						_ = stream.CloseSend()
 						return nil, nil, err
 					}
 				}
@@ -891,6 +896,7 @@ func (g *grpcQueryService) CopyOutStream(
 					g.copyStreamsMu.Lock()
 					delete(g.copyStreams, options.ReservedConnectionId)
 					g.copyStreamsMu.Unlock()
+					_ = stream.CloseSend()
 					return nil, nil, err
 				}
 			}

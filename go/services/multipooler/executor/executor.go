@@ -1714,14 +1714,20 @@ func (e *Executor) ReleaseReservedConnection(
 	}
 
 	// Step 2: If there's a COPY reason, send CopyFail and read the response.
+	// After CopyFail PG sends ErrorResponse + ReadyForQuery (not
+	// CommandComplete), so use ReadCopyFailResponse — it expects that
+	// shape, leaves the conn in a clean RFQ state, and reports cleanup
+	// success without flipping cleanupFailed. ReadCopyDoneResponse would
+	// happen to drain the same bytes but treat the ErrorResponse as a
+	// failure, falsely marking the conn unrecyclable.
 	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
 		conn := reservedConn.Conn()
 		if err := conn.WriteCopyFail("connection closing"); err != nil {
 			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
-		} else if _, _, _, err := conn.ReadCopyDoneResponse(ctx); err != nil {
-			e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)",
+		} else if _, err := conn.ReadCopyFailResponse(ctx); err != nil {
+			e.logger.DebugContext(ctx, "error reading response after CopyFail",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
 		}
