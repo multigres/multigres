@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -53,6 +54,19 @@ type mockIExecute struct {
 	// Track calls
 	copyAbortCalled atomic.Int32
 	copyAbortErr    error
+
+	// CopyOutInitiate behavior (TO STDOUT direction)
+	copyOutInitiateErr     error
+	copyOutInitiateFormat  int16
+	copyOutInitiateFormats []int16
+	copyOutInitiateNotices []*mterrors.PgDiagnostic
+
+	// CopyOutStream behavior — controls what frames the executor
+	// "pumps" back via the onMessage callback before returning the
+	// final Result.
+	copyOutStreamMessages []pgClient.CopyOutMessage
+	copyOutStreamResult   *sqltypes.Result
+	copyOutStreamErr      error
 }
 
 func (m *mockIExecute) StreamExecute(
@@ -151,18 +165,29 @@ func (m *mockIExecute) CopyOutInitiate(
 	string,
 	*handler.MultiGatewayConnectionState,
 ) (int16, []int16, []*mterrors.PgDiagnostic, error) {
-	return 0, nil, nil, nil
+	if m.copyOutInitiateErr != nil {
+		return 0, nil, m.copyOutInitiateNotices, m.copyOutInitiateErr
+	}
+	return m.copyOutInitiateFormat, m.copyOutInitiateFormats, m.copyOutInitiateNotices, nil
 }
 
 func (m *mockIExecute) CopyOutStream(
-	context.Context,
-	*server.Conn,
-	string,
-	string,
-	*handler.MultiGatewayConnectionState,
-	func(pgClient.CopyOutMessage) error,
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
+	onMessage func(pgClient.CopyOutMessage) error,
 ) (*sqltypes.Result, error) {
-	return nil, nil
+	for _, msg := range m.copyOutStreamMessages {
+		if err := onMessage(msg); err != nil {
+			return nil, err
+		}
+	}
+	if m.copyOutStreamErr != nil {
+		return nil, m.copyOutStreamErr
+	}
+	return m.copyOutStreamResult, nil
 }
 
 func (m *mockIExecute) ConcludeTransaction(
@@ -465,4 +490,175 @@ func TestCopyStatement_GetQuery(t *testing.T) {
 		Relation: &ast.RangeVar{RelName: "users"},
 	})
 	require.Equal(t, "COPY users FROM STDIN", copyStmt.GetQuery())
+}
+
+// newTestCopyToStdoutStatement builds a TO-STDOUT CopyStatement for tests.
+func newTestCopyToStdoutStatement() *CopyStatement {
+	return NewCopyStatement("test_tablegroup", "COPY t TO STDOUT", &ast.CopyStmt{
+		IsFrom:   false,
+		Relation: &ast.RangeVar{RelName: "t"},
+	})
+}
+
+// recordingCallback records every Result the engine emits to the
+// higher-level callback so tests can assert ordering / payload.
+type recordedResult struct {
+	rows         int
+	commandTag   string
+	noticeCount  int
+	rowsAffected uint64
+}
+
+func recordingCallback(out *[]recordedResult) func(context.Context, *sqltypes.Result) error {
+	return func(_ context.Context, r *sqltypes.Result) error {
+		*out = append(*out, recordedResult{
+			rows:         len(r.Rows),
+			commandTag:   r.CommandTag,
+			noticeCount:  len(r.Notices),
+			rowsAffected: r.RowsAffected,
+		})
+		return nil
+	}
+}
+
+// TestStreamCopyOut_Success exercises the happy path:
+//   - CopyOutInitiate returns format + columnFormats + zero initiation notices
+//   - CopyOutStream pumps two CopyData chunks and an interleaved Notice
+//   - The final Result carries a CommandTag + trailing notices
+//
+// Verifies that the engine writes CopyOutResponse, forwards each chunk,
+// orders the trailing notices AFTER CopyDone (matching upstream PG), and
+// hands the CommandTag-bearing Result to the higher-level callback.
+func TestStreamCopyOut_Success(t *testing.T) {
+	mockExec := &mockIExecute{
+		copyOutInitiateFormat:  0,
+		copyOutInitiateFormats: []int16{0, 0},
+		copyOutStreamMessages: []pgClient.CopyOutMessage{
+			{Data: []byte("1\tAlice\n")},
+			{Notice: &mterrors.PgDiagnostic{Severity: "NOTICE", Code: "00000", Message: "mid-stream"}},
+			{Data: []byte("2\tBob\n")},
+		},
+		copyOutStreamResult: &sqltypes.Result{
+			CommandTag:   "COPY 2",
+			RowsAffected: 2,
+			Notices: []*mterrors.PgDiagnostic{
+				{Severity: "NOTICE", Code: "00000", Message: "after-statement trigger"},
+			},
+		},
+	}
+
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	var got []recordedResult
+
+	err := newTestCopyToStdoutStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultiGatewayConnectionState{},
+		nil,
+		recordingCallback(&got),
+	)
+	require.NoError(t, err)
+
+	// Defer abort must NOT have fired on the success path.
+	require.Equal(t, int32(0), mockExec.copyAbortCalled.Load())
+
+	// Two callback invocations: one mid-stream notice forward, one for
+	// the trailing-notices result. Plus the CommandTag-bearing result at
+	// the end → 3 callbacks total. (CopyData chunks are written directly
+	// to conn, not through the callback.)
+	require.Len(t, got, 3, "expected mid-stream notice + trailing notices + CommandComplete result")
+	assert.Equal(t, 1, got[0].noticeCount, "first callback is the mid-stream NoticeResponse")
+	assert.Equal(t, "", got[0].commandTag)
+
+	assert.Equal(t, 1, got[1].noticeCount, "second callback is the trailing notice batch")
+	assert.Equal(t, "", got[1].commandTag, "trailing notices come BEFORE the CommandTag callback")
+
+	assert.Equal(t, "COPY 2", got[2].commandTag, "final callback carries CommandTag")
+	assert.Equal(t, uint64(2), got[2].rowsAffected)
+}
+
+// TestStreamCopyOut_InitiateError surfaces the PG error un-wrapped and
+// skips the deferred CopyAbort — CopyOutInitiate failed before any
+// reservation was held.
+func TestStreamCopyOut_InitiateError(t *testing.T) {
+	mockExec := &mockIExecute{
+		copyOutInitiateErr: errors.New("column \"foo\" does not exist"),
+	}
+
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	err := newTestCopyToStdoutStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultiGatewayConnectionState{},
+		nil,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+	require.Error(t, err)
+	assert.Equal(t, "column \"foo\" does not exist", err.Error(),
+		"PG errors flow back un-wrapped so the gateway re-emits a verbatim ErrorResponse")
+	// No reservation was created → no deferred abort to run.
+	assert.Equal(t, int32(0), mockExec.copyAbortCalled.Load())
+}
+
+// TestStreamCopyOut_DeferredAbortFiresOnPreStreamFailure verifies the
+// deferred guard: when the pre-CopyOutResponse notice callback fails
+// AFTER CopyOutInitiate succeeded (so the multipooler holds ReasonCopy
+// on the reserved conn), the deferred CopyAbort must run so the
+// reservation isn't leaked.
+func TestStreamCopyOut_DeferredAbortFiresOnPreStreamFailure(t *testing.T) {
+	mockExec := &mockIExecute{
+		copyOutInitiateFormat:  0,
+		copyOutInitiateFormats: []int16{0, 0},
+		copyOutInitiateNotices: []*mterrors.PgDiagnostic{
+			{Severity: "NOTICE", Code: "00000", Message: "before-statement"},
+		},
+	}
+
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	cbErr := errors.New("client write failed")
+	err := newTestCopyToStdoutStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultiGatewayConnectionState{},
+		nil,
+		func(_ context.Context, _ *sqltypes.Result) error {
+			// First (and only) callback is the pre-stream initiation
+			// notice — make it fail so the engine bails before
+			// CopyOutStream is reached.
+			return cbErr
+		},
+	)
+	require.ErrorIs(t, err, cbErr)
+	assert.Equal(t, int32(1), mockExec.copyAbortCalled.Load(),
+		"deferred abort must run when failure happens in the pre-stream window")
+}
+
+// TestStreamCopyOut_StreamErrorSkipsDeferredAbort verifies that when
+// CopyOutStream returns an error, the engine clears streamCompleted so
+// the deferred CopyAbort does NOT fire on top of the executor's own
+// cleanup (the executor already released or kept-state the conn via
+// abortCopyOut / RemoveReservationReason).
+func TestStreamCopyOut_StreamErrorSkipsDeferredAbort(t *testing.T) {
+	streamErr := errors.New("PG mid-stream error")
+	mockExec := &mockIExecute{
+		copyOutInitiateFormat:  0,
+		copyOutInitiateFormats: []int16{0, 0},
+		copyOutStreamErr:       streamErr,
+	}
+
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	err := newTestCopyToStdoutStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultiGatewayConnectionState{},
+		nil,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+	require.ErrorIs(t, err, streamErr)
+	assert.Equal(t, int32(0), mockExec.copyAbortCalled.Load(),
+		"deferred abort must NOT run on top of executor's own CopyOutStream cleanup")
 }
