@@ -1890,7 +1890,7 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 	return setupMultiplePrimariesStoreWithReachability(t, configs)
 }
 
-func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
+func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
 	for _, p := range primaries {

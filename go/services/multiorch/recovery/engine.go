@@ -302,13 +302,21 @@ func NewEngine(
 		WithLogger(logger))
 
 	// Create the watcher-based topology discovery.
-	// When a new pooler is discovered, start a health stream for it.
+	// When a new pooler is discovered, start a health stream for it; when an
+	// existing pooler transitions to LIFECYCLE_SHUTDOWN, stop the per-pooler
+	// health-stream goroutine so the reconnect loop exits cleanly instead of
+	// dialling the dead address until bookkeeping eviction (~4 h). The
+	// onPoolerDeleted hook is reserved for future use — accidental external
+	// deletion of a still-running pooler's entry should not tear down its
+	// health stream, so we deliberately pass nil here.
 	engine.poolerWatcher = NewPoolerWatcher(
 		ctx,
 		ts,
 		engine.getWatchTargets,
 		poolerStore,
 		healthStream.Start,
+		healthStream.Stop, // onPoolerStopped
+		nil,               // onPoolerDeleted: reserved
 		logger,
 	)
 

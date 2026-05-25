@@ -48,6 +48,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -439,6 +440,17 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
 					"postgres_running", newState.postgresRunning)
 				pm.broadcastHealth()
+			}
+			// Transition lifecycle STARTING → ACTIVE once postgres is up
+			// and responding. markPoolerActive is idempotent (short-circuits
+			// when already ACTIVE) so calling it every tick is cheap, and
+			// it retries the topology write on the next tick if it fails.
+			// The transition is monotonic per boot: once ACTIVE, postgres
+			// going down doesn't flip the lifecycle back to STARTING —
+			// runtime health is communicated via Status.PostgresReady /
+			// PostgresStatus, not via Lifecycle.
+			if newState.postgresRunning {
+				pm.markPoolerActive(ctx)
 			}
 			prevState = newState
 		}
@@ -1519,9 +1531,9 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 }
 
 // StopTopoRegistration transitions the pooler to its shutdown topology
-// state (Type=DRAINED, ServingStatus=NOT_SERVING), stops the publisher with
-// a final publish, and cancels the toporeg retry goroutine. Safe to call
-// even if StartTopoRegistration was never invoked.
+// state (Type=DRAINED, ServingStatus=NOT_SERVING, LifecycleStatus=SHUTDOWN),
+// stops the publisher with a final publish, and cancels the toporeg retry
+// goroutine. Safe to call even if StartTopoRegistration was never invoked.
 //
 // Caller controls the deadline via ctx. ctx should NOT inherit from
 // pm.shutdownCtx, which GracefulShutdown cancels — by the time OnClose
@@ -1529,10 +1541,14 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 //
 // Type=DRAINED is set so administrative views (e.g. `multigres getpoolers`)
 // reflect that this pooler has gone away rather than continuing to display
-// its last live role. This is purely cosmetic — failover keys off
-// LeadershipStatus.REQUESTING_DEMOTION on the health stream, not off
-// PoolerType. On restart the pooler re-registers with PoolerType_REPLICA
-// and the orchestrator promotes as usual.
+// its last live role. LifecycleStatus=LIFECYCLE_SHUTDOWN is the signal the
+// orchestrator's pooler watcher reacts to in order to close the per-pooler
+// health stream — without it, the orchestrator would dial the dead address
+// for ~4 h until forgetLongUnseenInstances tore down the cache entry. The
+// entry itself is left in place; the 4 h bookkeeping handles eventual
+// cleanup. On restart the pooler re-registers with PoolerType_REPLICA and
+// LifecycleStatus=LIFECYCLE_STARTING, and the orchestrator promotes as
+// usual.
 //
 // Does not require the manager's action lock — record.Unregister stops the
 // publisher before applying the finalize callback, so no other goroutine
@@ -1541,6 +1557,11 @@ func (pm *MultiPoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_DRAINED
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+			Reason:  "pooler shutdown",
+			Updated: timestamppb.Now(),
+		}
 	})
 }
 

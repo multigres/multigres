@@ -26,11 +26,11 @@ import (
 )
 
 // TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff verifies that
-// an EOF on an ordinary stream goes through the existing
-// reconnect-with-backoff path. The graceful-shutdown trigger
-// (REQUESTING_DEMOTION on LeadershipStatus) is published by the pooler
-// directly and handled by the analyzer; this test guards the orthogonal
-// "no special signal → reconnect" default.
+// an EOF on an ordinary stream goes through the reconnect-with-backoff path.
+// Stream closure on graceful shutdown is driven by the topology deletion
+// performed by the pooler's OnClose unregisterFunc, not by anything on the
+// health stream itself — so a bare EOF (without an accompanying topology
+// delete) must continue to back off as today.
 func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 	ctx := t.Context()
 
@@ -50,7 +50,7 @@ func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 	stream := <-streamCh
 	completeHandshake(t, stream)
 
-	// Send a regular snapshot — no resignation signal.
+	// Send a regular snapshot.
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 		PoolerType:    clustermetadata.PoolerType_PRIMARY,
 		PostgresReady: true,
