@@ -3178,7 +3178,7 @@
   {
     "comment": "partition_prune - Statement 644",
     "query": "create operator === ( leftarg = int4, rightarg = int4, procedure = int4eq, commutator = ===, hashes )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '===', hashes)"
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = ===, hashes)"
   },
   {
     "comment": "partition_prune - Statement 645",

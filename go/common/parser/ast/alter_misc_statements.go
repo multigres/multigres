@@ -203,7 +203,9 @@ func (n *AlterOperatorStmt) SqlString() string {
 		var optStrs []string
 		for _, opt := range n.Options.Items {
 			if defElem, ok := opt.(*DefElem); ok {
-				optStrs = append(optStrs, defElem.SqlString())
+				// COMMUTATOR/NEGATOR carry operator names, which must be emitted
+				// unquoted rather than as string literals.
+				optStrs = append(optStrs, operatorDefElemString(defElem))
 			}
 		}
 		parts = append(parts, strings.Join(optStrs, ", "))

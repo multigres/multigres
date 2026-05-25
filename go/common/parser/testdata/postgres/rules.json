@@ -2042,7 +2042,7 @@
   {
     "comment": "rules - Statement 415",
     "query": "create rule rr as on update to rule_t1 do instead UPDATE rule_dest trgt SET (f2[1], f1, tag) = (SELECT new.f2, new.f1, 'updated'::varchar) WHERE trgt.f1 = new.f1 RETURNING new.*",
-    "expected": "CREATE RULE rr AS ON UPDATE TO rule_t1 DO INSTEAD UPDATE rule_dest AS trgt SET f2[1] = (SELECT new.f2, new.f1, CAST('updated' AS VARCHAR)), f1 = (SELECT new.f2, new.f1, CAST('updated' AS VARCHAR)), tag = (SELECT new.f2, new.f1, CAST('updated' AS VARCHAR)) WHERE trgt.f1 = new.f1 RETURNING new.*"
+    "expected": "CREATE RULE rr AS ON UPDATE TO rule_t1 DO INSTEAD UPDATE rule_dest AS trgt SET (f2[1], f1, tag) = (SELECT new.f2, new.f1, CAST('updated' AS VARCHAR)) WHERE trgt.f1 = new.f1 RETURNING new.*"
   },
   {
     "comment": "rules - Statement 416",

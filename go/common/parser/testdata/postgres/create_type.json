@@ -260,7 +260,7 @@
   {
     "comment": "create_type - Statement 59",
     "query": "CREATE OPERATOR \u003c% ( leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = \u003e% , negator = \u003e=% )",
-    "expected": "CREATE OPERATOR \u003c% (leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = '\u003e%', negator = '\u003e=%')"
+    "expected": "CREATE OPERATOR \u003c% (leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = \u003e%, negator = \u003e=%)"
   },
   {
     "comment": "create_type - Statement 60",

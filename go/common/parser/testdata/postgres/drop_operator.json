@@ -2,12 +2,12 @@
   {
     "comment": "drop_operator - Statement 1",
     "query": "CREATE OPERATOR === ( PROCEDURE = int8eq, LEFTARG = bigint, RIGHTARG = bigint, COMMUTATOR = === )",
-    "expected": "CREATE OPERATOR === (procedure = int8eq, leftarg = BIGINT, rightarg = BIGINT, commutator = '===')"
+    "expected": "CREATE OPERATOR === (procedure = int8eq, leftarg = BIGINT, rightarg = BIGINT, commutator = ===)"
   },
   {
     "comment": "drop_operator - Statement 2",
     "query": "CREATE OPERATOR !== ( PROCEDURE = int8ne, LEFTARG = bigint, RIGHTARG = bigint, NEGATOR = ===, COMMUTATOR = !== )",
-    "expected": "CREATE OPERATOR !== (procedure = int8ne, leftarg = BIGINT, rightarg = BIGINT, negator = '===', commutator = '!==')"
+    "expected": "CREATE OPERATOR !== (procedure = int8ne, leftarg = BIGINT, rightarg = BIGINT, negator = ===, commutator = !==)"
   },
   {
     "comment": "drop_operator - Statement 3",
@@ -37,7 +37,7 @@
   {
     "comment": "drop_operator - Statement 8",
     "query": "CREATE OPERATOR |\u003e ( PROCEDURE = int8gt, LEFTARG = bigint, RIGHTARG = bigint, NEGATOR = \u003c|, COMMUTATOR = \u003c| )",
-    "expected": "CREATE OPERATOR |\u003e (procedure = int8gt, leftarg = BIGINT, rightarg = BIGINT, negator = '\u003c|', commutator = '\u003c|')"
+    "expected": "CREATE OPERATOR |\u003e (procedure = int8gt, leftarg = BIGINT, rightarg = BIGINT, negator = \u003c|, commutator = \u003c|)"
   },
   {
     "comment": "drop_operator - Statement 9",

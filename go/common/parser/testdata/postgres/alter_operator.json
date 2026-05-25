@@ -12,7 +12,7 @@
   {
     "comment": "alter_operator - Statement 3",
     "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = boolean, PROCEDURE = alter_op_test_fn, COMMUTATOR = ===, NEGATOR = !==, RESTRICT = customcontsel, JOIN = contjoinsel, HASHES, MERGES )",
-    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = alter_op_test_fn, commutator = '===', negator = '!==', restrict = customcontsel, \"join\" = contjoinsel, hashes, merges)"
+    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = alter_op_test_fn, commutator = ===, negator = !==, restrict = customcontsel, \"join\" = contjoinsel, hashes, merges)"
   },
   {
     "comment": "alter_operator - Statement 4",
@@ -136,7 +136,7 @@
   {
     "comment": "alter_operator - Statement 28",
     "query": "ALTER OPERATOR === (boolean, real) SET (COMMUTATOR = ====)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( commutator = '====' )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( commutator = ==== )"
   },
   {
     "comment": "alter_operator - Statement 29",
@@ -146,12 +146,12 @@
   {
     "comment": "alter_operator - Statement 30",
     "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = ===)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = '===' )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = === )"
   },
   {
     "comment": "alter_operator - Statement 31",
     "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = !====)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = '!====' )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = !==== )"
   },
   {
     "comment": "alter_operator - Statement 32",
@@ -176,22 +176,22 @@
   {
     "comment": "alter_operator - Statement 36",
     "query": "ALTER OPERATOR === (boolean, real) SET (COMMUTATOR = @=)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( commutator = '@=' )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( commutator = @= )"
   },
   {
     "comment": "alter_operator - Statement 37",
     "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = @!=)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = '@!=' )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, REAL) SET ( negator = @!= )"
   },
   {
     "comment": "alter_operator - Statement 38",
     "query": "ALTER OPERATOR @=(real, boolean) SET (COMMUTATOR = ===)",
-    "expected": "ALTER OPERATOR @=(REAL, BOOLEAN) SET ( commutator = '===' )"
+    "expected": "ALTER OPERATOR @=(REAL, BOOLEAN) SET ( commutator = === )"
   },
   {
     "comment": "alter_operator - Statement 39",
     "query": "ALTER OPERATOR @!=(boolean, real) SET (NEGATOR = ===)",
-    "expected": "ALTER OPERATOR @!=(BOOLEAN, REAL) SET ( negator = '===' )"
+    "expected": "ALTER OPERATOR @!=(BOOLEAN, REAL) SET ( negator = === )"
   },
   {
     "comment": "alter_operator - Statement 40",

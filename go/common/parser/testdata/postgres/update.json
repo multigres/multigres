@@ -58,47 +58,47 @@
   {
     "comment": "update - Statement 13",
     "query": "UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo'",
-    "expected": "UPDATE update_test SET c = ('bugle', b + 11, DEFAULT), b = ('bugle', b + 11, DEFAULT), a = ('bugle', b + 11, DEFAULT) WHERE c = 'foo'"
+    "expected": "UPDATE update_test SET (c, b, a) = ('bugle', b + 11, DEFAULT) WHERE c = 'foo'"
   },
   {
     "comment": "update - Statement 14",
     "query": "UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10",
-    "expected": "UPDATE update_test SET c = ('car', a + b), b = ('car', a + b), a = a + 1 WHERE a = 10"
+    "expected": "UPDATE update_test SET (c, b) = ('car', a + b), a = a + 1 WHERE a = 10"
   },
   {
     "comment": "update - Statement 15",
     "query": "UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10",
-    "expected": "UPDATE update_test SET c = ('car', a + b), b = ('car', a + b), b = a + 1 WHERE a = 10"
+    "expected": "UPDATE update_test SET (c, b) = ('car', a + b), b = a + 1 WHERE a = 10"
   },
   {
     "comment": "update - Statement 16",
     "query": "UPDATE update_test SET (b,a) = (select a,b from update_test where b = 41 and c = 'car') WHERE a = 100 AND b = 20",
-    "expected": "UPDATE update_test SET b = (SELECT a, b FROM update_test WHERE b = 41 AND c = 'car'), a = (SELECT a, b FROM update_test WHERE b = 41 AND c = 'car') WHERE a = 100 AND b = 20"
+    "expected": "UPDATE update_test SET (b, a) = (SELECT a, b FROM update_test WHERE b = 41 AND c = 'car') WHERE a = 100 AND b = 20"
   },
   {
     "comment": "update - Statement 17",
     "query": "UPDATE update_test o SET (b,a) = (select a+1,b from update_test i where i.a=o.a and i.b=o.b and i.c is not distinct from o.c)",
-    "expected": "UPDATE update_test AS o SET b = (SELECT a + 1, b FROM update_test AS i WHERE i.a = o.a AND i.b = o.b AND i.c IS NOT DISTINCT FROM o.c), a = (SELECT a + 1, b FROM update_test AS i WHERE i.a = o.a AND i.b = o.b AND i.c IS NOT DISTINCT FROM o.c)"
+    "expected": "UPDATE update_test AS o SET (b, a) = (SELECT a + 1, b FROM update_test AS i WHERE i.a = o.a AND i.b = o.b AND i.c IS NOT DISTINCT FROM o.c)"
   },
   {
     "comment": "update - Statement 18",
     "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test)",
-    "expected": "UPDATE update_test SET b = (SELECT a + 1, b FROM update_test), a = (SELECT a + 1, b FROM update_test)"
+    "expected": "UPDATE update_test SET (b, a) = (SELECT a + 1, b FROM update_test)"
   },
   {
     "comment": "update - Statement 19",
     "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000) WHERE a = 11",
-    "expected": "UPDATE update_test SET b = (SELECT a + 1, b FROM update_test WHERE a = 1000), a = (SELECT a + 1, b FROM update_test WHERE a = 1000) WHERE a = 11"
+    "expected": "UPDATE update_test SET (b, a) = (SELECT a + 1, b FROM update_test WHERE a = 1000) WHERE a = 11"
   },
   {
     "comment": "update - Statement 20",
     "query": "UPDATE update_test SET (a,b) = ROW(v.*) FROM (VALUES(21, 100)) AS v(i, j) WHERE update_test.a = v.i",
-    "expected": "UPDATE update_test SET a = ROW(v.*), b = ROW(v.*) FROM (VALUES (21, 100)) AS v(i, j) WHERE update_test.a = v.i"
+    "expected": "UPDATE update_test SET (a, b) = ROW(v.*) FROM (VALUES (21, 100)) AS v(i, j) WHERE update_test.a = v.i"
   },
   {
     "comment": "update - Statement 21",
     "query": "UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) AS v(i, j) WHERE update_test.a = v.i",
-    "expected": "UPDATE update_test SET a = (v.*), b = (v.*) FROM (VALUES (21, 101)) AS v(i, j) WHERE update_test.a = v.i"
+    "expected": "UPDATE update_test SET (a, b) = (v.*) FROM (VALUES (21, 101)) AS v(i, j) WHERE update_test.a = v.i"
   },
   {
     "comment": "update - Statement 22",
@@ -115,12 +115,12 @@
   {
     "comment": "update - Statement 25",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE update_test AS t SET a = (SELECT b, a FROM update_test AS s WHERE s.a = t.a), b = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE update_test AS t SET (a, b) = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
   },
   {
     "comment": "update - Statement 26",
     "query": "UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER",
-    "expected": "UPDATE update_test AS t SET a = (SELECT b, a FROM update_test AS s WHERE s.a = t.a), b = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
+    "expected": "UPDATE update_test AS t SET (a, b) = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
   },
   {
     "comment": "update - Statement 27",

@@ -1489,6 +1489,33 @@ func NewDefineStmt(kind ObjectType, oldStyle bool, defNames *NodeList, args *Nod
 }
 
 // SqlString returns the SQL representation of DefineStmt
+// operatorDefElemString renders a single CREATE OPERATOR definition element.
+// The COMMUTATOR and NEGATOR options carry an operator name (a list of String
+// parts), which must be emitted unquoted (`commutator = ===`), not as a string
+// literal the way DefElem.SqlString would render a *NodeList. Other options
+// (leftarg, procedure, ...) fall back to the default rendering.
+func operatorDefElemString(d *DefElem) string {
+	names, ok := d.Arg.(*NodeList)
+	if !ok {
+		return d.SqlString()
+	}
+	parts := make([]string, 0, len(names.Items))
+	for i, item := range names.Items {
+		s, ok := item.(*String)
+		if !ok {
+			continue
+		}
+		// The final part is the operator symbol (unquoted); any leading parts
+		// are schema qualifiers (quoted as identifiers).
+		if i == len(names.Items)-1 {
+			parts = append(parts, s.SVal)
+		} else {
+			parts = append(parts, QuoteIdentifier(s.SVal))
+		}
+	}
+	return QuoteIdentifier(d.Defname) + " = " + strings.Join(parts, ".")
+}
+
 func (ds *DefineStmt) SqlString() string {
 	var parts []string
 
@@ -1664,7 +1691,11 @@ func (ds *DefineStmt) SqlString() string {
 		defParts := []string{}
 		for _, item := range ds.Definition.Items {
 			if def, ok := item.(*DefElem); ok {
-				defParts = append(defParts, def.SqlString())
+				if ds.Kind == OBJECT_OPERATOR {
+					defParts = append(defParts, operatorDefElemString(def))
+				} else {
+					defParts = append(defParts, def.SqlString())
+				}
 			}
 		}
 		if len(defParts) > 0 {

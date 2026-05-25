@@ -67,7 +67,7 @@
   {
     "comment": "equivclass - Statement 14",
     "query": "create operator = ( procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias1, commutator = =, restrict = eqsel, join = eqjoinsel, merges )",
-    "expected": "CREATE OPERATOR = (procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias1, commutator = '=', restrict = eqsel, \"join\" = eqjoinsel, merges)"
+    "expected": "CREATE OPERATOR = (procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias1, commutator = =, restrict = eqsel, \"join\" = eqjoinsel, merges)"
   },
   {
     "comment": "equivclass - Statement 15",
@@ -82,7 +82,7 @@
   {
     "comment": "equivclass - Statement 17",
     "query": "create operator = ( procedure = int8alias2eq, leftarg = int8alias2, rightarg = int8alias2, commutator = =, restrict = eqsel, join = eqjoinsel, merges )",
-    "expected": "CREATE OPERATOR = (procedure = int8alias2eq, leftarg = int8alias2, rightarg = int8alias2, commutator = '=', restrict = eqsel, \"join\" = eqjoinsel, merges)"
+    "expected": "CREATE OPERATOR = (procedure = int8alias2eq, leftarg = int8alias2, rightarg = int8alias2, commutator = =, restrict = eqsel, \"join\" = eqjoinsel, merges)"
   },
   {
     "comment": "equivclass - Statement 18",
