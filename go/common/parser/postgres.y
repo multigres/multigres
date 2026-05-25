@@ -3934,7 +3934,7 @@ GenericType: type_function_name opt_type_modifiers
 			{
 				// Create qualified type name from name + attrs
 				name := ast.NewString($1)
-				names := &ast.NodeList{Items: append([]ast.Node{name}, $2.Items...)}
+				names := ast.NewNodeList(append([]ast.Node{name}, $2.Items...)...)
 				typeName := makeTypeNameFromNodeList(names)
 				typeName.Typmods = $3
 				$$ = typeName
@@ -5668,15 +5668,15 @@ json_behavior_type:
 json_behavior_clause_opt:
 			json_behavior ON EMPTY_P				{
 				// Return a list with ON EMPTY behavior and nil for ON ERROR
-				$$ = &ast.NodeList{Items: []ast.Node{$1, nil}}
+				$$ = ast.NewNodeList($1, nil)
 			}
 		|	json_behavior ON ERROR_P				{
 				// Return a list with nil for ON EMPTY and ON ERROR behavior
-				$$ = &ast.NodeList{Items: []ast.Node{nil, $1}}
+				$$ = ast.NewNodeList(nil, $1)
 			}
 		|	json_behavior ON EMPTY_P json_behavior ON ERROR_P	{
 				// Return a list with both ON EMPTY and ON ERROR behaviors
-				$$ = &ast.NodeList{Items: []ast.Node{$1, $4}}
+				$$ = ast.NewNodeList($1, $4)
 			}
 		|	/* EMPTY */								{ $$ = nil }
 		;
@@ -13289,12 +13289,12 @@ select_fetch_first_value:
 		c_expr									{ $$ = $1 }
 	|	'+' I_or_F_const
 			{
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("+")), nil, $2, -1)
 			}
 	|	'-' I_or_F_const
 			{
 				// Create a unary minus expression
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("-")), nil, $2, -1)
 			}
 	;
 
@@ -13723,7 +13723,7 @@ RevokeRoleStmt:
 				{
 					opt := ast.NewDefElem($2, ast.NewBoolean(false))
 					stmt := ast.NewRevokeRoleStmt($5, $7)
-					stmt.Opt = &ast.NodeList{Items: []ast.Node{opt}}
+					stmt.Opt = ast.NewNodeList(opt)
 					stmt.Grantor = $8
 					stmt.Behavior = $9
 					$$ = stmt

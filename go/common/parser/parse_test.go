@@ -256,12 +256,6 @@ var boolOptionSpellings = map[string]string{
 func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 	result := ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		switch n := cursor.Node().(type) {
-		case *ast.NodeList:
-			// A NodeList is only a container; its own tag is metadata that is
-			// always T_List semantically, but some grammar paths leave it unset
-			// (T_Invalid). Normalize it so the container tag never causes a
-			// spurious mismatch (the items themselves are still compared).
-			n.Tag = ast.T_List
 		case *ast.DefElem:
 			// A bare boolean flag (VACUUM FULL) and its explicit "= true" form
 			// are equivalent; the deparser renders both as just the name. Only

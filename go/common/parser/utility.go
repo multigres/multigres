@@ -73,11 +73,7 @@ func makeTypeNameFromNodeList(list *ast.NodeList) *ast.TypeName {
 }
 
 func makeTypeNameFromString(str string) *ast.TypeName {
-	return makeTypeNameFromNodeList(&ast.NodeList{
-		Items: []ast.Node{
-			ast.NewString(str),
-		},
-	})
+	return makeTypeNameFromNodeList(ast.NewNodeList(ast.NewString(str)))
 }
 
 // makeRangeVarFromAnyName converts a list of (dotted) names to a RangeVar.

@@ -27626,7 +27626,7 @@ yydefault:
 		{
 			// Create qualified type name from name + attrs
 			name := ast.NewString(yyDollar[1].str)
-			names := &ast.NodeList{Items: append([]ast.Node{name}, yyDollar[2].listUnion().Items...)}
+			names := ast.NewNodeList(append([]ast.Node{name}, yyDollar[2].listUnion().Items...)...)
 			typeName := makeTypeNameFromNodeList(names)
 			typeName.Typmods = yyDollar[3].listUnion()
 			yyLOCAL = typeName
@@ -30262,7 +30262,7 @@ yydefault:
 //line postgres.y:5669
 		{
 			// Return a list with ON EMPTY behavior and nil for ON ERROR
-			yyLOCAL = &ast.NodeList{Items: []ast.Node{yyDollar[1].nodeUnion(), nil}}
+			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion(), nil)
 		}
 		yyVAL.union = yyLOCAL
 	case 1760:
@@ -30271,7 +30271,7 @@ yydefault:
 //line postgres.y:5673
 		{
 			// Return a list with nil for ON EMPTY and ON ERROR behavior
-			yyLOCAL = &ast.NodeList{Items: []ast.Node{nil, yyDollar[1].nodeUnion()}}
+			yyLOCAL = ast.NewNodeList(nil, yyDollar[1].nodeUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 1761:
@@ -30280,7 +30280,7 @@ yydefault:
 //line postgres.y:5677
 		{
 			// Return a list with both ON EMPTY and ON ERROR behaviors
-			yyLOCAL = &ast.NodeList{Items: []ast.Node{yyDollar[1].nodeUnion(), yyDollar[4].nodeUnion()}}
+			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion(), yyDollar[4].nodeUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 1762:
@@ -42031,7 +42031,7 @@ yydefault:
 		var yyLOCAL ast.Node
 //line postgres.y:13291
 		{
-			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, yyDollar[2].nodeUnion(), -1)
+			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("+")), nil, yyDollar[2].nodeUnion(), -1)
 		}
 		yyVAL.union = yyLOCAL
 	case 3000:
@@ -42040,7 +42040,7 @@ yydefault:
 //line postgres.y:13295
 		{
 			// Create a unary minus expression
-			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, yyDollar[2].nodeUnion(), -1)
+			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("-")), nil, yyDollar[2].nodeUnion(), -1)
 		}
 		yyVAL.union = yyLOCAL
 	case 3001:
@@ -42689,7 +42689,7 @@ yydefault:
 		{
 			opt := ast.NewDefElem(yyDollar[2].str, ast.NewBoolean(false))
 			stmt := ast.NewRevokeRoleStmt(yyDollar[5].listUnion(), yyDollar[7].listUnion())
-			stmt.Opt = &ast.NodeList{Items: []ast.Node{opt}}
+			stmt.Opt = ast.NewNodeList(opt)
 			stmt.Grantor = yyDollar[8].rolespecUnion()
 			stmt.Behavior = yyDollar[9].dropBehavUnion()
 			yyLOCAL = stmt
