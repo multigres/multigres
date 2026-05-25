@@ -293,8 +293,7 @@
   },
   {
     "comment": "tablespace - Statement 67",
-    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1",
-    "expected": "CREATE TABLE testschema.asselect AS SELECT 1"
+    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1"
   },
   {
     "comment": "tablespace - Statement 68",
@@ -309,7 +308,7 @@
   {
     "comment": "tablespace - Statement 70",
     "query": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource(2)",
-    "expected": "CREATE TABLE testschema.asexecute AS EXECUTE selectsource ( 2 )"
+    "expected": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource ( 2 )"
   },
   {
     "comment": "tablespace - Statement 71",

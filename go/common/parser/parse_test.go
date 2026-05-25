@@ -321,6 +321,18 @@ func canonicalizeForRoundtrip(stmt ast.Stmt) ast.Stmt {
 			if n.Mode == ast.FUNC_PARAM_IN {
 				n.Mode = ast.FUNC_PARAM_DEFAULT
 			}
+		case *ast.SelectStmt:
+			// `LIMIT NULL`, `LIMIT ALL`, and no LIMIT clause are all equivalent (no
+			// row limit). `LIMIT NULL` parses to a NULL-constant LimitCount
+			// (Isnull=true); the deparser renders it as `LIMIT ALL`, which re-parses
+			// to an A_Const wrapping a Null node (Isnull=false). Collapse either
+			// NULL-constant form to nil so the spellings compare equal; a real count
+			// is left untouched.
+			if c, ok := n.LimitCount.(*ast.A_Const); ok {
+				if _, isNull := c.Val.(*ast.Null); c.Isnull || isNull {
+					n.LimitCount = nil
+				}
+			}
 		case *ast.AlterDefaultPrivilegesStmt:
 			// The IN SCHEMA and FOR ROLE options are order-independent but held
 			// in an ordered list; the deparser emits them in a canonical order.

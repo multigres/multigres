@@ -573,7 +573,7 @@
   {
     "comment": "identity - Statement 133",
     "query": "CREATE TABLE itest12 OF itest_type (f1 WITH OPTIONS GENERATED ALWAYS AS IDENTITY)",
-    "expected": "CREATE TABLE itest12 OF itest_type"
+    "expected": "CREATE TABLE itest12 OF itest_type (f1 GENERATED ALWAYS AS IDENTITY)"
   },
   {
     "comment": "identity - Statement 134",

@@ -348,7 +348,7 @@
   {
     "comment": "psql - Statement 74",
     "query": "create function psql_df_sql (x integer) returns integer security definer begin atomic select x + 1; end",
-    "expected": "CREATE FUNCTION psql_df_sql (x INT) RETURNS INT SECURITY DEFINER LANGUAGE sql BEGIN ATOMIC SELECT x + 1; END"
+    "expected": "CREATE FUNCTION psql_df_sql (x INT) RETURNS INT SECURITY DEFINER BEGIN ATOMIC SELECT x + 1; END"
   },
   {
     "comment": "psql - Statement 75",

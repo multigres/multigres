@@ -1336,6 +1336,11 @@ func (c *ColumnDef) SqlString() string {
 						parts = append(parts, constraintStr)
 					}
 				}
+			} else if cc, ok := item.(*CollateClause); ok && cc != nil {
+				// A bare COLLATE (e.g. a partition/typed-table column
+				// `a COLLATE "POSIX"`) is stored as a CollateClause in the
+				// constraint list rather than in Collclause.
+				parts = append(parts, cc.SqlString())
 			}
 		}
 	}

@@ -649,7 +649,7 @@
   {
     "comment": "with - Statement 134",
     "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x FOR UPDATE) SELECT * FROM x",
-    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x) SELECT * FROM x"
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x FOR UPDATE) SELECT * FROM x"
   },
   {
     "comment": "with - Statement 135",

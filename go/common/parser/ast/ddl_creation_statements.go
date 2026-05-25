@@ -316,7 +316,6 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	}
 
 	// Function options - process in original order
-	var hasLanguage bool
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
 			if option, ok := item.(*DefElem); ok {
@@ -324,7 +323,6 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 				case "language":
 					if str, ok := option.Arg.(*String); ok {
 						parts = append(parts, "LANGUAGE", str.SVal)
-						hasLanguage = true
 					}
 				case "window":
 					if b, ok := option.Arg.(*Boolean); ok && b.BoolVal {
@@ -334,13 +332,22 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 					if str, ok := option.Arg.(*String); ok {
 						// Use DollarQuoteString to handle nested dollar quotes properly
 						parts = append(parts, "AS", DollarQuoteString(str.SVal))
-					} else if list, ok := option.Arg.(*NodeList); ok {
-						// The AS clause might be in a NodeList
-						if len(list.Items) > 0 {
+					} else if list, ok := option.Arg.(*NodeList); ok && len(list.Items) > 0 {
+						if len(list.Items) == 1 {
+							// Single element: the function body, dollar-quoted.
 							if str, ok := list.Items[0].(*String); ok {
-								// Use DollarQuoteString to handle nested dollar quotes properly
 								parts = append(parts, "AS", DollarQuoteString(str.SVal))
 							}
+						} else {
+							// Two elements: a C function's 'objfile', 'symbol' — each a
+							// plain string literal. Dropping the second is wrong.
+							var elems []string
+							for _, it := range list.Items {
+								if str, ok := it.(*String); ok {
+									elems = append(elems, QuoteStringLiteral(str.SVal))
+								}
+							}
+							parts = append(parts, "AS", strings.Join(elems, ", "))
 						}
 					}
 				default:
@@ -360,20 +367,16 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		// Compound statements are stored as a NodeList containing another NodeList
 		if outerList, ok := cfs.SQLBody.(*NodeList); ok && outerList.Len() == 1 {
 			if innerList, ok := outerList.Items[0].(*NodeList); ok {
-				// This is a compound statement - add default LANGUAGE SQL if not specified
-				if !hasLanguage {
-					parts = append(parts, "LANGUAGE", "sql")
-				}
-				// Add BEGIN ATOMIC and END
 				parts = append(parts, "BEGIN ATOMIC")
-				// Join statements with semicolons
 				var stmts []string
 				for _, stmt := range innerList.Items {
 					if stmt != nil {
 						stmts = append(stmts, stmt.SqlString())
 					}
 				}
-				parts = append(parts, strings.Join(stmts, "; ")+";")
+				if len(stmts) > 0 {
+					parts = append(parts, strings.Join(stmts, "; ")+";")
+				}
 				parts = append(parts, "END")
 			} else {
 				// Regular SQL body
@@ -1636,7 +1639,16 @@ func (ds *DefineStmt) SqlString() string {
 					if len(orderedArgs) > 0 {
 						parts = append(parts, "("+strings.Join(directArgs, ", ")+" ORDER BY "+strings.Join(orderedArgs, ", ")+")")
 					} else if len(directArgs) > 0 {
-						parts = append(parts, "("+strings.Join(directArgs, ", ")+")")
+						// numDirectArgs == total arg count happens only when the
+						// last direct arg is VARIADIC: makeOrderedSetArgs drops the
+						// duplicate VARIADIC ordered arg and folds it into the direct
+						// list. Reconstruct it so this re-parses as an ordered-set
+						// aggregate rather than a plain one.
+						if last, ok := argList.Items[len(argList.Items)-1].(*FunctionParameter); ok && last.Mode == FUNC_PARAM_VARIADIC {
+							parts = append(parts, "("+strings.Join(directArgs, ", ")+" ORDER BY "+last.SqlString()+")")
+						} else {
+							parts = append(parts, "("+strings.Join(directArgs, ", ")+")")
+						}
 					}
 				}
 			}
@@ -2610,6 +2622,21 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 				}
 			}
 			parts = append(parts, "WITH", fmt.Sprintf("(%s)", strings.Join(opts, ", ")))
+		}
+
+		// ON COMMIT action (temp tables); NOOP means no clause was given.
+		switch ctas.Into.OnCommit {
+		case ONCOMMIT_PRESERVE_ROWS:
+			parts = append(parts, "ON COMMIT PRESERVE ROWS")
+		case ONCOMMIT_DELETE_ROWS:
+			parts = append(parts, "ON COMMIT DELETE ROWS")
+		case ONCOMMIT_DROP:
+			parts = append(parts, "ON COMMIT DROP")
+		}
+
+		// TABLESPACE
+		if ctas.Into.TableSpaceName != "" {
+			parts = append(parts, "TABLESPACE", QuoteIdentifier(ctas.Into.TableSpaceName))
 		}
 	}
 

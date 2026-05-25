@@ -195,7 +195,7 @@
   {
     "comment": "create_procedure - Statement 47",
     "query": "CREATE PROCEDURE ptest8(x text) BEGIN ATOMIC END",
-    "expected": "CREATE PROCEDURE ptest8 (x TEXT) LANGUAGE sql BEGIN ATOMIC ; END"
+    "expected": "CREATE PROCEDURE ptest8 (x TEXT) BEGIN ATOMIC END"
   },
   {
     "comment": "create_procedure - Statement 48",

@@ -74,7 +74,7 @@
   {
     "comment": "temp - Statement 17",
     "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
-    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TEMP TABLE temptest (col) ON COMMIT DELETE ROWS AS SELECT 1"
   },
   {
     "comment": "temp - Statement 18",
@@ -84,7 +84,7 @@
   {
     "comment": "temp - Statement 19",
     "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DROP AS SELECT 1",
-    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TEMP TABLE temptest (col) ON COMMIT DROP AS SELECT 1"
   },
   {
     "comment": "temp - Statement 20",
@@ -99,7 +99,7 @@
   {
     "comment": "temp - Statement 22",
     "query": "CREATE TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
-    "expected": "CREATE TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TABLE temptest (col) ON COMMIT DELETE ROWS AS SELECT 1"
   },
   {
     "comment": "temp - Statement 23",

@@ -4083,8 +4083,9 @@ character:	CHARACTER opt_varying
 CharacterWithLength: character '(' Iconst ')'
 			{
 				typeName := makeTypeNameFromString($1)
-                // Set typmods with the length parameter, similar to PostgreSQL's approach
-                lengthConst := ast.NewInteger(int($3))
+                // Typmods are A_Const, matching the generic SimpleTypename path so
+                // CHAR(5) and the equivalent bpchar(5) produce the same tree.
+                lengthConst := ast.NewA_Const(ast.NewInteger(int($3)), 0)
                 typeName.Typmods = ast.NewNodeList()
                 typeName.Typmods.Append(lengthConst)
                 $$ = typeName
@@ -4097,7 +4098,7 @@ CharacterWithoutLength: character
 				// char defaults to char(1), varchar to no limit
 				if $1 == "bpchar" {
 					// CHAR defaults to CHAR(1)
-                    lengthConst := ast.NewInteger(1)
+                    lengthConst := ast.NewA_Const(ast.NewInteger(1), 0)
                     typeName.Typmods = ast.NewNodeList()
                     typeName.Typmods.Append(lengthConst)
 				}
@@ -4140,7 +4141,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "timestamp"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIMESTAMP opt_timezone
@@ -4162,7 +4163,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "time"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIME opt_timezone

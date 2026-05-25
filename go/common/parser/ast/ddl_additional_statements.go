@@ -414,9 +414,13 @@ func formatPubObjList(pubObjects *NodeList) string {
 			parts = append(parts, obj)
 		case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
 			obj := QuoteIdentifier(pubObj.Name)
-			// A continuation entry can carry the name in PubTable instead.
+			// A continuation entry can carry the name in PubTable instead, along
+			// with any column list / WHERE clause from the original text. Emit
+			// those through formatPubTable so they are not silently dropped (the
+			// combination is rejected by PostgreSQL at analysis time, but it still
+			// parses, so the round-trip must preserve it).
 			if pubObj.Name == "" && pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-				obj = pubObj.PubTable.Relation.SqlString()
+				obj = formatPubTable(pubObj.PubTable)
 			}
 			if obj == "" {
 				continue
@@ -431,6 +435,19 @@ func formatPubObjList(pubObjects *NodeList) string {
 				obj = "TABLES IN SCHEMA " + obj
 			}
 			parts = append(parts, obj)
+		case PUBLICATIONOBJ_CONTINUATION:
+			// A CONTINUATION that survives preprocessing is a first object with no
+			// preceding TABLE / TABLES IN SCHEMA keyword (e.g. `FOR CURRENT_SCHEMA`
+			// or a bare name). PostgreSQL rejects these at analysis time, but they
+			// parse, so emit the bare spelling to preserve the tree.
+			switch {
+			case pubObj.PubTable != nil && pubObj.PubTable.Relation != nil:
+				parts = append(parts, formatPubTable(pubObj.PubTable))
+			case pubObj.Name != "":
+				parts = append(parts, QuoteIdentifier(pubObj.Name))
+			default:
+				parts = append(parts, "CURRENT_SCHEMA")
+			}
 		default:
 			continue
 		}

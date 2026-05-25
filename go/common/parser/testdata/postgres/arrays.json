@@ -612,7 +612,7 @@
   {
     "comment": "arrays - Statement 133",
     "query": "DO $$ DECLARE o int\na int[] := ARRAY[1,2,3,2,3,1,2]\nBEGIN o := array_position(a, 2)\nWHILE o IS NOT NULL LOOP RAISE NOTICE '%', o\no := array_position(a, 2, o + 1)\nEND LOOP\nEND $$ LANGUAGE plpgsql",
-    "expected": "DO LANGUAGE plpgsql ' DECLARE o int\na int[] := ARRAY[1,2,3,2,3,1,2]\nBEGIN o := array_position(a, 2)\nWHILE o IS NOT NULL LOOP RAISE NOTICE ''%'', o\no := array_position(a, 2, o + 1)\nEND LOOP\nEND '"
+    "expected": "DO ' DECLARE o int\na int[] := ARRAY[1,2,3,2,3,1,2]\nBEGIN o := array_position(a, 2)\nWHILE o IS NOT NULL LOOP RAISE NOTICE ''%'', o\no := array_position(a, 2, o + 1)\nEND LOOP\nEND ' LANGUAGE plpgsql"
   },
   {
     "comment": "arrays - Statement 140",

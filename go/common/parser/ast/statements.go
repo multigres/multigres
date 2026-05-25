@@ -615,6 +615,15 @@ func (s *SelectStmt) SqlString() string {
 			parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
 		}
 
+		// FOR UPDATE/SHARE clauses also attach to the set-operation node.
+		if s.LockingClause != nil && s.LockingClause.Len() > 0 {
+			for _, item := range s.LockingClause.Items {
+				if locking, ok := item.(*LockingClause); ok && locking != nil {
+					parts = append(parts, locking.SqlString())
+				}
+			}
+		}
+
 		// WITH clause attaches to the outer set-operation node and must be
 		// prepended here. The non-set-op branch handles WithClause below; the
 		// set-op branch returns early, so without this the CTE is silently
@@ -1682,8 +1691,30 @@ func (c *CreateStmt) SqlString() string {
 			parts = append(parts, c.PartSpec.SqlString())
 		}
 	} else if isTypedTable {
-		// For typed tables: OF typename
+		// For typed tables: OF typename [ ( column_options | table_constraint, ... ) ].
+		// A typed-table column is a ColumnDef with no type (just constraints); the
+		// optional WITH OPTIONS keyword is syntactic sugar (identical AST), so the
+		// plain `colname <constraints>` rendering round-trips.
 		parts = append(parts, "OF", c.OfTypename.SqlString())
+		var elts []string
+		if c.TableElts != nil {
+			for _, col := range c.TableElts.Items {
+				if col != nil {
+					elts = append(elts, col.SqlString())
+				}
+			}
+		}
+		for _, constraint := range c.Constraints {
+			if constraint != nil {
+				elts = append(elts, constraint.SqlString())
+			}
+		}
+		if len(elts) > 0 {
+			parts = append(parts, "("+strings.Join(elts, ", ")+")")
+		}
+		if c.PartSpec != nil {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
 	} else {
 		// Regular table with columns and constraints
 		var columnParts []string

@@ -1014,12 +1014,12 @@
   {
     "comment": "create_table - Statement 221",
     "query": "create table parted_collate_must_match1 partition of parted_collate_must_match (a collate \"POSIX\") for values from ('a') to ('m')",
-    "expected": "CREATE TABLE parted_collate_must_match1 PARTITION OF parted_collate_must_match ( a ) FOR VALUES FROM ('a') TO ('m')"
+    "expected": "CREATE TABLE parted_collate_must_match1 PARTITION OF parted_collate_must_match ( a COLLATE \"POSIX\" ) FOR VALUES FROM ('a') TO ('m')"
   },
   {
     "comment": "create_table - Statement 222",
     "query": "create table parted_collate_must_match2 partition of parted_collate_must_match (b collate \"POSIX\") for values from ('m') to ('z')",
-    "expected": "CREATE TABLE parted_collate_must_match2 PARTITION OF parted_collate_must_match ( b ) FOR VALUES FROM ('m') TO ('z')"
+    "expected": "CREATE TABLE parted_collate_must_match2 PARTITION OF parted_collate_must_match ( b COLLATE \"POSIX\" ) FOR VALUES FROM ('m') TO ('z')"
   },
   {
     "comment": "create_table - Statement 223",

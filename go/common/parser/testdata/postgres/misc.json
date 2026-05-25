@@ -120,7 +120,7 @@
   {
     "comment": "misc - Statement 27",
     "query": "CREATE FUNCTION hobbies_by_name(hobbies_r.name%TYPE) RETURNS hobbies_r.person%TYPE AS 'select person from hobbies_r where name = $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION hobbies_by_name (hobbies_r.name) RETURNS hobbies_r.person AS $$select person from hobbies_r where name = $1$$ LANGUAGE sql"
+    "expected": "CREATE FUNCTION hobbies_by_name (hobbies_r.name%TYPE) RETURNS hobbies_r.person%TYPE AS $$select person from hobbies_r where name = $1$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 28",

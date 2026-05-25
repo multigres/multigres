@@ -864,7 +864,7 @@
   {
     "comment": "merge - Statement 205",
     "query": "EXPLAIN (verbose, costs off) MERGE INTO tgt t USING (SELECT *, (SELECT count(*) FROM ref r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) cnt FROM src s) s ON t.a = s.a AND t.b < s.cnt WHEN MATCHED AND t.c > s.cnt THEN UPDATE SET (b, c) = (SELECT s.b, s.cnt)",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) MERGE INTO tgt AS t USING (SELECT *, (SELECT COUNT(*) FROM ref AS r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) AS cnt FROM src AS s) AS s ON t.a = s.a AND t.b < s.cnt WHEN MATCHED AND t.c > s.cnt THEN UPDATE SET b = (SELECT s.b, s.cnt), c = (SELECT s.b, s.cnt)"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) MERGE INTO tgt AS t USING (SELECT *, (SELECT COUNT(*) FROM ref AS r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) AS cnt FROM src AS s) AS s ON t.a = s.a AND t.b < s.cnt WHEN MATCHED AND t.c > s.cnt THEN UPDATE SET (b, c) = (SELECT s.b, s.cnt)"
   },
   {
     "comment": "merge - Statement 206",

@@ -265,7 +265,7 @@
   {
     "comment": "create_function_sql - Statement 54",
     "query": "CREATE FUNCTION functest_S_3a() RETURNS boolean BEGIN ATOMIC ;;RETURN false; END",
-    "expected": "CREATE FUNCTION functest_s_3a () RETURNS BOOLEAN LANGUAGE sql BEGIN ATOMIC RETURN FALSE; END"
+    "expected": "CREATE FUNCTION functest_s_3a () RETURNS BOOLEAN BEGIN ATOMIC RETURN FALSE; END"
   },
   {
     "comment": "create_function_sql - Statement 56",
@@ -275,7 +275,7 @@
   {
     "comment": "create_function_sql - Statement 57",
     "query": "CREATE FUNCTION functest_S_13() RETURNS boolean BEGIN ATOMIC SELECT 1; SELECT false; END;",
-    "expected": "CREATE FUNCTION functest_s_13 () RETURNS BOOLEAN LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT FALSE; END"
+    "expected": "CREATE FUNCTION functest_s_13 () RETURNS BOOLEAN BEGIN ATOMIC SELECT 1; SELECT FALSE; END"
   },
   {
     "comment": "create_function_sql - Statement 59",
@@ -651,7 +651,7 @@
   {
     "comment": "create_function_sql - Statement 138",
     "query": "CREATE FUNCTION test1 (int) RETURNS int LANGUAGE SQL AS 'a', 'b'",
-    "expected": "CREATE FUNCTION test1 (INT) RETURNS INT LANGUAGE sql AS $$a$$"
+    "expected": "CREATE FUNCTION test1 (INT) RETURNS INT LANGUAGE sql AS 'a', 'b'"
   },
   {
     "comment": "create_function_sql - Statement 139",

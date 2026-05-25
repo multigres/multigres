@@ -404,7 +404,7 @@
   {
     "comment": "misc_functions - Statement 89",
     "query": "CREATE FUNCTION test_support_func(internal) RETURNS internal AS 'regresslib', 'test_support_func' LANGUAGE C STRICT",
-    "expected": "CREATE FUNCTION test_support_func (internal) RETURNS internal AS $$regresslib$$ LANGUAGE c STRICT"
+    "expected": "CREATE FUNCTION test_support_func (internal) RETURNS internal AS 'regresslib', 'test_support_func' LANGUAGE c STRICT"
   },
   {
     "comment": "misc_functions - Statement 90",
