@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -29,7 +30,6 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
@@ -75,27 +75,43 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetada
 	return c.runFailover(ctx, cohort, reason)
 }
 
+// failoverCohortReachableThreshold bounds how stale a pooler's last successful
+// health check may be before it's excluded from the recruitment cohort. A pure
+// LastSeen staleness check absorbs transient stream blips without flapping on
+// every health-check error bit; 10 seconds is generous relative to the
+// sub-second polling cadence so legitimately reachable poolers are never
+// dropped, while genuinely dead ones don't waste Recruit RPC timeouts.
+const failoverCohortReachableThreshold = 10 * time.Second
+
 // runFailover wires the failover callbacks for a coordinatorLedRuleChange and
-// runs it. Poolers that have signaled REQUESTING_DEMOTION are excluded from
-// the cohort entirely: a writing leader's local LSN is always at least as
-// advanced as any replica's (async replication), so including a resigned
-// leader would let it dominate discovery and dead-end the proposal when health
-// check rejects it. The full cohort identity is preserved via OutgoingRule's
-// CohortMembers (replicas carry the same rule), so the consensus layer's
-// outgoing-quorum check still runs against the original cohort size.
+// runs it. A leader that signaled REQUESTING_DEMOTION stays in the recruitment
+// cohort and may be re-promoted at the new term if it remains the best
+// candidate — the signal is "please replace me if you can," not "remove me."
+// Excluding it dropped a 2-pooler AT_LEAST_2 cohort below quorum after a
+// Recruit fan-out emergency-demoted the primary (MUL-505). Unreachable
+// poolers (no successful health check within the threshold) are still
+// excluded so we don't burn Recruit timeouts on members we believe are dead.
+//
+// TODO: during a rule change, if some recruitable replicas would not require
+// a pg_rewind to follow the chosen leader, prefer them over candidates that
+// would. Picking a rewind-free replica makes failover faster; picking one
+// that needs rewinding is not fatal — the SetTermPrimary path runs pg_rewind
+// before the node serves writes or replicates.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
 	liveCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))
 	for _, p := range cohort {
-		if types.LeaderNeedsReplacement(p) {
-			c.logger.InfoContext(ctx, "Excluding resigned pooler from failover cohort",
-				"pooler", p.GetMultiPooler().GetId().GetName())
+		last := p.GetLastSeen()
+		if last == nil || time.Since(last.AsTime()) > failoverCohortReachableThreshold {
+			c.logger.InfoContext(ctx, "Excluding unreachable pooler from failover cohort",
+				"pooler", p.GetMultiPooler().GetId().GetName(),
+				"last_seen", last.AsTime())
 			continue
 		}
 		liveCohort = append(liveCohort, p)
 	}
 	if len(liveCohort) == 0 {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"no non-resigned poolers in cohort; cannot fail over")
+			"no reachable poolers in cohort; cannot fail over")
 	}
 
 	// Failover constructs the revocation via NewTermRevocation: outgoing_rule

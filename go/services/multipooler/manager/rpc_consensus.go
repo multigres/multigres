@@ -275,15 +275,6 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
-	// Refuse recruitment if a rewind is still pending from a prior emergency
-	// demotion. The node's WAL is in an indeterminate state until RewindToSource
-	// completes; allowing it to be recruited could elect a leader with divergent
-	// or missing WAL.
-	if pm.rewindPending.Load() {
-		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"rewind pending after emergency demotion; call RewindToSource before Recruit")
-	}
-
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to determine role for recruit")
