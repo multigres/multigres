@@ -29,28 +29,25 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// shardKey identifies a shard for primary caching.
+// shardKey identifies a shard for leader tracking.
 type shardKey struct {
 	tableGroup string
 	shard      string
-}
-
-// cachedPrimary holds the cached primary connection for a shard.
-type cachedPrimary struct {
-	conn *PoolerConnection
-	term int64
 }
 
 // LoadBalancer manages PoolerConnections and selects connections for queries.
 // It creates connections based on discovery events and destroys them when poolers
 // are removed from discovery.
 //
-// For PRIMARY targets, the LoadBalancer caches the primary connection per-shard.
-// The cache is updated via health stream callbacks, so the hot path (GetConnection)
-// is a simple map lookup rather than iterating all poolers.
+// Leader identity is tracked per-shard via the leaders map, populated only from
+// LeaderObservation messages on health streams. The pooler.Type field from etcd
+// topology is a hint about intended role — never the source of truth for which
+// pooler leads a shard. A leaders entry survives connection lifecycle events:
+// removing a pooler does not erase consensus's choice of leader.
 type LoadBalancer struct {
 	// localCell is the cell where this gateway is running
 	localCell string
@@ -61,15 +58,17 @@ type LoadBalancer struct {
 	// ctx is the service-lifetime context for child goroutines (health streams)
 	ctx context.Context
 
-	// mu protects connections and cachedPrimaries
+	// mu protects connections and leaders
 	mu sync.Mutex
 
 	// connections maps pooler ID to PoolerConnection
 	connections map[string]*PoolerConnection
 
-	// cachedPrimaries maps shard key to the cached primary connection.
-	// Updated by onPoolerHealthUpdate when health streams report LeaderObservation.
-	cachedPrimaries map[shardKey]*cachedPrimary
+	// leaders maps shard key to the highest-term LeaderObservation seen for that
+	// shard. Populated only from health-stream observations; never from topology.
+	// The leader_id field of the observation may name a pooler we are not
+	// currently connected to — GetConnection handles that case at read time.
+	leaders map[shardKey]*multipoolerservice.LeaderObservation
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
@@ -94,12 +93,12 @@ type LoadBalancer struct {
 // The grpcDialOpt configures transport credentials for gRPC connections to poolers.
 func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger, grpcDialOpt grpc.DialOption) *LoadBalancer {
 	return &LoadBalancer{
-		localCell:       localCell,
-		logger:          logger,
-		ctx:             ctx,
-		connections:     make(map[string]*PoolerConnection),
-		cachedPrimaries: make(map[shardKey]*cachedPrimary),
-		grpcDialOpt:     grpcDialOpt,
+		localCell:   localCell,
+		logger:      logger,
+		ctx:         ctx,
+		connections: make(map[string]*PoolerConnection),
+		leaders:     make(map[shardKey]*multipoolerservice.LeaderObservation),
+		grpcDialOpt: grpcDialOpt,
 	}
 }
 
@@ -124,40 +123,24 @@ func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.D
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
-// If a connection already exists for this pooler, it updates the pooler info
-// (e.g., when type changes from UNKNOWN to PRIMARY).
+// If a connection already exists for this pooler, it updates the pooler info.
+//
+// AddPooler does not touch leader state — that comes exclusively from
+// LeaderObservation. When a newly-added connection happens to be the leader
+// already-known via prior observations, the buffer is drained promptly via
+// notifyIfLeaderServingLocked.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	poolerID := poolerIDString(pooler.Id)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	// Check if already exists - update info instead of skipping
+	key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
+
+	// Existing pooler — just refresh topology metadata. No leader-state effects.
 	if conn, exists := lb.connections[poolerID]; exists {
-		oldType := conn.Type()
 		conn.UpdatePoolerInfo(pooler)
-		newType := conn.Type()
-
-		// Invalidate seed if type changed away from PRIMARY
-		if oldType == clustermetadatapb.PoolerType_PRIMARY && newType != clustermetadatapb.PoolerType_PRIMARY {
-			key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
-			if cached, ok := lb.cachedPrimaries[key]; ok && cached.conn == conn && cached.term == 0 {
-				delete(lb.cachedPrimaries, key)
-				lb.logger.Debug("invalidated seeded primary cache on type change",
-					"pooler_id", poolerID, "old_type", oldType, "new_type", newType)
-			}
-		}
-
-		// Seed if type changed to PRIMARY
-		if oldType != clustermetadatapb.PoolerType_PRIMARY && newType == clustermetadatapb.PoolerType_PRIMARY {
-			key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
-			if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
-				lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
-				lb.logger.Debug("seeded primary cache on type change",
-					"pooler_id", poolerID, "old_type", oldType, "new_type", newType)
-			}
-		}
-
+		lb.notifyIfLeaderServingLocked(key, conn)
 		return nil
 	}
 
@@ -168,16 +151,10 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 	lb.connections[poolerID] = conn
 
-	// Seed primary cache from discovery type (term 0 = unconfirmed).
-	// Health stream callbacks will overwrite with real term data.
-	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
-		key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
-		if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
-			lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
-			lb.logger.Debug("seeded primary cache from discovery",
-				"pooler_id", poolerID, "tablegroup", key.tableGroup, "shard", key.shard)
-		}
-	}
+	// If a prior LeaderObservation already named this pooler the leader, the
+	// first health update may be slow — trigger buffer drain now so traffic
+	// waiting on the leader's arrival proceeds as soon as it reports SERVING.
+	lb.notifyIfLeaderServingLocked(key, conn)
 
 	lb.logger.Debug("added pooler connection",
 		"pooler_id", poolerID,
@@ -197,12 +174,6 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 		return
 	}
 	delete(lb.connections, poolerID)
-	// Invalidate cached primary if the removed pooler was the cached primary.
-	for key, cached := range lb.cachedPrimaries {
-		if cached.conn == conn {
-			delete(lb.cachedPrimaries, key)
-		}
-	}
 	lb.mu.Unlock()
 
 	// Close outside the lock
@@ -219,8 +190,13 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 // Returns an error immediately if no suitable connection is available.
 //
 // Selection logic:
-// - For PRIMARY: uses cached primary (updated by health stream callbacks)
-// - For REPLICA: prefers local cell serving replicas, with randomization
+//   - For PRIMARY: consults `leaders` (highest-term LeaderObservation) to identify
+//     the leader, then looks up its connection. Two distinct error cases: no
+//     leader observed yet, vs. leader known but not connected.
+//   - For REPLICA: any connected pooler in the shard that is not the known
+//     leader. If no leader is known yet (cold start), falls back to topology
+//     pooler.Type == REPLICA to avoid serving reads from a pooler that may
+//     turn out to be the leader.
 func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
@@ -229,28 +205,45 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	targetType := target.PoolerType
+	key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
+	leaderObs := lb.leaders[key]
 
-	if targetType == clustermetadatapb.PoolerType_PRIMARY {
-		// Use cached primary (populated by health stream callbacks).
-		// The health stream's LeaderObservation is the authoritative source
-		// for leader identity — no type-based fallback.
-		key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
-		if cached, ok := lb.cachedPrimaries[key]; ok {
-			return cached.conn, nil
+	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		if leaderObs == nil {
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"no leader observed yet for tablegroup=%s, shard=%s",
+				target.TableGroup, target.Shard)
 		}
-
-		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"no primary cached for target: tablegroup=%s, shard=%s (waiting for health stream)",
-			target.TableGroup, target.Shard)
+		leaderID := poolerIDString(leaderObs.LeaderId)
+		conn, ok := lb.connections[leaderID]
+		if !ok {
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"leader %s known but not connected for tablegroup=%s, shard=%s",
+				leaderID, target.TableGroup, target.Shard)
+		}
+		return conn, nil
 	}
 
-	// For REPLICA: collect only replica-type poolers
+	// REPLICA: collect every connection in the shard except the known leader.
+	leaderID := ""
+	if leaderObs != nil {
+		leaderID = poolerIDString(leaderObs.LeaderId)
+	}
 	var candidates []*PoolerConnection
-	for _, conn := range lb.connections {
-		if matchesTarget(conn, target) {
-			candidates = append(candidates, conn)
+	for id, conn := range lb.connections {
+		if !matchesShardTarget(conn, target) {
+			continue
 		}
+		if leaderObs != nil {
+			if id == leaderID {
+				continue
+			}
+		} else if conn.Type() != clustermetadatapb.PoolerType_REPLICA {
+			// Cold start: no LeaderObservation yet. Fall back to topology hint
+			// so we don't accidentally serve reads from a future leader.
+			continue
+		}
+		candidates = append(candidates, conn)
 	}
 
 	if len(candidates) == 0 {
@@ -395,8 +388,11 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 }
 
 // onPoolerHealthUpdate is the callback invoked by PoolerConnection when health
-// state changes. It updates the cached primary for the connection's shard
-// based on LeaderObservation term reconciliation.
+// state changes. It updates `leaders` based on LeaderObservation term
+// reconciliation — recording the named leader unconditionally, regardless of
+// whether we currently have a connection to that leader. The connection
+// lookup happens at GetConnection time, not at observation time, so identity
+// survives any connection lifecycle event.
 //
 // This is safe to call concurrently: both processHealthResponse and setHealthError
 // release healthMu before invoking this callback.
@@ -410,41 +406,42 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 		tableGroup: health.Target.GetTableGroup(),
 		shard:      health.Target.GetShard(),
 	}
-	term := health.LeaderObservation.LeaderTerm
-	primaryID := poolerIDString(health.LeaderObservation.LeaderId)
+	obs := health.LeaderObservation
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	cached := lb.cachedPrimaries[key]
+	existing := lb.leaders[key]
 
 	switch {
-	case cached == nil || term > cached.term:
-		// New primary or higher term — update the cached primary.
-		primaryConn, exists := lb.connections[primaryID]
-		if !exists {
-			return
-		}
-		lb.cachedPrimaries[key] = &cachedPrimary{conn: primaryConn, term: term}
-		lb.logger.Debug("cached primary updated",
+	case existing == nil || obs.LeaderTerm > existing.LeaderTerm:
+		// New leader or higher term — record identity unconditionally. The
+		// named pooler may not be in `connections` yet; that's fine.
+		lb.leaders[key] = obs
+		lb.logger.Debug("leader observation recorded",
 			"tablegroup", key.tableGroup,
 			"shard", key.shard,
-			"primary_id", primaryID,
-			"term", term)
+			"leader_id", poolerIDString(obs.LeaderId),
+			"term", obs.LeaderTerm)
 
-		// Only stop failover buffering when the primary is confirmed to be
-		// PRIMARY type and SERVING. The LeaderObservation can arrive before
-		// the pooler has transitioned its query server to PRIMARY/SERVING
-		// (e.g., during Promote, UpdateLeaderObservation fires before
-		// changeTypeLocked). Draining buffered requests too early would send
-		// them to a pooler that still rejects PRIMARY traffic.
-		lb.notifyIfPrimaryServingLocked(key, primaryConn)
+		// If the named leader is connected and serving, drain the buffer.
+		// (Only stop failover buffering when the leader is SERVING — the
+		// LeaderObservation can arrive before the pooler has transitioned
+		// its query server to PRIMARY/SERVING, e.g. during Promote where
+		// UpdateLeaderObservation fires before changeTypeLocked. Draining
+		// buffered requests too early would send them to a pooler that
+		// still rejects PRIMARY traffic.)
+		if leaderConn, ok := lb.connections[poolerIDString(obs.LeaderId)]; ok {
+			lb.notifyIfLeaderServingLocked(key, leaderConn)
+		}
 
-	case term == cached.term:
-		// Same term — the primary is already cached but may not have been
+	case obs.LeaderTerm == existing.LeaderTerm:
+		// Same term — the leader is already known but may not have been
 		// SERVING when we first saw the observation. Re-check now so that
-		// StopBuffering fires once the primary transitions to PRIMARY/SERVING.
-		lb.notifyIfPrimaryServingLocked(key, cached.conn)
+		// StopBuffering fires once the leader transitions to SERVING.
+		if leaderConn, ok := lb.connections[poolerIDString(existing.LeaderId)]; ok {
+			lb.notifyIfLeaderServingLocked(key, leaderConn)
+		}
 
 	default:
 		// Stale term — ignore.
@@ -452,17 +449,22 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	}
 }
 
-// notifyIfPrimaryServingLocked calls onPrimaryServing if the primary connection
-// is confirmed to be PRIMARY type and SERVING. StopBuffering is idempotent, so
-// calling this on every health update is safe and ensures buffering stops
-// promptly once the primary is ready. Caller must hold lb.mu.
-func (lb *LoadBalancer) notifyIfPrimaryServingLocked(key shardKey, primaryConn *PoolerConnection) {
-	primaryHealth := primaryConn.Health()
-	if lb.onPrimaryServing != nil && primaryHealth != nil &&
-		primaryHealth.Target.GetPoolerType() == clustermetadatapb.PoolerType_PRIMARY &&
-		primaryHealth.IsServing() {
-		lb.onPrimaryServing(key.tableGroup, key.shard)
+// notifyIfLeaderServingLocked calls onPrimaryServing if the given connection is
+// the known leader of the shard and is serving. StopBuffering is idempotent,
+// so calling this on every health update is safe and ensures buffering stops
+// promptly once the leader is ready. Caller must hold lb.mu.
+func (lb *LoadBalancer) notifyIfLeaderServingLocked(key shardKey, conn *PoolerConnection) {
+	if lb.onPrimaryServing == nil {
+		return
 	}
+	leader := lb.leaders[key]
+	if leader == nil || poolerIDString(leader.LeaderId) != conn.ID() {
+		return
+	}
+	if !conn.Health().IsServing() {
+		return
+	}
+	lb.onPrimaryServing(key.tableGroup, key.shard)
 }
 
 // matchesShardTarget checks if a connection matches the tablegroup and shard,
@@ -483,24 +485,6 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 	return true
 }
 
-// matchesTarget checks if a connection matches the target specification.
-func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
-	if !matchesShardTarget(conn, target) {
-		return false
-	}
-
-	// Check type match
-	poolerType := conn.Type()
-	switch target.PoolerType {
-	case clustermetadatapb.PoolerType_PRIMARY:
-		return poolerType == clustermetadatapb.PoolerType_PRIMARY
-	case clustermetadatapb.PoolerType_REPLICA:
-		return poolerType == clustermetadatapb.PoolerType_REPLICA
-	default:
-		return false
-	}
-}
-
 // poolerIDString returns the string ID for a pooler.
 // Uses the same format as PoolerConnection.ID() for consistency.
 func poolerIDString(id *clustermetadatapb.ID) string {
@@ -519,7 +503,7 @@ func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()
 	connections := lb.connections
 	lb.connections = make(map[string]*PoolerConnection)
-	lb.cachedPrimaries = make(map[shardKey]*cachedPrimary)
+	lb.leaders = make(map[shardKey]*multipoolerservice.LeaderObservation)
 	lb.mu.Unlock()
 
 	lb.logger.Info("closing all pooler connections", "count", len(connections))
