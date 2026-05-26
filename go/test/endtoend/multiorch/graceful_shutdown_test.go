@@ -220,8 +220,11 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	// the assertion fails the instant the primary changes, not just at the
 	// end.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 10*time.Second, 500*time.Millisecond,
 		"primary must remain unchanged after standby graceful shutdown")
 	t.Logf("Primary %s unchanged after standby %s graceful shutdown", primaryName, standbyName)
@@ -306,8 +309,11 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	// Primary must stay the same throughout the window — fails immediately
 	// if a spurious failover occurs.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 10*time.Second, 500*time.Millisecond,
 		"primary must remain unchanged after standby graceful shutdown")
 
@@ -410,8 +416,11 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 
 	// Primary must not flip after the standby is terminated.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 5*time.Second, 500*time.Millisecond,
 		"primary must be unchanged after standby %s shutdown", firstStandby)
 	t.Logf("Step 1 verified: primary %s unchanged", primaryName)
