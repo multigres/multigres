@@ -17,11 +17,6 @@ name: Release Dry Run
 
 on: # yamllint disable-line rule:truthy
   workflow_dispatch:
-    inputs:
-      branch:
-        description: Branch to validate, such as release/v0.1
-        required: true
-        default: main
 
 permissions:
   contents: read
@@ -35,7 +30,6 @@ jobs:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.branch }}
           fetch-depth: 0
           persist-credentials: false
 
