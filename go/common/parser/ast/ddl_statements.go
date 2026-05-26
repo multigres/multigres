@@ -743,7 +743,7 @@ func normalizeTypeName(nameParts []string) string {
 		// Strip pg_catalog or public schema for built-in types only
 		if len(nameParts) == 2 && (nameParts[0] == "pg_catalog" || nameParts[0] == "public") {
 			typeName := nameParts[1]
-			if isBuiltInType(typeName) {
+			if IsBuiltInType(typeName) {
 				return normalizeSingleTypeName(typeName)
 			}
 		}
@@ -760,8 +760,11 @@ func normalizeTypeName(nameParts []string) string {
 	return normalizeSingleTypeName(nameParts[0])
 }
 
-// isBuiltInType checks if a type name is a built-in PostgreSQL type
-func isBuiltInType(typeName string) bool {
+// IsBuiltInType checks if a type name is a built-in PostgreSQL type. These are
+// the keyword types the deparser renders with bespoke syntax (interval-field
+// masks, char/varchar length, the one-byte "char" type) rather than as plain
+// quoted identifiers.
+func IsBuiltInType(typeName string) bool {
 	switch strings.ToLower(typeName) {
 	case "int4", "int", "int8", "bigint", "int2", "smallint",
 		"float", "float4", "real", "float8", "double precision",

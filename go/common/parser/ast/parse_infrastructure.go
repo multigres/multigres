@@ -790,6 +790,12 @@ func (f *FuncCall) SqlString() string {
 					name = "POSITION"
 				case "substring":
 					name = "substring"
+				default:
+					// A user-supplied function name must be quoted if it is
+					// case-sensitive, a keyword, or contains special characters.
+					// The cases above are built-ins the deparser deliberately
+					// renders as bare keywords, so they are left unquoted.
+					name = QuoteIdentifier(name)
 				}
 				nameParts = append(nameParts, name)
 			}

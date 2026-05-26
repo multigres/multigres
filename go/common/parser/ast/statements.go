@@ -211,7 +211,7 @@ func (a *Alias) SqlString() string {
 		var colAliases []string
 		for _, col := range a.ColNames.Items {
 			if str, ok := col.(*String); ok {
-				colAliases = append(colAliases, str.SVal)
+				colAliases = append(colAliases, QuoteIdentifier(str.SVal))
 			}
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
@@ -1451,7 +1451,7 @@ func (c *CommonTableExpr) SqlString() string {
 		var cols []string
 		for _, col := range c.Aliascolnames.Items {
 			if str, ok := col.(*String); ok {
-				cols = append(cols, str.SVal)
+				cols = append(cols, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))
