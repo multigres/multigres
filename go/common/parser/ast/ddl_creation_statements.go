@@ -243,6 +243,9 @@ func (cfs *CreateFunctionStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (cfs *CreateFunctionStmt) SetLocation(int) {}
+
 // NodeTag returns the node's type tag
 func (cfs *CreateFunctionStmt) NodeTag() NodeTag {
 	return T_CreateFunctionStmt
@@ -313,7 +316,6 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	}
 
 	// Function options - process in original order
-	var hasLanguage bool
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
 			if option, ok := item.(*DefElem); ok {
@@ -321,7 +323,6 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 				case "language":
 					if str, ok := option.Arg.(*String); ok {
 						parts = append(parts, "LANGUAGE", str.SVal)
-						hasLanguage = true
 					}
 				case "window":
 					if b, ok := option.Arg.(*Boolean); ok && b.BoolVal {
@@ -331,13 +332,22 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 					if str, ok := option.Arg.(*String); ok {
 						// Use DollarQuoteString to handle nested dollar quotes properly
 						parts = append(parts, "AS", DollarQuoteString(str.SVal))
-					} else if list, ok := option.Arg.(*NodeList); ok {
-						// The AS clause might be in a NodeList
-						if len(list.Items) > 0 {
+					} else if list, ok := option.Arg.(*NodeList); ok && len(list.Items) > 0 {
+						if len(list.Items) == 1 {
+							// Single element: the function body, dollar-quoted.
 							if str, ok := list.Items[0].(*String); ok {
-								// Use DollarQuoteString to handle nested dollar quotes properly
 								parts = append(parts, "AS", DollarQuoteString(str.SVal))
 							}
+						} else {
+							// Two elements: a C function's 'objfile', 'symbol' — each a
+							// plain string literal. Dropping the second is wrong.
+							var elems []string
+							for _, it := range list.Items {
+								if str, ok := it.(*String); ok {
+									elems = append(elems, QuoteStringLiteral(str.SVal))
+								}
+							}
+							parts = append(parts, "AS", strings.Join(elems, ", "))
 						}
 					}
 				default:
@@ -357,20 +367,16 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		// Compound statements are stored as a NodeList containing another NodeList
 		if outerList, ok := cfs.SQLBody.(*NodeList); ok && outerList.Len() == 1 {
 			if innerList, ok := outerList.Items[0].(*NodeList); ok {
-				// This is a compound statement - add default LANGUAGE SQL if not specified
-				if !hasLanguage {
-					parts = append(parts, "LANGUAGE", "sql")
-				}
-				// Add BEGIN ATOMIC and END
 				parts = append(parts, "BEGIN ATOMIC")
-				// Join statements with semicolons
 				var stmts []string
 				for _, stmt := range innerList.Items {
 					if stmt != nil {
 						stmts = append(stmts, stmt.SqlString())
 					}
 				}
-				parts = append(parts, strings.Join(stmts, "; ")+";")
+				if len(stmts) > 0 {
+					parts = append(parts, strings.Join(stmts, "; ")+";")
+				}
 				parts = append(parts, "END")
 			} else {
 				// Regular SQL body
@@ -1130,6 +1136,9 @@ func (ccs *CreateCastStmt) Location() int {
 	return 0
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (ccs *CreateCastStmt) SetLocation(int) {}
+
 func (ccs *CreateCastStmt) NodeTag() NodeTag {
 	return T_CreateCastStmt
 }
@@ -1483,6 +1492,33 @@ func NewDefineStmt(kind ObjectType, oldStyle bool, defNames *NodeList, args *Nod
 }
 
 // SqlString returns the SQL representation of DefineStmt
+// operatorDefElemString renders a single CREATE OPERATOR definition element.
+// The COMMUTATOR and NEGATOR options carry an operator name (a list of String
+// parts), which must be emitted unquoted (`commutator = ===`), not as a string
+// literal the way DefElem.SqlString would render a *NodeList. Other options
+// (leftarg, procedure, ...) fall back to the default rendering.
+func operatorDefElemString(d *DefElem) string {
+	names, ok := d.Arg.(*NodeList)
+	if !ok {
+		return d.SqlString()
+	}
+	parts := make([]string, 0, len(names.Items))
+	for i, item := range names.Items {
+		s, ok := item.(*String)
+		if !ok {
+			continue
+		}
+		// The final part is the operator symbol (unquoted); any leading parts
+		// are schema qualifiers (quoted as identifiers).
+		if i == len(names.Items)-1 {
+			parts = append(parts, s.SVal)
+		} else {
+			parts = append(parts, QuoteIdentifier(s.SVal))
+		}
+	}
+	return QuoteIdentifier(d.Defname) + " = " + strings.Join(parts, ".")
+}
+
 func (ds *DefineStmt) SqlString() string {
 	var parts []string
 
@@ -1603,7 +1639,16 @@ func (ds *DefineStmt) SqlString() string {
 					if len(orderedArgs) > 0 {
 						parts = append(parts, "("+strings.Join(directArgs, ", ")+" ORDER BY "+strings.Join(orderedArgs, ", ")+")")
 					} else if len(directArgs) > 0 {
-						parts = append(parts, "("+strings.Join(directArgs, ", ")+")")
+						// numDirectArgs == total arg count happens only when the
+						// last direct arg is VARIADIC: makeOrderedSetArgs drops the
+						// duplicate VARIADIC ordered arg and folds it into the direct
+						// list. Reconstruct it so this re-parses as an ordered-set
+						// aggregate rather than a plain one.
+						if last, ok := argList.Items[len(argList.Items)-1].(*FunctionParameter); ok && last.Mode == FUNC_PARAM_VARIADIC {
+							parts = append(parts, "("+strings.Join(directArgs, ", ")+" ORDER BY "+last.SqlString()+")")
+						} else {
+							parts = append(parts, "("+strings.Join(directArgs, ", ")+")")
+						}
 					}
 				}
 			}
@@ -1658,7 +1703,11 @@ func (ds *DefineStmt) SqlString() string {
 		defParts := []string{}
 		for _, item := range ds.Definition.Items {
 			if def, ok := item.(*DefElem); ok {
-				defParts = append(defParts, def.SqlString())
+				if ds.Kind == OBJECT_OPERATOR {
+					defParts = append(defParts, operatorDefElemString(def))
+				} else {
+					defParts = append(defParts, def.SqlString())
+				}
 			}
 		}
 		if len(defParts) > 0 {
@@ -2292,6 +2341,9 @@ func (css *CreateStatsStmt) Location() int {
 	return 0
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (css *CreateStatsStmt) SetLocation(int) {}
+
 func (css *CreateStatsStmt) NodeTag() NodeTag {
 	return T_CreateStatsStmt
 }
@@ -2502,6 +2554,9 @@ func (ctas *CreateTableAsStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
 
+// SetLocation is a no-op; this node does not track source location yet.
+func (ctas *CreateTableAsStmt) SetLocation(int) {}
+
 // NodeTag returns the node's type tag
 func (ctas *CreateTableAsStmt) NodeTag() NodeTag {
 	return T_CreateTableAsStmt
@@ -2567,6 +2622,21 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 				}
 			}
 			parts = append(parts, "WITH", fmt.Sprintf("(%s)", strings.Join(opts, ", ")))
+		}
+
+		// ON COMMIT action (temp tables); NOOP means no clause was given.
+		switch ctas.Into.OnCommit {
+		case ONCOMMIT_PRESERVE_ROWS:
+			parts = append(parts, "ON COMMIT PRESERVE ROWS")
+		case ONCOMMIT_DELETE_ROWS:
+			parts = append(parts, "ON COMMIT DELETE ROWS")
+		case ONCOMMIT_DROP:
+			parts = append(parts, "ON COMMIT DROP")
+		}
+
+		// TABLESPACE
+		if ctas.Into.TableSpaceName != "" {
+			parts = append(parts, "TABLESPACE", QuoteIdentifier(ctas.Into.TableSpaceName))
 		}
 	}
 
@@ -2653,6 +2723,9 @@ type RefreshMatViewStmt struct {
 func (rmvs *RefreshMatViewStmt) Location() int {
 	return 0 // TODO: Implement proper location tracking
 }
+
+// SetLocation is a no-op; this node does not track source location yet.
+func (rmvs *RefreshMatViewStmt) SetLocation(int) {}
 
 // NodeTag returns the node's type tag
 func (rmvs *RefreshMatViewStmt) NodeTag() NodeTag {
@@ -2774,6 +2847,11 @@ func (n *CreateAssertionStmt) StatementType() string {
 // Location returns the statement's source location
 func (n *CreateAssertionStmt) Location() int {
 	return n.Loc
+}
+
+// SetLocation sets the statement's source location.
+func (n *CreateAssertionStmt) SetLocation(loc int) {
+	n.Loc = loc
 }
 
 // NodeTag returns the node's type tag

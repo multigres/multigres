@@ -109,8 +109,8 @@
   },
   {
     "comment": "tablesample - Statement 23",
-    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE bernoulli (('1'::text \u003c '0'::text)::int)",
-    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE bernoulli (CAST((CAST('1' AS TEXT) \u003c CAST('0' AS TEXT)) AS INT))"
+    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE bernoulli (('1'::text < '0'::text)::int)",
+    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE bernoulli (CAST((CAST('1' AS TEXT) < CAST('0' AS TEXT)) AS INT))"
   },
   {
     "comment": "tablesample - Statement 24",

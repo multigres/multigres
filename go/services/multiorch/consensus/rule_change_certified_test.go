@@ -85,7 +85,7 @@ func newCertifiedTestCoordinator(t *testing.T, fc *rpcclient.FakeClient, poolers
 	for _, p := range poolers {
 		require.NoError(t, ts.CreateMultiPooler(ctx, p))
 	}
-	return NewCoordinator(orchID, ts, fc, logger, false), orchID
+	return NewCoordinator(orchID, ts, fc, logger), orchID
 }
 
 func TestApplyCertifiedRuleChange_RequiresShardKey(t *testing.T) {

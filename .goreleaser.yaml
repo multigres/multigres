@@ -1,0 +1,43 @@
+version: 2
+
+builds:
+  - skip: true
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: "🚀 Features"
+      regexp: '^feat(\(.+\))?:'
+    - title: "🐛 Bug Fixes"
+      regexp: '^fix(\(.+\))?:'
+    - title: "⚡ Performance"
+      regexp: '^perf(\(.+\))?:'
+    - title: "♻️ Refactoring"
+      regexp: '^refactor(\(.+\))?:'
+    - title: "📚 Documentation"
+      regexp: '^docs(\(.+\))?:'
+    - title: "🔧 Other"
+      order: 999
+  filters:
+    exclude:
+      - '^test(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+      - '^ci(\(.+\))?:'
+      - '^build(\(.+\))?:'
+
+release:
+  github:
+    owner: multigres
+    name: multigres
+  prerelease: auto
+  footer: |
+    ---
+
+    Container images for this release:
+
+    - `ghcr.io/multigres/multigres:{{ .Tag }}`
+    - `ghcr.io/multigres/pgctld:{{ .Tag }}`
+    - `ghcr.io/multigres/multiadmin-web:{{ .Tag }}`
+
+    Source archives are available on this GitHub release.

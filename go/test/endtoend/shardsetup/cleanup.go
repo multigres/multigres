@@ -84,49 +84,6 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 	return nil
 }
 
-// RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
-// Uses Force=true to bypass term validation for simplicity in test cleanup.
-func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client *MultipoolerClient) error {
-	t.Helper()
-
-	// After EmergencyDemote restarts postgres as standby, the monitor loop reconciles
-	// the stored pooler type from PRIMARY to REPLICA asynchronously. StopReplication
-	// requires type=REPLICA, so wait for convergence before calling it.
-	require.Eventually(t, func() bool {
-		return ValidatePoolerType(context.Background(), client.Manager, clustermetadatapb.PoolerType_REPLICA, "demoted primary") == nil
-	}, 10*time.Second, 100*time.Millisecond, "pooler type should converge to REPLICA after demotion")
-
-	// Stop replication on primary
-	_, err := client.Manager.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to stop replication on primary: %w", err)
-	}
-
-	// Get current LSN from manager status
-	statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to get primary status: %w", err)
-	}
-
-	var lastReplayLSN string
-	if statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil {
-		lastReplayLSN = statusResp.Status.ReplicationStatus.LastReplayLsn
-	}
-
-	// Force promote primary back - term value doesn't matter when Force=true
-	// (Force bypasses term validation)
-	_, err = client.Consensus.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm: 0, // Ignored when Force=true
-		ExpectedLsn:   lastReplayLSN,
-		Force:         true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to promote primary: %w", err)
-	}
-
-	return nil
-}
-
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
 func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []string) map[string]string {

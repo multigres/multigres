@@ -16,33 +16,33 @@
   },
   {
     "comment": "memoize - Statement 18",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000;', false)",
-    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000;', FALSE)"
   },
   {
     "comment": "memoize - Statement 19",
-    "query": "SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000",
-    "expected": "SELECT COUNT(*), AVG(t1.unique1) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000"
+    "query": "SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000",
+    "expected": "SELECT COUNT(*), AVG(t1.unique1) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000"
   },
   {
     "comment": "memoize - Statement 20",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000;', false)",
-    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 < 1000;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 < 1000;', FALSE)"
   },
   {
     "comment": "memoize - Statement 21",
-    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000",
-    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1 OFFSET 0) AS t2 WHERE t1.unique1 \u003c 1000"
+    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 < 1000",
+    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1 OFFSET 0) AS t2 WHERE t1.unique1 < 1000"
   },
   {
     "comment": "memoize - Statement 22",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10;', false)",
-    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 < 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 < 10;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 < 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 < 10;', FALSE)"
   },
   {
     "comment": "memoize - Statement 23",
-    "query": "SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10",
-    "expected": "SELECT COUNT(*), AVG(t2.t1two) FROM tenk1 AS t1 LEFT OUTER JOIN LATERAL (SELECT t1.two AS t1two, * FROM tenk1 AS t2 WHERE t2.unique1 \u003c 4 OFFSET 0) AS t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10"
+    "query": "SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 < 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 < 10",
+    "expected": "SELECT COUNT(*), AVG(t2.t1two) FROM tenk1 AS t1 LEFT OUTER JOIN LATERAL (SELECT t1.two AS t1two, * FROM tenk1 AS t2 WHERE t2.unique1 < 4 OFFSET 0) AS t2 ON t1.two = t2.two WHERE t1.unique1 < 10"
   },
   {
     "comment": "memoize - Statement 24",
@@ -94,8 +94,8 @@
   },
   {
     "comment": "memoize - Statement 34",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 \u003c 1200;', true)",
-    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 \u003c 1200;', TRUE)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 < 1200;', true)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 < 1200;', TRUE)"
   },
   {
     "comment": "memoize - Statement 35",
@@ -128,8 +128,8 @@
   },
   {
     "comment": "memoize - Statement 41",
-    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f \u003e= f2.f;', false)",
-    "expected": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f \u003e= f2.f;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f >= f2.f;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f >= f2.f;', FALSE)"
   },
   {
     "comment": "memoize - Statement 42",
@@ -165,13 +165,13 @@
   },
   {
     "comment": "memoize - Statement 49",
-    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n \u003e= s2.n;', false)",
-    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n \u003e= s2.n;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n >= s2.n;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n >= s2.n;', FALSE)"
   },
   {
     "comment": "memoize - Statement 50",
-    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t \u003e= s2.t;', false)",
-    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t \u003e= s2.t;', FALSE)"
+    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t >= s2.t;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t >= s2.t;', FALSE)"
   },
   {
     "comment": "memoize - Statement 51",
@@ -242,13 +242,13 @@
   },
   {
     "comment": "memoize - Statement 66",
-    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 t0 WHERE unique1 \u003c 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 AS t0 WHERE unique1 \u003c 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)"
+    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 t0 WHERE unique1 < 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 AS t0 WHERE unique1 < 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)"
   },
   {
     "comment": "memoize - Statement 67",
-    "query": "SELECT unique1 FROM tenk1 t0 WHERE unique1 \u003c 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)",
-    "expected": "SELECT unique1 FROM tenk1 AS t0 WHERE unique1 \u003c 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)"
+    "query": "SELECT unique1 FROM tenk1 t0 WHERE unique1 < 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)",
+    "expected": "SELECT unique1 FROM tenk1 AS t0 WHERE unique1 < 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)"
   },
   {
     "comment": "memoize - Statement 68",
@@ -296,13 +296,13 @@
   },
   {
     "comment": "memoize - Statement 78",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 \u003c 1000",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 \u003c 1000"
+    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 < 1000",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 < 1000"
   },
   {
     "comment": "memoize - Statement 79",
-    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 \u003c 1000",
-    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 \u003c 1000"
+    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 < 1000",
+    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 < 1000"
   },
   {
     "comment": "memoize - Statement 80",

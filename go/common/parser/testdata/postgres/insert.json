@@ -214,8 +214,8 @@
   },
   {
     "comment": "insert - Statement 44",
-    "query": "create domain insert_pos_ints as int[] check (value[1] \u003e 0)",
-    "expected": "CREATE DOMAIN insert_pos_ints AS INT[] CHECK (value[1] \u003e 0)"
+    "query": "create domain insert_pos_ints as int[] check (value[1] > 0)",
+    "expected": "CREATE DOMAIN insert_pos_ints AS INT[] CHECK (value[1] > 0)"
   },
   {
     "comment": "insert - Statement 45",
@@ -1119,8 +1119,8 @@
   },
   {
     "comment": "insert - Statement 228",
-    "query": "alter table mlparted add constraint check_b check (a = 1 and b \u003c 45)",
-    "expected": "ALTER TABLE mlparted ADD CONSTRAINT check_b CHECK (a = 1 AND b \u003c 45)"
+    "query": "alter table mlparted add constraint check_b check (a = 1 and b < 45)",
+    "expected": "ALTER TABLE mlparted ADD CONSTRAINT check_b CHECK (a = 1 AND b < 45)"
   },
   {
     "comment": "insert - Statement 229",

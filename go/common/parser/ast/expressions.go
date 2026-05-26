@@ -2047,6 +2047,20 @@ func (x *XmlExpr) SqlString() string {
 	case IS_XMLELEMENT:
 		result.WriteString("XMLELEMENT(NAME ")
 		result.WriteString(QuoteIdentifier(x.Name))
+		// NamedArgs hold the XMLATTRIBUTES (each a ResTarget rendering as
+		// `value [AS name]`), which come right after the element name.
+		if x.NamedArgs != nil && len(x.NamedArgs.Items) > 0 {
+			result.WriteString(", XMLATTRIBUTES(")
+			for i, arg := range x.NamedArgs.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				if arg != nil {
+					result.WriteString(arg.SqlString())
+				}
+			}
+			result.WriteString(")")
+		}
 		if x.Args != nil && len(x.Args.Items) > 0 {
 			result.WriteString(", ")
 			for i, arg := range x.Args.Items {
@@ -2097,12 +2111,37 @@ func (x *XmlExpr) SqlString() string {
 		result.WriteString(")")
 
 	case IS_XMLROOT:
+		// Args are [xml, version, standalone]. The version is a NULL A_Const for
+		// VERSION NO VALUE; the standalone is an integer A_Const holding an
+		// XmlStandaloneType.
 		result.WriteString("XMLROOT(")
 		if x.Args != nil && len(x.Args.Items) > 0 {
 			result.WriteString(x.Args.Items[0].SqlString())
-			if len(x.Args.Items) > 1 {
+			if len(x.Args.Items) > 1 && x.Args.Items[1] != nil {
 				result.WriteString(", VERSION ")
-				result.WriteString(x.Args.Items[1].SqlString())
+				if ac, ok := x.Args.Items[1].(*A_Const); ok {
+					if _, isNull := ac.Val.(*Null); isNull {
+						result.WriteString("NO VALUE")
+					} else {
+						result.WriteString(x.Args.Items[1].SqlString())
+					}
+				} else {
+					result.WriteString(x.Args.Items[1].SqlString())
+				}
+			}
+			if len(x.Args.Items) > 2 {
+				if ac, ok := x.Args.Items[2].(*A_Const); ok {
+					if iv, ok := ac.Val.(*Integer); ok {
+						switch XmlStandaloneType(iv.IVal) {
+						case XML_STANDALONE_YES:
+							result.WriteString(", STANDALONE YES")
+						case XML_STANDALONE_NO:
+							result.WriteString(", STANDALONE NO")
+						case XML_STANDALONE_NO_VALUE:
+							result.WriteString(", STANDALONE NO VALUE")
+						}
+					}
+				}
 			}
 		}
 		result.WriteString(")")

@@ -821,8 +821,8 @@
   },
   {
     "comment": "sqljson - Statement 170",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON WITH UNIQUE KEYS RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i > 3) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON WITH UNIQUE KEYS RETURNING TEXT) FILTER (WHERE i > 3) FROM generate_series(1, 5) AS i"
   },
   {
     "comment": "sqljson - Statement 171",
@@ -831,13 +831,13 @@
   },
   {
     "comment": "sqljson - Statement 172",
-    "query": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
-    "expected": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON WITH UNIQUE KEYS RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+    "query": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i > 3) FROM generate_series(1,5) i",
+    "expected": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON WITH UNIQUE KEYS RETURNING TEXT) FILTER (WHERE i > 3) FROM generate_series(1, 5) AS i"
   },
   {
     "comment": "sqljson - Statement 173",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON NULL ON NULL RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i > 3) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON NULL ON NULL RETURNING TEXT) FILTER (WHERE i > 3) FROM generate_series(1, 5) AS i"
   },
   {
     "comment": "sqljson - Statement 174",
@@ -846,8 +846,8 @@
   },
   {
     "comment": "sqljson - Statement 175",
-    "query": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
-    "expected": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON NULL ON NULL RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+    "query": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i > 3) FROM generate_series(1,5) i",
+    "expected": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON NULL ON NULL RETURNING TEXT) FILTER (WHERE i > 3) FROM generate_series(1, 5) AS i"
   },
   {
     "comment": "sqljson - Statement 176",

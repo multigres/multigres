@@ -288,16 +288,14 @@ func (n *MergeWhenClause) SqlString() string {
 	case CMD_UPDATE:
 		parts = append(parts, "UPDATE SET")
 		if len(n.TargetList) > 0 {
-			targets := make([]string, len(n.TargetList))
+			// Reuse the UPDATE SET renderer so multi-column assignments
+			// `SET (a, b) = <source>` are regrouped instead of emitted as
+			// duplicated per-column assignments.
+			items := make([]Node, len(n.TargetList))
 			for i, target := range n.TargetList {
-				// For UPDATE SET, format as "column = value" not "value AS column"
-				if target.Val != nil {
-					targets[i] = QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
-				} else {
-					targets[i] = QuoteIdentifier(target.Name)
-				}
+				items[i] = target
 			}
-			parts = append(parts, strings.Join(targets, ", "))
+			parts = append(parts, strings.Join(renderSetClauses(items), ", "))
 		}
 	case CMD_DELETE:
 		parts = append(parts, "DELETE")
@@ -988,33 +986,23 @@ func (n *DoStmt) SqlString() string {
 	parts = append(parts, "DO")
 
 	if n.Args != nil {
-		var language string
-		var code string
-
-		// Process DefElem arguments to extract language and code
+		// Emit the options in their original order: the code block and an
+		// optional LANGUAGE may appear in either order, and re-ordering them
+		// changes the parsed option list (so the round-trip would differ).
 		for _, arg := range n.Args.Items {
 			if defElem, ok := arg.(*DefElem); ok {
 				switch defElem.Defname {
 				case "language":
 					if str, ok := defElem.Arg.(*String); ok {
-						language = str.SVal
+						parts = append(parts, "LANGUAGE", QuoteIdentifier(str.SVal))
 					}
 				case "as":
 					if str, ok := defElem.Arg.(*String); ok {
-						code = str.SVal
+						// Use single quotes for the code block
+						parts = append(parts, QuoteStringLiteral(str.SVal))
 					}
 				}
 			}
-		}
-
-		// Format according to PostgreSQL DO statement syntax
-		if language != "" {
-			parts = append(parts, "LANGUAGE", QuoteIdentifier(language))
-		}
-
-		if code != "" {
-			// Use single quotes for the code block
-			parts = append(parts, QuoteStringLiteral(code))
 		}
 	}
 

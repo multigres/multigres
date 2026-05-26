@@ -16,8 +16,8 @@
   },
   {
     "comment": "spgist - Statement 4",
-    "query": "delete from spgist_point_tbl where id \u003c 5",
-    "expected": "DELETE FROM spgist_point_tbl WHERE id \u003c 5"
+    "query": "delete from spgist_point_tbl where id < 5",
+    "expected": "DELETE FROM spgist_point_tbl WHERE id < 5"
   },
   {
     "comment": "spgist - Statement 5",
@@ -41,8 +41,8 @@
   },
   {
     "comment": "spgist - Statement 9",
-    "query": "delete from spgist_point_tbl where id \u003c 10000",
-    "expected": "DELETE FROM spgist_point_tbl WHERE id \u003c 10000"
+    "query": "delete from spgist_point_tbl where id < 10000",
+    "expected": "DELETE FROM spgist_point_tbl WHERE id < 10000"
   },
   {
     "comment": "spgist - Statement 10",
@@ -61,8 +61,8 @@
   },
   {
     "comment": "spgist - Statement 13",
-    "query": "select count(*) from (values (point(5,5)),(point(8,8)),(point(12,12))) v(p) where exists(select * from spgist_box_tbl b where b.b \u0026\u0026 box(v.p,v.p))",
-    "expected": "SELECT COUNT(*) FROM (VALUES (point(5, 5)), (point(8, 8)), (point(12, 12))) AS v(p) WHERE EXISTS (SELECT * FROM spgist_box_tbl AS b WHERE b.b \u0026\u0026 box(v.p, v.p))"
+    "query": "select count(*) from (values (point(5,5)),(point(8,8)),(point(12,12))) v(p) where exists(select * from spgist_box_tbl b where b.b && box(v.p,v.p))",
+    "expected": "SELECT COUNT(*) FROM (VALUES (point(5, 5)), (point(8, 8)), (point(12, 12))) AS v(p) WHERE EXISTS (SELECT * FROM spgist_box_tbl AS b WHERE b.b && box(v.p, v.p))"
   },
   {
     "comment": "spgist - Statement 14",

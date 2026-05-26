@@ -274,6 +274,11 @@ func (je *JoinExpr) SqlString() string {
 			}
 		}
 		result.WriteString(")")
+		// USING (...) AS alias names the merged join columns.
+		if je.JoinUsingAlias != nil {
+			result.WriteString(" ")
+			result.WriteString(je.JoinUsingAlias.SqlString())
+		}
 	} else if je.Quals != nil {
 		result.WriteString(" ON ")
 		result.WriteString(je.Quals.SqlString())
@@ -281,6 +286,11 @@ func (je *JoinExpr) SqlString() string {
 		// For INNER JOIN without qualifications (converted from CROSS JOIN), add ON TRUE
 		// This is semantically equivalent to CROSS JOIN
 		result.WriteString(" ON TRUE")
+	}
+
+	// A join with an alias must be parenthesized: (a JOIN b ...) AS j.
+	if je.Alias != nil {
+		return "(" + result.String() + ") " + je.Alias.SqlString()
 	}
 
 	return result.String()

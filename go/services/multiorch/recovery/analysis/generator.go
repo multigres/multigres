@@ -259,7 +259,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 // A pooler is a candidate if:
 //   - its ConsensusStatus names it as leader (IsLeader), OR
 //   - its health status reports PoolerType=PRIMARY (fallback when ConsensusStatus is absent,
-//     e.g. before the first streaming snapshot populates it, or after a BeginTerm REVOKE
+//     e.g. before the first streaming snapshot populates it, or after a Recruit
 //     where the node still reports PRIMARY while postgres restarts as standby).
 //
 // Note: we do NOT use MultiPooler.Type (topology type) because topology can be stale when

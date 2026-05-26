@@ -290,6 +290,45 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 	return result.String()
 }
 
+// renderSetClauses renders the assignment list of a SET clause (UPDATE or
+// ON CONFLICT DO UPDATE). A multi-column assignment `SET (a, b, ...) = <source>`
+// is parsed into one ResTarget per column, each holding a MultiAssignRef that
+// points at the shared source; those are regrouped so the source is emitted once
+// (rendering each as `a = <source>` would be wrong).
+func renderSetClauses(items []Node) []string {
+	var setClauses []string
+	for i := 0; i < len(items); i++ {
+		target, ok := items[i].(*ResTarget)
+		if !ok || target.Name == "" || target.Val == nil {
+			continue
+		}
+		if mar, ok := target.Val.(*MultiAssignRef); ok && mar.Colno == 1 {
+			cols := []string{target.ColumnNameWithIndirection()}
+			j := i + 1
+			for ; j < len(items) && len(cols) < mar.Ncolumns; j++ {
+				next, ok := items[j].(*ResTarget)
+				if !ok {
+					break
+				}
+				nextMar, ok := next.Val.(*MultiAssignRef)
+				if !ok || nextMar.Colno != len(cols)+1 {
+					break
+				}
+				cols = append(cols, next.ColumnNameWithIndirection())
+			}
+			source := ""
+			if mar.Source != nil {
+				source = mar.Source.SqlString()
+			}
+			setClauses = append(setClauses, "("+strings.Join(cols, ", ")+") = "+source)
+			i = j - 1
+			continue
+		}
+		setClauses = append(setClauses, target.SetClauseString())
+	}
+	return setClauses
+}
+
 // SetClauseString returns the SQL representation for SET clauses (UPDATE, ON CONFLICT DO UPDATE)
 // Format: "column[index] = value" instead of "value AS column"
 func (r *ResTarget) SetClauseString() string {
@@ -574,6 +613,15 @@ func (s *SelectStmt) SqlString() string {
 		// Handle OFFSET clause for set operations
 		if s.LimitOffset != nil {
 			parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
+		}
+
+		// FOR UPDATE/SHARE clauses also attach to the set-operation node.
+		if s.LockingClause != nil && s.LockingClause.Len() > 0 {
+			for _, item := range s.LockingClause.Items {
+				if locking, ok := item.(*LockingClause); ok && locking != nil {
+					parts = append(parts, locking.SqlString())
+				}
+			}
 		}
 
 		// WITH clause attaches to the outer set-operation node and must be
@@ -960,13 +1008,7 @@ func (u *UpdateStmt) SqlString() string {
 
 	// SET clause
 	if u.TargetList != nil && u.TargetList.Len() > 0 {
-		var setClauses []string
-		for _, item := range u.TargetList.Items {
-			if target, ok := item.(*ResTarget); ok && target.Name != "" && target.Val != nil {
-				setClauses = append(setClauses, target.SetClauseString())
-			}
-		}
-		parts = append(parts, "SET", strings.Join(setClauses, ", "))
+		parts = append(parts, "SET", strings.Join(renderSetClauses(u.TargetList.Items), ", "))
 	}
 
 	// FROM clause
@@ -1524,13 +1566,7 @@ func (n *OnConflictClause) SqlString() string {
 	parts = append(parts, n.Action.SqlString())
 
 	if n.Action == ONCONFLICT_UPDATE && n.TargetList != nil && n.TargetList.Len() > 0 {
-		var targets []string
-		for _, item := range n.TargetList.Items {
-			if target, ok := item.(*ResTarget); ok {
-				// Use ResTarget's SetClauseString method for proper formatting
-				targets = append(targets, target.SetClauseString())
-			}
-		}
+		targets := renderSetClauses(n.TargetList.Items)
 		if len(targets) > 0 {
 			parts = append(parts, "SET", strings.Join(targets, ", "))
 		}
@@ -1655,8 +1691,30 @@ func (c *CreateStmt) SqlString() string {
 			parts = append(parts, c.PartSpec.SqlString())
 		}
 	} else if isTypedTable {
-		// For typed tables: OF typename
+		// For typed tables: OF typename [ ( column_options | table_constraint, ... ) ].
+		// A typed-table column is a ColumnDef with no type (just constraints); the
+		// optional WITH OPTIONS keyword is syntactic sugar (identical AST), so the
+		// plain `colname <constraints>` rendering round-trips.
 		parts = append(parts, "OF", c.OfTypename.SqlString())
+		var elts []string
+		if c.TableElts != nil {
+			for _, col := range c.TableElts.Items {
+				if col != nil {
+					elts = append(elts, col.SqlString())
+				}
+			}
+		}
+		for _, constraint := range c.Constraints {
+			if constraint != nil {
+				elts = append(elts, constraint.SqlString())
+			}
+		}
+		if len(elts) > 0 {
+			parts = append(parts, "("+strings.Join(elts, ", ")+")")
+		}
+		if c.PartSpec != nil {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
 	} else {
 		// Regular table with columns and constraints
 		var columnParts []string
@@ -2029,38 +2087,20 @@ func (d *DropStmt) sqlStringForDropOnTable() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	// For RULE/TRIGGER/POLICY, Objects contains: [table_name, object_name]
-	// We need to format as: DROP TYPE object_name ON table_name
+	// For RULE/TRIGGER/POLICY the object is one flat qualified name whose last
+	// part is the rule/trigger/policy name and whose preceding parts form the
+	// (optionally schema-qualified) table: DROP TRIGGER <name> ON <table>.
 	if d.Objects != nil && len(d.Objects.Items) >= 2 {
-		// The first item is the table, the second is the rule/trigger/policy name
-		tableName := ""
-		objectName := ""
-
-		// First item should be the table (from any_name)
-		if nodeList, ok := d.Objects.Items[0].(*NodeList); ok {
-			var qualParts []string
-			for _, nameItem := range nodeList.Items {
-				if strVal, ok := nameItem.(*String); ok {
-					qualParts = append(qualParts, strVal.SVal)
-				}
+		var nameParts []string
+		for _, item := range d.Objects.Items {
+			if strVal, ok := item.(*String); ok {
+				nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 			}
-			if len(qualParts) > 0 {
-				tableName = strings.Join(qualParts, ".")
-			}
-		} else if strVal, ok := d.Objects.Items[0].(*String); ok {
-			tableName = strVal.SVal
 		}
-
-		// Second item should be the object name
-		if strVal, ok := d.Objects.Items[1].(*String); ok {
-			objectName = strVal.SVal
-		}
-
-		if objectName != "" {
-			parts = append(parts, QuoteIdentifier(objectName))
-		}
-		if tableName != "" {
-			parts = append(parts, "ON", tableName)
+		if len(nameParts) >= 2 {
+			objectName := nameParts[len(nameParts)-1]
+			tableName := strings.Join(nameParts[:len(nameParts)-1], ".")
+			parts = append(parts, objectName, "ON", tableName)
 		}
 	}
 

@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
@@ -66,8 +65,8 @@ type poolerID struct {
 // newPoolerID generates the poolerID for a multipooler from its ID.
 // Format: {cell}_{name}
 // This is used consistently for:
-// - SetPrimaryConnInfo: standby's application_name when connecting to primary
-// - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+// - primary_conninfo: standby's application_name when connecting to primary
+// - synchronous_standby_names: standby identities on the primary
 //
 // On validation failure an approximate poolerID is returned alongside the error.
 // The approximate appName is "{cell}_{name}" with missing fields replaced by
@@ -226,21 +225,6 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 		return "", mterrors.Wrap(err, "failed to scan replay LSN result")
 	}
 	return lsn, nil
-}
-
-// getTimelineID gets the current timeline ID from pg_control_checkpoint()
-func (pm *MultiPoolerManager) getTimelineID(ctx context.Context) (int64, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT timeline_id FROM pg_control_checkpoint()")
-	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to get timeline ID")
-	}
-	var timelineID int64
-	if err := executor.ScanSingleRow(result, &timelineID); err != nil {
-		return 0, mterrors.Wrap(err, "failed to scan timeline ID result")
-	}
-	return timelineID, nil
 }
 
 // querySchemaExists checks if the multigres schema exists in the database
@@ -879,39 +863,6 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 // Synchronous Replication Configuration
 // ----------------------------------------------------------------------------
 
-// setSynchronousCommit sets the PostgreSQL synchronous_commit level
-func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel) error {
-	// Convert enum to PostgreSQL string value
-	var syncCommitValue string
-	switch synchronousCommit {
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF:
-		syncCommitValue = "off"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL:
-		syncCommitValue = "local"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE:
-		syncCommitValue = "remote_write"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON:
-		syncCommitValue = "on"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY:
-		syncCommitValue = "remote_apply"
-	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"invalid synchronous_commit level: "+synchronousCommit.String())
-	}
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	pm.logger.InfoContext(ctx, "Setting synchronous_commit", "value", syncCommitValue)
-	sql := fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue)
-	if err := pm.exec(execCtx, sql); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
-		return mterrors.Wrap(err, "failed to set synchronous_commit")
-	}
-
-	return nil
-}
-
 // buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
 // This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
 func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []poolerID) (string, error) {
@@ -1110,51 +1061,6 @@ func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) e
 	return nil
 }
 
-// syncReplicationConfigMatches checks if the current sync replication config matches the requested config
-func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdatapb.SynchronousReplicationConfiguration, requested *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) bool {
-	// Check synchronous commit level
-	if current.SynchronousCommit != requested.SynchronousCommit {
-		return false
-	}
-
-	// Check synchronous method
-	if current.SynchronousMethod != requested.SynchronousMethod {
-		return false
-	}
-
-	// Check num_sync
-	if current.NumSync != requested.NumSync {
-		return false
-	}
-
-	// Check standby IDs (must match exactly 1:1, so sort and compare)
-	if len(current.StandbyIds) != len(requested.StandbyIds) {
-		return false
-	}
-
-	// Sort both lists by cell_name for comparison
-	currentSorted := make([]string, len(current.StandbyIds))
-	for i, id := range current.StandbyIds {
-		currentSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	}
-	sort.Strings(currentSorted)
-
-	requestedSorted := make([]string, len(requested.StandbyIds))
-	for i, id := range requested.StandbyIds {
-		requestedSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	}
-	sort.Strings(requestedSorted)
-
-	// Compare sorted lists element by element
-	for i := range currentSorted {
-		if currentSorted[i] != requestedSorted[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
 // ----------------------------------------------------------------------------
 // Validation Helpers
 // ----------------------------------------------------------------------------
@@ -1170,7 +1076,7 @@ func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) 
 	return pids, nil
 }
 
-// validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
+// validateSyncReplicationParams validates the parameters for setting synchronous_standby_names.
 func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) {
 	// Validate numSync is non-negative
 	if numSync < 0 {

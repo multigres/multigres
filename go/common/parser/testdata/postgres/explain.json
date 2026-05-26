@@ -86,8 +86,8 @@
   },
   {
     "comment": "explain - Statement 30",
-    "query": "select explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #\u003e '{0,Settings,plan_cache_mode}'",
-    "expected": "SELECT explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #\u003e '{0,Settings,plan_cache_mode}'"
+    "query": "select explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #> '{0,Settings,plan_cache_mode}'",
+    "expected": "SELECT explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #> '{0,Settings,plan_cache_mode}'"
   },
   {
     "comment": "explain - Statement 31",
@@ -206,8 +206,8 @@
   },
   {
     "comment": "explain - Statement 54",
-    "query": "select explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) \u003c 0.5')",
-    "expected": "SELECT explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) \u003c 0.5')"
+    "query": "select explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) < 0.5')",
+    "expected": "SELECT explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) < 0.5')"
   },
   {
     "comment": "explain - Statement 55",

@@ -1630,9 +1630,8 @@ func (x *ShardRule) GetCreationTime() *timestamppb.Timestamp {
 // time. It captures the highest ShardRule this pooler has replicated (or written,
 // for a leader) and the latest WAL position.
 //
-// Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
-// coordinator can determine which pooler is most advanced when selecting a
-// promotion candidate.
+// Used in Status and Recruit responses so the coordinator can determine
+// which pooler is most advanced when selecting a promotion candidate.
 //
 // Comparison: prefer the pooler with the higher rule (coordinator_term first,
 // then leader_subterm). Break ties by LSN.
@@ -1766,7 +1765,7 @@ func (x *ReplicationPrimary) GetPrimary() *PoolerAddress {
 // TermRevocation records that this pooler has revoked participation in all terms
 // strictly below revoked_below_term. Two things are revoked:
 //
-//  1. Consensus participation: the pooler will refuse BeginTerm or other coordinator
+//  1. Consensus participation: the pooler will refuse Recruit or other coordinator
 //     requests for any term < revoked_below_term, and for revoked_below_term itself
 //     from a different coordinator than accepted_coordinator_id.
 //
@@ -1793,7 +1792,7 @@ type TermRevocation struct {
 	AcceptedCoordinatorId *ID `protobuf:"bytes,2,opt,name=accepted_coordinator_id,json=acceptedCoordinatorId,proto3" json:"accepted_coordinator_id,omitempty"`
 	// When the coordinator created this term, set by the coordinator before
 	// recruiting. All poolers that accept the same recruitment store the same value.
-	// TODO: populate once BeginTermRequest carries this timestamp.
+	// TODO: populate once RecruitRequest carries this timestamp.
 	CoordinatorInitiatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=coordinator_initiated_at,json=coordinatorInitiatedAt,proto3" json:"coordinator_initiated_at,omitempty"`
 	// The rule the coordinator observed across the cohort at recruit time —
 	// the "from" side of the transition this recruit was authoring. Used as

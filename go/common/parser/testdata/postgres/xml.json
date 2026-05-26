@@ -6,15 +6,15 @@
   },
   {
     "comment": "xml - Statement 2",
-    "query": "INSERT INTO xmltest VALUES (1, '\u003cvalue\u003eone\u003c/value\u003e')"
+    "query": "INSERT INTO xmltest VALUES (1, '<value>one</value>')"
   },
   {
     "comment": "xml - Statement 3",
-    "query": "INSERT INTO xmltest VALUES (2, '\u003cvalue\u003etwo\u003c/value\u003e')"
+    "query": "INSERT INTO xmltest VALUES (2, '<value>two</value>')"
   },
   {
     "comment": "xml - Statement 4",
-    "query": "INSERT INTO xmltest VALUES (3, '\u003cwrong')"
+    "query": "INSERT INTO xmltest VALUES (3, '<wrong')"
   },
   {
     "comment": "xml - Statement 5",
@@ -22,23 +22,23 @@
   },
   {
     "comment": "xml - Statement 6",
-    "query": "SELECT pg_input_is_valid('\u003cvalue\u003eone\u003c/value\u003e', 'xml')"
+    "query": "SELECT pg_input_is_valid('<value>one</value>', 'xml')"
   },
   {
     "comment": "xml - Statement 7",
-    "query": "SELECT pg_input_is_valid('\u003cvalue\u003eone\u003c/', 'xml')"
+    "query": "SELECT pg_input_is_valid('<value>one</', 'xml')"
   },
   {
     "comment": "xml - Statement 8",
-    "query": "SELECT message FROM pg_input_error_info('\u003cvalue\u003eone\u003c/', 'xml')"
+    "query": "SELECT message FROM pg_input_error_info('<value>one</', 'xml')"
   },
   {
     "comment": "xml - Statement 9",
-    "query": "SELECT pg_input_is_valid('\u003c?xml version=\"1.0\" standalone=\"y\"?\u003e\u003cfoo/\u003e', 'xml')"
+    "query": "SELECT pg_input_is_valid('<?xml version=\"1.0\" standalone=\"y\"?><foo/>', 'xml')"
   },
   {
     "comment": "xml - Statement 10",
-    "query": "SELECT message FROM pg_input_error_info('\u003c?xml version=\"1.0\" standalone=\"y\"?\u003e\u003cfoo/\u003e', 'xml')"
+    "query": "SELECT message FROM pg_input_error_info('<?xml version=\"1.0\" standalone=\"y\"?><foo/>', 'xml')"
   },
   {
     "comment": "xml - Statement 11",
@@ -77,18 +77,18 @@
   },
   {
     "comment": "xml - Statement 19",
-    "query": "SELECT xmlconcat('bad', '\u003csyntax')",
-    "expected": "SELECT XMLCONCAT('bad', '\u003csyntax')"
+    "query": "SELECT xmlconcat('bad', '<syntax')",
+    "expected": "SELECT XMLCONCAT('bad', '<syntax')"
   },
   {
     "comment": "xml - Statement 20",
-    "query": "SELECT xmlconcat('\u003cfoo/\u003e', NULL, '\u003c?xml version=\"1.1\" standalone=\"no\"?\u003e\u003cbar/\u003e')",
-    "expected": "SELECT XMLCONCAT('\u003cfoo/\u003e', NULL, '\u003c?xml version=\"1.1\" standalone=\"no\"?\u003e\u003cbar/\u003e')"
+    "query": "SELECT xmlconcat('<foo/>', NULL, '<?xml version=\"1.1\" standalone=\"no\"?><bar/>')",
+    "expected": "SELECT XMLCONCAT('<foo/>', NULL, '<?xml version=\"1.1\" standalone=\"no\"?><bar/>')"
   },
   {
     "comment": "xml - Statement 21",
-    "query": "SELECT xmlconcat('\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e', NULL, '\u003c?xml version=\"1.1\" standalone=\"no\"?\u003e\u003cbar/\u003e')",
-    "expected": "SELECT XMLCONCAT('\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e', NULL, '\u003c?xml version=\"1.1\" standalone=\"no\"?\u003e\u003cbar/\u003e')"
+    "query": "SELECT xmlconcat('<?xml version=\"1.1\"?><foo/>', NULL, '<?xml version=\"1.1\" standalone=\"no\"?><bar/>')",
+    "expected": "SELECT XMLCONCAT('<?xml version=\"1.1\"?><foo/>', NULL, '<?xml version=\"1.1\" standalone=\"no\"?><bar/>')"
   },
   {
     "comment": "xml - Statement 22",
@@ -103,12 +103,12 @@
   {
     "comment": "xml - Statement 24",
     "query": "SELECT xmlelement(name element, xmlattributes (1 as one, 'deuce' as two), 'content')",
-    "expected": "SELECT XMLELEMENT(NAME element, 'content')"
+    "expected": "SELECT XMLELEMENT(NAME element, XMLATTRIBUTES(1 AS one, 'deuce' AS two), 'content')"
   },
   {
     "comment": "xml - Statement 25",
     "query": "SELECT xmlelement(name element, xmlattributes ('unnamed and wrong'))",
-    "expected": "SELECT XMLELEMENT(NAME element)"
+    "expected": "SELECT XMLELEMENT(NAME element, XMLATTRIBUTES('unnamed and wrong'))"
   },
   {
     "comment": "xml - Statement 26",
@@ -123,7 +123,7 @@
   {
     "comment": "xml - Statement 28",
     "query": "SELECT xmlelement(name duplicate, xmlattributes(1 as a, 2 as b, 3 as a))",
-    "expected": "SELECT XMLELEMENT(NAME duplicate)"
+    "expected": "SELECT XMLELEMENT(NAME duplicate, XMLATTRIBUTES(1 AS a, 2 AS b, 3 AS a))"
   },
   {
     "comment": "xml - Statement 29",
@@ -142,13 +142,13 @@
   },
   {
     "comment": "xml - Statement 32",
-    "query": "SELECT xmlelement(name foo, text 'b\u003ca/\u003er')",
-    "expected": "SELECT XMLELEMENT(NAME foo, CAST('b\u003ca/\u003er' AS TEXT))"
+    "query": "SELECT xmlelement(name foo, text 'b<a/>r')",
+    "expected": "SELECT XMLELEMENT(NAME foo, CAST('b<a/>r' AS TEXT))"
   },
   {
     "comment": "xml - Statement 33",
-    "query": "SELECT xmlelement(name foo, xml 'b\u003ca/\u003er')",
-    "expected": "SELECT XMLELEMENT(NAME foo, CAST('b\u003ca/\u003er' AS XML))"
+    "query": "SELECT xmlelement(name foo, xml 'b<a/>r')",
+    "expected": "SELECT XMLELEMENT(NAME foo, CAST('b<a/>r' AS XML))"
   },
   {
     "comment": "xml - Statement 34",
@@ -173,22 +173,22 @@
   {
     "comment": "xml - Statement 38",
     "query": "SELECT xmlelement(name foo, xmlattributes(true as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(TRUE AS bar))"
   },
   {
     "comment": "xml - Statement 39",
     "query": "SELECT xmlelement(name foo, xmlattributes('2009-04-09 00:24:37'::timestamp as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(CAST('2009-04-09 00:24:37' AS TIMESTAMP) AS bar))"
   },
   {
     "comment": "xml - Statement 40",
     "query": "SELECT xmlelement(name foo, xmlattributes('infinity'::timestamp as bar))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES(CAST('infinity' AS TIMESTAMP) AS bar))"
   },
   {
     "comment": "xml - Statement 41",
-    "query": "SELECT xmlelement(name foo, xmlattributes('\u003c\u003e\u0026\"''' as funny, xml 'b\u003ca/\u003er' as funnier))",
-    "expected": "SELECT XMLELEMENT(NAME foo)"
+    "query": "SELECT xmlelement(name foo, xmlattributes('<>&\"''' as funny, xml 'b<a/>r' as funnier))",
+    "expected": "SELECT XMLELEMENT(NAME foo, XMLATTRIBUTES('<>&\"''' AS funny, CAST('b<a/>r' AS XML) AS funnier))"
   },
   {
     "comment": "xml - Statement 42",
@@ -207,38 +207,38 @@
   },
   {
     "comment": "xml - Statement 45",
-    "query": "SELECT xmlparse(content '\u003cabc\u003ex\u003c/abc\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003cabc\u003ex\u003c/abc\u003e')"
+    "query": "SELECT xmlparse(content '<abc>x</abc>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<abc>x</abc>')"
   },
   {
     "comment": "xml - Statement 46",
-    "query": "SELECT xmlparse(content '\u003cinvalidentity\u003e\u0026\u003c/invalidentity\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003cinvalidentity\u003e\u0026\u003c/invalidentity\u003e')"
+    "query": "SELECT xmlparse(content '<invalidentity>&</invalidentity>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<invalidentity>&</invalidentity>')"
   },
   {
     "comment": "xml - Statement 47",
-    "query": "SELECT xmlparse(content '\u003cundefinedentity\u003e\u0026idontexist;\u003c/undefinedentity\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003cundefinedentity\u003e\u0026idontexist;\u003c/undefinedentity\u003e')"
+    "query": "SELECT xmlparse(content '<undefinedentity>&idontexist;</undefinedentity>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<undefinedentity>&idontexist;</undefinedentity>')"
   },
   {
     "comment": "xml - Statement 48",
-    "query": "SELECT xmlparse(content '\u003cinvalidns xmlns=''\u0026lt;''/\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003cinvalidns xmlns=''\u0026lt;''/\u003e')"
+    "query": "SELECT xmlparse(content '<invalidns xmlns=''&lt;''/>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<invalidns xmlns=''&lt;''/>')"
   },
   {
     "comment": "xml - Statement 49",
-    "query": "SELECT xmlparse(content '\u003crelativens xmlns=''relative''/\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003crelativens xmlns=''relative''/\u003e')"
+    "query": "SELECT xmlparse(content '<relativens xmlns=''relative''/>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<relativens xmlns=''relative''/>')"
   },
   {
     "comment": "xml - Statement 50",
-    "query": "SELECT xmlparse(content '\u003ctwoerrors\u003e\u0026idontexist;\u003c/unbalanced\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003ctwoerrors\u003e\u0026idontexist;\u003c/unbalanced\u003e')"
+    "query": "SELECT xmlparse(content '<twoerrors>&idontexist;</unbalanced>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<twoerrors>&idontexist;</unbalanced>')"
   },
   {
     "comment": "xml - Statement 51",
-    "query": "SELECT xmlparse(content '\u003cnosuchprefix:tag/\u003e')",
-    "expected": "SELECT XMLPARSE(CONTENT '\u003cnosuchprefix:tag/\u003e')"
+    "query": "SELECT xmlparse(content '<nosuchprefix:tag/>')",
+    "expected": "SELECT XMLPARSE(CONTENT '<nosuchprefix:tag/>')"
   },
   {
     "comment": "xml - Statement 52",
@@ -252,38 +252,38 @@
   },
   {
     "comment": "xml - Statement 54",
-    "query": "SELECT xmlparse(document '\u003cabc\u003ex\u003c/abc\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003cabc\u003ex\u003c/abc\u003e')"
+    "query": "SELECT xmlparse(document '<abc>x</abc>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<abc>x</abc>')"
   },
   {
     "comment": "xml - Statement 55",
-    "query": "SELECT xmlparse(document '\u003cinvalidentity\u003e\u0026\u003c/abc\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003cinvalidentity\u003e\u0026\u003c/abc\u003e')"
+    "query": "SELECT xmlparse(document '<invalidentity>&</abc>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<invalidentity>&</abc>')"
   },
   {
     "comment": "xml - Statement 56",
-    "query": "SELECT xmlparse(document '\u003cundefinedentity\u003e\u0026idontexist;\u003c/abc\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003cundefinedentity\u003e\u0026idontexist;\u003c/abc\u003e')"
+    "query": "SELECT xmlparse(document '<undefinedentity>&idontexist;</abc>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<undefinedentity>&idontexist;</abc>')"
   },
   {
     "comment": "xml - Statement 57",
-    "query": "SELECT xmlparse(document '\u003cinvalidns xmlns=''\u0026lt;''/\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003cinvalidns xmlns=''\u0026lt;''/\u003e')"
+    "query": "SELECT xmlparse(document '<invalidns xmlns=''&lt;''/>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<invalidns xmlns=''&lt;''/>')"
   },
   {
     "comment": "xml - Statement 58",
-    "query": "SELECT xmlparse(document '\u003crelativens xmlns=''relative''/\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003crelativens xmlns=''relative''/\u003e')"
+    "query": "SELECT xmlparse(document '<relativens xmlns=''relative''/>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<relativens xmlns=''relative''/>')"
   },
   {
     "comment": "xml - Statement 59",
-    "query": "SELECT xmlparse(document '\u003ctwoerrors\u003e\u0026idontexist;\u003c/unbalanced\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003ctwoerrors\u003e\u0026idontexist;\u003c/unbalanced\u003e')"
+    "query": "SELECT xmlparse(document '<twoerrors>&idontexist;</unbalanced>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<twoerrors>&idontexist;</unbalanced>')"
   },
   {
     "comment": "xml - Statement 60",
-    "query": "SELECT xmlparse(document '\u003cnosuchprefix:tag/\u003e')",
-    "expected": "SELECT XMLPARSE(DOCUMENT '\u003cnosuchprefix:tag/\u003e')"
+    "query": "SELECT xmlparse(document '<nosuchprefix:tag/>')",
+    "expected": "SELECT XMLPARSE(DOCUMENT '<nosuchprefix:tag/>')"
   },
   {
     "comment": "xml - Statement 61",
@@ -307,8 +307,8 @@
   },
   {
     "comment": "xml - Statement 65",
-    "query": "SELECT xmlpi(name foo, 'in?\u003evalid')",
-    "expected": "SELECT XMLPI(NAME foo, 'in?\u003evalid')"
+    "query": "SELECT xmlpi(name foo, 'in?>valid')",
+    "expected": "SELECT XMLPI(NAME foo, 'in?>valid')"
   },
   {
     "comment": "xml - Statement 66",
@@ -337,48 +337,48 @@
   },
   {
     "comment": "xml - Statement 71",
-    "query": "SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone no value)",
-    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "query": "SELECT xmlroot(xml '<foo/>', version no value, standalone no value)",
+    "expected": "SELECT XMLROOT(CAST('<foo/>' AS XML), VERSION NO VALUE, STANDALONE NO VALUE)"
   },
   {
     "comment": "xml - Statement 72",
-    "query": "SELECT xmlroot(xml '\u003cfoo/\u003e', version '2.0')",
-    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION '2.0')"
+    "query": "SELECT xmlroot(xml '<foo/>', version '2.0')",
+    "expected": "SELECT XMLROOT(CAST('<foo/>' AS XML), VERSION '2.0')"
   },
   {
     "comment": "xml - Statement 73",
-    "query": "SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "query": "SELECT xmlroot(xml '<foo/>', version no value, standalone yes)",
+    "expected": "SELECT XMLROOT(CAST('<foo/>' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 74",
-    "query": "SELECT xmlroot(xml '\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "SELECT XMLROOT(CAST('\u003c?xml version=\"1.1\"?\u003e\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "query": "SELECT xmlroot(xml '<?xml version=\"1.1\"?><foo/>', version no value, standalone yes)",
+    "expected": "SELECT XMLROOT(CAST('<?xml version=\"1.1\"?><foo/>' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 75",
-    "query": "SELECT xmlroot(xmlroot(xml '\u003cfoo/\u003e', version '1.0'), version '1.1', standalone no)",
-    "expected": "SELECT XMLROOT(XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION '1.0'), VERSION '1.1')"
+    "query": "SELECT xmlroot(xmlroot(xml '<foo/>', version '1.0'), version '1.1', standalone no)",
+    "expected": "SELECT XMLROOT(XMLROOT(CAST('<foo/>' AS XML), VERSION '1.0'), VERSION '1.1', STANDALONE NO)"
   },
   {
     "comment": "xml - Statement 76",
-    "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value, standalone no)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "query": "SELECT xmlroot('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', version no value, standalone no)",
+    "expected": "SELECT XMLROOT('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', VERSION NO VALUE, STANDALONE NO)"
   },
   {
     "comment": "xml - Statement 77",
-    "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value, standalone no value)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "query": "SELECT xmlroot('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', version no value, standalone no value)",
+    "expected": "SELECT XMLROOT('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', VERSION NO VALUE, STANDALONE NO VALUE)"
   },
   {
     "comment": "xml - Statement 78",
-    "query": "SELECT xmlroot('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', version no value)",
-    "expected": "SELECT XMLROOT('\u003c?xml version=\"1.1\" standalone=\"yes\"?\u003e\u003cfoo/\u003e', VERSION NULL)"
+    "query": "SELECT xmlroot('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', version no value)",
+    "expected": "SELECT XMLROOT('<?xml version=\"1.1\" standalone=\"yes\"?><foo/>', VERSION NO VALUE)"
   },
   {
     "comment": "xml - Statement 79",
     "query": "SELECT xmlroot ( xmlelement ( name gazonk, xmlattributes ( 'val' AS name, 1 + 1 AS num ), xmlelement ( NAME qux, 'foo' ) ), version '1.0', standalone yes )",
-    "expected": "SELECT XMLROOT(XMLELEMENT(NAME gazonk, XMLELEMENT(NAME qux, 'foo')), VERSION '1.0')"
+    "expected": "SELECT XMLROOT(XMLELEMENT(NAME gazonk, XMLATTRIBUTES('val' AS name, 1 + 1 AS num), XMLELEMENT(NAME qux, 'foo')), VERSION '1.0', STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 80",
@@ -397,53 +397,53 @@
   },
   {
     "comment": "xml - Statement 83",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 84",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 85",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text NO INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text NO INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT)"
   },
   {
     "comment": "xml - Statement 86",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text NO INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text NO INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT)"
   },
   {
     "comment": "xml - Statement 87",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e73\u003c/foo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e73\u003c/foo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo>73</foo><bar><val x=\"y\">42</val></bar>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo>73</foo><bar><val x=\"y\">42</val></bar>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 88",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e73\u003c/foo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e73\u003c/foo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo>73</foo><bar><val x=\"y\">42</val></bar>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo>73</foo><bar><val x=\"y\">42</val></bar>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 89",
-    "query": "SELECT xmlserialize(DOCUMENT 'text node\u003cfoo\u003e73\u003c/foo\u003etext node\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT 'text node\u003cfoo\u003e73\u003c/foo\u003etext node\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT 'text node<foo>73</foo>text node<bar><val x=\"y\">42</val></bar>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT 'text node<foo>73</foo>text node<bar><val x=\"y\">42</val></bar>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 90",
-    "query": "SELECT xmlserialize(CONTENT  'text node\u003cfoo\u003e73\u003c/foo\u003etext node\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT 'text node\u003cfoo\u003e73\u003c/foo\u003etext node\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  'text node<foo>73</foo>text node<bar><val x=\"y\">42</val></bar>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT 'text node<foo>73</foo>text node<bar><val x=\"y\">42</val></bar>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 91",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003cval x=\"y\"\u003etext node\u003cval\u003e73\u003c/val\u003e\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003cval x=\"y\"\u003etext node\u003cval\u003e73\u003c/val\u003e\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo><bar><val x=\"y\">42</val><val x=\"y\">text node<val>73</val></val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo><bar><val x=\"y\">42</val><val x=\"y\">text node<val>73</val></val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 92",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003cval x=\"y\"\u003etext node\u003cval\u003e73\u003c/val\u003e\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003cval x=\"y\"\u003etext node\u003cval\u003e73\u003c/val\u003e\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo><bar><val x=\"y\">42</val><val x=\"y\">text node<val>73</val></val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo><bar><val x=\"y\">42</val><val x=\"y\">text node<val>73</val></val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 93",
@@ -477,68 +477,68 @@
   },
   {
     "comment": "xml - Statement 99",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003c?xml version=\"1.0\" encoding=\"UTF-8\"?\u003e\u003cfoo\u003e\u003cbar\u003e\u003cval\u003e73\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003c?xml version=\"1.0\" encoding=\"UTF-8\"?\u003e\u003cfoo\u003e\u003cbar\u003e\u003cval\u003e73\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo><bar><val>73</val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo><bar><val>73</val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 100",
-    "query": "SELECT xmlserialize(CONTENT  '\u003c?xml version=\"1.0\" encoding=\"UTF-8\"?\u003e\u003cfoo\u003e\u003cbar\u003e\u003cval\u003e73\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003c?xml version=\"1.0\" encoding=\"UTF-8\"?\u003e\u003cfoo\u003e\u003cbar\u003e\u003cval\u003e73\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo><bar><val>73</val></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo><bar><val>73</val></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 101",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003c!DOCTYPE a\u003e\u003ca/\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003c!DOCTYPE a\u003e\u003ca/\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<!DOCTYPE a><a/>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<!DOCTYPE a><a/>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 102",
-    "query": "SELECT xmlserialize(CONTENT  '\u003c!DOCTYPE a\u003e\u003ca/\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003c!DOCTYPE a\u003e\u003ca/\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<!DOCTYPE a><a/>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<!DOCTYPE a><a/>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 103",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo><bar></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo><bar></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 104",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e\u003cbar\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo><bar></bar></foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo><bar></bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 105",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text) = xmlserialize(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text NO INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT) = XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text) = xmlserialize(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text NO INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT) = XMLSERIALIZE(DOCUMENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT)"
   },
   {
     "comment": "xml - Statement 106",
-    "query": "SELECT xmlserialize(CONTENT  '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text) = xmlserialize(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS text NO INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT) = XMLSERIALIZE(CONTENT '\u003cfoo\u003e\u003cbar\u003e\u003cval x=\"y\"\u003e42\u003c/val\u003e\u003c/bar\u003e\u003c/foo\u003e' AS TEXT)"
+    "query": "SELECT xmlserialize(CONTENT  '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text) = xmlserialize(CONTENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS text NO INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT) = XMLSERIALIZE(CONTENT '<foo><bar><val x=\"y\">42</val></bar></foo>' AS TEXT)"
   },
   {
     "comment": "xml - Statement 107",
-    "query": "SELECT xmlserialize(DOCUMENT '\u003cfoo\u003e   \u003cbar\u003e\u003c/bar\u003e    \u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e   \u003cbar\u003e\u003c/bar\u003e    \u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(DOCUMENT '<foo>   <bar></bar>    </foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(DOCUMENT '<foo>   <bar></bar>    </foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 108",
-    "query": "SELECT xmlserialize(CONTENT  'text node\u003cfoo\u003e    \u003cbar\u003e\u003c/bar\u003e   \u003c/foo\u003e' AS text INDENT)",
-    "expected": "SELECT XMLSERIALIZE(CONTENT 'text node\u003cfoo\u003e    \u003cbar\u003e\u003c/bar\u003e   \u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "SELECT xmlserialize(CONTENT  'text node<foo>    <bar></bar>   </foo>' AS text INDENT)",
+    "expected": "SELECT XMLSERIALIZE(CONTENT 'text node<foo>    <bar></bar>   </foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 109",
-    "query": "SELECT xml '\u003cfoo\u003ebar\u003c/foo\u003e' IS DOCUMENT",
-    "expected": "SELECT CAST('\u003cfoo\u003ebar\u003c/foo\u003e' AS XML) IS DOCUMENT"
+    "query": "SELECT xml '<foo>bar</foo>' IS DOCUMENT",
+    "expected": "SELECT CAST('<foo>bar</foo>' AS XML) IS DOCUMENT"
   },
   {
     "comment": "xml - Statement 110",
-    "query": "SELECT xml '\u003cfoo\u003ebar\u003c/foo\u003e\u003cbar\u003efoo\u003c/bar\u003e' IS DOCUMENT",
-    "expected": "SELECT CAST('\u003cfoo\u003ebar\u003c/foo\u003e\u003cbar\u003efoo\u003c/bar\u003e' AS XML) IS DOCUMENT"
+    "query": "SELECT xml '<foo>bar</foo><bar>foo</bar>' IS DOCUMENT",
+    "expected": "SELECT CAST('<foo>bar</foo><bar>foo</bar>' AS XML) IS DOCUMENT"
   },
   {
     "comment": "xml - Statement 111",
-    "query": "SELECT xml '\u003cabc/\u003e' IS NOT DOCUMENT",
-    "expected": "SELECT NOT CAST('\u003cabc/\u003e' AS XML) IS DOCUMENT"
+    "query": "SELECT xml '<abc/>' IS NOT DOCUMENT",
+    "expected": "SELECT NOT CAST('<abc/>' AS XML) IS DOCUMENT"
   },
   {
     "comment": "xml - Statement 112",
@@ -547,8 +547,8 @@
   },
   {
     "comment": "xml - Statement 113",
-    "query": "SELECT '\u003c\u003e' IS NOT DOCUMENT",
-    "expected": "SELECT NOT '\u003c\u003e' IS DOCUMENT"
+    "query": "SELECT '<>' IS NOT DOCUMENT",
+    "expected": "SELECT NOT '<>' IS DOCUMENT"
   },
   {
     "comment": "xml - Statement 114",
@@ -556,7 +556,7 @@
   },
   {
     "comment": "xml - Statement 115",
-    "query": "SELECT xmlagg(data) FROM xmltest WHERE id \u003e 10"
+    "query": "SELECT xmlagg(data) FROM xmltest WHERE id > 10"
   },
   {
     "comment": "xml - Statement 116",
@@ -565,8 +565,8 @@
   },
   {
     "comment": "xml - Statement 117",
-    "query": "SELECT xmlpi(name \":::_xml_abc135.%-\u0026_\")",
-    "expected": "SELECT XMLPI(NAME \":::_xml_abc135.%-\u0026_\")"
+    "query": "SELECT xmlpi(name \":::_xml_abc135.%-&_\")",
+    "expected": "SELECT XMLPI(NAME \":::_xml_abc135.%-&_\")"
   },
   {
     "comment": "xml - Statement 118",
@@ -575,8 +575,8 @@
   },
   {
     "comment": "xml - Statement 119",
-    "query": "PREPARE foo (xml) AS SELECT xmlconcat('\u003cfoo/\u003e', $1)",
-    "expected": "PREPARE foo ( XML ) AS SELECT XMLCONCAT('\u003cfoo/\u003e', $1)"
+    "query": "PREPARE foo (xml) AS SELECT xmlconcat('<foo/>', $1)",
+    "expected": "PREPARE foo ( XML ) AS SELECT XMLCONCAT('<foo/>', $1)"
   },
   {
     "comment": "xml - Statement 120",
@@ -584,8 +584,8 @@
   },
   {
     "comment": "xml - Statement 121",
-    "query": "EXECUTE foo ('\u003cbar/\u003e')",
-    "expected": "EXECUTE foo ( '\u003cbar/\u003e' )"
+    "query": "EXECUTE foo ('<bar/>')",
+    "expected": "EXECUTE foo ( '<bar/>' )"
   },
   {
     "comment": "xml - Statement 122",
@@ -594,8 +594,8 @@
   },
   {
     "comment": "xml - Statement 123",
-    "query": "SELECT xml '\u003c!DOCTYPE a\u003e\u003ca/\u003e\u003cb/\u003e'",
-    "expected": "SELECT CAST('\u003c!DOCTYPE a\u003e\u003ca/\u003e\u003cb/\u003e' AS XML)"
+    "query": "SELECT xml '<!DOCTYPE a><a/><b/>'",
+    "expected": "SELECT CAST('<!DOCTYPE a><a/><b/>' AS XML)"
   },
   {
     "comment": "xml - Statement 124",
@@ -608,28 +608,28 @@
   },
   {
     "comment": "xml - Statement 126",
-    "query": "SELECT xml '\u003c!-- in SQL:2006+ a doc is content too--\u003e \u003c?y z?\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e'",
-    "expected": "SELECT CAST('\u003c!-- in SQL:2006+ a doc is content too--\u003e \u003c?y z?\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e' AS XML)"
+    "query": "SELECT xml '<!-- in SQL:2006+ a doc is content too--> <?y z?> <!DOCTYPE a><a/>'",
+    "expected": "SELECT CAST('<!-- in SQL:2006+ a doc is content too--> <?y z?> <!DOCTYPE a><a/>' AS XML)"
   },
   {
     "comment": "xml - Statement 127",
-    "query": "SELECT xml '\u003c?xml version=\"1.0\"?\u003e \u003c!-- hi--\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e'",
-    "expected": "SELECT CAST('\u003c?xml version=\"1.0\"?\u003e \u003c!-- hi--\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e' AS XML)"
+    "query": "SELECT xml '<?xml version=\"1.0\"?> <!-- hi--> <!DOCTYPE a><a/>'",
+    "expected": "SELECT CAST('<?xml version=\"1.0\"?> <!-- hi--> <!DOCTYPE a><a/>' AS XML)"
   },
   {
     "comment": "xml - Statement 128",
-    "query": "SELECT xml '\u003c!DOCTYPE a\u003e\u003ca/\u003e'",
-    "expected": "SELECT CAST('\u003c!DOCTYPE a\u003e\u003ca/\u003e' AS XML)"
+    "query": "SELECT xml '<!DOCTYPE a><a/>'",
+    "expected": "SELECT CAST('<!DOCTYPE a><a/>' AS XML)"
   },
   {
     "comment": "xml - Statement 129",
-    "query": "SELECT xml '\u003c!-- hi--\u003e oops \u003c!DOCTYPE a\u003e\u003ca/\u003e'",
-    "expected": "SELECT CAST('\u003c!-- hi--\u003e oops \u003c!DOCTYPE a\u003e\u003ca/\u003e' AS XML)"
+    "query": "SELECT xml '<!-- hi--> oops <!DOCTYPE a><a/>'",
+    "expected": "SELECT CAST('<!-- hi--> oops <!DOCTYPE a><a/>' AS XML)"
   },
   {
     "comment": "xml - Statement 130",
-    "query": "SELECT xml '\u003c!-- hi--\u003e \u003coops/\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e'",
-    "expected": "SELECT CAST('\u003c!-- hi--\u003e \u003coops/\u003e \u003c!DOCTYPE a\u003e\u003ca/\u003e' AS XML)"
+    "query": "SELECT xml '<!-- hi--> <oops/> <!DOCTYPE a><a/>'",
+    "expected": "SELECT CAST('<!-- hi--> <oops/> <!DOCTYPE a><a/>' AS XML)"
   },
   {
     "comment": "xml - Statement 131",
@@ -642,8 +642,8 @@
   },
   {
     "comment": "xml - Statement 133",
-    "query": "CREATE VIEW xmlview3 AS SELECT xmlelement(name element, xmlattributes (1 as \":one:\", 'deuce' as two), 'content\u0026')",
-    "expected": "CREATE VIEW xmlview3 AS SELECT XMLELEMENT(NAME element, 'content\u0026')"
+    "query": "CREATE VIEW xmlview3 AS SELECT xmlelement(name element, xmlattributes (1 as \":one:\", 'deuce' as two), 'content&')",
+    "expected": "CREATE VIEW xmlview3 AS SELECT XMLELEMENT(NAME element, XMLATTRIBUTES(1 AS \":one:\", 'deuce' AS two), 'content&')"
   },
   {
     "comment": "xml - Statement 134",
@@ -652,8 +652,8 @@
   },
   {
     "comment": "xml - Statement 135",
-    "query": "CREATE VIEW xmlview5 AS SELECT xmlparse(content '\u003cabc\u003ex\u003c/abc\u003e')",
-    "expected": "CREATE VIEW xmlview5 AS SELECT XMLPARSE(CONTENT '\u003cabc\u003ex\u003c/abc\u003e')"
+    "query": "CREATE VIEW xmlview5 AS SELECT xmlparse(content '<abc>x</abc>')",
+    "expected": "CREATE VIEW xmlview5 AS SELECT XMLPARSE(CONTENT '<abc>x</abc>')"
   },
   {
     "comment": "xml - Statement 136",
@@ -662,8 +662,8 @@
   },
   {
     "comment": "xml - Statement 137",
-    "query": "CREATE VIEW xmlview7 AS SELECT xmlroot(xml '\u003cfoo/\u003e', version no value, standalone yes)",
-    "expected": "CREATE VIEW xmlview7 AS SELECT XMLROOT(CAST('\u003cfoo/\u003e' AS XML), VERSION NULL)"
+    "query": "CREATE VIEW xmlview7 AS SELECT xmlroot(xml '<foo/>', version no value, standalone yes)",
+    "expected": "CREATE VIEW xmlview7 AS SELECT XMLROOT(CAST('<foo/>' AS XML), VERSION NO VALUE, STANDALONE YES)"
   },
   {
     "comment": "xml - Statement 138",
@@ -677,13 +677,13 @@
   },
   {
     "comment": "xml - Statement 140",
-    "query": "CREATE VIEW xmlview10 AS SELECT xmlserialize(document '\u003cfoo\u003e\u003cbar\u003e42\u003c/bar\u003e\u003c/foo\u003e' AS text indent)",
-    "expected": "CREATE VIEW xmlview10 AS SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e42\u003c/bar\u003e\u003c/foo\u003e' AS TEXT INDENT)"
+    "query": "CREATE VIEW xmlview10 AS SELECT xmlserialize(document '<foo><bar>42</bar></foo>' AS text indent)",
+    "expected": "CREATE VIEW xmlview10 AS SELECT XMLSERIALIZE(DOCUMENT '<foo><bar>42</bar></foo>' AS TEXT INDENT)"
   },
   {
     "comment": "xml - Statement 141",
-    "query": "CREATE VIEW xmlview11 AS SELECT xmlserialize(document '\u003cfoo\u003e\u003cbar\u003e42\u003c/bar\u003e\u003c/foo\u003e' AS character varying no indent)",
-    "expected": "CREATE VIEW xmlview11 AS SELECT XMLSERIALIZE(DOCUMENT '\u003cfoo\u003e\u003cbar\u003e42\u003c/bar\u003e\u003c/foo\u003e' AS VARCHAR)"
+    "query": "CREATE VIEW xmlview11 AS SELECT xmlserialize(document '<foo><bar>42</bar></foo>' AS character varying no indent)",
+    "expected": "CREATE VIEW xmlview11 AS SELECT XMLSERIALIZE(DOCUMENT '<foo><bar>42</bar></foo>' AS VARCHAR)"
   },
   {
     "comment": "xml - Statement 142",
@@ -699,121 +699,121 @@
   },
   {
     "comment": "xml - Statement 145",
-    "query": "SELECT xpath('', '\u003c!-- error --\u003e')"
+    "query": "SELECT xpath('', '<!-- error -->')"
   },
   {
     "comment": "xml - Statement 146",
-    "query": "SELECT xpath('//text()', '\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e')"
+    "query": "SELECT xpath('//text()', '<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>')"
   },
   {
     "comment": "xml - Statement 147",
-    "query": "SELECT xpath('//loc:piece/@id', '\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
-    "expected": "SELECT xpath('//loc:piece/@id', '\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[['loc','http://127.0.0.1']])"
+    "query": "SELECT xpath('//loc:piece/@id', '<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
+    "expected": "SELECT xpath('//loc:piece/@id', '<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>', ARRAY[['loc','http://127.0.0.1']])"
   },
   {
     "comment": "xml - Statement 148",
-    "query": "SELECT xpath('//loc:piece', '\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
-    "expected": "SELECT xpath('//loc:piece', '\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[['loc','http://127.0.0.1']])"
+    "query": "SELECT xpath('//loc:piece', '<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
+    "expected": "SELECT xpath('//loc:piece', '<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>', ARRAY[['loc','http://127.0.0.1']])"
   },
   {
     "comment": "xml - Statement 149",
-    "query": "SELECT xpath('//loc:piece', '\u003clocal:data xmlns:local=\"http://127.0.0.1\" xmlns=\"http://127.0.0.2\"\u003e\u003clocal:piece id=\"1\"\u003e\u003cinternal\u003enumber one\u003c/internal\u003e\u003cinternal2/\u003e\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
-    "expected": "SELECT xpath('//loc:piece', '\u003clocal:data xmlns:local=\"http://127.0.0.1\" xmlns=\"http://127.0.0.2\"\u003e\u003clocal:piece id=\"1\"\u003e\u003cinternal\u003enumber one\u003c/internal\u003e\u003cinternal2/\u003e\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e', ARRAY[['loc','http://127.0.0.1']])"
+    "query": "SELECT xpath('//loc:piece', '<local:data xmlns:local=\"http://127.0.0.1\" xmlns=\"http://127.0.0.2\"><local:piece id=\"1\"><internal>number one</internal><internal2/></local:piece><local:piece id=\"2\" /></local:data>', ARRAY[ARRAY['loc', 'http://127.0.0.1']])",
+    "expected": "SELECT xpath('//loc:piece', '<local:data xmlns:local=\"http://127.0.0.1\" xmlns=\"http://127.0.0.2\"><local:piece id=\"1\"><internal>number one</internal><internal2/></local:piece><local:piece id=\"2\" /></local:data>', ARRAY[['loc','http://127.0.0.1']])"
   },
   {
     "comment": "xml - Statement 150",
-    "query": "SELECT xpath('//b', '\u003ca\u003eone \u003cb\u003etwo\u003c/b\u003e three \u003cb\u003eetc\u003c/b\u003e\u003c/a\u003e')"
+    "query": "SELECT xpath('//b', '<a>one <b>two</b> three <b>etc</b></a>')"
   },
   {
     "comment": "xml - Statement 151",
-    "query": "SELECT xpath('//text()', '\u003croot\u003e\u0026lt;\u003c/root\u003e')"
+    "query": "SELECT xpath('//text()', '<root>&lt;</root>')"
   },
   {
     "comment": "xml - Statement 152",
-    "query": "SELECT xpath('//@value', '\u003croot value=\"\u0026lt;\"/\u003e')"
+    "query": "SELECT xpath('//@value', '<root value=\"&lt;\"/>')"
   },
   {
     "comment": "xml - Statement 153",
-    "query": "SELECT xpath('''\u003c\u003cinvalid\u003e\u003e''', '\u003croot/\u003e')"
+    "query": "SELECT xpath('''<<invalid>>''', '<root/>')"
   },
   {
     "comment": "xml - Statement 154",
-    "query": "SELECT xpath('count(//*)', '\u003croot\u003e\u003csub/\u003e\u003csub/\u003e\u003c/root\u003e')"
+    "query": "SELECT xpath('count(//*)', '<root><sub/><sub/></root>')"
   },
   {
     "comment": "xml - Statement 155",
-    "query": "SELECT xpath('count(//*)=0', '\u003croot\u003e\u003csub/\u003e\u003csub/\u003e\u003c/root\u003e')"
+    "query": "SELECT xpath('count(//*)=0', '<root><sub/><sub/></root>')"
   },
   {
     "comment": "xml - Statement 156",
-    "query": "SELECT xpath('count(//*)=3', '\u003croot\u003e\u003csub/\u003e\u003csub/\u003e\u003c/root\u003e')"
+    "query": "SELECT xpath('count(//*)=3', '<root><sub/><sub/></root>')"
   },
   {
     "comment": "xml - Statement 157",
-    "query": "SELECT xpath('name(/*)', '\u003croot\u003e\u003csub/\u003e\u003csub/\u003e\u003c/root\u003e')"
+    "query": "SELECT xpath('name(/*)', '<root><sub/><sub/></root>')"
   },
   {
     "comment": "xml - Statement 158",
-    "query": "SELECT xpath('/nosuchtag', '\u003croot/\u003e')"
+    "query": "SELECT xpath('/nosuchtag', '<root/>')"
   },
   {
     "comment": "xml - Statement 159",
-    "query": "SELECT xpath('root', '\u003croot/\u003e')"
+    "query": "SELECT xpath('root', '<root/>')"
   },
   {
     "comment": "xml - Statement 160",
-    "query": "DO $$ DECLARE xml_declaration text := '\u003c?xml version=\"1.0\" encoding=\"ISO-8859-1\"?\u003e'; degree_symbol text; res xml[]; BEGIN     IF current_setting('server_encoding') \u003c\u003e 'UTF8' THEN RAISE LOG 'skip: encoding % unsupported for xpath', current_setting('server_encoding'); RETURN; END IF;  degree_symbol := convert_from('\\xc2b0', 'UTF8'); res := xpath('text()', (xml_declaration || '\u003cx\u003e' || degree_symbol || '\u003c/x\u003e')::xml); IF degree_symbol \u003c\u003e res[1]::text THEN RAISE 'expected % (%), got % (%)', degree_symbol, convert_to(degree_symbol, 'UTF8'), res[1], convert_to(res[1]::text, 'UTF8'); END IF; EXCEPTION  WHEN untranslatable_character  OR undefined_function  OR feature_not_supported THEN RAISE LOG 'skip: %', SQLERRM; END $$",
-    "expected": "DO ' DECLARE xml_declaration text := ''\u003c?xml version=\"1.0\" encoding=\"ISO-8859-1\"?\u003e''; degree_symbol text; res xml[]; BEGIN     IF current_setting(''server_encoding'') \u003c\u003e ''UTF8'' THEN RAISE LOG ''skip: encoding % unsupported for xpath'', current_setting(''server_encoding''); RETURN; END IF;  degree_symbol := convert_from(''\\xc2b0'', ''UTF8''); res := xpath(''text()'', (xml_declaration || ''\u003cx\u003e'' || degree_symbol || ''\u003c/x\u003e'')::xml); IF degree_symbol \u003c\u003e res[1]::text THEN RAISE ''expected % (%), got % (%)'', degree_symbol, convert_to(degree_symbol, ''UTF8''), res[1], convert_to(res[1]::text, ''UTF8''); END IF; EXCEPTION  WHEN untranslatable_character  OR undefined_function  OR feature_not_supported THEN RAISE LOG ''skip: %'', SQLERRM; END '"
+    "query": "DO $$ DECLARE xml_declaration text := '<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>'; degree_symbol text; res xml[]; BEGIN     IF current_setting('server_encoding') <> 'UTF8' THEN RAISE LOG 'skip: encoding % unsupported for xpath', current_setting('server_encoding'); RETURN; END IF;  degree_symbol := convert_from('\\xc2b0', 'UTF8'); res := xpath('text()', (xml_declaration || '<x>' || degree_symbol || '</x>')::xml); IF degree_symbol <> res[1]::text THEN RAISE 'expected % (%), got % (%)', degree_symbol, convert_to(degree_symbol, 'UTF8'), res[1], convert_to(res[1]::text, 'UTF8'); END IF; EXCEPTION  WHEN untranslatable_character  OR undefined_function  OR feature_not_supported THEN RAISE LOG 'skip: %', SQLERRM; END $$",
+    "expected": "DO ' DECLARE xml_declaration text := ''<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>''; degree_symbol text; res xml[]; BEGIN     IF current_setting(''server_encoding'') <> ''UTF8'' THEN RAISE LOG ''skip: encoding % unsupported for xpath'', current_setting(''server_encoding''); RETURN; END IF;  degree_symbol := convert_from(''\\xc2b0'', ''UTF8''); res := xpath(''text()'', (xml_declaration || ''<x>'' || degree_symbol || ''</x>'')::xml); IF degree_symbol <> res[1]::text THEN RAISE ''expected % (%), got % (%)'', degree_symbol, convert_to(degree_symbol, ''UTF8''), res[1], convert_to(res[1]::text, ''UTF8''); END IF; EXCEPTION  WHEN untranslatable_character  OR undefined_function  OR feature_not_supported THEN RAISE LOG ''skip: %'', SQLERRM; END '"
   },
   {
     "comment": "xml - Statement 161",
-    "query": "SELECT xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e')",
-    "expected": "SELECT xmlexists('//town[text() = ''Toronto'']' PASSING '\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e')"
+    "query": "SELECT xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')",
+    "expected": "SELECT xmlexists('//town[text() = ''Toronto'']' PASSING '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')"
   },
   {
     "comment": "xml - Statement 162",
-    "query": "SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e')",
-    "expected": "SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING '\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e')"
+    "query": "SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')",
+    "expected": "SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')"
   },
   {
     "comment": "xml - Statement 163",
-    "query": "SELECT xmlexists('count(/nosuchtag)' PASSING BY REF '\u003croot/\u003e')",
-    "expected": "SELECT xmlexists('count(/nosuchtag)' PASSING '\u003croot/\u003e')"
+    "query": "SELECT xmlexists('count(/nosuchtag)' PASSING BY REF '<root/>')",
+    "expected": "SELECT xmlexists('count(/nosuchtag)' PASSING '<root/>')"
   },
   {
     "comment": "xml - Statement 164",
-    "query": "SELECT xpath_exists('//town[text() = ''Toronto'']','\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e'::xml)",
-    "expected": "SELECT xpath_exists('//town[text() = ''Toronto'']', CAST('\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e' AS XML))"
+    "query": "SELECT xpath_exists('//town[text() = ''Toronto'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml)",
+    "expected": "SELECT xpath_exists('//town[text() = ''Toronto'']', CAST('<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>' AS XML))"
   },
   {
     "comment": "xml - Statement 165",
-    "query": "SELECT xpath_exists('//town[text() = ''Cwmbran'']','\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e'::xml)",
-    "expected": "SELECT xpath_exists('//town[text() = ''Cwmbran'']', CAST('\u003ctowns\u003e\u003ctown\u003eBidford-on-Avon\u003c/town\u003e\u003ctown\u003eCwmbran\u003c/town\u003e\u003ctown\u003eBristol\u003c/town\u003e\u003c/towns\u003e' AS XML))"
+    "query": "SELECT xpath_exists('//town[text() = ''Cwmbran'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml)",
+    "expected": "SELECT xpath_exists('//town[text() = ''Cwmbran'']', CAST('<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>' AS XML))"
   },
   {
     "comment": "xml - Statement 166",
-    "query": "SELECT xpath_exists('count(/nosuchtag)', '\u003croot/\u003e'::xml)",
-    "expected": "SELECT xpath_exists('count(/nosuchtag)', CAST('\u003croot/\u003e' AS XML))"
+    "query": "SELECT xpath_exists('count(/nosuchtag)', '<root/>'::xml)",
+    "expected": "SELECT xpath_exists('count(/nosuchtag)', CAST('<root/>' AS XML))"
   },
   {
     "comment": "xml - Statement 167",
-    "query": "INSERT INTO xmltest VALUES (4, '\u003cmenu\u003e\u003cbeers\u003e\u003cname\u003eBudvar\u003c/name\u003e\u003ccost\u003efree\u003c/cost\u003e\u003cname\u003eCarling\u003c/name\u003e\u003ccost\u003elots\u003c/cost\u003e\u003c/beers\u003e\u003c/menu\u003e'::xml)",
-    "expected": "INSERT INTO xmltest VALUES (4, CAST('\u003cmenu\u003e\u003cbeers\u003e\u003cname\u003eBudvar\u003c/name\u003e\u003ccost\u003efree\u003c/cost\u003e\u003cname\u003eCarling\u003c/name\u003e\u003ccost\u003elots\u003c/cost\u003e\u003c/beers\u003e\u003c/menu\u003e' AS XML))"
+    "query": "INSERT INTO xmltest VALUES (4, '<menu><beers><name>Budvar</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml)",
+    "expected": "INSERT INTO xmltest VALUES (4, CAST('<menu><beers><name>Budvar</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>' AS XML))"
   },
   {
     "comment": "xml - Statement 168",
-    "query": "INSERT INTO xmltest VALUES (5, '\u003cmenu\u003e\u003cbeers\u003e\u003cname\u003eMolson\u003c/name\u003e\u003ccost\u003efree\u003c/cost\u003e\u003cname\u003eCarling\u003c/name\u003e\u003ccost\u003elots\u003c/cost\u003e\u003c/beers\u003e\u003c/menu\u003e'::xml)",
-    "expected": "INSERT INTO xmltest VALUES (5, CAST('\u003cmenu\u003e\u003cbeers\u003e\u003cname\u003eMolson\u003c/name\u003e\u003ccost\u003efree\u003c/cost\u003e\u003cname\u003eCarling\u003c/name\u003e\u003ccost\u003elots\u003c/cost\u003e\u003c/beers\u003e\u003c/menu\u003e' AS XML))"
+    "query": "INSERT INTO xmltest VALUES (5, '<menu><beers><name>Molson</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml)",
+    "expected": "INSERT INTO xmltest VALUES (5, CAST('<menu><beers><name>Molson</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>' AS XML))"
   },
   {
     "comment": "xml - Statement 169",
-    "query": "INSERT INTO xmltest VALUES (6, '\u003cmyns:menu xmlns:myns=\"http://myns.com\"\u003e\u003cmyns:beers\u003e\u003cmyns:name\u003eBudvar\u003c/myns:name\u003e\u003cmyns:cost\u003efree\u003c/myns:cost\u003e\u003cmyns:name\u003eCarling\u003c/myns:name\u003e\u003cmyns:cost\u003elots\u003c/myns:cost\u003e\u003c/myns:beers\u003e\u003c/myns:menu\u003e'::xml)",
-    "expected": "INSERT INTO xmltest VALUES (6, CAST('\u003cmyns:menu xmlns:myns=\"http://myns.com\"\u003e\u003cmyns:beers\u003e\u003cmyns:name\u003eBudvar\u003c/myns:name\u003e\u003cmyns:cost\u003efree\u003c/myns:cost\u003e\u003cmyns:name\u003eCarling\u003c/myns:name\u003e\u003cmyns:cost\u003elots\u003c/myns:cost\u003e\u003c/myns:beers\u003e\u003c/myns:menu\u003e' AS XML))"
+    "query": "INSERT INTO xmltest VALUES (6, '<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Budvar</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml)",
+    "expected": "INSERT INTO xmltest VALUES (6, CAST('<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Budvar</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>' AS XML))"
   },
   {
     "comment": "xml - Statement 170",
-    "query": "INSERT INTO xmltest VALUES (7, '\u003cmyns:menu xmlns:myns=\"http://myns.com\"\u003e\u003cmyns:beers\u003e\u003cmyns:name\u003eMolson\u003c/myns:name\u003e\u003cmyns:cost\u003efree\u003c/myns:cost\u003e\u003cmyns:name\u003eCarling\u003c/myns:name\u003e\u003cmyns:cost\u003elots\u003c/myns:cost\u003e\u003c/myns:beers\u003e\u003c/myns:menu\u003e'::xml)",
-    "expected": "INSERT INTO xmltest VALUES (7, CAST('\u003cmyns:menu xmlns:myns=\"http://myns.com\"\u003e\u003cmyns:beers\u003e\u003cmyns:name\u003eMolson\u003c/myns:name\u003e\u003cmyns:cost\u003efree\u003c/myns:cost\u003e\u003cmyns:name\u003eCarling\u003c/myns:name\u003e\u003cmyns:cost\u003elots\u003c/myns:cost\u003e\u003c/myns:beers\u003e\u003c/myns:menu\u003e' AS XML))"
+    "query": "INSERT INTO xmltest VALUES (7, '<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Molson</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml)",
+    "expected": "INSERT INTO xmltest VALUES (7, CAST('<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Molson</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>' AS XML))"
   },
   {
     "comment": "xml - Statement 171",
@@ -880,7 +880,7 @@
   },
   {
     "comment": "xml - Statement 184",
-    "query": "SELECT xml_is_well_formed_document('\u003cfoo\u003ebar\u003c/foo\u003e')"
+    "query": "SELECT xml_is_well_formed_document('<foo>bar</foo>')"
   },
   {
     "comment": "xml - Statement 185",
@@ -888,7 +888,7 @@
   },
   {
     "comment": "xml - Statement 186",
-    "query": "SELECT xml_is_well_formed_content('\u003cfoo\u003ebar\u003c/foo\u003e')"
+    "query": "SELECT xml_is_well_formed_content('<foo>bar</foo>')"
   },
   {
     "comment": "xml - Statement 187",
@@ -905,55 +905,55 @@
   },
   {
     "comment": "xml - Statement 190",
-    "query": "SELECT xml_is_well_formed('\u003c\u003e')"
+    "query": "SELECT xml_is_well_formed('<>')"
   },
   {
     "comment": "xml - Statement 191",
-    "query": "SELECT xml_is_well_formed('\u003cabc/\u003e')"
+    "query": "SELECT xml_is_well_formed('<abc/>')"
   },
   {
     "comment": "xml - Statement 192",
-    "query": "SELECT xml_is_well_formed('\u003cfoo\u003ebar\u003c/foo\u003e')"
+    "query": "SELECT xml_is_well_formed('<foo>bar</foo>')"
   },
   {
     "comment": "xml - Statement 193",
-    "query": "SELECT xml_is_well_formed('\u003cfoo\u003ebar\u003c/foo')"
+    "query": "SELECT xml_is_well_formed('<foo>bar</foo')"
   },
   {
     "comment": "xml - Statement 194",
-    "query": "SELECT xml_is_well_formed('\u003cfoo\u003e\u003cbar\u003ebaz\u003c/foo\u003e')"
+    "query": "SELECT xml_is_well_formed('<foo><bar>baz</foo>')"
   },
   {
     "comment": "xml - Statement 195",
-    "query": "SELECT xml_is_well_formed('\u003clocal:data xmlns:local=\"http://127.0.0.1\"\u003e\u003clocal:piece id=\"1\"\u003enumber one\u003c/local:piece\u003e\u003clocal:piece id=\"2\" /\u003e\u003c/local:data\u003e')"
+    "query": "SELECT xml_is_well_formed('<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>')"
   },
   {
     "comment": "xml - Statement 196",
-    "query": "SELECT xml_is_well_formed('\u003cpg:foo xmlns:pg=\"http://postgresql.org/stuff\"\u003ebar\u003c/my:foo\u003e')"
+    "query": "SELECT xml_is_well_formed('<pg:foo xmlns:pg=\"http://postgresql.org/stuff\">bar</my:foo>')"
   },
   {
     "comment": "xml - Statement 197",
-    "query": "SELECT xml_is_well_formed('\u003cpg:foo xmlns:pg=\"http://postgresql.org/stuff\"\u003ebar\u003c/pg:foo\u003e')"
+    "query": "SELECT xml_is_well_formed('<pg:foo xmlns:pg=\"http://postgresql.org/stuff\">bar</pg:foo>')"
   },
   {
     "comment": "xml - Statement 198",
-    "query": "SELECT xml_is_well_formed('\u003cinvalidentity\u003e\u0026\u003c/abc\u003e')"
+    "query": "SELECT xml_is_well_formed('<invalidentity>&</abc>')"
   },
   {
     "comment": "xml - Statement 199",
-    "query": "SELECT xml_is_well_formed('\u003cundefinedentity\u003e\u0026idontexist;\u003c/abc\u003e')"
+    "query": "SELECT xml_is_well_formed('<undefinedentity>&idontexist;</abc>')"
   },
   {
     "comment": "xml - Statement 200",
-    "query": "SELECT xml_is_well_formed('\u003cinvalidns xmlns=''\u0026lt;''/\u003e')"
+    "query": "SELECT xml_is_well_formed('<invalidns xmlns=''&lt;''/>')"
   },
   {
     "comment": "xml - Statement 201",
-    "query": "SELECT xml_is_well_formed('\u003crelativens xmlns=''relative''/\u003e')"
+    "query": "SELECT xml_is_well_formed('<relativens xmlns=''relative''/>')"
   },
   {
     "comment": "xml - Statement 202",
-    "query": "SELECT xml_is_well_formed('\u003ctwoerrors\u003e\u0026idontexist;\u003c/unbalanced\u003e')"
+    "query": "SELECT xml_is_well_formed('<twoerrors>&idontexist;</unbalanced>')"
   },
   {
     "comment": "xml - Statement 203",
@@ -962,19 +962,19 @@
   },
   {
     "comment": "xml - Statement 204",
-    "query": "SELECT xpath('/*', '\u003crelativens xmlns=''relative''/\u003e')"
+    "query": "SELECT xpath('/*', '<relativens xmlns=''relative''/>')"
   },
   {
     "comment": "xml - Statement 205",
-    "query": "SELECT XMLPARSE(DOCUMENT '\u003c!DOCTYPE foo [\u003c!ENTITY c SYSTEM \"/etc/passwd\"\u003e]\u003e\u003cfoo\u003e\u0026c;\u003c/foo\u003e')"
+    "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE foo [<!ENTITY c SYSTEM \"/etc/passwd\">]><foo>&c;</foo>')"
   },
   {
     "comment": "xml - Statement 206",
-    "query": "SELECT XMLPARSE(DOCUMENT '\u003c!DOCTYPE foo [\u003c!ENTITY c SYSTEM \"/etc/no.such.file\"\u003e]\u003e\u003cfoo\u003e\u0026c;\u003c/foo\u003e')"
+    "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE foo [<!ENTITY c SYSTEM \"/etc/no.such.file\">]><foo>&c;</foo>')"
   },
   {
     "comment": "xml - Statement 207",
-    "query": "SELECT XMLPARSE(DOCUMENT '\u003c!DOCTYPE chapter PUBLIC \"-//OASIS//DTD DocBook XML V4.1.2//EN\" \"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd\"\u003e\u003cchapter\u003e\u0026nbsp;\u003c/chapter\u003e')"
+    "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE chapter PUBLIC \"-//OASIS//DTD DocBook XML V4.1.2//EN\" \"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd\"><chapter>&nbsp;</chapter>')"
   },
   {
     "comment": "xml - Statement 208",
@@ -983,8 +983,8 @@
   },
   {
     "comment": "xml - Statement 209",
-    "query": "INSERT INTO xmldata VALUES('\u003cROWS\u003e \u003cROW id=\"1\"\u003e \u003cCOUNTRY_ID\u003eAU\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eAustralia\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"2\"\u003e \u003cCOUNTRY_ID\u003eCN\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eChina\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"3\"\u003e \u003cCOUNTRY_ID\u003eHK\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eHongKong\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"4\"\u003e \u003cCOUNTRY_ID\u003eIN\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eIndia\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"5\"\u003e \u003cCOUNTRY_ID\u003eJP\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eJapan\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e\u003cPREMIER_NAME\u003eSinzo Abe\u003c/PREMIER_NAME\u003e \u003c/ROW\u003e \u003cROW id=\"6\"\u003e \u003cCOUNTRY_ID\u003eSG\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eSingapore\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e\u003cSIZE unit=\"km\"\u003e791\u003c/SIZE\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')",
-    "expected": "INSERT INTO xmldata VALUES ('\u003cROWS\u003e \u003cROW id=\"1\"\u003e \u003cCOUNTRY_ID\u003eAU\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eAustralia\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"2\"\u003e \u003cCOUNTRY_ID\u003eCN\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eChina\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"3\"\u003e \u003cCOUNTRY_ID\u003eHK\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eHongKong\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"4\"\u003e \u003cCOUNTRY_ID\u003eIN\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eIndia\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"5\"\u003e \u003cCOUNTRY_ID\u003eJP\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eJapan\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e\u003cPREMIER_NAME\u003eSinzo Abe\u003c/PREMIER_NAME\u003e \u003c/ROW\u003e \u003cROW id=\"6\"\u003e \u003cCOUNTRY_ID\u003eSG\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eSingapore\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e3\u003c/REGION_ID\u003e\u003cSIZE unit=\"km\"\u003e791\u003c/SIZE\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')"
+    "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"1\"> <COUNTRY_ID>AU</COUNTRY_ID> <COUNTRY_NAME>Australia</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"2\"> <COUNTRY_ID>CN</COUNTRY_ID> <COUNTRY_NAME>China</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"3\"> <COUNTRY_ID>HK</COUNTRY_ID> <COUNTRY_NAME>HongKong</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"4\"> <COUNTRY_ID>IN</COUNTRY_ID> <COUNTRY_NAME>India</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"5\"> <COUNTRY_ID>JP</COUNTRY_ID> <COUNTRY_NAME>Japan</COUNTRY_NAME> <REGION_ID>3</REGION_ID><PREMIER_NAME>Sinzo Abe</PREMIER_NAME> </ROW> <ROW id=\"6\"> <COUNTRY_ID>SG</COUNTRY_ID> <COUNTRY_NAME>Singapore</COUNTRY_NAME> <REGION_ID>3</REGION_ID><SIZE unit=\"km\">791</SIZE> </ROW> </ROWS>')",
+    "expected": "INSERT INTO xmldata VALUES ('<ROWS> <ROW id=\"1\"> <COUNTRY_ID>AU</COUNTRY_ID> <COUNTRY_NAME>Australia</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"2\"> <COUNTRY_ID>CN</COUNTRY_ID> <COUNTRY_NAME>China</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"3\"> <COUNTRY_ID>HK</COUNTRY_ID> <COUNTRY_NAME>HongKong</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"4\"> <COUNTRY_ID>IN</COUNTRY_ID> <COUNTRY_NAME>India</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"5\"> <COUNTRY_ID>JP</COUNTRY_ID> <COUNTRY_NAME>Japan</COUNTRY_NAME> <REGION_ID>3</REGION_ID><PREMIER_NAME>Sinzo Abe</PREMIER_NAME> </ROW> <ROW id=\"6\"> <COUNTRY_ID>SG</COUNTRY_ID> <COUNTRY_NAME>Singapore</COUNTRY_NAME> <REGION_ID>3</REGION_ID><SIZE unit=\"km\">791</SIZE> </ROW> </ROWS>')"
   },
   {
     "comment": "xml - Statement 210",
@@ -1012,13 +1012,13 @@
   },
   {
     "comment": "xml - Statement 215",
-    "query": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a int PATH 'zz:a')",
-    "expected": "SELECT * FROM XMLTABLE('/zz:rows/zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'zz:a')"
+    "query": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a int PATH 'zz:a')",
+    "expected": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a INT PATH 'zz:a')"
   },
   {
     "comment": "xml - Statement 216",
-    "query": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a int PATH 'Zz:a')",
-    "expected": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE('/Zz:rows/Zz:row' PASSING '\u003crows xmlns=\"http://x.y\"\u003e\u003crow\u003e\u003ca\u003e10\u003c/a\u003e\u003c/row\u003e\u003c/rows\u003e' COLUMNS a INT PATH 'Zz:a')"
+    "query": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a int PATH 'Zz:a')",
+    "expected": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a INT PATH 'Zz:a')"
   },
   {
     "comment": "xml - Statement 217",
@@ -1026,8 +1026,8 @@
   },
   {
     "comment": "xml - Statement 218",
-    "query": "SELECT * FROM XMLTABLE('.' PASSING '\u003cfoo/\u003e' COLUMNS a text PATH 'foo/namespace::node()')",
-    "expected": "SELECT * FROM XMLTABLE('.' PASSING '\u003cfoo/\u003e' COLUMNS a TEXT PATH 'foo/namespace::node()')"
+    "query": "SELECT * FROM XMLTABLE('.' PASSING '<foo/>' COLUMNS a text PATH 'foo/namespace::node()')",
+    "expected": "SELECT * FROM XMLTABLE('.' PASSING '<foo/>' COLUMNS a TEXT PATH 'foo/namespace::node()')"
   },
   {
     "comment": "xml - Statement 219",
@@ -1075,28 +1075,28 @@
   },
   {
     "comment": "xml - Statement 228",
-    "query": "SELECT * FROM xmltable('/root' passing '\u003croot\u003e\u003celement\u003ea1a\u003c!-- aaaa --\u003ea2a\u003c?aaaaa?\u003e \u003c!--z--\u003e  bbbb\u003cx\u003exxx\u003c/x\u003ecccc\u003c/element\u003e\u003c/root\u003e' COLUMNS element text)",
-    "expected": "SELECT * FROM XMLTABLE('/root' PASSING '\u003croot\u003e\u003celement\u003ea1a\u003c!-- aaaa --\u003ea2a\u003c?aaaaa?\u003e \u003c!--z--\u003e  bbbb\u003cx\u003exxx\u003c/x\u003ecccc\u003c/element\u003e\u003c/root\u003e' COLUMNS element TEXT)"
+    "query": "SELECT * FROM xmltable('/root' passing '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element text)",
+    "expected": "SELECT * FROM XMLTABLE('/root' PASSING '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element TEXT)"
   },
   {
     "comment": "xml - Statement 229",
-    "query": "SELECT * FROM xmltable('/root' passing '\u003croot\u003e\u003celement\u003ea1a\u003c!-- aaaa --\u003ea2a\u003c?aaaaa?\u003e \u003c!--z--\u003e  bbbb\u003cx\u003exxx\u003c/x\u003ecccc\u003c/element\u003e\u003c/root\u003e' COLUMNS element text PATH 'element/text()')",
-    "expected": "SELECT * FROM XMLTABLE('/root' PASSING '\u003croot\u003e\u003celement\u003ea1a\u003c!-- aaaa --\u003ea2a\u003c?aaaaa?\u003e \u003c!--z--\u003e  bbbb\u003cx\u003exxx\u003c/x\u003ecccc\u003c/element\u003e\u003c/root\u003e' COLUMNS element TEXT PATH 'element/text()')"
+    "query": "SELECT * FROM xmltable('/root' passing '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element text PATH 'element/text()')",
+    "expected": "SELECT * FROM XMLTABLE('/root' PASSING '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element TEXT PATH 'element/text()')"
   },
   {
     "comment": "xml - Statement 230",
-    "query": "select * from xmltable('d/r' passing '\u003cd\u003e\u003cr\u003e\u003cc\u003e\u003c![CDATA[\u003chello\u003e \u0026\"\u003c\u003e!\u003ca\u003efoo\u003c/a\u003e]]\u003e\u003c/c\u003e\u003c/r\u003e\u003cr\u003e\u003cc\u003e2\u003c/c\u003e\u003c/r\u003e\u003c/d\u003e' columns c text)",
-    "expected": "SELECT * FROM XMLTABLE('d/r' PASSING '\u003cd\u003e\u003cr\u003e\u003cc\u003e\u003c![CDATA[\u003chello\u003e \u0026\"\u003c\u003e!\u003ca\u003efoo\u003c/a\u003e]]\u003e\u003c/c\u003e\u003c/r\u003e\u003cr\u003e\u003cc\u003e2\u003c/c\u003e\u003c/r\u003e\u003c/d\u003e' COLUMNS c TEXT)"
+    "query": "select * from xmltable('d/r' passing '<d><r><c><![CDATA[<hello> &\"<>!<a>foo</a>]]></c></r><r><c>2</c></r></d>' columns c text)",
+    "expected": "SELECT * FROM XMLTABLE('d/r' PASSING '<d><r><c><![CDATA[<hello> &\"<>!<a>foo</a>]]></c></r><r><c>2</c></r></d>' COLUMNS c TEXT)"
   },
   {
     "comment": "xml - Statement 231",
-    "query": "SELECT * FROM xmltable('/x/a' PASSING '\u003cx\u003e\u003ca\u003e\u003cent\u003e\u0026apos;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026quot;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026amp;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026lt;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026gt;\u003c/ent\u003e\u003c/a\u003e\u003c/x\u003e' COLUMNS ent text)",
-    "expected": "SELECT * FROM XMLTABLE('/x/a' PASSING '\u003cx\u003e\u003ca\u003e\u003cent\u003e\u0026apos;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026quot;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026amp;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026lt;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026gt;\u003c/ent\u003e\u003c/a\u003e\u003c/x\u003e' COLUMNS ent TEXT)"
+    "query": "SELECT * FROM xmltable('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent text)",
+    "expected": "SELECT * FROM XMLTABLE('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent TEXT)"
   },
   {
     "comment": "xml - Statement 232",
-    "query": "SELECT * FROM xmltable('/x/a' PASSING '\u003cx\u003e\u003ca\u003e\u003cent\u003e\u0026apos;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026quot;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026amp;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026lt;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026gt;\u003c/ent\u003e\u003c/a\u003e\u003c/x\u003e' COLUMNS ent xml)",
-    "expected": "SELECT * FROM XMLTABLE('/x/a' PASSING '\u003cx\u003e\u003ca\u003e\u003cent\u003e\u0026apos;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026quot;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026amp;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026lt;\u003c/ent\u003e\u003c/a\u003e\u003ca\u003e\u003cent\u003e\u0026gt;\u003c/ent\u003e\u003c/a\u003e\u003c/x\u003e' COLUMNS ent XML)"
+    "query": "SELECT * FROM xmltable('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent xml)",
+    "expected": "SELECT * FROM XMLTABLE('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent XML)"
   },
   {
     "comment": "xml - Statement 233",
@@ -1120,13 +1120,13 @@
   },
   {
     "comment": "xml - Statement 237",
-    "query": "INSERT INTO xmldata VALUES('\u003cROWS\u003e \u003cROW id=\"10\"\u003e \u003cCOUNTRY_ID\u003eCZ\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eCzech Republic\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e\u003cPREMIER_NAME\u003eMilos Zeman\u003c/PREMIER_NAME\u003e \u003c/ROW\u003e \u003cROW id=\"11\"\u003e \u003cCOUNTRY_ID\u003eDE\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eGermany\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"12\"\u003e \u003cCOUNTRY_ID\u003eFR\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eFrance\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')",
-    "expected": "INSERT INTO xmldata VALUES ('\u003cROWS\u003e \u003cROW id=\"10\"\u003e \u003cCOUNTRY_ID\u003eCZ\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eCzech Republic\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e\u003cPREMIER_NAME\u003eMilos Zeman\u003c/PREMIER_NAME\u003e \u003c/ROW\u003e \u003cROW id=\"11\"\u003e \u003cCOUNTRY_ID\u003eDE\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eGermany\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"12\"\u003e \u003cCOUNTRY_ID\u003eFR\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eFrance\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e2\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')"
+    "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"10\"> <COUNTRY_ID>CZ</COUNTRY_ID> <COUNTRY_NAME>Czech Republic</COUNTRY_NAME> <REGION_ID>2</REGION_ID><PREMIER_NAME>Milos Zeman</PREMIER_NAME> </ROW> <ROW id=\"11\"> <COUNTRY_ID>DE</COUNTRY_ID> <COUNTRY_NAME>Germany</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> <ROW id=\"12\"> <COUNTRY_ID>FR</COUNTRY_ID> <COUNTRY_NAME>France</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> </ROWS>')",
+    "expected": "INSERT INTO xmldata VALUES ('<ROWS> <ROW id=\"10\"> <COUNTRY_ID>CZ</COUNTRY_ID> <COUNTRY_NAME>Czech Republic</COUNTRY_NAME> <REGION_ID>2</REGION_ID><PREMIER_NAME>Milos Zeman</PREMIER_NAME> </ROW> <ROW id=\"11\"> <COUNTRY_ID>DE</COUNTRY_ID> <COUNTRY_NAME>Germany</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> <ROW id=\"12\"> <COUNTRY_ID>FR</COUNTRY_ID> <COUNTRY_NAME>France</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> </ROWS>')"
   },
   {
     "comment": "xml - Statement 238",
-    "query": "INSERT INTO xmldata VALUES('\u003cROWS\u003e \u003cROW id=\"20\"\u003e \u003cCOUNTRY_ID\u003eEG\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eEgypt\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e1\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"21\"\u003e \u003cCOUNTRY_ID\u003eSD\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eSudan\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e1\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')",
-    "expected": "INSERT INTO xmldata VALUES ('\u003cROWS\u003e \u003cROW id=\"20\"\u003e \u003cCOUNTRY_ID\u003eEG\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eEgypt\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e1\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003cROW id=\"21\"\u003e \u003cCOUNTRY_ID\u003eSD\u003c/COUNTRY_ID\u003e \u003cCOUNTRY_NAME\u003eSudan\u003c/COUNTRY_NAME\u003e \u003cREGION_ID\u003e1\u003c/REGION_ID\u003e \u003c/ROW\u003e \u003c/ROWS\u003e')"
+    "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"20\"> <COUNTRY_ID>EG</COUNTRY_ID> <COUNTRY_NAME>Egypt</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> <ROW id=\"21\"> <COUNTRY_ID>SD</COUNTRY_ID> <COUNTRY_NAME>Sudan</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> </ROWS>')",
+    "expected": "INSERT INTO xmldata VALUES ('<ROWS> <ROW id=\"20\"> <COUNTRY_ID>EG</COUNTRY_ID> <COUNTRY_NAME>Egypt</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> <ROW id=\"21\"> <COUNTRY_ID>SD</COUNTRY_ID> <COUNTRY_NAME>Sudan</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> </ROWS>')"
   },
   {
     "comment": "xml - Statement 239",
@@ -1150,13 +1150,13 @@
   },
   {
     "comment": "xml - Statement 243",
-    "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes \u003c\u003e '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)) as proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/proc' PASSING proc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
-    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes \u003c\u003e '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)) AS proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/proc' PASSING proc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
+    "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes <> '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)) as proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/proc' PASSING proc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
+    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes <> '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)) AS proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/proc' PASSING proc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
     "comment": "xml - Statement 244",
-    "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes \u003c\u003e '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc), y AS (SELECT xmlelement(name data, xmlagg(xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)))) as doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
-    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes \u003c\u003e '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc), y AS (SELECT XMLELEMENT(NAME data, xmlagg(XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)))) AS doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
+    "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes <> '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc), y AS (SELECT xmlelement(name data, xmlagg(xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)))) as doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x",
+    "expected": "WITH x AS (SELECT proname, proowner, CAST(procost AS NUMERIC), pronargs, array_to_string(proargnames, ',') AS proargnames, CASE WHEN proargtypes <> '' THEN array_to_string(CAST(proargtypes AS oid[]), ',') END AS proargtypes FROM pg_proc), y AS (SELECT XMLELEMENT(NAME data, xmlagg(XMLELEMENT(NAME proc, XMLFOREST(proname, proowner, procost, pronargs, proargnames, proargtypes)))) AS doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL XMLTABLE('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost FLOAT8, pronargs INT, proargnames TEXT, proargtypes TEXT)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
     "comment": "xml - Statement 245",
@@ -1165,23 +1165,23 @@
   },
   {
     "comment": "xml - Statement 246",
-    "query": "INSERT INTO xmltest2 VALUES('\u003cd\u003e\u003cr\u003e\u003cac\u003e1\u003c/ac\u003e\u003c/r\u003e\u003c/d\u003e', 'A')",
-    "expected": "INSERT INTO xmltest2 VALUES ('\u003cd\u003e\u003cr\u003e\u003cac\u003e1\u003c/ac\u003e\u003c/r\u003e\u003c/d\u003e', 'A')"
+    "query": "INSERT INTO xmltest2 VALUES('<d><r><ac>1</ac></r></d>', 'A')",
+    "expected": "INSERT INTO xmltest2 VALUES ('<d><r><ac>1</ac></r></d>', 'A')"
   },
   {
     "comment": "xml - Statement 247",
-    "query": "INSERT INTO xmltest2 VALUES('\u003cd\u003e\u003cr\u003e\u003cbc\u003e2\u003c/bc\u003e\u003c/r\u003e\u003c/d\u003e', 'B')",
-    "expected": "INSERT INTO xmltest2 VALUES ('\u003cd\u003e\u003cr\u003e\u003cbc\u003e2\u003c/bc\u003e\u003c/r\u003e\u003c/d\u003e', 'B')"
+    "query": "INSERT INTO xmltest2 VALUES('<d><r><bc>2</bc></r></d>', 'B')",
+    "expected": "INSERT INTO xmltest2 VALUES ('<d><r><bc>2</bc></r></d>', 'B')"
   },
   {
     "comment": "xml - Statement 248",
-    "query": "INSERT INTO xmltest2 VALUES('\u003cd\u003e\u003cr\u003e\u003ccc\u003e3\u003c/cc\u003e\u003c/r\u003e\u003c/d\u003e', 'C')",
-    "expected": "INSERT INTO xmltest2 VALUES ('\u003cd\u003e\u003cr\u003e\u003ccc\u003e3\u003c/cc\u003e\u003c/r\u003e\u003c/d\u003e', 'C')"
+    "query": "INSERT INTO xmltest2 VALUES('<d><r><cc>3</cc></r></d>', 'C')",
+    "expected": "INSERT INTO xmltest2 VALUES ('<d><r><cc>3</cc></r></d>', 'C')"
   },
   {
     "comment": "xml - Statement 249",
-    "query": "INSERT INTO xmltest2 VALUES('\u003cd\u003e\u003cr\u003e\u003cdc\u003e2\u003c/dc\u003e\u003c/r\u003e\u003c/d\u003e', 'D')",
-    "expected": "INSERT INTO xmltest2 VALUES ('\u003cd\u003e\u003cr\u003e\u003cdc\u003e2\u003c/dc\u003e\u003c/r\u003e\u003c/d\u003e', 'D')"
+    "query": "INSERT INTO xmltest2 VALUES('<d><r><dc>2</dc></r></d>', 'D')",
+    "expected": "INSERT INTO xmltest2 VALUES ('<d><r><dc>2</dc></r></d>', 'D')"
   },
   {
     "comment": "xml - Statement 250",
@@ -1200,8 +1200,8 @@
   },
   {
     "comment": "xml - Statement 253",
-    "query": "SELECT * FROM XMLTABLE('*' PASSING '\u003ca\u003ea\u003c/a\u003e' COLUMNS a xml PATH '.', b text PATH '.', c text PATH '\"hi\"', d boolean PATH '. = \"a\"', e integer PATH 'string-length(.)')",
-    "expected": "SELECT * FROM XMLTABLE('*' PASSING '\u003ca\u003ea\u003c/a\u003e' COLUMNS a XML PATH '.', b TEXT PATH '.', c TEXT PATH '\"hi\"', d BOOLEAN PATH '. = \"a\"', e INT PATH 'string-length(.)')"
+    "query": "SELECT * FROM XMLTABLE('*' PASSING '<a>a</a>' COLUMNS a xml PATH '.', b text PATH '.', c text PATH '\"hi\"', d boolean PATH '. = \"a\"', e integer PATH 'string-length(.)')",
+    "expected": "SELECT * FROM XMLTABLE('*' PASSING '<a>a</a>' COLUMNS a XML PATH '.', b TEXT PATH '.', c TEXT PATH '\"hi\"', d BOOLEAN PATH '. = \"a\"', e INT PATH 'string-length(.)')"
   },
   {
     "comment": "xml - Statement 254",
@@ -1221,11 +1221,11 @@
   },
   {
     "comment": "xml - Statement 258",
-    "query": "SELECT xmltext('foo \u0026 \u003c\"bar\"\u003e')"
+    "query": "SELECT xmltext('foo & <\"bar\">')"
   },
   {
     "comment": "xml - Statement 259",
-    "query": "SELECT xmltext('x'|| '\u003cP\u003e73\u003c/P\u003e'::xml || .42 || true || 'j'::char)",
-    "expected": "SELECT xmltext('x' || CAST('\u003cP\u003e73\u003c/P\u003e' AS XML) || .42 || TRUE || CAST('j' AS CHAR(1)))"
+    "query": "SELECT xmltext('x'|| '<P>73</P>'::xml || .42 || true || 'j'::char)",
+    "expected": "SELECT xmltext('x' || CAST('<P>73</P>' AS XML) || .42 || TRUE || CAST('j' AS CHAR(1)))"
   }
 ]

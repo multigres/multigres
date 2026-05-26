@@ -162,28 +162,28 @@
   },
   {
     "comment": "boolean - Statement 34",
-    "query": "SELECT bool 't' \u003c\u003e bool 'f' AS true",
-    "expected": "SELECT CAST('t' AS BOOLEAN) \u003c\u003e CAST('f' AS BOOLEAN) AS \"true\""
+    "query": "SELECT bool 't' <> bool 'f' AS true",
+    "expected": "SELECT CAST('t' AS BOOLEAN) <> CAST('f' AS BOOLEAN) AS \"true\""
   },
   {
     "comment": "boolean - Statement 35",
-    "query": "SELECT bool 't' \u003e bool 'f' AS true",
-    "expected": "SELECT CAST('t' AS BOOLEAN) \u003e CAST('f' AS BOOLEAN) AS \"true\""
+    "query": "SELECT bool 't' > bool 'f' AS true",
+    "expected": "SELECT CAST('t' AS BOOLEAN) > CAST('f' AS BOOLEAN) AS \"true\""
   },
   {
     "comment": "boolean - Statement 36",
-    "query": "SELECT bool 't' \u003e= bool 'f' AS true",
-    "expected": "SELECT CAST('t' AS BOOLEAN) \u003e= CAST('f' AS BOOLEAN) AS \"true\""
+    "query": "SELECT bool 't' >= bool 'f' AS true",
+    "expected": "SELECT CAST('t' AS BOOLEAN) >= CAST('f' AS BOOLEAN) AS \"true\""
   },
   {
     "comment": "boolean - Statement 37",
-    "query": "SELECT bool 'f' \u003c bool 't' AS true",
-    "expected": "SELECT CAST('f' AS BOOLEAN) \u003c CAST('t' AS BOOLEAN) AS \"true\""
+    "query": "SELECT bool 'f' < bool 't' AS true",
+    "expected": "SELECT CAST('f' AS BOOLEAN) < CAST('t' AS BOOLEAN) AS \"true\""
   },
   {
     "comment": "boolean - Statement 38",
-    "query": "SELECT bool 'f' \u003c= bool 't' AS true",
-    "expected": "SELECT CAST('f' AS BOOLEAN) \u003c= CAST('t' AS BOOLEAN) AS \"true\""
+    "query": "SELECT bool 'f' <= bool 't' AS true",
+    "expected": "SELECT CAST('f' AS BOOLEAN) <= CAST('t' AS BOOLEAN) AS \"true\""
   },
   {
     "comment": "boolean - Statement 39",
@@ -237,8 +237,8 @@
   },
   {
     "comment": "boolean - Statement 49",
-    "query": "SELECT BOOLTBL1.* FROM BOOLTBL1 WHERE f1 \u003c\u003e bool 'false'",
-    "expected": "SELECT booltbl1.* FROM booltbl1 WHERE f1 \u003c\u003e CAST('false' AS BOOLEAN)"
+    "query": "SELECT BOOLTBL1.* FROM BOOLTBL1 WHERE f1 <> bool 'false'",
+    "expected": "SELECT booltbl1.* FROM booltbl1 WHERE f1 <> CAST('false' AS BOOLEAN)"
   },
   {
     "comment": "boolean - Statement 50",
@@ -282,8 +282,8 @@
   },
   {
     "comment": "boolean - Statement 58",
-    "query": "SELECT BOOLTBL1.*, BOOLTBL2.* FROM BOOLTBL1, BOOLTBL2 WHERE BOOLTBL2.f1 \u003c\u003e BOOLTBL1.f1",
-    "expected": "SELECT booltbl1.*, booltbl2.* FROM booltbl1, booltbl2 WHERE booltbl2.f1 \u003c\u003e booltbl1.f1"
+    "query": "SELECT BOOLTBL1.*, BOOLTBL2.* FROM BOOLTBL1, BOOLTBL2 WHERE BOOLTBL2.f1 <> BOOLTBL1.f1",
+    "expected": "SELECT booltbl1.*, booltbl2.* FROM booltbl1, booltbl2 WHERE booltbl2.f1 <> booltbl1.f1"
   },
   {
     "comment": "boolean - Statement 59",

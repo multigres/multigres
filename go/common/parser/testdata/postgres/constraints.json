@@ -85,8 +85,8 @@
   },
   {
     "comment": "constraints - Statement 18",
-    "query": "CREATE TABLE CHECK_TBL (x int, CONSTRAINT CHECK_CON CHECK (x \u003e 3))",
-    "expected": "CREATE TABLE check_tbl (x INT, CONSTRAINT check_con CHECK (x \u003e 3))"
+    "query": "CREATE TABLE CHECK_TBL (x int, CONSTRAINT CHECK_CON CHECK (x > 3))",
+    "expected": "CREATE TABLE check_tbl (x INT, CONSTRAINT check_con CHECK (x > 3))"
   },
   {
     "comment": "constraints - Statement 19",
@@ -130,8 +130,8 @@
   },
   {
     "comment": "constraints - Statement 27",
-    "query": "CREATE TABLE CHECK2_TBL (x int, y text, z int, CONSTRAINT SEQUENCE_CON CHECK (x \u003e 3 and y \u003c\u003e 'check failed' and z \u003c 8))",
-    "expected": "CREATE TABLE check2_tbl (x INT, y TEXT, z INT, CONSTRAINT sequence_con CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND z \u003c 8))"
+    "query": "CREATE TABLE CHECK2_TBL (x int, y text, z int, CONSTRAINT SEQUENCE_CON CHECK (x > 3 and y <> 'check failed' and z < 8))",
+    "expected": "CREATE TABLE check2_tbl (x INT, y TEXT, z INT, CONSTRAINT sequence_con CHECK (x > 3 AND y <> 'check failed' AND z < 8))"
   },
   {
     "comment": "constraints - Statement 28",
@@ -175,8 +175,8 @@
   },
   {
     "comment": "constraints - Statement 36",
-    "query": "CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT INSERT_TBL_CON CHECK (x \u003e= 3 AND y \u003c\u003e 'check failed' AND x \u003c 8), CHECK (x + z = 0))",
-    "expected": "CREATE TABLE insert_tbl (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT insert_tbl_con CHECK (x \u003e= 3 AND y \u003c\u003e 'check failed' AND x \u003c 8), CHECK (x + z = 0))"
+    "query": "CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT INSERT_TBL_CON CHECK (x >= 3 AND y <> 'check failed' AND x < 8), CHECK (x + z = 0))",
+    "expected": "CREATE TABLE insert_tbl (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT insert_tbl_con CHECK (x >= 3 AND y <> 'check failed' AND x < 8), CHECK (x + z = 0))"
   },
   {
     "comment": "constraints - Statement 37",
@@ -282,8 +282,8 @@
   },
   {
     "comment": "constraints - Statement 58",
-    "query": "CREATE TABLE INSERT_CHILD (cx INT default 42, cy INT CHECK (cy \u003e x)) INHERITS (INSERT_TBL)",
-    "expected": "CREATE TABLE insert_child (cx INT DEFAULT 42, cy INT CHECK (cy \u003e x)) INHERITS (insert_tbl)"
+    "query": "CREATE TABLE INSERT_CHILD (cx INT default 42, cy INT CHECK (cy > x)) INHERITS (INSERT_TBL)",
+    "expected": "CREATE TABLE insert_child (cx INT DEFAULT 42, cy INT CHECK (cy > x)) INHERITS (insert_tbl)"
   },
   {
     "comment": "constraints - Statement 59",
@@ -317,8 +317,8 @@
   },
   {
     "comment": "constraints - Statement 65",
-    "query": "CREATE TABLE ATACC1 (TEST INT CHECK (TEST \u003e 0) NO INHERIT)",
-    "expected": "CREATE TABLE atacc1 (test INT CHECK (test \u003e 0))"
+    "query": "CREATE TABLE ATACC1 (TEST INT CHECK (TEST > 0) NO INHERIT)",
+    "expected": "CREATE TABLE atacc1 (test INT CHECK (test > 0))"
   },
   {
     "comment": "constraints - Statement 66",
@@ -342,8 +342,8 @@
   },
   {
     "comment": "constraints - Statement 70",
-    "query": "CREATE TABLE ATACC1 (TEST INT, TEST2 INT CHECK (TEST \u003e 0), CHECK (TEST2 \u003e 10) NO INHERIT)",
-    "expected": "CREATE TABLE atacc1 (test INT, test2 INT CHECK (test \u003e 0), CHECK (test2 \u003e 10) NO INHERIT)"
+    "query": "CREATE TABLE ATACC1 (TEST INT, TEST2 INT CHECK (TEST > 0), CHECK (TEST2 > 10) NO INHERIT)",
+    "expected": "CREATE TABLE atacc1 (test INT, test2 INT CHECK (test > 0), CHECK (test2 > 10) NO INHERIT)"
   },
   {
     "comment": "constraints - Statement 71",
@@ -436,8 +436,8 @@
   },
   {
     "comment": "constraints - Statement 89",
-    "query": "CREATE TABLE COPY_TBL (x INT, y TEXT, z INT, CONSTRAINT COPY_CON CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND x \u003c 7 ))",
-    "expected": "CREATE TABLE copy_tbl (x INT, y TEXT, z INT, CONSTRAINT copy_con CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND x \u003c 7))"
+    "query": "CREATE TABLE COPY_TBL (x INT, y TEXT, z INT, CONSTRAINT COPY_CON CHECK (x > 3 AND y <> 'check failed' AND x < 7 ))",
+    "expected": "CREATE TABLE copy_tbl (x INT, y TEXT, z INT, CONSTRAINT copy_con CHECK (x > 3 AND y <> 'check failed' AND x < 7))"
   },
   {
     "comment": "constraints - Statement 90",
@@ -562,7 +562,7 @@
   {
     "comment": "constraints - Statement 114",
     "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text)",
-    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE NULLS NOT DISTINCT, t TEXT)"
   },
   {
     "comment": "constraints - Statement 115",
@@ -577,7 +577,7 @@
   {
     "comment": "constraints - Statement 117",
     "query": "CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text)",
-    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE DEFERRABLE, t TEXT)"
   },
   {
     "comment": "constraints - Statement 118",
@@ -638,8 +638,7 @@
   },
   {
     "comment": "constraints - Statement 132",
-    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED",
-    "expected": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i)"
+    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED"
   },
   {
     "comment": "constraints - Statement 133",
@@ -672,7 +671,7 @@
   {
     "comment": "constraints - Statement 140",
     "query": "CREATE TABLE parted_uniq_tbl (i int UNIQUE DEFERRABLE) partition by range (i)",
-    "expected": "CREATE TABLE parted_uniq_tbl (i INT UNIQUE) PARTITION BY range (i)"
+    "expected": "CREATE TABLE parted_uniq_tbl (i INT UNIQUE DEFERRABLE) PARTITION BY range (i)"
   },
   {
     "comment": "constraints - Statement 141",
@@ -841,53 +840,53 @@
   },
   {
     "comment": "constraints - Statement 178",
-    "query": "CREATE TABLE circles ( c1 CIRCLE, c2 TEXT, EXCLUDE USING gist (c1 WITH \u0026\u0026, (c2::circle) WITH \u0026\u0026) WHERE (circle_center(c1) \u003c\u003e '(0,0)') )",
-    "expected": "CREATE TABLE circles (c1 circle, c2 TEXT, EXCLUDE USING gist (c1 WITH \u0026\u0026, (CAST(c2 AS circle)) WITH \u0026\u0026) WHERE (circle_center(c1) \u003c\u003e '(0,0)'))"
+    "query": "CREATE TABLE circles ( c1 CIRCLE, c2 TEXT, EXCLUDE USING gist (c1 WITH &&, (c2::circle) WITH &&) WHERE (circle_center(c1) <> '(0,0)') )",
+    "expected": "CREATE TABLE circles (c1 circle, c2 TEXT, EXCLUDE USING gist (c1 WITH &&, (CAST(c2 AS circle)) WITH &&) WHERE (circle_center(c1) <> '(0,0)'))"
   },
   {
     "comment": "constraints - Statement 179",
-    "query": "INSERT INTO circles VALUES('\u003c(0,0), 5\u003e', '\u003c(0,0), 5\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(0,0), 5\u003e', '\u003c(0,0), 5\u003e')"
+    "query": "INSERT INTO circles VALUES('<(0,0), 5>', '<(0,0), 5>')",
+    "expected": "INSERT INTO circles VALUES ('<(0,0), 5>', '<(0,0), 5>')"
   },
   {
     "comment": "constraints - Statement 180",
-    "query": "INSERT INTO circles VALUES('\u003c(0,0), 5\u003e', '\u003c(0,0), 4\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(0,0), 5\u003e', '\u003c(0,0), 4\u003e')"
+    "query": "INSERT INTO circles VALUES('<(0,0), 5>', '<(0,0), 4>')",
+    "expected": "INSERT INTO circles VALUES ('<(0,0), 5>', '<(0,0), 4>')"
   },
   {
     "comment": "constraints - Statement 181",
-    "query": "INSERT INTO circles VALUES('\u003c(10,10), 10\u003e', '\u003c(0,0), 5\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(10,10), 10\u003e', '\u003c(0,0), 5\u003e')"
+    "query": "INSERT INTO circles VALUES('<(10,10), 10>', '<(0,0), 5>')",
+    "expected": "INSERT INTO circles VALUES ('<(10,10), 10>', '<(0,0), 5>')"
   },
   {
     "comment": "constraints - Statement 182",
-    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e')"
+    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>')",
+    "expected": "INSERT INTO circles VALUES ('<(20,20), 10>', '<(0,0), 4>')"
   },
   {
     "comment": "constraints - Statement 183",
-    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING",
-    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING"
+    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING",
+    "expected": "INSERT INTO circles VALUES ('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING"
   },
   {
     "comment": "constraints - Statement 184",
-    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = EXCLUDED.c2",
-    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = excluded.c2"
+    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = EXCLUDED.c2",
+    "expected": "INSERT INTO circles VALUES ('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = excluded.c2"
   },
   {
     "comment": "constraints - Statement 185",
-    "query": "INSERT INTO circles VALUES('\u003c(20,20), 1\u003e', '\u003c(0,0), 5\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 1\u003e', '\u003c(0,0), 5\u003e')"
+    "query": "INSERT INTO circles VALUES('<(20,20), 1>', '<(0,0), 5>')",
+    "expected": "INSERT INTO circles VALUES ('<(20,20), 1>', '<(0,0), 5>')"
   },
   {
     "comment": "constraints - Statement 186",
-    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(10,10), 5\u003e')",
-    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(10,10), 5\u003e')"
+    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(10,10), 5>')",
+    "expected": "INSERT INTO circles VALUES ('<(20,20), 10>', '<(10,10), 5>')"
   },
   {
     "comment": "constraints - Statement 187",
-    "query": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH \u0026\u0026, (c2::circle) WITH \u0026\u0026)",
-    "expected": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH \u0026\u0026, (CAST(c2 AS circle)) WITH \u0026\u0026)"
+    "query": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH &&, (c2::circle) WITH &&)",
+    "expected": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH &&, (CAST(c2 AS circle)) WITH &&)"
   },
   {
     "comment": "constraints - Statement 188",
@@ -900,7 +899,7 @@
   {
     "comment": "constraints - Statement 190",
     "query": "CREATE TABLE deferred_excl ( f1 int, f2 int, CONSTRAINT deferred_excl_con EXCLUDE (f1 WITH =) INITIALLY DEFERRED )",
-    "expected": "CREATE TABLE deferred_excl (f1 INT, f2 INT, CONSTRAINT deferred_excl_con EXCLUDE USING btree (f1 WITH =))"
+    "expected": "CREATE TABLE deferred_excl (f1 INT, f2 INT, CONSTRAINT deferred_excl_con EXCLUDE USING btree (f1 WITH =) INITIALLY DEFERRED)"
   },
   {
     "comment": "constraints - Statement 191",
@@ -967,13 +966,13 @@
   },
   {
     "comment": "constraints - Statement 205",
-    "query": "CREATE TABLE constraint_comments_tbl (a int CONSTRAINT the_constraint CHECK (a \u003e 0))",
-    "expected": "CREATE TABLE constraint_comments_tbl (a INT CONSTRAINT the_constraint CHECK (a \u003e 0))"
+    "query": "CREATE TABLE constraint_comments_tbl (a int CONSTRAINT the_constraint CHECK (a > 0))",
+    "expected": "CREATE TABLE constraint_comments_tbl (a INT CONSTRAINT the_constraint CHECK (a > 0))"
   },
   {
     "comment": "constraints - Statement 206",
-    "query": "CREATE DOMAIN constraint_comments_dom AS int CONSTRAINT the_constraint CHECK (value \u003e 0)",
-    "expected": "CREATE DOMAIN constraint_comments_dom AS INT CONSTRAINT the_constraint CHECK (value \u003e 0)"
+    "query": "CREATE DOMAIN constraint_comments_dom AS int CONSTRAINT the_constraint CHECK (value > 0)",
+    "expected": "CREATE DOMAIN constraint_comments_dom AS INT CONSTRAINT the_constraint CHECK (value > 0)"
   },
   {
     "comment": "constraints - Statement 207",

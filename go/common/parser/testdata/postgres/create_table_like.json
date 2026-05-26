@@ -118,8 +118,8 @@
   },
   {
     "comment": "create_table_like - Statement 28",
-    "query": "CREATE TABLE test_like_4 (b int DEFAULT 42, c int GENERATED ALWAYS AS (a * 2) STORED, a int CHECK (a \u003e 0))",
-    "expected": "CREATE TABLE test_like_4 (b INT DEFAULT 42, c INT GENERATED ALWAYS AS (a * 2) STORED, a INT CHECK (a \u003e 0))"
+    "query": "CREATE TABLE test_like_4 (b int DEFAULT 42, c int GENERATED ALWAYS AS (a * 2) STORED, a int CHECK (a > 0))",
+    "expected": "CREATE TABLE test_like_4 (b INT DEFAULT 42, c INT GENERATED ALWAYS AS (a * 2) STORED, a INT CHECK (a > 0))"
   },
   {
     "comment": "create_table_like - Statement 29",
@@ -155,8 +155,8 @@
   },
   {
     "comment": "create_table_like - Statement 37",
-    "query": "CREATE TABLE test_like_5x (p int CHECK (p \u003e 0), q int GENERATED ALWAYS AS (p * 2) STORED)",
-    "expected": "CREATE TABLE test_like_5x (p INT CHECK (p \u003e 0), q INT GENERATED ALWAYS AS (p * 2) STORED)"
+    "query": "CREATE TABLE test_like_5x (p int CHECK (p > 0), q int GENERATED ALWAYS AS (p * 2) STORED)",
+    "expected": "CREATE TABLE test_like_5x (p INT CHECK (p > 0), q INT GENERATED ALWAYS AS (p * 2) STORED)"
   },
   {
     "comment": "create_table_like - Statement 38",
@@ -198,8 +198,8 @@
   },
   {
     "comment": "create_table_like - Statement 47",
-    "query": "CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx \u003c\u003e 'test'",
-    "expected": "CREATE UNIQUE INDEX inhz_xx_idx ON inhz USING btree ( xx ) WHERE xx \u003c\u003e 'test'"
+    "query": "CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test'",
+    "expected": "CREATE UNIQUE INDEX inhz_xx_idx ON inhz USING btree ( xx ) WHERE xx <> 'test'"
   },
   {
     "comment": "create_table_like - Statement 48",
@@ -229,8 +229,8 @@
   },
   {
     "comment": "create_table_like - Statement 54",
-    "query": "CREATE TABLE ctlt1 (a text CHECK (length(a) \u003e 2) PRIMARY KEY, b text)",
-    "expected": "CREATE TABLE ctlt1 (a TEXT CHECK (length(a) \u003e 2) PRIMARY KEY, b TEXT)"
+    "query": "CREATE TABLE ctlt1 (a text CHECK (length(a) > 2) PRIMARY KEY, b text)",
+    "expected": "CREATE TABLE ctlt1 (a TEXT CHECK (length(a) > 2) PRIMARY KEY, b TEXT)"
   },
   {
     "comment": "create_table_like - Statement 55",
@@ -300,8 +300,8 @@
   },
   {
     "comment": "create_table_like - Statement 70",
-    "query": "CREATE TABLE ctlt3 (a text CHECK (length(a) \u003c 5), c text CHECK (length(c) \u003c 7))",
-    "expected": "CREATE TABLE ctlt3 (a TEXT CHECK (length(a) \u003c 5), c TEXT CHECK (length(c) \u003c 7))"
+    "query": "CREATE TABLE ctlt3 (a text CHECK (length(a) < 5), c text CHECK (length(c) < 7))",
+    "expected": "CREATE TABLE ctlt3 (a TEXT CHECK (length(a) < 5), c TEXT CHECK (length(c) < 7))"
   },
   {
     "comment": "create_table_like - Statement 71",
@@ -392,8 +392,8 @@
   },
   {
     "comment": "create_table_like - Statement 91",
-    "query": "CREATE TABLE noinh_con_copy (a int CHECK (a \u003e 0) NO INHERIT)",
-    "expected": "CREATE TABLE noinh_con_copy (a INT CHECK (a \u003e 0))"
+    "query": "CREATE TABLE noinh_con_copy (a int CHECK (a > 0) NO INHERIT)",
+    "expected": "CREATE TABLE noinh_con_copy (a INT CHECK (a > 0))"
   },
   {
     "comment": "create_table_like - Statement 92",

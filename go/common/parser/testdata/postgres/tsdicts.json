@@ -373,7 +373,7 @@
   },
   {
     "comment": "tsdicts - Statement 90",
-    "query": "SELECT to_tsquery('ispell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
+    "query": "SELECT to_tsquery('ispell_tst', 'footballyklubber:b & rebookings:A & sky')"
   },
   {
     "comment": "tsdicts - Statement 91",
@@ -394,11 +394,11 @@
   },
   {
     "comment": "tsdicts - Statement 95",
-    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b & rebookings:A & sky')"
   },
   {
     "comment": "tsdicts - Statement 96",
-    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u003c-\u003e sky')"
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b <-> sky')"
   },
   {
     "comment": "tsdicts - Statement 97",
@@ -435,7 +435,7 @@
   },
   {
     "comment": "tsdicts - Statement 105",
-    "query": "SELECT to_tsquery('synonym_tst', 'Index \u0026 indices')"
+    "query": "SELECT to_tsquery('synonym_tst', 'Index & indices')"
   },
   {
     "comment": "tsdicts - Statement 106",

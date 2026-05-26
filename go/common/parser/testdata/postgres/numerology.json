@@ -320,8 +320,8 @@
   },
   {
     "comment": "numerology - Statement 73",
-    "query": "INSERT INTO TEMP_INT4 (f1) SELECT int4(f1) FROM FLOAT8_TBL WHERE (f1 \u003e -2147483647) AND (f1 \u003c 2147483647)",
-    "expected": "INSERT INTO temp_int4 (f1) (SELECT int4(f1) FROM float8_tbl WHERE (f1 \u003e -2147483647) AND (f1 \u003c 2147483647))"
+    "query": "INSERT INTO TEMP_INT4 (f1) SELECT int4(f1) FROM FLOAT8_TBL WHERE (f1 > -2147483647) AND (f1 < 2147483647)",
+    "expected": "INSERT INTO temp_int4 (f1) (SELECT int4(f1) FROM float8_tbl WHERE (f1 > -2147483647) AND (f1 < 2147483647))"
   },
   {
     "comment": "numerology - Statement 74",
@@ -340,13 +340,13 @@
   },
   {
     "comment": "numerology - Statement 77",
-    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM FLOAT8_TBL WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767)",
-    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM float8_tbl WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767))"
+    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM FLOAT8_TBL WHERE (f1 >= -32767) AND (f1 <= 32767)",
+    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM float8_tbl WHERE (f1 >= -32767) AND (f1 <= 32767))"
   },
   {
     "comment": "numerology - Statement 78",
-    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM INT4_TBL WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767)",
-    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM int4_tbl WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767))"
+    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM INT4_TBL WHERE (f1 >= -32767) AND (f1 <= 32767)",
+    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM int4_tbl WHERE (f1 >= -32767) AND (f1 <= 32767))"
   },
   {
     "comment": "numerology - Statement 79",

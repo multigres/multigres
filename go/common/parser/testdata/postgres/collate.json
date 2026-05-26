@@ -29,19 +29,19 @@
   },
   {
     "comment": "collate - Statement 7",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'abc'"
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'abc'"
   },
   {
     "comment": "collate - Statement 8",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'abc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'abc' COLLATE \"C\""
   },
   {
     "comment": "collate - Statement 9",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'abc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'abc' COLLATE \"C\""
   },
   {
     "comment": "collate - Statement 10",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"POSIX\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"POSIX\""
   },
   {
     "comment": "collate - Statement 11",
@@ -101,11 +101,11 @@
   },
   {
     "comment": "collate - Statement 24",
-    "query": "SELECT 'bbc' COLLATE \"C\" \u003e 'Abc' COLLATE \"C\" AS \"true\""
+    "query": "SELECT 'bbc' COLLATE \"C\" > 'Abc' COLLATE \"C\" AS \"true\""
   },
   {
     "comment": "collate - Statement 25",
-    "query": "SELECT 'bbc' COLLATE \"POSIX\" \u003c 'Abc' COLLATE \"POSIX\" AS \"false\""
+    "query": "SELECT 'bbc' COLLATE \"POSIX\" < 'Abc' COLLATE \"POSIX\" AS \"false\""
   },
   {
     "comment": "collate - Statement 26",
@@ -130,7 +130,7 @@
   },
   {
     "comment": "collate - Statement 31",
-    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate - Statement 32",
@@ -264,13 +264,13 @@
   },
   {
     "comment": "collate - Statement 61",
-    "query": "SELECT a, b FROM collate_test2 WHERE a \u003c 4 INTERSECT SELECT a, b FROM collate_test2 WHERE a \u003e 1 ORDER BY 2",
-    "expected": "(SELECT a, b FROM collate_test2 WHERE a \u003c 4) INTERSECT (SELECT a, b FROM collate_test2 WHERE a \u003e 1) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test2 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test2 WHERE a > 1 ORDER BY 2",
+    "expected": "(SELECT a, b FROM collate_test2 WHERE a < 4) INTERSECT (SELECT a, b FROM collate_test2 WHERE a > 1) ORDER BY 2"
   },
   {
     "comment": "collate - Statement 62",
-    "query": "SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a \u003c 2 ORDER BY 2",
-    "expected": "SELECT a, b FROM collate_test2 EXCEPT (SELECT a, b FROM collate_test2 WHERE a \u003c 2) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a < 2 ORDER BY 2",
+    "expected": "SELECT a, b FROM collate_test2 EXCEPT (SELECT a, b FROM collate_test2 WHERE a < 2) ORDER BY 2"
   },
   {
     "comment": "collate - Statement 63",
@@ -302,8 +302,8 @@
   },
   {
     "comment": "collate - Statement 70",
-    "query": "select x \u003c y from collate_test10",
-    "expected": "SELECT x \u003c y FROM collate_test10"
+    "query": "select x < y from collate_test10",
+    "expected": "SELECT x < y FROM collate_test10"
   },
   {
     "comment": "collate - Statement 71",
@@ -317,13 +317,13 @@
   },
   {
     "comment": "collate - Statement 73",
-    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"C\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) \u003c 10) SELECT * FROM foo",
-    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"C\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) \u003c 10)) SELECT * FROM foo"
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"C\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) < 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"C\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) < 10)) SELECT * FROM foo"
   },
   {
     "comment": "collate - Statement 74",
-    "query": "SELECT a, b, a \u003c b as lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) v(a,b)",
-    "expected": "SELECT a, b, a \u003c b AS lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) AS v(a, b)"
+    "query": "SELECT a, b, a < b as lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) v(a,b)",
+    "expected": "SELECT a, b, a < b AS lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) AS v(a, b)"
   },
   {
     "comment": "collate - Statement 75",
