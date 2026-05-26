@@ -31,8 +31,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 // broadcastHealth broadcasts the current health state to all subscribers.
@@ -767,90 +765,6 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
-// demoteStalePrimaryLocked performs the postgres + topology work to convert a
-// stale primary into a standby pointing at source. The action lock must be held
-// by the caller. Idempotency checks and term validation are the caller's
-// responsibility.
-//
-// The helper does not touch term_revocation: revocations are authored by
-// coordinators via Recruit/AcceptRevocation, not by side effects of demotion.
-// SetTermPrimary deliberately does not update the term, because an
-// SetTermPrimary is a notification, not a revoke.
-//
-// Sequence: stop+rewind+restart-as-standby (with pgbackrest path fixup
-// between rewind and restart, shared with RewindToSource via
-// stopRewindRestartAsStandbyLocked) -> reset sync replication ->
-// set primary_conninfo -> report leader observation -> read final LSN
-// -> flip topology type to REPLICA.
-func (pm *MultiPoolerManager) demoteStalePrimaryLocked(
-	ctx context.Context,
-	source *clustermetadatapb.PoolerAddress,
-	rule *clustermetadatapb.ShardRule,
-) (rewindPerformed bool, finalLSN string, err error) {
-	ruleTerm := rule.GetRuleNumber().GetCoordinatorTerm()
-
-	port := source.GetPostgresPort()
-	if port == 0 {
-		return false, "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not configured on source pooler")
-	}
-	host := source.GetHost()
-
-	// Stale primary may or may not have its WAL diverged, but we don't trust it
-	// either way — the cluster has moved on without us. Raise rewindPending so
-	// restartAsStandbyLocked runs the pg_rewind dry-run.
-	pm.rewindPending.Store(true)
-	rewindPerformed, err = pm.restartAsStandbyLocked(ctx, host, port,
-		// Fix pgbackrest paths between rewind and restart. The config may
-		// have wrong paths copied from another pooler during initial setup;
-		// this writes the corrected postgresql.auto.conf before postgres
-		// re-reads it on restart. Best-effort: log and continue on error.
-		func(ctx context.Context) error {
-			if err := pm.fixPgBackRestPaths(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths, continuing anyway", "error", err)
-			}
-			return nil
-		})
-	if err != nil {
-		return false, "", err
-	}
-
-	if err := pm.resetSynchronousReplication(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
-	}
-
-	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
-		"source", source.GetId().GetName(),
-		"source_host", host,
-		"source_port", port)
-
-	// Record the (rule, primary) tuple so ReplicationPrimary stays the canonical
-	// source for "who is the primary now." SetTermPrimary passes the real rule.
-	pm.consensusState.RecordTermPrimary(rule, source)
-
-	// Call the locked version directly since we already hold the action lock
-	// (calling setPrimaryConnInfo without the suffix would deadlock trying to acquire the same lock)
-	if err := pm.setPrimaryConnInfoLocked(ctx, host, port, false, false); err != nil {
-		return false, "", mterrors.Wrap(err, "failed to configure replication to source primary")
-	}
-
-	// Report the new primary (source) so the gateway can use this observation.
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   source.GetId(),
-		LeaderTerm: ruleTerm,
-	})
-
-	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
-		finalLSN = lsn
-	}
-
-	// Update topology to REPLICA
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-		return false, "", mterrors.Wrap(err, "failed to update topology")
-	}
-
-	return rewindPerformed, finalLSN, nil
-}
-
 // RewindToSource pg_rewinds this server against source and brings it back as a
 // standby. The heavy lifting (stop, rewind, restart-as-standby, resume) is
 // shared with the stale-primary demote path via stopRewindRestartAsStandbyLocked.
@@ -882,7 +796,7 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	// the caller; raise rewindPending so restartAsStandbyLocked runs the
 	// pg_rewind dry-run.
 	pm.rewindPending.Store(true)
-	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port, nil)
+	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port)
 	if err != nil {
 		return nil, err
 	}
@@ -947,21 +861,22 @@ func (pm *MultiPoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 	return mterrors.Wrap(lastErr, "failed to stop postgres after fast/immediate escalation")
 }
 
-// restartAsStandbyLocked is the shared core of RewindToSource and
-// demoteStalePrimaryLocked: it pauses the manager, stops postgres, runs
-// pg_rewind against source iff rewindPending is set, optionally invokes
-// beforeRestart (caller hook for on-disk fixups while postgres is still down,
-// e.g. pgbackrest path patching), then restarts postgres as standby and
+// restartAsStandbyLocked is the shared core of RewindToSource and the
+// stale-primary branch of SetTermPrimary: it pauses the manager, stops
+// postgres, runs pg_rewind against source iff rewindPending is set
+// (patching pgbackrest paths in postgresql.auto.conf after the rewind
+// copies them from source), then restarts postgres as standby and
 // resumes the manager.
 //
 // Gating on rewindPending: callers raise the flag when this node's WAL may
-// have diverged from the cluster's chosen history (emergencyDemoteLocked sets
-// it after an emergency demote; RewindToSource and demoteStalePrimaryLocked
-// set it before calling here). When the flag is clear we skip even the
-// pg_rewind dry-run — the WAL is trusted and we just need to come back as a
-// standby. On a successful rewind, the flag is cleared at the end of the
-// sequence (not mid-function), so a failure during restart leaves the flag
-// set and the next attempt will rewind again.
+// have diverged from the cluster's chosen history (emergencyDemoteLocked
+// sets it after an emergency demote; SetTermPrimary's stale-primary branch
+// and RewindToSource set it before calling here). When the flag is clear we
+// skip even the pg_rewind dry-run — the WAL is trusted and we just need to
+// come back as a standby. The flag is cleared as soon as pg_rewind returns
+// success; pg_rewind is idempotent on an already-rewound target, so a
+// failure later in this function or a caller retry is safe — the next
+// invocation will simply skip the rewind step.
 //
 // The manager is guaranteed to be resumed before this function returns, even
 // on error paths — that's the whole reason for the Pause/defer-resume
@@ -972,7 +887,6 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	ctx context.Context,
 	sourceHost string,
 	sourcePort int32,
-	beforeRestart func(ctx context.Context) error,
 ) (rewindPerformed bool, err error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return false, err
@@ -996,11 +910,18 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		if err != nil {
 			return false, mterrors.Wrap(err, "pg_rewind")
 		}
-	}
-
-	if beforeRestart != nil {
-		if err := beforeRestart(ctx); err != nil {
-			return false, mterrors.Wrap(err, "before-restart hook")
+		// pg_rewind is idempotent on an already-rewound target (a re-run's
+		// dry-run detects no divergence and skips), so clearing as soon as
+		// pg_rewind returns is safe even if the restart or reconnect below
+		// fails: the next attempt will skip pg_rewind and just restart.
+		pm.rewindPending.Store(false)
+		// pg_rewind copies postgresql.auto.conf from source, baking source's
+		// own pooler paths into pgbackrest commands (restore_command,
+		// archive_command). Patch them back to this pooler's paths before
+		// restart so postgres reads the corrected file. Best-effort: log and
+		// continue on error rather than abort the demote.
+		if err := pm.fixPgBackRestPaths(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths after pg_rewind, continuing anyway", "error", err)
 		}
 	}
 
@@ -1030,12 +951,6 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	}
 	if !inRecovery {
 		return false, mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
-	}
-
-	// Clear rewindPending only after the full sequence succeeds: a restart or
-	// reconnect failure leaves the flag set so the next attempt re-rewinds.
-	if wantRewind {
-		pm.rewindPending.Store(false)
 	}
 
 	return rewindPerformed, nil
