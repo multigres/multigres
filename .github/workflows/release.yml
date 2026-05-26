@@ -15,6 +15,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -23,8 +24,8 @@ permissions:
   contents: read
 
 jobs:
-  verify-tag:
-    name: Verify Tag
+  verify-ref:
+    name: Verify Release Ref
     runs-on: ubuntu-24.04
 
     steps:
@@ -35,6 +36,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -44,6 +46,7 @@ jobs:
           fi
 
       - name: Verify tag is on release branch
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_SHA: ${{ github.sha }}
           TAG_NAME: ${{ github.ref_name }}
@@ -64,7 +67,7 @@ jobs:
 
   test-go:
     name: Test Go
-    needs: verify-tag
+    needs: verify-ref
     runs-on: ubuntu-24.04
 
     steps:
@@ -88,6 +91,7 @@ jobs:
   build-release-images:
     name: Build Release Images
     needs: test-go
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -156,6 +160,7 @@ jobs:
   goreleaser:
     name: Publish GitHub Release
     needs: build-release-images
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -186,3 +191,104 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  goreleaser-snapshot:
+    name: GoReleaser Snapshot
+    needs: test-go
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          version: v2.16.0
+          args: check
+
+      - name: Run GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          version: v2.16.0
+          args: release --snapshot --clean --skip=publish
+
+      - name: Verify snapshot artifacts
+        run: |
+          set -euo pipefail
+
+          expected_entries=(
+            "LICENSE"
+            "README.md"
+            "multigres"
+            "pgctld"
+            "multigateway"
+            "multiorch"
+            "multipooler"
+            "multiadmin"
+          )
+
+          test -f dist/artifacts.json
+          test -f dist/checksums.txt
+
+          mapfile -t archives < <(
+            jq -r '.[] | select(.type == "Archive") | .path' dist/artifacts.json
+          )
+          mapfile -t checksums < <(
+            jq -r '.[] | select(.type == "Checksum") | .path' dist/artifacts.json
+          )
+
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "::error::GoReleaser did not produce archive artifacts"
+            exit 1
+          fi
+
+          if [[ ${#checksums[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one GoReleaser checksum artifact, found ${#checksums[@]}"
+            exit 1
+          fi
+
+          for artifact in "${archives[@]}" "${checksums[@]}"; do
+            if [[ ! -f "$artifact" ]]; then
+              echo "::error::GoReleaser artifact is missing from disk: ${artifact}"
+              exit 1
+            fi
+          done
+
+          for archive in "${archives[@]}"; do
+            if [[ "$archive" == *.tar.gz ]]; then
+              entries="$(tar -tzf "$archive")"
+            else
+              entries="$(unzip -Z1 "$archive")"
+            fi
+
+            for expected_entry in "${expected_entries[@]}"; do
+              if ! grep -Fxq "$expected_entry" <<< "$entries"; then
+                echo "::error::${archive} is missing ${expected_entry}"
+                exit 1
+              fi
+            done
+          done
+
+          shasum -a 256 -c dist/checksums.txt
+
+          mkdir -p release-artifacts
+          for artifact in "${archives[@]}" "${checksums[@]}"; do
+            cp "$artifact" release-artifacts/
+          done
+
+      - name: Upload GoReleaser snapshot artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: goreleaser-snapshot
+          path: release-artifacts/
