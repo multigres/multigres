@@ -644,3 +644,135 @@ func TestExtendedProtocol_TransactionIsolation(t *testing.T) {
 		})
 	}
 }
+
+// TestExtendedQueryProtocol_SetConfigBoundParam pins the Supabase Storage
+// migration shape: SELECT set_config('search_path', $1, false) over the
+// extended protocol. Without the bind-materialization path the multigateway
+// planner rejects the bound parameter with
+// "set_config value argument must be a literal, not a bound parameter"
+// because the AST validator runs at Plan() time, when the AST still carries
+// a ParamRef. With the fix, MaterializeBoundSetConfigs substitutes the
+// portal's bind value before planning, and the gateway's session tracker is
+// updated alongside PG executing the call — visible via SHOW from a fresh
+// query on a possibly-rotated backend connection.
+//
+// Runs against direct PostgreSQL and multigateway: PG has always accepted
+// this shape natively, so the comparison confirms parity rather than the
+// gateway diverging.
+func TestExtendedQueryProtocol_SetConfigBoundParam(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			// Sub-test 1: text-format text value — the literal Storage shape.
+			// Parse declares the value parameter as TEXT (OID 25); psql's
+			// \bind emits this exact wire form.
+			t.Run("text value", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				const stmtName = "setcfg_text"
+				require.NoError(t, conn.Parse(ctx, stmtName,
+					"SELECT set_config('search_path', $1, false)", []uint32{25}))
+
+				const want = "myschema_xyz"
+				var got string
+				_, err := conn.BindAndExecute(ctx, "", stmtName,
+					[][]byte{[]byte(want)}, []int16{0}, []int16{0}, 0,
+					func(_ context.Context, result *sqltypes.Result) error {
+						if len(result.Rows) > 0 {
+							got = string(result.Rows[0].Values[0])
+						}
+						return nil
+					})
+				require.NoError(t, err, "set_config with bound parameter should succeed")
+				assert.Equal(t, want, got, "set_config must return the bound value PG actually applied")
+
+				require.NoError(t, conn.CloseStatement(ctx, stmtName))
+
+				// Gateway tracker mirror: a fresh SHOW must return the same
+				// value, even though the backend connection serving SHOW may
+				// have been rotated between the two queries.
+				results, err := conn.Query(ctx, "SHOW search_path")
+				require.NoError(t, err)
+				require.NotEmpty(t, results)
+				require.NotEmpty(t, results[0].Rows)
+				assert.Equal(t, want, string(results[0].Rows[0].Values[0]),
+					"SHOW search_path must reflect the set_config value applied via bound parameter")
+			})
+
+			// Sub-test 2: unspecified parameter type (OID 0). Clients that
+			// elide ParameterTypes in Parse (some libpq callers, the psql
+			// \bind shorthand) end up here. The materializer must treat the
+			// raw bytes as text and accept them.
+			t.Run("unspecified param type", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				const stmtName = "setcfg_unspec"
+				require.NoError(t, conn.Parse(ctx, stmtName,
+					"SELECT set_config('search_path', $1, false)", nil))
+
+				const want = "public,extensions"
+				var got string
+				_, err := conn.BindAndExecute(ctx, "", stmtName,
+					[][]byte{[]byte(want)}, nil, nil, 0,
+					func(_ context.Context, result *sqltypes.Result) error {
+						if len(result.Rows) > 0 {
+							got = string(result.Rows[0].Values[0])
+						}
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, want, got)
+
+				require.NoError(t, conn.CloseStatement(ctx, stmtName))
+			})
+
+			// Sub-test 3: repeated Bind+Execute on the same prepared
+			// statement with different values. Each Execute must produce
+			// its own plan from its own binds — a cached plan would carry
+			// the first iteration's value into subsequent iterations and
+			// the gateway tracker would lie about the current search_path.
+			t.Run("repeated bind with different values", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				const stmtName = "setcfg_repeat"
+				require.NoError(t, conn.Parse(ctx, stmtName,
+					"SELECT set_config('search_path', $1, false)", []uint32{25}))
+
+				for _, want := range []string{"first", "second", "third"} {
+					var got string
+					_, err := conn.BindAndExecute(ctx, "", stmtName,
+						[][]byte{[]byte(want)}, []int16{0}, []int16{0}, 0,
+						func(_ context.Context, result *sqltypes.Result) error {
+							if len(result.Rows) > 0 {
+								got = string(result.Rows[0].Values[0])
+							}
+							return nil
+						})
+					require.NoError(t, err, "iteration %q failed", want)
+					assert.Equal(t, want, got, "iteration %q returned wrong value", want)
+
+					results, err := conn.Query(ctx, "SHOW search_path")
+					require.NoError(t, err)
+					require.NotEmpty(t, results)
+					require.NotEmpty(t, results[0].Rows)
+					assert.Equal(t, want, string(results[0].Rows[0].Values[0]),
+						"SHOW after iteration %q must reflect the latest bound value, not a cached one", want)
+				}
+
+				require.NoError(t, conn.CloseStatement(ctx, stmtName))
+			})
+		})
+	}
+}
